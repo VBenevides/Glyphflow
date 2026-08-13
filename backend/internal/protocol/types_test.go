@@ -12,3 +12,17 @@ func TestOrderTypes(t *testing.T) {
 		t.Fatal("unsupported order type was accepted")
 	}
 }
+
+func TestEventTypes(t *testing.T) {
+	for _, kind := range []EventType{
+		EventAccepted, EventRejected, EventStarted, EventHeartbeat,
+		EventCompleted, EventFailed, EventTimedOut, EventCancelled,
+	} {
+		if !kind.Valid() {
+			t.Fatalf("expected event type %q to be valid", kind)
+		}
+	}
+	if EventType("paused").Valid() {
+		t.Fatal("unsupported event type was accepted")
+	}
+}
