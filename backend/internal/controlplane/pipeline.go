@@ -70,11 +70,8 @@ func (p *Pipeline) Execute(ctx context.Context, request TaskRequest) (RunResult,
 	if err != nil {
 		return RunResult{}, err
 	}
-	verified, err := protocol.VerifyOrder(message.Data, protocol.Keyring{"control-plane": {ID: "control-plane", PublicKey: p.ControlPrivate.Public().(ed25519.PublicKey)}}, now, request.RunnerID, request.RunID, 1, request.LeaseToken, time.Second, nil)
+	verified, err := p.Store.AcceptOrder(message.Data, protocol.Keyring{"control-plane": {ID: "control-plane", PublicKey: p.ControlPrivate.Public().(ed25519.PublicKey)}}, now, request.RunnerID, request.RunID, 1, request.LeaseToken, time.Second)
 	if err != nil {
-		return RunResult{}, err
-	}
-	if err := p.Store.Put(verified.OrderID, map[string]string{"state": "accepted"}); err != nil {
 		return RunResult{}, err
 	}
 	executionContext, cancel := context.WithTimeout(ctx, request.Timeout)

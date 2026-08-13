@@ -3,7 +3,9 @@ package worker
 import (
 	"database/sql"
 	"encoding/json"
+	"time"
 
+	"github.com/VBenevides/Glyphflow/backend/internal/protocol"
 	_ "modernc.org/sqlite"
 )
 
@@ -40,4 +42,17 @@ func (s *LocalStore) Get(id string) (json.RawMessage, error) {
 		return nil, err
 	}
 	return json.RawMessage(raw), nil
+}
+
+// AcceptOrder verifies freshness, identity, execution fields, and replay
+// before writing the order to durable local state.
+func (s *LocalStore) AcceptOrder(raw []byte, keys protocol.Keyring, now time.Time, runnerID, runID string, attempt uint32, leaseToken string, tolerance time.Duration) (protocol.OrderPayload, error) {
+	payload, err := protocol.VerifyOrder(raw, keys, now, runnerID, runID, attempt, leaseToken, tolerance, nil)
+	if err != nil {
+		return protocol.OrderPayload{}, err
+	}
+	if err := s.Put(payload.OrderID, payload); err != nil {
+		return protocol.OrderPayload{}, err
+	}
+	return payload, nil
 }
