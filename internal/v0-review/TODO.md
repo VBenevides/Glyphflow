@@ -8,7 +8,7 @@
 - [x] **High:** Require NATS mutual TLS and exact worker subject permissions. `e19562a`
   - Bind certificate identity to the runner identifier.
   - Add real cross-worker denial tests.
-- [ ] **High:** Complete worker execution controls before wiring orders.
+- [x] **High:** Complete worker execution controls before wiring orders. `ef5065c`
   - Bound output.
   - Stop full process groups.
   - Enforce time, process, memory, identity, executable, and secret rules.
