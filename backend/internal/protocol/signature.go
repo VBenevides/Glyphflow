@@ -5,6 +5,27 @@ import (
 	"errors"
 )
 
+const (
+	OrderSignatureDomain = "glyphflow/order/v1"
+	EventSignatureDomain = "glyphflow/event/v1"
+)
+
+func (e *Envelope) SignOrder(privateKey ed25519.PrivateKey) error {
+	return e.Sign(privateKey, OrderSignatureDomain)
+}
+
+func (e *Envelope) SignEvent(privateKey ed25519.PrivateKey) error {
+	return e.Sign(privateKey, EventSignatureDomain)
+}
+
+func (e Envelope) VerifyOrder(publicKey ed25519.PublicKey) error {
+	return e.Verify(publicKey, OrderSignatureDomain)
+}
+
+func (e Envelope) VerifyEvent(publicKey ed25519.PublicKey) error {
+	return e.Verify(publicKey, EventSignatureDomain)
+}
+
 func (e *Envelope) Sign(privateKey ed25519.PrivateKey, domain string) error {
 	if len(privateKey) != ed25519.PrivateKeySize {
 		return errors.New("invalid Ed25519 private key")
