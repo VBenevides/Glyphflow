@@ -1,6 +1,10 @@
 package protocol
 
-import "time"
+import (
+	"encoding/json"
+	"errors"
+	"time"
+)
 
 type OrderType string
 type EventType string
@@ -47,4 +51,32 @@ type EventPayload struct {
 	Metrics      map[string]int64 `json:"metrics,omitempty"`
 	OutputDigest string           `json:"output_digest,omitempty"`
 	Error        string           `json:"error,omitempty"`
+}
+
+func DecodeOrderPayload(raw []byte) (OrderPayload, error) {
+	var payload OrderPayload
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return OrderPayload{}, err
+	}
+	if payload.Version != ProtocolVersion {
+		return OrderPayload{}, errors.New("unsupported order payload version")
+	}
+	if !payload.Type.Valid() {
+		return OrderPayload{}, errors.New("unsupported order type")
+	}
+	return payload, nil
+}
+
+func DecodeEventPayload(raw []byte) (EventPayload, error) {
+	var payload EventPayload
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return EventPayload{}, err
+	}
+	if payload.Version != ProtocolVersion {
+		return EventPayload{}, errors.New("unsupported event payload version")
+	}
+	if !payload.Type.Valid() {
+		return EventPayload{}, errors.New("unsupported event type")
+	}
+	return payload, nil
 }
