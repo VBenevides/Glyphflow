@@ -50,7 +50,7 @@
 
 ## Enhancements
 
-- [ ] **High:** Add real PostgreSQL and NATS integration tests.
+- [x] **High:** Add real PostgreSQL and NATS integration tests. `85b84c5` (run with `-tags integration` and service URLs)
   - Test duplicate delivery and every durable commit boundary.
 - [ ] **High:** Generate and verify an SBOM from actual release artifacts.
 - [ ] **Medium:** Store migration names and checksums, then reject changed applied migrations.
