@@ -77,3 +77,7 @@ func TestDispatchOutboxMigration(t *testing.T) {
 func TestEventInboxMigration(t *testing.T) {
 	assertMigrationContains(t, "013_event_inbox.sql", "CREATE TABLE event_inbox", "event_id text PRIMARY KEY", "task_run_id", "received_at")
 }
+
+func TestStateConstraintsMigration(t *testing.T) {
+	assertMigrationContains(t, "014_state_constraints.sql", "task_runs_state_check", "runners_state_check", "run_events_type_check", "dispatch_outbox_state_check")
+}
