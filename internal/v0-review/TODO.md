@@ -34,7 +34,7 @@
 - [x] **Medium:** Return `501` for task creation until it validates and stores tasks. `37006e7`
 - [x] **Medium:** Serialize migrations with a PostgreSQL advisory transaction lock. `a086ba6`
 - [x] **Medium:** Preserve structured command arguments during SQLite import. `7319f2c`
-- [ ] **Low:** Delete the no-op `Plane.Stop` method.
+- [x] **Low:** Delete the no-op `Plane.Stop` method. `ff5e5e2`
 
 ## New Features
 
