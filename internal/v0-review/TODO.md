@@ -55,4 +55,4 @@
 - [x] **High:** Generate and verify an SBOM from actual release artifacts. `1f900bf`
 - [x] **Medium:** Store migration names and checksums, then reject changed applied migrations. `3a72f8a`
 - [x] **Low:** Replace custom field splitting and integer parsing with the Go standard library. `fc48115`
-- [ ] **Low:** Keep one backoff helper and one allowed-path helper.
+- [x] **Low:** Keep one backoff helper and one allowed-path helper. `5062d14`
