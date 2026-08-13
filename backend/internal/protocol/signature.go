@@ -6,6 +6,7 @@ import (
 )
 
 const (
+	SignatureAlgorithm   = "Ed25519"
 	OrderSignatureDomain = "glyphflow/order/v1"
 	EventSignatureDomain = "glyphflow/event/v1"
 )
