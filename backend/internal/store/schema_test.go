@@ -34,3 +34,7 @@ func TestTaskDefinitionsMigration(t *testing.T) {
 func TestTaskRunsMigration(t *testing.T) {
 	assertMigrationContains(t, "003_task_runs.sql", "CREATE TABLE task_runs", "task_definition_id", "occurrence_at", "runner_id", "state", "attempt", "lease_token", "state_version")
 }
+
+func TestUniqueTaskOccurrencesMigration(t *testing.T) {
+	assertMigrationContains(t, "004_unique_task_occurrences.sql", "CREATE UNIQUE INDEX", "task_definition_id, occurrence_at")
+}
