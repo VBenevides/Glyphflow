@@ -38,3 +38,7 @@ func TestTaskRunsMigration(t *testing.T) {
 func TestUniqueTaskOccurrencesMigration(t *testing.T) {
 	assertMigrationContains(t, "004_unique_task_occurrences.sql", "CREATE UNIQUE INDEX", "task_definition_id, occurrence_at")
 }
+
+func TestRunEventsMigration(t *testing.T) {
+	assertMigrationContains(t, "005_run_events.sql", "CREATE TABLE run_events", "event_id", "task_run_id", "sequence", "payload jsonb", "append-only")
+}
