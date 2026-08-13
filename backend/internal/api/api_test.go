@@ -43,3 +43,17 @@ func TestTaskCreationDoesNotAcceptUnstoredRequests(t *testing.T) {
 		t.Fatalf("stub task creation returned %d", response.Code)
 	}
 }
+
+func TestManagementRoutesFailClosedUntilBackedByStorage(t *testing.T) {
+	h := (Server{Auth: func(*http.Request) (Claims, bool) {
+		return Claims{Roles: map[string]bool{"run.read": true, "event.read": true, "runner.read": true, "run.cancel": true}}, true
+	}}).Handler()
+	for _, path := range []string{"/api/v1/runs", "/api/v1/events", "/api/v1/runners", "/api/v1/tasks/run-1/cancel"} {
+		r := httptest.NewRequest(http.MethodGet, path, nil)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != http.StatusNotImplemented {
+			t.Fatalf("%s returned %d", path, w.Code)
+		}
+	}
+}

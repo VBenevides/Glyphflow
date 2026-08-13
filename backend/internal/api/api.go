@@ -56,6 +56,19 @@ func (s Server) Handler() http.Handler {
 		}
 		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "task creation is not implemented"})
 	})))
+	for path, role := range map[string]string{"/api/v1/runs": "run.read", "/api/v1/events": "event.read", "/api/v1/runners": "runner.read", "/api/v1/audit": "audit.read"} {
+		mux.Handle(path, s.require(role, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "endpoint is not implemented"})
+		})))
+	}
+	mux.Handle("/api/v1/tasks/", s.requireMethodRole(func(r *http.Request) string {
+		if strings.HasSuffix(r.URL.Path, "/cancel") {
+			return "run.cancel"
+		}
+		return "run.retry"
+	}, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "run action is not implemented"})
+	})))
 	return s.noStore(s.withCorrelation(mux))
 }
 
