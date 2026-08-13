@@ -69,3 +69,7 @@ func TestOneUnusedEnrollmentMigration(t *testing.T) {
 func TestResourceLeasesMigration(t *testing.T) {
 	assertMigrationContains(t, "011_resource_leases.sql", "CREATE TABLE resource_leases", "resource_key", "task_run_id", "lease_token", "expires_at", "released_at", "CREATE UNIQUE INDEX")
 }
+
+func TestDispatchOutboxMigration(t *testing.T) {
+	assertMigrationContains(t, "012_dispatch_outbox.sql", "CREATE TABLE dispatch_outbox", "order_bytes bytea", "subject", "state", "published_at", "last_error")
+}
