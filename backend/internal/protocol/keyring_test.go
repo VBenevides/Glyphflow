@@ -31,6 +31,10 @@ func TestKeyringRejectsUnknownRevokedAndExpiredKeys(t *testing.T) {
 	if err := keyring.VerifyAt(envelope, OrderSignatureDomain, now); err == nil {
 		t.Fatal("expired key was accepted")
 	}
+	keyring["key-1"] = VerificationKey{ID: "key-1", PublicKey: []byte("invalid")}
+	if err := keyring.VerifyAt(envelope, OrderSignatureDomain, now); err == nil {
+		t.Fatal("invalid key was accepted")
+	}
 }
 
 func TestWrongKeyIsRejected(t *testing.T) {
