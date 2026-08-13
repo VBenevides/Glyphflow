@@ -1,9 +1,542 @@
 {
-  "spdxVersion": "SPDX-2.3",
-  "dataLicense": "CC0-1.0",
   "SPDXID": "SPDXRef-DOCUMENT",
-  "name": "glyphflow-sbom",
-  "documentNamespace": "https://github.com/VBenevides/Glyphflow/sbom",
-  "creationInfo": {"creators": ["Tool: Glyphflow release-check"]},
-  "packages": []
+  "creationInfo": {
+    "creators": [
+      "Tool: Glyphflow generate-sbom"
+    ]
+  },
+  "dataLicense": "CC0-1.0",
+  "documentNamespace": "https://github.com/VBenevides/Glyphflow/sbom/backend",
+  "name": "glyphflow-backend-sbom",
+  "packages": [
+    {
+      "SPDXID": "SPDXRef-glyphflow-backend",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/VBenevides/Glyphflow/backend",
+      "versionInfo": "local"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-davecgh-go-spew-v1-1-0-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/davecgh/go-spew",
+      "versionInfo": "v1.1.0/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-davecgh-go-spew-v1-1-1",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/davecgh/go-spew",
+      "versionInfo": "v1.1.1"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-davecgh-go-spew-v1-1-1-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/davecgh/go-spew",
+      "versionInfo": "v1.1.1/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-dustin-go-humanize-v1-0-1",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/dustin/go-humanize",
+      "versionInfo": "v1.0.1"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-dustin-go-humanize-v1-0-1-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/dustin/go-humanize",
+      "versionInfo": "v1.0.1/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-google-pprof-v0-0-0-20250317173921-a4b03ec1a45e",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/google/pprof",
+      "versionInfo": "v0.0.0-20250317173921-a4b03ec1a45e"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-google-pprof-v0-0-0-20250317173921-a4b03ec1a45e-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/google/pprof",
+      "versionInfo": "v0.0.0-20250317173921-a4b03ec1a45e/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-google-uuid-v1-6-0",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/google/uuid",
+      "versionInfo": "v1.6.0"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-google-uuid-v1-6-0-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/google/uuid",
+      "versionInfo": "v1.6.0/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-hashicorp-golang-lru-v2-v2-0-7",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/hashicorp/golang-lru/v2",
+      "versionInfo": "v2.0.7"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-hashicorp-golang-lru-v2-v2-0-7-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/hashicorp/golang-lru/v2",
+      "versionInfo": "v2.0.7/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-jackc-pgpassfile-v1-0-0",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/jackc/pgpassfile",
+      "versionInfo": "v1.0.0"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-jackc-pgpassfile-v1-0-0-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/jackc/pgpassfile",
+      "versionInfo": "v1.0.0/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-jackc-pgservicefile-v0-0-0-20240606120523-5a60cdf6a761",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/jackc/pgservicefile",
+      "versionInfo": "v0.0.0-20240606120523-5a60cdf6a761"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-jackc-pgservicefile-v0-0-0-20240606120523-5a60cdf6a761-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/jackc/pgservicefile",
+      "versionInfo": "v0.0.0-20240606120523-5a60cdf6a761/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-jackc-pgx-v5-v5-9-2",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/jackc/pgx/v5",
+      "versionInfo": "v5.9.2"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-jackc-pgx-v5-v5-9-2-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/jackc/pgx/v5",
+      "versionInfo": "v5.9.2/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-jackc-puddle-v2-v2-2-2",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/jackc/puddle/v2",
+      "versionInfo": "v2.2.2"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-jackc-puddle-v2-v2-2-2-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/jackc/puddle/v2",
+      "versionInfo": "v2.2.2/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-klauspost-compress-v1-18-0",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/klauspost/compress",
+      "versionInfo": "v1.18.0"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-klauspost-compress-v1-18-0-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/klauspost/compress",
+      "versionInfo": "v1.18.0/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-mattn-go-isatty-v0-0-20",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/mattn/go-isatty",
+      "versionInfo": "v0.0.20"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-mattn-go-isatty-v0-0-20-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/mattn/go-isatty",
+      "versionInfo": "v0.0.20/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-nats-io-nats-go-v1-45-0",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/nats-io/nats.go",
+      "versionInfo": "v1.45.0"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-nats-io-nats-go-v1-45-0-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/nats-io/nats.go",
+      "versionInfo": "v1.45.0/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-nats-io-nkeys-v0-4-11",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/nats-io/nkeys",
+      "versionInfo": "v0.4.11"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-nats-io-nkeys-v0-4-11-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/nats-io/nkeys",
+      "versionInfo": "v0.4.11/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-nats-io-nuid-v1-0-1",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/nats-io/nuid",
+      "versionInfo": "v1.0.1"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-nats-io-nuid-v1-0-1-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/nats-io/nuid",
+      "versionInfo": "v1.0.1/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-ncruces-go-strftime-v1-0-0",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/ncruces/go-strftime",
+      "versionInfo": "v1.0.0"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-ncruces-go-strftime-v1-0-0-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/ncruces/go-strftime",
+      "versionInfo": "v1.0.0/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-pmezard-go-difflib-v1-0-0",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/pmezard/go-difflib",
+      "versionInfo": "v1.0.0"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-pmezard-go-difflib-v1-0-0-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/pmezard/go-difflib",
+      "versionInfo": "v1.0.0/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-remyoudompheng-bigfft-v0-0-0-20230129092748-24d4a6f8daec",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/remyoudompheng/bigfft",
+      "versionInfo": "v0.0.0-20230129092748-24d4a6f8daec"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-remyoudompheng-bigfft-v0-0-0-20230129092748-24d4a6f8daec-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/remyoudompheng/bigfft",
+      "versionInfo": "v0.0.0-20230129092748-24d4a6f8daec/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-stretchr-objx-v0-1-0-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/stretchr/objx",
+      "versionInfo": "v0.1.0/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-stretchr-testify-v1-3-0-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/stretchr/testify",
+      "versionInfo": "v1.3.0/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-stretchr-testify-v1-7-0-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/stretchr/testify",
+      "versionInfo": "v1.7.0/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-stretchr-testify-v1-11-1",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/stretchr/testify",
+      "versionInfo": "v1.11.1"
+    },
+    {
+      "SPDXID": "SPDXRef-github-com-stretchr-testify-v1-11-1-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "github.com/stretchr/testify",
+      "versionInfo": "v1.11.1/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-golang-org-x-crypto-v0-37-0",
+      "downloadLocation": "NOASSERTION",
+      "name": "golang.org/x/crypto",
+      "versionInfo": "v0.37.0"
+    },
+    {
+      "SPDXID": "SPDXRef-golang-org-x-crypto-v0-37-0-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "golang.org/x/crypto",
+      "versionInfo": "v0.37.0/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-golang-org-x-exp-v0-0-0-20251023183803-a4bb9ffd2546",
+      "downloadLocation": "NOASSERTION",
+      "name": "golang.org/x/exp",
+      "versionInfo": "v0.0.0-20251023183803-a4bb9ffd2546"
+    },
+    {
+      "SPDXID": "SPDXRef-golang-org-x-exp-v0-0-0-20251023183803-a4bb9ffd2546-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "golang.org/x/exp",
+      "versionInfo": "v0.0.0-20251023183803-a4bb9ffd2546/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-golang-org-x-mod-v0-29-0",
+      "downloadLocation": "NOASSERTION",
+      "name": "golang.org/x/mod",
+      "versionInfo": "v0.29.0"
+    },
+    {
+      "SPDXID": "SPDXRef-golang-org-x-mod-v0-29-0-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "golang.org/x/mod",
+      "versionInfo": "v0.29.0/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-golang-org-x-sync-v0-17-0",
+      "downloadLocation": "NOASSERTION",
+      "name": "golang.org/x/sync",
+      "versionInfo": "v0.17.0"
+    },
+    {
+      "SPDXID": "SPDXRef-golang-org-x-sync-v0-17-0-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "golang.org/x/sync",
+      "versionInfo": "v0.17.0/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-golang-org-x-sys-v0-6-0-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "golang.org/x/sys",
+      "versionInfo": "v0.6.0/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-golang-org-x-sys-v0-37-0",
+      "downloadLocation": "NOASSERTION",
+      "name": "golang.org/x/sys",
+      "versionInfo": "v0.37.0"
+    },
+    {
+      "SPDXID": "SPDXRef-golang-org-x-sys-v0-37-0-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "golang.org/x/sys",
+      "versionInfo": "v0.37.0/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-golang-org-x-text-v0-29-0",
+      "downloadLocation": "NOASSERTION",
+      "name": "golang.org/x/text",
+      "versionInfo": "v0.29.0"
+    },
+    {
+      "SPDXID": "SPDXRef-golang-org-x-text-v0-29-0-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "golang.org/x/text",
+      "versionInfo": "v0.29.0/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-golang-org-x-tools-v0-38-0",
+      "downloadLocation": "NOASSERTION",
+      "name": "golang.org/x/tools",
+      "versionInfo": "v0.38.0"
+    },
+    {
+      "SPDXID": "SPDXRef-golang-org-x-tools-v0-38-0-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "golang.org/x/tools",
+      "versionInfo": "v0.38.0/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-gopkg-in-check-v1-v0-0-0-20161208181325-20d25e280405-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "gopkg.in/check.v1",
+      "versionInfo": "v0.0.0-20161208181325-20d25e280405/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-gopkg-in-yaml-v3-v3-0-0-20200313102051-9f266ea9e77c-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "gopkg.in/yaml.v3",
+      "versionInfo": "v3.0.0-20200313102051-9f266ea9e77c/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-gopkg-in-yaml-v3-v3-0-1",
+      "downloadLocation": "NOASSERTION",
+      "name": "gopkg.in/yaml.v3",
+      "versionInfo": "v3.0.1"
+    },
+    {
+      "SPDXID": "SPDXRef-gopkg-in-yaml-v3-v3-0-1-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "gopkg.in/yaml.v3",
+      "versionInfo": "v3.0.1/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-modernc-org-cc-v4-v4-27-1",
+      "downloadLocation": "NOASSERTION",
+      "name": "modernc.org/cc/v4",
+      "versionInfo": "v4.27.1"
+    },
+    {
+      "SPDXID": "SPDXRef-modernc-org-cc-v4-v4-27-1-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "modernc.org/cc/v4",
+      "versionInfo": "v4.27.1/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-modernc-org-ccgo-v4-v4-30-1",
+      "downloadLocation": "NOASSERTION",
+      "name": "modernc.org/ccgo/v4",
+      "versionInfo": "v4.30.1"
+    },
+    {
+      "SPDXID": "SPDXRef-modernc-org-ccgo-v4-v4-30-1-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "modernc.org/ccgo/v4",
+      "versionInfo": "v4.30.1/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-modernc-org-fileutil-v1-3-40",
+      "downloadLocation": "NOASSERTION",
+      "name": "modernc.org/fileutil",
+      "versionInfo": "v1.3.40"
+    },
+    {
+      "SPDXID": "SPDXRef-modernc-org-fileutil-v1-3-40-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "modernc.org/fileutil",
+      "versionInfo": "v1.3.40/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-modernc-org-gc-v2-v2-6-5",
+      "downloadLocation": "NOASSERTION",
+      "name": "modernc.org/gc/v2",
+      "versionInfo": "v2.6.5"
+    },
+    {
+      "SPDXID": "SPDXRef-modernc-org-gc-v2-v2-6-5-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "modernc.org/gc/v2",
+      "versionInfo": "v2.6.5/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-modernc-org-gc-v3-v3-1-1",
+      "downloadLocation": "NOASSERTION",
+      "name": "modernc.org/gc/v3",
+      "versionInfo": "v3.1.1"
+    },
+    {
+      "SPDXID": "SPDXRef-modernc-org-gc-v3-v3-1-1-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "modernc.org/gc/v3",
+      "versionInfo": "v3.1.1/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-modernc-org-goabi0-v0-2-0",
+      "downloadLocation": "NOASSERTION",
+      "name": "modernc.org/goabi0",
+      "versionInfo": "v0.2.0"
+    },
+    {
+      "SPDXID": "SPDXRef-modernc-org-goabi0-v0-2-0-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "modernc.org/goabi0",
+      "versionInfo": "v0.2.0/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-modernc-org-libc-v1-67-6",
+      "downloadLocation": "NOASSERTION",
+      "name": "modernc.org/libc",
+      "versionInfo": "v1.67.6"
+    },
+    {
+      "SPDXID": "SPDXRef-modernc-org-libc-v1-67-6-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "modernc.org/libc",
+      "versionInfo": "v1.67.6/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-modernc-org-mathutil-v1-7-1",
+      "downloadLocation": "NOASSERTION",
+      "name": "modernc.org/mathutil",
+      "versionInfo": "v1.7.1"
+    },
+    {
+      "SPDXID": "SPDXRef-modernc-org-mathutil-v1-7-1-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "modernc.org/mathutil",
+      "versionInfo": "v1.7.1/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-modernc-org-memory-v1-11-0",
+      "downloadLocation": "NOASSERTION",
+      "name": "modernc.org/memory",
+      "versionInfo": "v1.11.0"
+    },
+    {
+      "SPDXID": "SPDXRef-modernc-org-memory-v1-11-0-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "modernc.org/memory",
+      "versionInfo": "v1.11.0/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-modernc-org-opt-v0-1-4",
+      "downloadLocation": "NOASSERTION",
+      "name": "modernc.org/opt",
+      "versionInfo": "v0.1.4"
+    },
+    {
+      "SPDXID": "SPDXRef-modernc-org-opt-v0-1-4-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "modernc.org/opt",
+      "versionInfo": "v0.1.4/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-modernc-org-sortutil-v1-2-1",
+      "downloadLocation": "NOASSERTION",
+      "name": "modernc.org/sortutil",
+      "versionInfo": "v1.2.1"
+    },
+    {
+      "SPDXID": "SPDXRef-modernc-org-sortutil-v1-2-1-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "modernc.org/sortutil",
+      "versionInfo": "v1.2.1/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-modernc-org-sqlite-v1-44-3",
+      "downloadLocation": "NOASSERTION",
+      "name": "modernc.org/sqlite",
+      "versionInfo": "v1.44.3"
+    },
+    {
+      "SPDXID": "SPDXRef-modernc-org-sqlite-v1-44-3-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "modernc.org/sqlite",
+      "versionInfo": "v1.44.3/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-modernc-org-strutil-v1-2-1",
+      "downloadLocation": "NOASSERTION",
+      "name": "modernc.org/strutil",
+      "versionInfo": "v1.2.1"
+    },
+    {
+      "SPDXID": "SPDXRef-modernc-org-strutil-v1-2-1-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "modernc.org/strutil",
+      "versionInfo": "v1.2.1/go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-modernc-org-token-v1-1-0",
+      "downloadLocation": "NOASSERTION",
+      "name": "modernc.org/token",
+      "versionInfo": "v1.1.0"
+    },
+    {
+      "SPDXID": "SPDXRef-modernc-org-token-v1-1-0-go-mod",
+      "downloadLocation": "NOASSERTION",
+      "name": "modernc.org/token",
+      "versionInfo": "v1.1.0/go.mod"
+    }
+  ],
+  "spdxVersion": "SPDX-2.3"
 }
