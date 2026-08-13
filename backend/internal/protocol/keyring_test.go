@@ -54,3 +54,21 @@ func TestWrongKeyIsRejected(t *testing.T) {
 		t.Fatal("wrong key was accepted")
 	}
 }
+
+func TestKeyringRevocation(t *testing.T) {
+	public, private, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope := NewEnvelope("key-1", []byte("payload"))
+	if err := envelope.SignOrder(private); err != nil {
+		t.Fatal(err)
+	}
+	keys := Keyring{"key-1": {ID: "key-1", PublicKey: public}}
+	if err := keys.Revoke("key-1"); err != nil || keys["key-1"].Revoked == false {
+		t.Fatal("key was not revoked")
+	}
+	if err := keys.VerifyAt(envelope, OrderSignatureDomain, time.Now()); err == nil {
+		t.Fatal("revoked key verified")
+	}
+}

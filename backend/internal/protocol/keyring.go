@@ -16,6 +16,16 @@ type VerificationKey struct {
 
 type Keyring map[string]VerificationKey
 
+func (k Keyring) Revoke(id string) error {
+	key, ok := k[id]
+	if !ok {
+		return errors.New("unknown signing key")
+	}
+	key.Revoked = true
+	k[id] = key
+	return nil
+}
+
 func (k Keyring) VerifyAt(envelope Envelope, domain string, now time.Time) error {
 	key, ok := k[envelope.KeyID]
 	if !ok {

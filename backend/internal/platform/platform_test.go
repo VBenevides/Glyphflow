@@ -43,6 +43,20 @@ func TestRecoveryAndTransitions(t *testing.T) {
 	}
 }
 
+func TestEnrollmentClaimIsBoundAndSingleUse(t *testing.T) {
+	token, hash, err := NewEnrollmentToken(32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enrollment := Enrollment{RunnerID: "worker-1", TokenHash: hash, ExpiresAt: time.Now().Add(time.Minute)}
+	if err := ClaimEnrollment(&enrollment, token, "worker-1", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := ClaimEnrollment(&enrollment, token, "worker-1", time.Now()); err == nil {
+		t.Fatal("enrollment token was reused")
+	}
+}
+
 func TestAllowedPathRejectsSymlinkEscape(t *testing.T) {
 	root := t.TempDir()
 	allowed := filepath.Join(root, "allowed")
