@@ -1,9 +1,12 @@
 #!/usr/bin/env sh
 set -eu
 
-test -f internal/SECURITY.md
+test -f internal/v0-review/REPORT.md
 test -f backend/internal/protocol/keyring.go
 test -f backend/internal/worker/store.go
 ! rg -n 'DATABASE_URL|postgres://' backend/cmd/worker backend/internal/worker
-rg -n 'Redact|AllowedSubject|AllowedPath' backend/internal/platform/security.go
+(cd backend && GOCACHE="${GOCACHE:-/tmp/glyphflow-go-cache-security}" go test ./...)
+(cd backend && GOCACHE="${GOCACHE:-/tmp/glyphflow-go-cache-security}" go vet ./...)
+test -s internal/v0-review/SBOM.spdx.json
+! rg -n '"packages"[[:space:]]*:[[:space:]]*\[\]' internal/v0-review/SBOM.spdx.json
 echo "security baseline: PASS"
