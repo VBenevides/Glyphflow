@@ -62,6 +62,9 @@ func DecodeEnvelopeLimited(raw []byte, maxBytes int) (Envelope, error) {
 	if err := json.Unmarshal(raw, &envelope); err != nil {
 		return Envelope{}, err
 	}
+	if envelope.Version != ProtocolVersion {
+		return Envelope{}, errors.New("unsupported protocol version")
+	}
 	if envelope.KeyID == "" {
 		return Envelope{}, errors.New("envelope key_id is empty")
 	}
