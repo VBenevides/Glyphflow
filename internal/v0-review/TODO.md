@@ -25,7 +25,7 @@
 
 ## Bugs
 
-- [ ] **High:** Set `cmd.Dir` to the validated worker directory.
+- [x] **High:** Set `cmd.Dir` to the validated worker directory. `f34f9f1`
   - Add one working-directory test.
 - [ ] **High:** Remove the non-atomic JSON worker store.
   - Replace it with the planned SQLite transaction during worker wiring.
