@@ -73,3 +73,7 @@ func TestResourceLeasesMigration(t *testing.T) {
 func TestDispatchOutboxMigration(t *testing.T) {
 	assertMigrationContains(t, "012_dispatch_outbox.sql", "CREATE TABLE dispatch_outbox", "order_bytes bytea", "subject", "state", "published_at", "last_error")
 }
+
+func TestEventInboxMigration(t *testing.T) {
+	assertMigrationContains(t, "013_event_inbox.sql", "CREATE TABLE event_inbox", "event_id text PRIMARY KEY", "task_run_id", "received_at")
+}
