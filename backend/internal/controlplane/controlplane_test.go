@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/VBenevides/Glyphflow/backend/internal/platform"
 )
 
 func TestScheduleAndBackoff(t *testing.T) {
@@ -12,7 +14,7 @@ func TestScheduleAndBackoff(t *testing.T) {
 	if err != nil || next.Minute() != 35 {
 		t.Fatalf("unexpected next run: %v %v", next, err)
 	}
-	if Backoff(4, time.Second, 5*time.Second) != 5*time.Second {
+	if platform.RetryDelay(4, time.Second, 5*time.Second) != 5*time.Second {
 		t.Fatal("backoff did not cap")
 	}
 	if err := New(func(ctx context.Context) error { return nil }).Run(context.Background()); err != nil {
