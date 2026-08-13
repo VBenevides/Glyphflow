@@ -14,6 +14,7 @@ func OpenStore(path string) (*LocalStore, error) {
 	if err != nil {
 		return nil, err
 	}
+	db.SetMaxOpenConns(1)
 	store := &LocalStore{db: db}
 	if _, err := db.Exec(`PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, value BLOB NOT NULL);`); err != nil {
 		_ = db.Close()
