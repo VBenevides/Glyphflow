@@ -1,0 +1,9 @@
+{
+  "spdxVersion": "SPDX-2.3",
+  "dataLicense": "CC0-1.0",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "glyphflow-sbom",
+  "documentNamespace": "https://github.com/VBenevides/Glyphflow/sbom",
+  "creationInfo": {"creators": ["Tool: Glyphflow release-check"]},
+  "packages": []
+}
