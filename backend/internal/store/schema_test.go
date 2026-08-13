@@ -42,3 +42,10 @@ func TestUniqueTaskOccurrencesMigration(t *testing.T) {
 func TestRunEventsMigration(t *testing.T) {
 	assertMigrationContains(t, "005_run_events.sql", "CREATE TABLE run_events", "event_id", "task_run_id", "sequence", "payload jsonb", "append-only")
 }
+
+func TestUniqueRunEventsMigration(t *testing.T) {
+	assertMigrationContains(t, "006_unique_run_events.sql", "CREATE UNIQUE INDEX", "task_run_id, attempt, sequence")
+	if !strings.Contains(migrationSQL(t, "005_run_events.sql"), "event_id text PRIMARY KEY") {
+		t.Fatal("run_events does not enforce unique event IDs")
+	}
+}
