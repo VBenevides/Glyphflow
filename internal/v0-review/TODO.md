@@ -46,7 +46,7 @@
 - [x] **High:** Add the required JetStream publisher, consumers, acknowledgements, and dead-letter flow. `5eb9389`
 - [x] **High:** Add guarded task, run, event, runner, cancellation, and retry endpoints as workflows become available. `eb5fd8c`
 - [x] **High:** Add enrollment, certificate issue, key rotation, and revocation. `cee0026`, `cdd9e74`
-- [ ] **Medium:** Add readiness checks, persistent security audits, and core queue and outbox metrics.
+- [x] **Medium:** Add readiness checks, persistent security audits, and core queue and outbox metrics. `ce291d9`
 
 ## Enhancements
 
