@@ -57,3 +57,7 @@ func TestRunnersMigration(t *testing.T) {
 func TestRunnerKeysMigration(t *testing.T) {
 	assertMigrationContains(t, "008_runner_keys.sql", "CREATE TABLE runner_keys", "public_key bytea", "not_before", "not_after", "revoked_at", "REFERENCES runners")
 }
+
+func TestRunnerEnrollmentsMigration(t *testing.T) {
+	assertMigrationContains(t, "009_runner_enrollments.sql", "CREATE TABLE runner_enrollments", "token_hash bytea", "expires_at", "used_at", "requester", "target", "artifact jsonb")
+}
