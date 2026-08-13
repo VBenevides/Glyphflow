@@ -82,6 +82,10 @@ func TestStateConstraintsMigration(t *testing.T) {
 	assertMigrationContains(t, "014_state_constraints.sql", "task_runs_state_check", "runners_state_check", "run_events_type_check", "dispatch_outbox_state_check")
 }
 
+func TestStateVersionMigration(t *testing.T) {
+	assertMigrationContains(t, "015_state_version.sql", "state_version", "Optimistic compare-and-swap")
+}
+
 func TestRetentionIndexesMigration(t *testing.T) {
 	assertMigrationContains(t, "016_retention_indexes.sql", "task_definitions_due_idx", "dispatch_outbox_pending_idx", "task_runs_recent_idx", "runners_heartbeat_idx", "run_events_audit_idx")
 }
