@@ -49,3 +49,7 @@ func TestUniqueRunEventsMigration(t *testing.T) {
 		t.Fatal("run_events does not enforce unique event IDs")
 	}
 }
+
+func TestRunnersMigration(t *testing.T) {
+	assertMigrationContains(t, "007_runners.sql", "CREATE TABLE runners", "pool", "capacity", "capabilities jsonb", "state", "heartbeat_at")
+}
