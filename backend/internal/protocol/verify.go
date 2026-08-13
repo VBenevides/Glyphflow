@@ -24,6 +24,9 @@ func VerifyOrder(raw []byte, keys Keyring, now time.Time, runnerID, runID string
 	if err := payload.ValidateIdentity(runnerID, runID, attempt, leaseToken); err != nil {
 		return OrderPayload{}, err
 	}
+	if err := payload.ValidateExecution(); err != nil {
+		return OrderPayload{}, err
+	}
 	if replay != nil {
 		if err := replay.Accept(payload.OrderID); err != nil {
 			return OrderPayload{}, err

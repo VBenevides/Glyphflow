@@ -2,10 +2,31 @@ package protocol
 
 import (
 	"errors"
+	"regexp"
+	"strings"
 	"time"
 )
 
 const MaxEventErrorBytes = 4096
+
+var secretRefPattern = regexp.MustCompile(`^[A-Za-z0-9._/-]+$`)
+
+func (p OrderPayload) ValidateExecution() error {
+	if p.OrderID == "" || p.RunID == "" || p.RunnerID == "" || p.LeaseToken == "" || p.WorkingDir == "" || p.TimeoutSeconds == 0 || len(p.Command) == 0 {
+		return errors.New("order execution fields are required")
+	}
+	for _, arg := range p.Command {
+		if arg == "" {
+			return errors.New("order command contains an empty argument")
+		}
+	}
+	for _, ref := range p.SecretRefs {
+		if !secretRefPattern.MatchString(ref) || strings.Contains(ref, "..") {
+			return errors.New("order secret reference is invalid")
+		}
+	}
+	return nil
+}
 
 func (p OrderPayload) ValidateTime(now time.Time, clockTolerance time.Duration) error {
 	if clockTolerance < 0 {
