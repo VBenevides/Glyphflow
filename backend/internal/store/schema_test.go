@@ -30,3 +30,7 @@ func assertMigrationContains(t *testing.T, name string, fragments ...string) {
 func TestTaskDefinitionsMigration(t *testing.T) {
 	assertMigrationContains(t, "002_task_definitions.sql", "CREATE TABLE task_definitions", "schedule", "timezone", "command jsonb", "retry_policy")
 }
+
+func TestTaskRunsMigration(t *testing.T) {
+	assertMigrationContains(t, "003_task_runs.sql", "CREATE TABLE task_runs", "task_definition_id", "occurrence_at", "runner_id", "state", "attempt", "lease_token", "state_version")
+}
