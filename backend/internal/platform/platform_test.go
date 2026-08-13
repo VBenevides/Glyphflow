@@ -1,6 +1,8 @@
 package platform
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -18,7 +20,11 @@ func TestEnrollmentRedactionAndPaths(t *testing.T) {
 	if redacted["password"] != "[REDACTED]" || redacted["runner"] != "worker-1" {
 		t.Fatal("redaction failed")
 	}
-	if !AllowedPath("/srv/tasks", "/srv/tasks/job") || AllowedPath("/srv/tasks", "/tmp") {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "tasks"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if !AllowedPath(filepath.Join(root, "tasks"), filepath.Join(root, "tasks", "job")) || AllowedPath(filepath.Join(root, "tasks"), "/tmp") {
 		t.Fatal("path boundary failed")
 	}
 	if !AllowedSubject("glyphflow.orders.worker-1", "worker-1") || AllowedSubject("glyphflow.orders.worker-2", "worker-1") {
@@ -34,5 +40,24 @@ func TestRecoveryAndTransitions(t *testing.T) {
 	}
 	if strings.TrimSpace("completed") == "" {
 		t.Fatal()
+	}
+}
+
+func TestAllowedPathRejectsSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	allowed := filepath.Join(root, "allowed")
+	outside := filepath.Join(root, "outside")
+	if err := os.Mkdir(allowed, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(outside, 0700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(allowed, "link")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatal(err)
+	}
+	if AllowedPath(allowed, filepath.Join(link, "file")) {
+		t.Fatal("symlink escape accepted")
 	}
 }

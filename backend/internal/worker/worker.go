@@ -6,6 +6,8 @@ import (
 	"io"
 	"os/exec"
 	"path/filepath"
+
+	"github.com/VBenevides/Glyphflow/backend/internal/platform"
 )
 
 var ErrOutputLimit = errors.New("command output exceeds configured limit")
@@ -35,8 +37,7 @@ func (e Executor) Run(ctx context.Context, args []string, dir string) ([]byte, e
 	}
 	allowed := false
 	for _, root := range e.Roots {
-		base, _ := filepath.Abs(root)
-		if clean == base || len(clean) > len(base) && clean[:len(base)] == base && clean[len(base)] == filepath.Separator {
+		if platform.AllowedPath(root, clean) {
 			allowed = true
 			break
 		}

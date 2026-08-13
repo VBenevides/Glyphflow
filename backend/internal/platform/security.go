@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -47,12 +48,33 @@ func Redact(fields map[string]string) map[string]string {
 }
 
 func AllowedPath(root, path string) bool {
-	base, err1 := filepath.Abs(root)
-	clean, err2 := filepath.Abs(path)
+	base, err1 := canonicalPath(root)
+	clean, err2 := canonicalPath(path)
 	if err1 != nil || err2 != nil {
 		return false
 	}
 	return clean == base || strings.HasPrefix(clean, base+string(filepath.Separator))
+}
+
+func canonicalPath(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	var suffix []string
+	for current := filepath.Clean(abs); ; current = filepath.Dir(current) {
+		resolved, err := filepath.EvalSymlinks(current)
+		if err == nil {
+			for i := len(suffix) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, suffix[i])
+			}
+			return filepath.Clean(resolved), nil
+		}
+		if !os.IsNotExist(err) || filepath.Dir(current) == current {
+			return "", err
+		}
+		suffix = append(suffix, filepath.Base(current))
+	}
 }
 func AllowedSubject(subject, runnerID string) bool {
 	return subject == "glyphflow.orders."+runnerID || subject == "glyphflow.events."+runnerID
