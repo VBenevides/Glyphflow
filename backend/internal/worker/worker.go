@@ -46,6 +46,7 @@ func (e Executor) Run(ctx context.Context, args []string, dir string) ([]byte, e
 		return nil, &ValidationError{"working directory is outside configured roots"}
 	}
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+	cmd.Dir = clean
 	configureCommand(cmd)
 	var output boundedBuffer
 	output.limit = e.MaxOutputBytes

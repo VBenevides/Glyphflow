@@ -2,6 +2,9 @@ package worker
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -25,5 +28,21 @@ func TestExecutorEnforcesCommandAndOutputLimits(t *testing.T) {
 	output, err := executor.Run(ctx, []string{"printf", "12345"}, "/tmp")
 	if err != ErrOutputLimit || !strings.HasPrefix(string(output), "1234") {
 		t.Fatalf("output limit failed: %q %v", output, err)
+	}
+}
+
+func TestExecutorUsesValidatedWorkingDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("pwd is not a Windows command")
+	}
+	dir := t.TempDir()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	output, err := (Executor{Roots: []string{dir}, AllowedCommands: map[string]bool{"pwd": true}, MaxOutputBytes: 1024}).Run(ctx, []string{"pwd"}, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(output)); got != filepath.Clean(dir) || got == os.TempDir() {
+		t.Fatalf("command ran in %q, want %q", got, filepath.Clean(dir))
 	}
 }
