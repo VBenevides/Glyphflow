@@ -8,6 +8,8 @@ import (
 
 const ProtocolVersion uint8 = 1
 
+const DefaultMaxEnvelopeBytes = 1 << 20
+
 type Envelope struct {
 	Version   uint8  `json:"version"`
 	KeyID     string `json:"key_id"`
@@ -46,6 +48,16 @@ func encodeBase64(value []byte) string {
 }
 
 func DecodeEnvelope(raw []byte) (Envelope, error) {
+	return DecodeEnvelopeLimited(raw, DefaultMaxEnvelopeBytes)
+}
+
+func DecodeEnvelopeLimited(raw []byte, maxBytes int) (Envelope, error) {
+	if maxBytes <= 0 {
+		return Envelope{}, errors.New("envelope size limit must be greater than zero")
+	}
+	if len(raw) > maxBytes {
+		return Envelope{}, errors.New("envelope exceeds size limit")
+	}
 	var envelope Envelope
 	if err := json.Unmarshal(raw, &envelope); err != nil {
 		return Envelope{}, err
