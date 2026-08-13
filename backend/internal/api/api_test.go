@@ -33,3 +33,13 @@ func TestBearerAuthenticatorAndCreateRole(t *testing.T) {
 		}
 	}
 }
+
+func TestTaskCreationDoesNotAcceptUnstoredRequests(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", nil)
+	request.Header.Set("Authorization", "Bearer secret")
+	response := httptest.NewRecorder()
+	(Server{Auth: BearerAuthenticator("secret")}).Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusNotImplemented {
+		t.Fatalf("stub task creation returned %d", response.Code)
+	}
+}

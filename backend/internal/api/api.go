@@ -54,11 +54,7 @@ func (s Server) Handler() http.Handler {
 			writeJSON(w, 200, map[string]any{"items": []any{}, "page": page, "limit": 50})
 			return
 		}
-		if r.ContentLength > 1<<20 {
-			writeJSON(w, 413, map[string]string{"error": "request too large"})
-			return
-		}
-		writeJSON(w, 202, map[string]string{"status": "accepted"})
+		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "task creation is not implemented"})
 	})))
 	return s.noStore(s.withCorrelation(mux))
 }
