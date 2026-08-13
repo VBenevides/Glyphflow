@@ -28,3 +28,9 @@ func TestMutualTLSAndWorkerPermissions(t *testing.T) {
 		t.Fatal("worker subject isolation failed")
 	}
 }
+
+func TestQueueDeliveryDefaults(t *testing.T) {
+	if Subject("deadletter", "glyphflow.orders.worker-1") != "glyphflow.deadletter.glyphflow.orders.worker-1" {
+		t.Fatal("unexpected dead-letter subject")
+	}
+}
