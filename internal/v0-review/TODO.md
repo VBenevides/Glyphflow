@@ -21,7 +21,7 @@
 - [x] **Medium:** Upgrade `github.com/jackc/pgx/v5` to `v5.9.2` or newer. `752b2d3`
   - Run tests, vet, and `govulncheck` again.
 - [x] **Medium:** Resolve symbolic links before allowed-root checks. `5049812`
-- [ ] **Medium:** Add HTTP timeouts and a bounded shutdown context.
+- [x] **Medium:** Add HTTP timeouts and a bounded shutdown context. `4c206f2`
 
 ## Bugs
 
