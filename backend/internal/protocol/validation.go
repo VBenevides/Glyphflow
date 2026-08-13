@@ -42,3 +42,21 @@ func (p EventPayload) ValidateTime(now time.Time, clockTolerance time.Duration) 
 	}
 	return nil
 }
+
+func (p OrderPayload) ValidateIdentity(runnerID, runID string, attempt uint32, leaseToken string) error {
+	return validateIdentity(p.RunnerID, p.RunID, p.Attempt, p.LeaseToken, runnerID, runID, attempt, leaseToken)
+}
+
+func (p EventPayload) ValidateIdentity(runnerID, runID string, attempt uint32, leaseToken string) error {
+	return validateIdentity(p.RunnerID, p.RunID, p.Attempt, p.LeaseToken, runnerID, runID, attempt, leaseToken)
+}
+
+func validateIdentity(actualRunner, actualRun string, actualAttempt uint32, actualLease, expectedRunner, expectedRun string, expectedAttempt uint32, expectedLease string) error {
+	if actualRunner == "" || actualRun == "" || actualLease == "" || actualAttempt == 0 {
+		return errors.New("message identity fields are required")
+	}
+	if actualRunner != expectedRunner || actualRun != expectedRun || actualAttempt != expectedAttempt || actualLease != expectedLease {
+		return errors.New("message identity does not match expected assignment")
+	}
+	return nil
+}
