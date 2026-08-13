@@ -38,6 +38,9 @@ type Server struct {
 }
 
 func (s Server) Handler() http.Handler {
+	if err := ValidateRouteRegistry(RouteRegistry()); err != nil {
+		panic(err)
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/healthz", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "ok"}) })
 	mux.HandleFunc("/api/v1/readyz", func(w http.ResponseWriter, r *http.Request) {
