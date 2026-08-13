@@ -53,6 +53,6 @@
 - [x] **High:** Add real PostgreSQL and NATS integration tests. `85b84c5` (run with `-tags integration` and service URLs)
   - Test duplicate delivery and every durable commit boundary.
 - [x] **High:** Generate and verify an SBOM from actual release artifacts. `1f900bf`
-- [ ] **Medium:** Store migration names and checksums, then reject changed applied migrations.
+- [x] **Medium:** Store migration names and checksums, then reject changed applied migrations. `3a72f8a`
 - [ ] **Low:** Replace custom field splitting and integer parsing with the Go standard library.
 - [ ] **Low:** Keep one backoff helper and one allowed-path helper.
