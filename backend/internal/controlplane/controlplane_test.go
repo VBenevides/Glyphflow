@@ -19,3 +19,18 @@ func TestScheduleAndBackoff(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestCronRangesStepsAndDayRules(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	next, err := (Schedule{Cron: "*/15 0 * * *", Timezone: "UTC"}).Next(now)
+	if err != nil || next.Minute() != 15 {
+		t.Fatalf("step cron failed: %v %v", next, err)
+	}
+	next, err = (Schedule{Cron: "0 9 1-5 * *", Timezone: "UTC"}).Next(now)
+	if err != nil || next.Day() != 1 || next.Hour() != 9 {
+		t.Fatalf("range cron failed: %v %v", next, err)
+	}
+	if _, err := (Schedule{Cron: "0 0 1-99 * *", Timezone: "UTC"}).Next(now); err == nil {
+		t.Fatal("out-of-range cron was accepted")
+	}
+}
