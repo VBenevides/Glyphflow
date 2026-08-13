@@ -1,50 +1,42 @@
 package worker
 
 import (
+	"database/sql"
 	"encoding/json"
-	"os"
-	"sync"
+
+	_ "modernc.org/sqlite"
 )
 
-type LocalStore struct {
-	path     string
-	mu       sync.Mutex
-	Messages map[string]json.RawMessage
-}
+type LocalStore struct{ db *sql.DB }
 
 func OpenStore(path string) (*LocalStore, error) {
-	s := &LocalStore{path: path, Messages: map[string]json.RawMessage{}}
-	raw, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return s, nil
-	}
+	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, err
 	}
-	if len(raw) > 0 {
-		if err := json.Unmarshal(raw, &s.Messages); err != nil {
-			return nil, err
-		}
+	store := &LocalStore{db: db}
+	if _, err := db.Exec(`PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, value BLOB NOT NULL);`); err != nil {
+		_ = db.Close()
+		return nil, err
 	}
-	return s, nil
+	return store, nil
 }
+
+func (s *LocalStore) Close() error { return s.db.Close() }
+
 func (s *LocalStore) Put(id string, value any) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, ok := s.Messages[id]; ok {
-		return nil
-	}
 	raw, err := json.Marshal(value)
 	if err != nil {
 		return err
 	}
-	s.Messages[id] = raw
-	return s.flush()
+	_, err = s.db.Exec(`INSERT INTO messages (id, value) VALUES (?, ?) ON CONFLICT(id) DO NOTHING`, id, raw)
+	return err
 }
-func (s *LocalStore) flush() error {
-	raw, err := json.Marshal(s.Messages)
-	if err != nil {
-		return err
+
+func (s *LocalStore) Get(id string) (json.RawMessage, error) {
+	var raw []byte
+	if err := s.db.QueryRow(`SELECT value FROM messages WHERE id = ?`, id).Scan(&raw); err != nil {
+		return nil, err
 	}
-	return os.WriteFile(s.path, raw, 0600)
+	return json.RawMessage(raw), nil
 }
