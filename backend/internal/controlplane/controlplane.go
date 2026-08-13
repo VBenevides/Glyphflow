@@ -9,7 +9,6 @@ type Component func(context.Context) error
 
 type Plane struct {
 	components []Component
-	stopOnce   sync.Once
 }
 
 func New(components ...Component) *Plane { return &Plane{components: components} }
@@ -37,5 +36,3 @@ func (p *Plane) Run(ctx context.Context) error {
 		return nil
 	}
 }
-
-func (p *Plane) Stop() { p.stopOnce.Do(func() {}) }
