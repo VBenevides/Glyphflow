@@ -47,15 +47,42 @@ exclusive_resource FROM task_spot`
 		if strings.TrimSpace(row.Command) == "" {
 			return nil, fmt.Errorf("SQLite task row has invalid columns or an empty command")
 		}
+		command, err := parseImportedCommand(row.Command)
+		if err != nil {
+			return nil, err
+		}
 		tasks = append(tasks, ImportedTaskDefinition{
 			Name:             row.TaskName,
 			RunnerID:         row.RunnerID,
 			Schedule:         strings.TrimSpace(strings.Join([]string{row.Frequency, row.StartTime, row.CronExpression}, " ")),
 			Timezone:         "Local",
-			Command:          []string{row.Command},
+			Command:          command,
 			WorkingDirectory: row.ScriptDirectory,
 			Resource:         row.ExclusiveResource,
 		})
 	}
 	return tasks, nil
+}
+
+func parseImportedCommand(value string) ([]string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, fmt.Errorf("SQLite task command is empty")
+	}
+	if strings.HasPrefix(value, "[") {
+		var command []string
+		if err := json.Unmarshal([]byte(value), &command); err != nil || len(command) == 0 {
+			return nil, fmt.Errorf("SQLite task command must be a non-empty JSON argument array")
+		}
+		for _, arg := range command {
+			if arg == "" {
+				return nil, fmt.Errorf("SQLite task command contains an empty argument")
+			}
+		}
+		return command, nil
+	}
+	if strings.IndexFunc(value, func(r rune) bool { return r == ' ' || r == '\t' || r == '\n' }) >= 0 {
+		return nil, fmt.Errorf("SQLite task command with arguments must use a JSON array")
+	}
+	return []string{value}, nil
 }

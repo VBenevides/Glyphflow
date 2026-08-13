@@ -23,3 +23,13 @@ func TestImportSQLiteTaskDefinitions(t *testing.T) {
 		t.Fatalf("unexpected imported tasks: %#v", tasks)
 	}
 }
+
+func TestImportSQLitePreservesStructuredArguments(t *testing.T) {
+	command, err := parseImportedCommand(`["backup", "--full"]`)
+	if err != nil || len(command) != 2 || command[1] != "--full" {
+		t.Fatalf("structured arguments were lost: %#v %v", command, err)
+	}
+	if _, err := parseImportedCommand("backup --full"); err == nil {
+		t.Fatal("ambiguous shell command was accepted")
+	}
+}
