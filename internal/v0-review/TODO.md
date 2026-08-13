@@ -18,7 +18,7 @@
 - [x] **High:** Replace presence-only security and release checks. `5c46925`
   - Uncheck unsupported `internal/TODO.md` claims.
   - Fail release checks when the SBOM has no packages.
-- [ ] **Medium:** Upgrade `github.com/jackc/pgx/v5` to `v5.9.2` or newer.
+- [x] **Medium:** Upgrade `github.com/jackc/pgx/v5` to `v5.9.2` or newer. `752b2d3`
   - Run tests, vet, and `govulncheck` again.
 - [ ] **Medium:** Resolve symbolic links before allowed-root checks.
 - [ ] **Medium:** Add HTTP timeouts and a bounded shutdown context.
