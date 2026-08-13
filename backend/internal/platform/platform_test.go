@@ -1,6 +1,11 @@
 package platform
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"math/big"
 	"os"
 	"path/filepath"
 	"strings"
@@ -54,6 +59,28 @@ func TestEnrollmentClaimIsBoundAndSingleUse(t *testing.T) {
 	}
 	if err := ClaimEnrollment(&enrollment, token, "worker-1", time.Now()); err == nil {
 		t.Fatal("enrollment token was reused")
+	}
+}
+
+func TestIssueClientCertificate(t *testing.T) {
+	caPublic, caPrivate, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	caTemplate := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "Glyphflow CA"}, NotBefore: now.Add(-time.Minute), NotAfter: now.Add(time.Hour), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign}
+	caDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, caPublic, caPrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ca, err := x509.ParseCertificate(caDER)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workerPublic, _, _ := ed25519.GenerateKey(nil)
+	certPEM, err := IssueClientCertificate(ca, caPrivate, "worker-1", workerPublic, now, time.Hour)
+	if err != nil || len(certPEM) == 0 {
+		t.Fatal(err)
 	}
 }
 
