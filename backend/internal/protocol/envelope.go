@@ -41,6 +41,10 @@ func EncodeEnvelope(e Envelope) ([]byte, error) {
 	return json.Marshal(e)
 }
 
+func encodeBase64(value []byte) string {
+	return base64.StdEncoding.EncodeToString(value)
+}
+
 func DecodeEnvelope(raw []byte) (Envelope, error) {
 	var envelope Envelope
 	if err := json.Unmarshal(raw, &envelope); err != nil {
