@@ -27,7 +27,7 @@
 
 - [x] **High:** Set `cmd.Dir` to the validated worker directory. `f34f9f1`
   - Add one working-directory test.
-- [x] **High:** Remove the non-atomic JSON worker store. `d0075a7`
+- [x] **High:** Remove the non-atomic JSON worker store. `d0075a7`, `7e19e7d`
   - Replace it with the planned SQLite transaction during worker wiring.
 - [x] **High:** Enforce allowed state transitions in the compare-and-swap update. `48c9e9c`
 - [x] **High:** Reject unsupported cron syntax and correct day-field behavior. `0a5b0ec`
