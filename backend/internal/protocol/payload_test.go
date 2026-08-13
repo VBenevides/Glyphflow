@@ -37,3 +37,33 @@ func TestOrderPayloadContainsExecutionData(t *testing.T) {
 		t.Fatalf("payload fields were not preserved: %#v", got)
 	}
 }
+
+func TestEventPayloadContainsLifecycleData(t *testing.T) {
+	want := EventPayload{
+		Version:      ProtocolVersion,
+		EventID:      "event-1",
+		OrderID:      "order-1",
+		RunID:        "run-1",
+		TaskID:       "task-1",
+		Attempt:      1,
+		LeaseToken:   "lease-1",
+		RunnerID:     "worker-1",
+		Sequence:     3,
+		ObservedAt:   time.Unix(200, 0).UTC(),
+		Result:       "success",
+		Metrics:      map[string]int64{"duration_ms": 12},
+		OutputDigest: "sha256:abc",
+		Error:        "",
+	}
+	raw, err := json.Marshal(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got EventPayload
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.EventID != want.EventID || got.RunID != want.RunID || got.Sequence != want.Sequence || got.OutputDigest != want.OutputDigest {
+		t.Fatalf("event fields were not preserved: %#v", got)
+	}
+}
