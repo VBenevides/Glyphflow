@@ -1,6 +1,7 @@
 package api
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -13,6 +14,20 @@ type Claims struct {
 }
 type Authenticator func(*http.Request) (Claims, bool)
 
+func BearerAuthenticator(token string) Authenticator {
+	return func(r *http.Request) (Claims, bool) {
+		const prefix = "Bearer "
+		value := r.Header.Get("Authorization")
+		if len(value) <= len(prefix) || !strings.EqualFold(value[:len(prefix)], prefix) {
+			return Claims{}, false
+		}
+		if subtle.ConstantTimeCompare([]byte(value[len(prefix):]), []byte(token)) != 1 {
+			return Claims{}, false
+		}
+		return Claims{Subject: "api-token", Roles: map[string]bool{"task.read": true, "task.create": true}}, true
+	}
+}
+
 type Server struct {
 	Auth  Authenticator
 	Audit func(Claims, string, string)
@@ -21,7 +36,12 @@ type Server struct {
 func (s Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/healthz", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "ok"}) })
-	mux.Handle("/api/v1/tasks", s.require("task.read", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/api/v1/tasks", s.requireMethodRole(func(r *http.Request) string {
+		if r.Method == http.MethodPost {
+			return "task.create"
+		}
+		return "task.read"
+	}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodPost {
 			writeJSON(w, 405, map[string]string{"error": "method not allowed"})
 			return
@@ -62,6 +82,11 @@ func (s Server) require(role string, next http.Handler) http.Handler {
 			s.Audit(claims, r.Method, r.URL.Path)
 		}
 		next.ServeHTTP(w, r)
+	})
+}
+func (s Server) requireMethodRole(role func(*http.Request) string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.require(role(r), next).ServeHTTP(w, r)
 	})
 }
 func (s Server) withCorrelation(next http.Handler) http.Handler {

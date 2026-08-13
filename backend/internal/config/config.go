@@ -21,6 +21,7 @@ type Config struct {
 	Role            Role
 	DatabaseURL     string
 	NATSURL         string
+	APIToken        string
 	DataDir         string
 	RunnerID        string
 	MaxMessageBytes int
@@ -32,6 +33,7 @@ func FromEnv(role Role) (Config, error) {
 		Role:        role,
 		DatabaseURL: os.Getenv("DATABASE_URL"),
 		NATSURL:     os.Getenv("NATS_URL"),
+		APIToken:    os.Getenv("API_AUTH_TOKEN"),
 		DataDir:     os.Getenv("DATA_DIR"),
 		RunnerID:    os.Getenv("RUNNER_ID"),
 	}
@@ -64,6 +66,9 @@ func (c Config) Validate() error {
 		return errors.New("MAX_MESSAGE_BYTES must be greater than zero")
 	}
 	if c.Role == ControlPlane {
+		if c.APIToken == "" {
+			return errors.New("API_AUTH_TOKEN is required")
+		}
 		return requireURL("DATABASE_URL", c.DatabaseURL, "postgres", "postgresql")
 	}
 	if !runnerIDPattern.MatchString(c.RunnerID) {

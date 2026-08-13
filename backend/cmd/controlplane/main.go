@@ -13,15 +13,14 @@ import (
 )
 
 func main() {
-	if _, err := config.FromEnv(config.ControlPlane); err != nil {
+	cfg, err := config.FromEnv(config.ControlPlane)
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	server := &http.Server{Addr: ":8080", Handler: api.Server{Auth: func(*http.Request) (api.Claims, bool) {
-		return api.Claims{Subject: "local", Roles: map[string]bool{"task.read": true}}, true
-	}}.Handler()}
+	server := &http.Server{Addr: ":8080", Handler: api.Server{Auth: api.BearerAuthenticator(cfg.APIToken)}.Handler()}
 	go func() { <-ctx.Done(); _ = server.Shutdown(context.Background()) }()
 	fmt.Println("Glyphflow control plane")
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
