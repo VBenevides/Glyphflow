@@ -15,7 +15,7 @@
 - [x] **High:** Add one complete order verifier and one complete event verifier. `ff18679`
   - Verify before typed payload use.
   - Persist replay decisions across restarts.
-- [ ] **High:** Replace presence-only security and release checks.
+- [x] **High:** Replace presence-only security and release checks. `5c46925`
   - Uncheck unsupported `internal/TODO.md` claims.
   - Fail release checks when the SBOM has no packages.
 - [ ] **Medium:** Upgrade `github.com/jackc/pgx/v5` to `v5.9.2` or newer.
