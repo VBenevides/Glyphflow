@@ -21,9 +21,14 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	sessions, err := api.NewSessionManager(cfg.AccessTokenSecret)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	server := &http.Server{
 		Addr:              ":8080",
-		Handler:           api.Server{Auth: api.BearerAuthenticator(cfg.APIToken)}.Handler(),
+		Handler:           api.Server{Auth: sessions.Authenticator()}.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,

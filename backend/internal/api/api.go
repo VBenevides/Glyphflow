@@ -10,8 +10,10 @@ import (
 )
 
 type Claims struct {
-	Subject string
-	Roles   map[string]bool
+	Subject   string
+	UserID    string
+	SessionID string
+	Roles     map[string]bool
 }
 type Authenticator func(*http.Request) (Claims, bool)
 

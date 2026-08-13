@@ -4,12 +4,12 @@ import "testing"
 
 func TestValidateControlPlane(t *testing.T) {
 	config := Config{
-		Role:            ControlPlane,
-		DatabaseURL:     "postgres://user:pass@localhost/db",
-		NATSURL:         "nats://localhost:4222",
-		APIToken:        "test-token",
-		DataDir:         "/var/lib/glyphflow",
-		MaxMessageBytes: 1 << 20,
+		Role:              ControlPlane,
+		DatabaseURL:       "postgres://user:pass@localhost/db",
+		NATSURL:           "nats://localhost:4222",
+		AccessTokenSecret: "01234567890123456789012345678901",
+		DataDir:           "/var/lib/glyphflow",
+		MaxMessageBytes:   1 << 20,
 	}
 	if err := config.Validate(); err != nil {
 		t.Fatalf("valid control-plane config rejected: %v", err)

@@ -18,24 +18,26 @@ const (
 )
 
 type Config struct {
-	Role            Role
-	DatabaseURL     string
-	NATSURL         string
-	APIToken        string
-	DataDir         string
-	RunnerID        string
-	MaxMessageBytes int
-	MaxOutputBytes  int
+	Role              Role
+	DatabaseURL       string
+	NATSURL           string
+	APIToken          string // Deprecated: kept for v0 source compatibility.
+	AccessTokenSecret string
+	DataDir           string
+	RunnerID          string
+	MaxMessageBytes   int
+	MaxOutputBytes    int
 }
 
 func FromEnv(role Role) (Config, error) {
 	config := Config{
-		Role:        role,
-		DatabaseURL: os.Getenv("DATABASE_URL"),
-		NATSURL:     os.Getenv("NATS_URL"),
-		APIToken:    os.Getenv("API_AUTH_TOKEN"),
-		DataDir:     os.Getenv("DATA_DIR"),
-		RunnerID:    os.Getenv("RUNNER_ID"),
+		Role:              role,
+		DatabaseURL:       os.Getenv("DATABASE_URL"),
+		NATSURL:           os.Getenv("NATS_URL"),
+		APIToken:          os.Getenv("API_AUTH_TOKEN"),
+		AccessTokenSecret: os.Getenv("ACCESS_TOKEN_SECRET"),
+		DataDir:           os.Getenv("DATA_DIR"),
+		RunnerID:          os.Getenv("RUNNER_ID"),
 	}
 	var err error
 	if config.MaxMessageBytes, err = envInt("MAX_MESSAGE_BYTES"); err != nil {
@@ -66,8 +68,8 @@ func (c Config) Validate() error {
 		return errors.New("MAX_MESSAGE_BYTES must be greater than zero")
 	}
 	if c.Role == ControlPlane {
-		if c.APIToken == "" {
-			return errors.New("API_AUTH_TOKEN is required")
+		if len([]byte(c.AccessTokenSecret)) < 32 {
+			return errors.New("ACCESS_TOKEN_SECRET must contain at least 32 bytes")
 		}
 		return requireURL("DATABASE_URL", c.DatabaseURL, "postgres", "postgresql")
 	}
