@@ -2,6 +2,9 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -61,11 +65,16 @@ func ApplyMigrations(ctx context.Context, pool *pgxpool.Pool, dir string) error 
 	if _, err := pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
 		version integer PRIMARY KEY,
 		name text NOT NULL,
+		checksum text NOT NULL DEFAULT '',
 		applied_at timestamptz NOT NULL DEFAULT now()
 	)`); err != nil {
 		return fmt.Errorf("create schema_migrations: %w", err)
 	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS checksum text NOT NULL DEFAULT ''`); err != nil {
+		return fmt.Errorf("add migration checksum: %w", err)
+	}
 	for _, migration := range migrations {
+		checksum := migrationChecksum(migration.SQL)
 		tx, err := pool.Begin(ctx)
 		if err != nil {
 			return fmt.Errorf("begin migration %d: %w", migration.Version, err)
@@ -74,17 +83,30 @@ func ApplyMigrations(ctx context.Context, pool *pgxpool.Pool, dir string) error 
 			_ = tx.Rollback(ctx)
 			return fmt.Errorf("lock migrations: %w", err)
 		}
-		var applied bool
-		if err = tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = $1)`, migration.Version).Scan(&applied); err != nil {
+		var storedChecksum string
+		err = tx.QueryRow(ctx, `SELECT checksum FROM schema_migrations WHERE version = $1`, migration.Version).Scan(&storedChecksum)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			_ = tx.Rollback(ctx)
 			return fmt.Errorf("check migration %d: %w", migration.Version, err)
 		}
-		if applied {
-			_ = tx.Rollback(ctx)
+		if err == nil {
+			if storedChecksum != "" && storedChecksum != checksum {
+				_ = tx.Rollback(ctx)
+				return fmt.Errorf("migration %d checksum changed", migration.Version)
+			}
+			if storedChecksum == "" {
+				if _, err := tx.Exec(ctx, `UPDATE schema_migrations SET checksum = $1 WHERE version = $2`, checksum, migration.Version); err != nil {
+					_ = tx.Rollback(ctx)
+					return fmt.Errorf("record migration %d checksum: %w", migration.Version, err)
+				}
+			}
+			if err := tx.Commit(ctx); err != nil {
+				return fmt.Errorf("commit migration %d checksum: %w", migration.Version, err)
+			}
 			continue
 		}
 		if _, err = tx.Exec(ctx, migration.SQL); err == nil {
-			_, err = tx.Exec(ctx, `INSERT INTO schema_migrations (version, name) VALUES ($1, $2)`, migration.Version, migration.Name)
+			_, err = tx.Exec(ctx, `INSERT INTO schema_migrations (version, name, checksum) VALUES ($1, $2, $3)`, migration.Version, migration.Name, checksum)
 		}
 		if err != nil {
 			_ = tx.Rollback(ctx)
@@ -95,4 +117,9 @@ func ApplyMigrations(ctx context.Context, pool *pgxpool.Pool, dir string) error 
 		}
 	}
 	return nil
+}
+
+func migrationChecksum(sql string) string {
+	digest := sha256.Sum256([]byte(sql))
+	return hex.EncodeToString(digest[:])
 }

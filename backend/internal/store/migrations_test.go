@@ -35,3 +35,9 @@ func TestMigrationsUseAnAdvisoryTransactionLock(t *testing.T) {
 		t.Fatal("migration lock is not transactional")
 	}
 }
+
+func TestMigrationChecksumIsStable(t *testing.T) {
+	if migrationChecksum("SELECT 1") != migrationChecksum("SELECT 1") || migrationChecksum("SELECT 1") == migrationChecksum("SELECT 2") {
+		t.Fatal("migration checksum is not stable")
+	}
+}
