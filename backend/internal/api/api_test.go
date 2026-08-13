@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -55,5 +57,14 @@ func TestManagementRoutesFailClosedUntilBackedByStorage(t *testing.T) {
 		if w.Code != http.StatusNotImplemented {
 			t.Fatalf("%s returned %d", path, w.Code)
 		}
+	}
+}
+
+func TestReadinessReportsDependencyFailure(t *testing.T) {
+	h := (Server{Ready: func(_ context.Context) error { return errors.New("database down") }}).Handler()
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/readyz", nil))
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("readiness returned %d", w.Code)
 	}
 }

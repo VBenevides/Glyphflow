@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"net/http"
@@ -31,11 +32,21 @@ func BearerAuthenticator(token string) Authenticator {
 type Server struct {
 	Auth  Authenticator
 	Audit func(Claims, string, string)
+	Ready func(context.Context) error
 }
 
 func (s Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/healthz", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "ok"}) })
+	mux.HandleFunc("/api/v1/readyz", func(w http.ResponseWriter, r *http.Request) {
+		if s.Ready != nil {
+			if err := s.Ready(r.Context()); err != nil {
+				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not ready"})
+				return
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+	})
 	mux.Handle("/api/v1/tasks", s.requireMethodRole(func(r *http.Request) string {
 		if r.Method == http.MethodPost {
 			return "task.create"

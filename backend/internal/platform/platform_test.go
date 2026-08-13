@@ -84,6 +84,24 @@ func TestIssueClientCertificate(t *testing.T) {
 	}
 }
 
+func TestAuditLogPersistsAndMetricsSnapshot(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.json")
+	log, err := OpenAuditLog(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	log.Add(AuditRecord{Action: "enroll"})
+	reloaded, err := OpenAuditLog(path)
+	if err != nil || len(reloaded.Records) != 1 {
+		t.Fatalf("audit did not persist: %#v %v", reloaded.Records, err)
+	}
+	metrics := Metrics{}
+	metrics.OrdersPublished.Add(1)
+	if metrics.Snapshot()["orders_published"] != 1 {
+		t.Fatal("metrics snapshot failed")
+	}
+}
+
 func TestAllowedPathRejectsSymlinkEscape(t *testing.T) {
 	root := t.TempDir()
 	allowed := filepath.Join(root, "allowed")
