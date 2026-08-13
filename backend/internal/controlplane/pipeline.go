@@ -3,7 +3,6 @@ package controlplane
 import (
 	"context"
 	"crypto/ed25519"
-	"encoding/json"
 	"errors"
 	"time"
 
@@ -52,7 +51,7 @@ func (p *Pipeline) Execute(ctx context.Context, request TaskRequest) (RunResult,
 		Command: request.Command, WorkingDir: request.WorkingDir, TimeoutSeconds: uint32((request.Timeout + time.Second - 1) / time.Second),
 		Limits: protocol.ResourceLimits{MaxOutputBytes: uint64(request.MaxOutput)},
 	}
-	orderBytes, err := json.Marshal(order)
+	orderBytes, err := protocol.EncodeOrderPayload(order)
 	if err != nil {
 		return RunResult{}, err
 	}
@@ -90,7 +89,7 @@ func (p *Pipeline) Execute(ctx context.Context, request TaskRequest) (RunResult,
 		state = protocol.EventFailed
 	}
 	event := protocol.EventPayload{Version: protocol.ProtocolVersion, EventID: request.OrderID + ":1", OrderID: verified.OrderID, RunID: verified.RunID, TaskID: verified.TaskID, Attempt: verified.Attempt, LeaseToken: verified.LeaseToken, RunnerID: verified.RunnerID, Sequence: 1, ObservedAt: time.Now().UTC(), Type: state, Result: string(output)}
-	eventBytes, err := json.Marshal(event)
+	eventBytes, err := protocol.EncodeEventPayload(event)
 	if err != nil {
 		return RunResult{}, err
 	}

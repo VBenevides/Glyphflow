@@ -54,8 +54,12 @@ type EventPayload struct {
 }
 
 func DecodeOrderPayload(raw []byte) (OrderPayload, error) {
+	framed, err := decodePayloadFrame(raw)
+	if err != nil {
+		return OrderPayload{}, err
+	}
 	var payload OrderPayload
-	if err := json.Unmarshal(raw, &payload); err != nil {
+	if err := json.Unmarshal(framed, &payload); err != nil {
 		return OrderPayload{}, err
 	}
 	if payload.Version != ProtocolVersion {
@@ -68,8 +72,12 @@ func DecodeOrderPayload(raw []byte) (OrderPayload, error) {
 }
 
 func DecodeEventPayload(raw []byte) (EventPayload, error) {
+	framed, err := decodePayloadFrame(raw)
+	if err != nil {
+		return EventPayload{}, err
+	}
 	var payload EventPayload
-	if err := json.Unmarshal(raw, &payload); err != nil {
+	if err := json.Unmarshal(framed, &payload); err != nil {
 		return EventPayload{}, err
 	}
 	if payload.Version != ProtocolVersion {
