@@ -49,7 +49,7 @@ func (p *Pipeline) Execute(ctx context.Context, request TaskRequest) (RunResult,
 		Version: protocol.ProtocolVersion, OrderID: request.OrderID, RunID: request.RunID, TaskID: request.TaskID,
 		Attempt: 1, LeaseToken: request.LeaseToken, RunnerID: request.RunnerID, IssuedAt: now,
 		NotBefore: now, ExpiresAt: now.Add(request.Timeout), Type: protocol.OrderExecute,
-		Command: request.Command, WorkingDir: request.WorkingDir, TimeoutSeconds: uint32(request.Timeout / time.Second),
+		Command: request.Command, WorkingDir: request.WorkingDir, TimeoutSeconds: uint32((request.Timeout + time.Second - 1) / time.Second),
 		Limits: protocol.ResourceLimits{MaxOutputBytes: uint64(request.MaxOutput)},
 	}
 	orderBytes, err := json.Marshal(order)
