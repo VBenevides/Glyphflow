@@ -18,6 +18,8 @@ type Migration struct {
 	SQL     string
 }
 
+const migrationLockSQL = `SELECT pg_advisory_xact_lock(hashtextextended('glyphflow:migrations', 0))`
+
 func LoadMigrations(dir string) ([]Migration, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -64,16 +66,22 @@ func ApplyMigrations(ctx context.Context, pool *pgxpool.Pool, dir string) error 
 		return fmt.Errorf("create schema_migrations: %w", err)
 	}
 	for _, migration := range migrations {
-		var applied bool
-		if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = $1)`, migration.Version).Scan(&applied); err != nil {
-			return fmt.Errorf("check migration %d: %w", migration.Version, err)
-		}
-		if applied {
-			continue
-		}
 		tx, err := pool.Begin(ctx)
 		if err != nil {
 			return fmt.Errorf("begin migration %d: %w", migration.Version, err)
+		}
+		if _, err = tx.Exec(ctx, migrationLockSQL); err != nil {
+			_ = tx.Rollback(ctx)
+			return fmt.Errorf("lock migrations: %w", err)
+		}
+		var applied bool
+		if err = tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = $1)`, migration.Version).Scan(&applied); err != nil {
+			_ = tx.Rollback(ctx)
+			return fmt.Errorf("check migration %d: %w", migration.Version, err)
+		}
+		if applied {
+			_ = tx.Rollback(ctx)
+			continue
 		}
 		if _, err = tx.Exec(ctx, migration.SQL); err == nil {
 			_, err = tx.Exec(ctx, `INSERT INTO schema_migrations (version, name) VALUES ($1, $2)`, migration.Version, migration.Name)

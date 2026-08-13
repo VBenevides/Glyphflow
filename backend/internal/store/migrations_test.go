@@ -3,6 +3,7 @@ package store
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -26,5 +27,11 @@ func TestLoadMigrationsSortsAndRejectsDuplicates(t *testing.T) {
 	}
 	if _, err := LoadMigrations(dir); err == nil {
 		t.Fatal("duplicate migration version was accepted")
+	}
+}
+
+func TestMigrationsUseAnAdvisoryTransactionLock(t *testing.T) {
+	if !strings.Contains(migrationLockSQL, "pg_advisory_xact_lock") {
+		t.Fatal("migration lock is not transactional")
 	}
 }
