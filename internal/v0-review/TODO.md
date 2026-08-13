@@ -12,7 +12,7 @@
   - Bound output.
   - Stop full process groups.
   - Enforce time, process, memory, identity, executable, and secret rules.
-- [x] **High:** Add one complete order verifier and one complete event verifier. `ff18679`
+- [x] **High:** Add one complete order verifier and one complete event verifier. `ff18679`, `46be87e`
   - Verify before typed payload use.
   - Persist replay decisions across restarts.
 - [x] **High:** Replace presence-only security and release checks. `5c46925`, `0a25aa8`
