@@ -6,6 +6,12 @@ The platform has one central control plane and many remote workers. The control 
 
 Glyphflow is in the design phase. The repository does not contain a production implementation yet.
 
+## MVP boundary
+
+The first release is one control-plane executable, one NATS JetStream deployment, and any number of outbound-only workers. PostgreSQL remains private to the control plane. Scheduler, dispatcher, event ingestion, HTTP API, housekeeping, and notifications run in the same control-plane process.
+
+Service splitting is deferred until measured scaling, deployment, or ownership needs justify it.
+
 ## Goals
 
 Glyphflow will provide these functions:
