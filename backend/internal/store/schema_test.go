@@ -65,3 +65,7 @@ func TestRunnerEnrollmentsMigration(t *testing.T) {
 func TestOneUnusedEnrollmentMigration(t *testing.T) {
 	assertMigrationContains(t, "010_one_unused_enrollment.sql", "CREATE UNIQUE INDEX", "runner_id", "WHERE used_at IS NULL")
 }
+
+func TestResourceLeasesMigration(t *testing.T) {
+	assertMigrationContains(t, "011_resource_leases.sql", "CREATE TABLE resource_leases", "resource_key", "task_run_id", "lease_token", "expires_at", "released_at", "CREATE UNIQUE INDEX")
+}
