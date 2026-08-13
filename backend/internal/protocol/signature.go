@@ -27,6 +27,22 @@ func (e Envelope) VerifyEvent(publicKey ed25519.PublicKey) error {
 	return e.Verify(publicKey, EventSignatureDomain)
 }
 
+// VerifyRawEnvelope verifies the small envelope before any caller parses the payload.
+func VerifyRawEnvelope(raw []byte, publicKey ed25519.PublicKey, domain string) (Envelope, []byte, error) {
+	envelope, err := DecodeEnvelope(raw)
+	if err != nil {
+		return Envelope{}, nil, err
+	}
+	if err := envelope.Verify(publicKey, domain); err != nil {
+		return Envelope{}, nil, err
+	}
+	payload, err := envelope.PayloadBytes()
+	if err != nil {
+		return Envelope{}, nil, err
+	}
+	return envelope, payload, nil
+}
+
 func (e *Envelope) Sign(privateKey ed25519.PrivateKey, domain string) error {
 	if len(privateKey) != ed25519.PrivateKeySize {
 		return errors.New("invalid Ed25519 private key")
