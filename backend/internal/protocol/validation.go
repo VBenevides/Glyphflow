@@ -51,6 +51,16 @@ func (p EventPayload) ValidateIdentity(runnerID, runID string, attempt uint32, l
 	return validateIdentity(p.RunnerID, p.RunID, p.Attempt, p.LeaseToken, runnerID, runID, attempt, leaseToken)
 }
 
+func (p EventPayload) ValidateSequence(expected uint64) error {
+	if p.Sequence == 0 || expected == 0 {
+		return errors.New("event sequence must be greater than zero")
+	}
+	if p.Sequence != expected {
+		return errors.New("unexpected event sequence")
+	}
+	return nil
+}
+
 func validateIdentity(actualRunner, actualRun string, actualAttempt uint32, actualLease, expectedRunner, expectedRun string, expectedAttempt uint32, expectedLease string) error {
 	if actualRunner == "" || actualRun == "" || actualLease == "" || actualAttempt == 0 {
 		return errors.New("message identity fields are required")
