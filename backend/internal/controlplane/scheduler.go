@@ -82,38 +82,7 @@ func nextCronMinute(now time.Time, expression string) (time.Time, error) {
 }
 
 func splitFields(value string) []string {
-	var fields []string
-	for _, field := range []byte(value) {
-		if field == ' ' {
-			continue
-		}
-	}
-	start := 0
-	for i := 0; i <= len(value); i++ {
-		if i == len(value) || value[i] == ' ' {
-			if i > start {
-				fields = append(fields, value[start:i])
-			}
-			start = i + 1
-		}
-	}
-	return fields
-}
-
-func matches(field string, value int) bool {
-	if field == "*" {
-		return true
-	}
-	for _, part := range splitComma(field) {
-		if part == "*" {
-			return true
-		}
-		var n int
-		if _, err := fmtSscanf(part, &n); err == nil && n == value {
-			return true
-		}
-	}
-	return false
+	return strings.Fields(value)
 }
 
 func parseCronField(field string, min, max int) (map[int]bool, error) {
@@ -173,16 +142,4 @@ func splitComma(value string) []string {
 		}
 	}
 	return parts
-}
-
-func fmtSscanf(value string, target *int) (int, error) {
-	var parsed int
-	for _, r := range value {
-		if r < '0' || r > '9' {
-			return 0, errors.New("not an integer")
-		}
-		parsed = parsed*10 + int(r-'0')
-	}
-	*target = parsed
-	return 1, nil
 }
