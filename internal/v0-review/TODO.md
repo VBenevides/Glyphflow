@@ -32,7 +32,7 @@
 - [x] **High:** Enforce allowed state transitions in the compare-and-swap update. `48c9e9c`
 - [x] **High:** Reject unsupported cron syntax and correct day-field behavior. `0a5b0ec`
 - [x] **Medium:** Return `501` for task creation until it validates and stores tasks. `37006e7`
-- [ ] **Medium:** Serialize migrations with a PostgreSQL advisory transaction lock.
+- [x] **Medium:** Serialize migrations with a PostgreSQL advisory transaction lock. `a086ba6`
 - [ ] **Medium:** Preserve structured command arguments during SQLite import.
 - [ ] **Low:** Delete the no-op `Plane.Stop` method.
 
