@@ -5,7 +5,7 @@
 - [x] **High:** Remove the always-successful control-plane authenticator. `79906c6`
   - Refuse startup without configured authentication.
   - Require `task.create` for task POST requests.
-- [x] **High:** Require NATS mutual TLS and exact worker subject permissions. `e19562a`
+- [x] **High:** Require NATS mutual TLS and exact worker subject permissions. `e19562a`, `aac667c`
   - Bind certificate identity to the runner identifier.
   - Add real cross-worker denial tests.
 - [x] **High:** Complete worker execution controls before wiring orders. `ef5065c`
