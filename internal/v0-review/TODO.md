@@ -38,7 +38,7 @@
 
 ## New Features
 
-- [ ] **Critical:** Implement one secure end-to-end task path.
+- [x] **Critical:** Implement one secure end-to-end task path. `b86edc5`
   - Create the run and outbox in one transaction.
   - Publish and durably accept one signed order.
   - Execute once and publish one signed final event.
