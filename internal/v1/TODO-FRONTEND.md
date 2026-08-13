@@ -1,0 +1,129 @@
+# Glyphflow v1 frontend implementation roadmap
+
+This roadmap builds the scheduler console described in `REPORT-FRONTEND.md`.
+
+All rows remain unchecked until implementation and verification are complete.
+
+Implement one row at a time. Test it, commit it, and record the commit hash and result in the last column.
+
+## Project outcome
+
+Glyphflow will provide one responsive web console for scheduler operations and administration.
+
+Users will sign in with a password or generic OIDC. Effective permissions will control every route and action.
+
+Authorized users will create tasks and schedules, inspect runs and logs, manage runners, and review audit events.
+
+## Phase 0: Frontend foundation
+
+| Task | Description | Impact | How to implement | How to test | Test Result |
+|---|---|---|---|---|---|
+| [ ] Critical: Add the minimal frontend dependencies and checks | Add the minimal frontend dependencies and checks. | Blocks a safe or correct v1 release. | Keep the existing Vite and React application. Add one SPA router, `@tanstack/react-query`, and `lucide-react`. Add scripts for type checking, build, unit tests, and linting. Do not add Cloudflare SSR, chat packages, charts, motion, or a full UI catalog. | Test a clean dependency install and production build. | |
+| [ ] Critical: Add semantic theme tokens and base styles | Add semantic theme tokens and base styles. | Blocks a safe or correct v1 release. | Define light and dark tokens for the page, cards, actions, borders, sidebar, status, radius, and focus. Add the pre-paint theme script. Use `glyphflow:` storage keys. Respect `prefers-color-scheme` and reduced motion. | Test both themes without a startup flash. | |
+| [ ] Critical: Add the small shared component set | Add the small shared component set. | Blocks a safe or correct v1 release. | Add `Button`, `Input`, `Dialog`, `StatusPill`, `PageHeader`, and `MetricCard`. Add `DataTable`, `Pagination`, `EmptyState`, `ErrorState`, and `LoadingState`. Prefer native controls and CSS over new packages. Add accessible names, focus styles, and disabled states. | Test keyboard operation and status announcements. | |
+| [ ] Critical: Add typed API models and one request client | Add typed API models and one request client. | Blocks a safe or correct v1 release. | Define common error, pagination, profile, permission, and runtime-configuration types. Build URLs and query values safely. Handle JSON, empty, and text responses. Support cancellation through `AbortSignal`. Keep endpoint functions grouped by resource. | Test serialization, cancellation, and error parsing. | |
+| [ ] Critical: Add the branded startup and fatal-error pages | Add the branded startup and fatal-error pages. | Blocks a safe or correct v1 release. | Show the Glyphflow logo, product name, spinner, and startup status. Load runtime configuration and restore the session. Show a blocking deployment error when configuration is missing. Add retry, login, forbidden, not-found, and unexpected-error pages. | Test slow, failed, and recovered startup. | |
+
+Exit condition: the frontend starts with stable themes, shared controls, typed API access, and a branded startup state.
+
+## Phase 1: Authentication and browser security
+
+| Task | Description | Impact | How to implement | How to test | Test Result |
+|---|---|---|---|---|---|
+| [ ] Critical: Restore the server session before private rendering | Restore the server session before private rendering. | Blocks a safe or correct v1 release. | Load public runtime configuration and `/api/v1/me` on startup. Keep the branded startup page visible until both requests resolve. Store the profile in memory or the query cache. Do not trust a local-storage user or store bearer tokens there. | Test valid, expired, revoked, disabled, and missing sessions. | |
+| [ ] Critical: Add permission-aware routes and actions | Add permission-aware routes and actions. | Blocks a safe or correct v1 release. | Define one frontend permission catalog that matches `internal/v1/REPORT.md`. Classify each route as public, authenticated, or permission-protected. Hide navigation entries that the user cannot read. Hide or disable create, edit, execute, cancel, retry, and manage actions. Show a `403` page for a denied direct route. | Test one allowed and denied case for every permission group. | |
+| [ ] Critical: Add secure cookie request handling | Add secure cookie request handling. | Blocks a safe or correct v1 release. | Send same-origin credentials for authenticated API requests. Add the server-issued CSRF token to unsafe requests. Share one refresh promise across concurrent `401` responses. Retry the original request once after refresh. Clear in-memory identity and return to login after refresh failure. | Test concurrent `401`, CSRF failure, and refresh replay responses. | |
+| [ ] High: Implement safe password and OIDC entry flows | Implement safe password and OIDC entry flows. | Closes a major v1 capability or reliability gap. | Load password and registration flags from public configuration. Load enabled OIDC providers from a public endpoint. Use packaged or same-origin provider icons. Validate any return route as a same-origin relative path. Remove OIDC code and state values from browser history. | Test password-only, SSO-only, mixed, and no-login-method states. | |
+| [ ] High: Render task output and audit values safely | Render task output and audit values safely. | Closes a major v1 capability or reliability gap. | Render stdout and stderr as text. Do not use `dangerouslySetInnerHTML` for logs or command output. Do not display resolved secret values. Make secret-reference fields distinct from environment-value fields. Keep untrusted URLs out of images and links unless explicitly allowed. | Test HTML, control characters, long lines, and redacted values. | |
+| [ ] High: Protect dangerous operations | Protect dangerous operations. | Closes a major v1 capability or reliability gap. | Confirm cancellation, retry, manual reconciliation, runner revocation, and enrollment reset. Explain possible external side effects before retrying an `UNKNOWN` run. Disable repeated submission while a mutation is pending. Reload the resource after a `409` state conflict. | Test double-click, stale version, and lost-session cases. | |
+| [ ] Critical: Prevent protected-content flashes during startup and navigation | Prevent protected-content flashes during startup and navigation. | Blocks a safe or correct v1 release. | Block the private shell until session restoration completes. Block a protected route until its permissions are known. Redirect before the protected page component renders. | Test cold load, slow `/me`, and slow permission responses. | |
+| [ ] High: Preserve the requested route through login | Preserve the requested route through login. | Closes a major v1 capability or reliability gap. | Capture one relative route when an authenticated route returns `401`. Restore it after password or OIDC login. Reject absolute, protocol-relative, and cross-origin values. Fall back to the overview route. | Test query strings and fragments. | |
+| [ ] Critical: Add login, registration, and OIDC callback routes | Add login, registration, and OIDC callback routes. | Blocks a safe or correct v1 release. | Render only enabled login methods. Disable registration when either password login or registration is disabled. Add clear pending and error states for each provider. Add OIDC login and account-link callback pages. Restore the validated return route after login. | Test every configured authentication mode. | |
+
+Exit condition: password and OIDC users enter the application without a protected-content flash or unsafe browser storage.
+
+## Phase 2: Application shell and data states
+
+| Task | Description | Impact | How to implement | How to test | Test Result |
+|---|---|---|---|---|---|
+| [ ] Critical: Add the responsive application shell | Add the responsive application shell. | Blocks a safe or correct v1 release. | Add one full-height sidebar and one main content region. Group routes into Operations, Infrastructure, Security, and Administration. Add desktop collapse and a mobile drawer. Add the user card, account link, theme action, and logout action. Keep the main region independently scrollable. | Test desktop, tablet, mobile, and long navigation labels. | |
+| [ ] High: Make the shell usable on narrow screens | Make the shell usable on narrow screens. | Closes a major v1 capability or reliability gap. | Replace the fixed sidebar with a modal drawer below 768 pixels. Close the drawer after navigation. Trap focus while open and restore focus after close. Prevent the background from scrolling. | Test keyboard, touch, text zoom, and 320-pixel width. | |
+| [ ] High: Never show fallback data as a successful response | Never show fallback data as a successful response. | Closes a major v1 capability or reliability gap. | Keep pending, error, empty, and success states separate. Do not show zero metrics before a query succeeds. Preserve the last successful data during background refresh. Show stale and reconnect status when the network fails. | Test initial failure and refresh failure. | |
+| [ ] Medium: Handle API errors consistently | Handle API errors consistently. | Improves v1 operation and maintenance. | Map `401`, `403`, `404`, `409`, `422`, `429`, and `5xx` responses. Put field errors next to the related controls. Show the correlation ID for server failures. Retry safe reads once and never retry mutations automatically. | Test malformed and non-JSON responses. | |
+| [ ] Medium: Keep route and sidebar state stable | Keep route and sidebar state stable. | Improves v1 operation and maintenance. | Derive active navigation from the router. Expand the active group automatically. Persist only the desktop sidebar collapse preference. Reset the mobile drawer after route changes. | Test reload, deep links, and browser history navigation. | |
+
+Exit condition: navigation, mobile layout, loading, empty, success, and error states work on direct and history navigation.
+
+## Phase 3: Tasks, schedules, and overview
+
+| Task | Description | Impact | How to implement | How to test | Test Result |
+|---|---|---|---|---|---|
+| [ ] High: Add task inventory and detail pages | Add task inventory and detail pages. | Closes a major v1 capability or reliability gap. | Show name, enabled state, active version, pool, timeout, schedules, and latest run. Add server-side search, state filters, sort, and pagination. Show immutable version history and version diffs. Link tasks to runs, schedules, resources, and audit events. | Test empty, large, disabled, and deleted task sets. | |
+| [ ] High: Add the task create and version editor | Add the task create and version editor. | Closes a major v1 capability or reliability gap. | Edit command arguments without a shell string. Edit working directory, environment values, and secret references. Edit runner pool, optional pinned runner, and placement selectors. Edit timeout, output limit, retry, ambiguity, and resource policies. Review the new immutable version before save. | Test validation, conflict, rollback, and unsaved changes. | |
+| [ ] High: Add schedule inventory and editor pages | Add schedule inventory and editor pages. | Closes a major v1 capability or reliability gap. | Support cron and interval schedule types from the approved API contract. Select an explicit time zone. Preview the next occurrences before save. Explain misfire, catch-up, start-deadline, and concurrency policies. Show active version and change history. | Test daylight-saving gaps, repeated times, and invalid expressions. | |
+| [ ] Medium: Add the permission-aware operations dashboard | Add the permission-aware operations dashboard. | Improves v1 operation and maintenance. | Show permitted run, schedule, runner, resource, and audit metrics. Show recent failed and `UNKNOWN` runs. Show due schedules and offline runners. Do not request data for hidden widgets. Add empty, partial-error, and refresh states. | Test users with different permission combinations. | |
+
+Exit condition: an authorized user can create a versioned task and schedule after reviewing the next occurrences.
+
+## Phase 4: Runs and live logs
+
+| Task | Description | Impact | How to implement | How to test | Test Result |
+|---|---|---|---|---|---|
+| [ ] High: Add the run inventory page | Add the run inventory page. | Closes a major v1 capability or reliability gap. | Show task, trigger, schedule time, state, attempt, runner, queue age, and duration. Add filters for task, runner, state, attempt, trigger, and time range. Refresh active states without resetting the table. Make `UNKNOWN`, `FAILED`, and `TIMED_OUT` distinct. | Test large history, active refresh, and empty filters. | |
+| [ ] High: Add run detail, attempts, events, and live logs | Add run detail, attempts, events, and live logs. | Closes a major v1 capability or reliability gap. | Show immutable task and schedule version links. Show each attempt, runner session, state event, and resource lease. Stream separate stdout and stderr output from the Go API. Add pause, follow, reconnect, and download controls. Bound rendered output and preserve chunk order. | Test long output, stream interruption, and terminal states. | |
+| [ ] High: Add manual run, cancel, retry, and reconcile actions | Add manual run, cancel, retry, and reconcile actions. | Closes a major v1 capability or reliability gap. | Start a manual run from task detail. Show actions only in eligible states and with required permissions. Require a reason where the API contract requires one. Explain duplicate external-effect risk before retry or reconciliation. Refresh the run after each accepted action. | Test each legal and illegal state transition. | |
+| [ ] Medium: Make live-log reconnection lossless for the visible session | Make live-log reconnection lossless for the visible session. | Improves v1 operation and maintenance. | Keep already received output when the stream disconnects. Resume from the last accepted chunk sequence. Mark the stream as reconnecting or stopped. Prevent duplicate chunks after resume. | Test disconnect, duplicate, gap, and terminal run states. | |
+
+Exit condition: an authorized user can start, inspect, cancel, retry, and reconcile a run without log loss or duplication.
+
+## Phase 5: Runners, resources, and audit
+
+| Task | Description | Impact | How to implement | How to test | Test Result |
+|---|---|---|---|---|---|
+| [ ] High: Add runner and pool management pages | Add runner and pool management pages. | Closes a major v1 capability or reliability gap. | Show desired state, observed state, pool, capacity, heartbeat, version, platform, and key state. Show sessions, capabilities, recent attempts, and pool membership. Add permitted enable, drain, disable, reset, and revoke actions. Show offline and stale-heartbeat warnings. | Test state changes and stale data conflicts. | |
+| [ ] High: Add the enrollment workflow | Add the enrollment workflow. | Closes a major v1 capability or reliability gap. | Create a one-use enrollment for a selected platform and architecture. Show expiry and one-use warnings before download. Download the installer or enrollment artifact without caching it. Do not persist the token in browser storage. | Test expiry, second use, cancellation, and revocation. | |
+| [ ] High: Add exclusive resource and lease pages | Add exclusive resource and lease pages. | Closes a major v1 capability or reliability gap. | Show enabled state, holder, lease expiry, fencing counter, and task references. Add permitted create, update, enable, disable, and delete actions. Prevent deletion while active references or leases exist. Link the active holder to its run and attempt. | Test active, expired, released, and contended leases. | |
+| [ ] Medium: Add the audit-event page | Add the audit-event page. | Improves v1 operation and maintenance. | Filter by time, actor, action, object, result, request, and correlation ID. Show before and after values with redaction preserved. Link known users, tasks, runs, runners, roles, and sessions. Add server-side pagination. | Test system actors, deleted objects, and redacted values. | |
+
+Exit condition: an authorized user can enroll a runner, inspect leases, and trace system changes through audit events.
+
+## Phase 6: Administration and account
+
+| Task | Description | Impact | How to implement | How to test | Test Result |
+|---|---|---|---|---|---|
+| [ ] High: Add user and session management | Add user and session management. | Closes a major v1 capability or reliability gap. | Show status, login methods, role sources, effective permissions, and sessions. Add permitted enable, disable, role assignment, and session revocation actions. Explain last-administrator and last-login-method failures. Keep system and SSO role assignments read-only in manual controls. | Test pending, disabled, password-only, and SSO-only users. | |
+| [ ] High: Add system and custom role management | Add system and custom role management. | Closes a major v1 capability or reliability gap. | List seeded permission keys by resource and action. Show system roles as immutable. Create and edit custom role names, descriptions, and permission sets. Show affected users before role deletion. | Test duplicate keys, protected roles, and concurrent edits. | |
+| [ ] High: Add SSO and authentication settings | Add SSO and authentication settings. | Closes a major v1 capability or reliability gap. | Manage providers, callback URLs, secret references, claim mappings, and group mappings. Manage password login, registration, and default role settings. Show a lockout warning before each risky change. Never reveal a resolved provider secret. | Test invalid settings, provider disablement, and lockout rejection. | |
+| [ ] Medium: Add profile, password, identity, and owned-session pages | Add profile, password, identity, and owned-session pages. | Improves v1 operation and maintenance. | Edit the current display name when supported. Change the password when password login is available. Link and unlink OIDC identities. List and revoke owned sessions. Prevent removal of the final login method. | Test current-session revocation and mixed login methods. | |
+
+Exit condition: administrators can manage users, roles, SSO, and settings while users manage their own login methods and sessions.
+
+## Phase 7: Quality and release
+
+| Task | Description | Impact | How to implement | How to test | Test Result |
+|---|---|---|---|---|---|
+| [ ] Medium: Add frontend security headers through the deployment boundary | Add frontend security headers through the deployment boundary. | Improves v1 operation and maintenance. | Define a restrictive Content Security Policy. Block framing except where explicitly required. Set a strict referrer policy and MIME sniffing protection. Permit API, OIDC, and log-stream origins explicitly. | Test the production response headers. | |
+| [ ] High: Add frontend workflow tests | Add frontend workflow tests. | Closes a major v1 capability or reliability gap. | Stub `fetch` directly before adding another mocking package. | Test startup, login, OIDC callback, logout, and session expiry. Test route and action permissions. Test task creation, schedule preview, manual run, cancel, retry, and logs. Test runner enrollment, role editing, and SSO settings. | |
+| [ ] High: Add automated accessibility checks | Add automated accessibility checks. | Closes a major v1 capability or reliability gap. | Fix critical and serious findings before release. | Test keyboard-only navigation and dialog focus. Test labels, headings, landmarks, status announcements, and error links. Test light and dark contrast. Test text zoom and reduced motion. | |
+| [ ] Medium: Add operational refresh controls | Add operational refresh controls. | Improves v1 operation and maintenance. | Poll only active run and runner data. Pause polling on hidden tabs. Show last successful refresh and stale state. Use manual refresh for stable history pages. | Test tab visibility and network recovery. | |
+| [ ] Medium: Add unsaved-change protection | Add unsaved-change protection. | Improves v1 operation and maintenance. | Warn before leaving changed task, schedule, role, SSO, or setting forms. Do not warn after a successful save or explicit discard. Preserve field values after a recoverable API error. | Test route navigation, browser navigation, and reload. | |
+| [ ] Medium: Add large-data safeguards | Add large-data safeguards. | Improves v1 operation and maintenance. | Require server-side pagination for all collections. Bound live log rows and retain a downloadable source. Debounce server-side search. Cancel obsolete requests when filters change. | Test large collections and rapid filter changes. | |
+| [ ] A password user can sign in, sign out, and recover from session expiry | A password user can sign in, sign out, and recover from session expiry. | Blocks the v1 frontend release. | Complete the related roadmap items and correct each failed check. | Run this acceptance check in the supported browser and deployment matrix. | |
+| [ ] An OIDC user can sign in and return to the requested route | An OIDC user can sign in and return to the requested route. | Blocks the v1 frontend release. | Complete the related roadmap items and correct each failed check. | Run this acceptance check in the supported browser and deployment matrix. | |
+| [ ] Navigation and actions match effective permissions | Navigation and actions match effective permissions. | Blocks the v1 frontend release. | Complete the related roadmap items and correct each failed check. | Run this acceptance check in the supported browser and deployment matrix. | |
+| [ ] An authorized user can create a task and schedule | An authorized user can create a task and schedule. | Blocks the v1 frontend release. | Complete the related roadmap items and correct each failed check. | Run this acceptance check in the supported browser and deployment matrix. | |
+| [ ] An authorized user can start, cancel, retry, and inspect a run | An authorized user can start, cancel, retry, and inspect a run. | Blocks the v1 frontend release. | Complete the related roadmap items and correct each failed check. | Run this acceptance check in the supported browser and deployment matrix. | |
+| [ ] Live stdout and stderr survive a stream reconnect without duplicate display | Live stdout and stderr survive a stream reconnect without duplicate display. | Blocks the v1 frontend release. | Complete the related roadmap items and correct each failed check. | Run this acceptance check in the supported browser and deployment matrix. | |
+| [ ] An authorized user can enroll and manage a runner | An authorized user can enroll and manage a runner. | Blocks the v1 frontend release. | Complete the related roadmap items and correct each failed check. | Run this acceptance check in the supported browser and deployment matrix. | |
+| [ ] An administrator can manage users, custom roles, SSO, and authentication settings | An administrator can manage users, custom roles, SSO, and authentication settings. | Blocks the v1 frontend release. | Complete the related roadmap items and correct each failed check. | Run this acceptance check in the supported browser and deployment matrix. | |
+| [ ] Mobile, keyboard, screen-reader, light-theme, and dark-theme checks pass | Mobile, keyboard, screen-reader, light-theme, and dark-theme checks pass. | Blocks the v1 frontend release. | Complete the related roadmap items and correct each failed check. | Run this acceptance check in the supported browser and deployment matrix. | |
+| [ ] Type checking, linting, unit tests, workflow tests, and production build pass | Type checking, linting, unit tests, workflow tests, and production build pass. | Blocks the v1 frontend release. | Complete the related roadmap items and correct each failed check. | Run this acceptance check in the supported browser and deployment matrix. | |
+
+Exit condition: all supported authentication, permission, workflow, accessibility, theme, viewport, and production-build checks pass.
+
+## Deferred work
+
+| Task | Description | Impact | How to implement | How to test | Test Result |
+|---|---|---|---|---|---|
+| [ ] Low: Add a third theme only after the base themes are stable | Add a third theme only after the base themes are stable. | Adds optional value after core v1 works. | Reuse the semantic token contract. Do not change component markup for the new theme. | Test contrast and pre-paint selection. | |
+| [ ] Low: Add localization only after supported locales are defined | Add localization only after supported locales are defined. | Adds optional value after core v1 works. | Keep user-facing strings out of domain enums. Choose one small translation mechanism when a second locale is approved. | Test fallback strings and stored locale selection. | |
