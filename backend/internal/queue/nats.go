@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	urlpkg "net/url"
 	"strings"
 	"time"
 
@@ -31,6 +32,10 @@ func (c TLSConfig) options() ([]nats.Option, error) {
 }
 
 func ConnectJetStream(url string) (*JetStream, error) {
+	parsed, err := urlpkg.Parse(url)
+	if err != nil || parsed.Scheme != "tls" {
+		return nil, errors.New("NATS mutual TLS is required")
+	}
 	return connectJetStream(url)
 }
 

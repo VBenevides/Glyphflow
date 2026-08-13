@@ -34,3 +34,9 @@ func TestQueueDeliveryDefaults(t *testing.T) {
 		t.Fatal("unexpected dead-letter subject")
 	}
 }
+
+func TestConnectJetStreamRequiresMutualTLS(t *testing.T) {
+	if _, err := ConnectJetStream("nats://localhost:4222"); err == nil {
+		t.Fatal("plaintext NATS connection was accepted")
+	}
+}

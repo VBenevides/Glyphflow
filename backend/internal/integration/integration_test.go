@@ -15,9 +15,9 @@ import (
 
 func TestPostgresAndJetStreamDurableBoundary(t *testing.T) {
 	databaseURL := os.Getenv("DATABASE_URL")
-	natsURL := os.Getenv("NATS_URL")
-	if databaseURL == "" || natsURL == "" {
-		t.Skip("set DATABASE_URL and NATS_URL to run integration tests")
+	natsURL := os.Getenv("NATS_TLS_URL")
+	if databaseURL == "" || natsURL == "" || os.Getenv("NATS_CERT_FILE") == "" || os.Getenv("NATS_KEY_FILE") == "" || os.Getenv("NATS_CA_FILE") == "" {
+		t.Skip("set database and mutual-TLS NATS variables to run integration tests")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -29,7 +29,7 @@ func TestPostgresAndJetStreamDurableBoundary(t *testing.T) {
 	if err := store.ApplyMigrations(ctx, pool, "../../migrations"); err != nil {
 		t.Fatal(err)
 	}
-	jetstream, err := queue.ConnectJetStream(natsURL)
+	jetstream, err := queue.ConnectJetStreamTLS(natsURL, queue.TLSConfig{CertificateFile: os.Getenv("NATS_CERT_FILE"), KeyFile: os.Getenv("NATS_KEY_FILE"), CAFile: os.Getenv("NATS_CA_FILE")})
 	if err != nil {
 		t.Fatal(err)
 	}
