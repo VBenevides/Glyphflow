@@ -30,7 +30,7 @@
 - [x] **High:** Remove the non-atomic JSON worker store. `d0075a7`
   - Replace it with the planned SQLite transaction during worker wiring.
 - [x] **High:** Enforce allowed state transitions in the compare-and-swap update. `48c9e9c`
-- [ ] **High:** Reject unsupported cron syntax and correct day-field behavior.
+- [x] **High:** Reject unsupported cron syntax and correct day-field behavior. `0a5b0ec`
 - [ ] **Medium:** Return `501` for task creation until it validates and stores tasks.
 - [ ] **Medium:** Serialize migrations with a PostgreSQL advisory transaction lock.
 - [ ] **Medium:** Preserve structured command arguments during SQLite import.
