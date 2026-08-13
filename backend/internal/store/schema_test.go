@@ -61,3 +61,7 @@ func TestRunnerKeysMigration(t *testing.T) {
 func TestRunnerEnrollmentsMigration(t *testing.T) {
 	assertMigrationContains(t, "009_runner_enrollments.sql", "CREATE TABLE runner_enrollments", "token_hash bytea", "expires_at", "used_at", "requester", "target", "artifact jsonb")
 }
+
+func TestOneUnusedEnrollmentMigration(t *testing.T) {
+	assertMigrationContains(t, "010_one_unused_enrollment.sql", "CREATE UNIQUE INDEX", "runner_id", "WHERE used_at IS NULL")
+}
