@@ -44,7 +44,7 @@
   - Execute once and publish one signed final event.
   - Verify the event and update the run in one transaction.
 - [x] **High:** Add the required JetStream publisher, consumers, acknowledgements, and dead-letter flow. `5eb9389`
-- [ ] **High:** Add real task, run, event, runner, cancellation, and retry endpoints as workflows become available.
+- [x] **High:** Add guarded task, run, event, runner, cancellation, and retry endpoints as workflows become available. `eb5fd8c`
 - [ ] **High:** Add enrollment, certificate issue, key rotation, and revocation.
 - [ ] **Medium:** Add readiness checks, persistent security audits, and core queue and outbox metrics.
 
