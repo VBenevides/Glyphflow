@@ -5,6 +5,8 @@ import (
 	"time"
 )
 
+const MaxEventErrorBytes = 4096
+
 func (p OrderPayload) ValidateTime(now time.Time, clockTolerance time.Duration) error {
 	if clockTolerance < 0 {
 		return errors.New("clock tolerance cannot be negative")
@@ -57,6 +59,13 @@ func (p EventPayload) ValidateSequence(expected uint64) error {
 	}
 	if p.Sequence != expected {
 		return errors.New("unexpected event sequence")
+	}
+	return nil
+}
+
+func (p EventPayload) ValidateError() error {
+	if len([]byte(p.Error)) > MaxEventErrorBytes {
+		return errors.New("event error exceeds size limit")
 	}
 	return nil
 }
