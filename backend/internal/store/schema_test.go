@@ -53,3 +53,7 @@ func TestUniqueRunEventsMigration(t *testing.T) {
 func TestRunnersMigration(t *testing.T) {
 	assertMigrationContains(t, "007_runners.sql", "CREATE TABLE runners", "pool", "capacity", "capabilities jsonb", "state", "heartbeat_at")
 }
+
+func TestRunnerKeysMigration(t *testing.T) {
+	assertMigrationContains(t, "008_runner_keys.sql", "CREATE TABLE runner_keys", "public_key bytea", "not_before", "not_after", "revoked_at", "REFERENCES runners")
+}
