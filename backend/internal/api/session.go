@@ -15,6 +15,12 @@ import (
 
 const accessTokenVersion = "gf1"
 
+const (
+	accessCookie  = "glyphflow_access"
+	refreshCookie = "glyphflow_refresh"
+	sessionCookie = "glyphflow_session"
+)
+
 type accessTokenPayload struct {
 	UserID    string `json:"sub"`
 	SessionID string `json:"sid"`
@@ -106,12 +112,16 @@ func (m *SessionManager) Revoke(sessionID string) {
 
 func (m *SessionManager) Authenticator() Authenticator {
 	return func(r *http.Request) (Claims, bool) {
-		const prefix = "Bearer "
 		value := r.Header.Get("Authorization")
-		if len(value) <= len(prefix) || !strings.EqualFold(value[:len(prefix)], prefix) {
+		const prefix = "Bearer "
+		if len(value) > len(prefix) && strings.EqualFold(value[:len(prefix)], prefix) {
+			value = strings.TrimSpace(value[len(prefix):])
+		} else if cookie, err := r.Cookie(accessCookie); err == nil {
+			value = cookie.Value
+		} else {
 			return Claims{}, false
 		}
-		payload, ok := m.verify(strings.TrimSpace(value[len(prefix):]))
+		payload, ok := m.verify(value)
 		if !ok {
 			return Claims{}, false
 		}

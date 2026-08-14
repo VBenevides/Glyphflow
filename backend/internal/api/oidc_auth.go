@@ -336,6 +336,7 @@ func (s Server) oidcRoutes(mux routeRegistrar) {
 			writeJSON(w, 401, map[string]string{"error": "OIDC login failed"})
 			return
 		}
+		s.setSessionCookies(w, tokens)
 		writeJSON(w, 200, tokens)
 	})
 }

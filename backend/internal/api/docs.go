@@ -141,5 +141,6 @@ func (s Server) docsLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
 		return
 	}
+	s.setSessionCookies(w, tokens)
 	writeJSON(w, http.StatusOK, tokens)
 }

@@ -105,6 +105,7 @@ func (s Server) passwordRoutes(mux routeRegistrar) {
 				writeJSON(w, 401, map[string]string{"error": "invalid credentials"})
 				return
 			}
+			s.setSessionCookies(w, tokens)
 			writeJSON(w, 200, tokens)
 		})
 		mux.HandleFunc("/api/v1/auth/refresh", func(w http.ResponseWriter, r *http.Request) {
@@ -114,14 +115,24 @@ func (s Server) passwordRoutes(mux routeRegistrar) {
 			}
 			var in struct{ SessionID, RefreshToken string }
 			if json.NewDecoder(r.Body).Decode(&in) != nil {
-				writeJSON(w, 401, map[string]string{"error": "invalid refresh"})
-				return
+				in = struct{ SessionID, RefreshToken string }{}
+			}
+			if in.SessionID == "" {
+				if cookie, err := r.Cookie(sessionCookie); err == nil {
+					in.SessionID = cookie.Value
+				}
+			}
+			if in.RefreshToken == "" {
+				if cookie, err := r.Cookie(refreshCookie); err == nil {
+					in.RefreshToken = cookie.Value
+				}
 			}
 			tokens, err := s.AuthService.Refresh(in.SessionID, in.RefreshToken)
 			if err != nil {
 				writeJSON(w, 401, map[string]string{"error": "invalid refresh"})
 				return
 			}
+			s.setSessionCookies(w, tokens)
 			writeJSON(w, 200, tokens)
 		})
 		mux.HandleFunc("/api/v1/auth/logout", func(w http.ResponseWriter, r *http.Request) {
@@ -131,7 +142,11 @@ func (s Server) passwordRoutes(mux routeRegistrar) {
 			}
 			var in struct{ SessionID string }
 			_ = json.NewDecoder(r.Body).Decode(&in)
+			if claims, ok := s.AuthService.Authenticator()(r); ok {
+				in.SessionID = claims.SessionID
+			}
 			s.AuthService.Logout(in.SessionID)
+			s.clearSessionCookies(w)
 			writeJSON(w, 204, nil)
 		})
 		mux.HandleFunc("/api/v1/auth/logout-all", func(w http.ResponseWriter, r *http.Request) {
@@ -193,6 +208,7 @@ func (s Server) passwordRoutes(mux routeRegistrar) {
 			writeJSON(w, 500, map[string]string{"error": "login failed"})
 			return
 		}
+		s.setAccessCookie(w, token)
 		writeJSON(w, 200, map[string]string{"access_token": token})
 	})
 }
