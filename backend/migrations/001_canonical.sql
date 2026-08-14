@@ -11,14 +11,16 @@ CREATE TABLE users (
     display_name text NOT NULL DEFAULT '',
     status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'pending', 'disabled')),
     created_at timestamptz NOT NULL DEFAULT now(),
-    updated_at timestamptz NOT NULL DEFAULT now()
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CHECK (email <> '' AND email = lower(btrim(email))),
+    CHECK (username <> '' AND username = lower(btrim(username)))
 );
 CREATE UNIQUE INDEX users_username_ci_idx ON users (lower(username));
 CREATE UNIQUE INDEX users_email_ci_idx ON users (lower(email));
 
 CREATE TABLE user_passwords (
     user_id text PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-    password_hash text NOT NULL CHECK (password_hash LIKE '$argon2id$%'),
+    password_hash text NOT NULL CHECK (password_hash ~ '^\$argon2id\$v=19\$m=[0-9]+,t=[0-9]+,p=[0-9]+\$[^$]+\$[^$]+$'),
     password_changed_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -43,7 +45,8 @@ CREATE TABLE roles (
     id text PRIMARY KEY,
     name text NOT NULL,
     description text NOT NULL DEFAULT '',
-    is_system boolean NOT NULL DEFAULT false
+    is_system boolean NOT NULL DEFAULT false,
+    CHECK (name <> '')
 );
 CREATE UNIQUE INDEX roles_name_ci_idx ON roles (lower(name));
 
@@ -406,6 +409,18 @@ BEGIN
     RAISE EXCEPTION '% is append-only', TG_TABLE_NAME;
 END;
 $$;
+CREATE OR REPLACE FUNCTION reject_system_role_mutation() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF OLD.is_system THEN
+        RAISE EXCEPTION 'system roles are immutable';
+    END IF;
+    RETURN COALESCE(NEW, OLD);
+END;
+$$;
+CREATE TRIGGER roles_system_immutable
+    BEFORE UPDATE OR DELETE ON roles
+    FOR EACH ROW EXECUTE FUNCTION reject_system_role_mutation();
 CREATE TRIGGER audit_events_append_only
     BEFORE UPDATE OR DELETE ON audit_events
     FOR EACH ROW EXECUTE FUNCTION reject_append_only_mutation();

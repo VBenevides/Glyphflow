@@ -60,3 +60,19 @@ func TestCanonicalMigrationHasIntegrityGuards(t *testing.T) {
 		}
 	}
 }
+
+func TestCanonicalMigrationHasIdentityConstraints(t *testing.T) {
+	sql := canonicalMigrationSQL(t)
+	for _, fragment := range []string{
+		"check (email <> '' and email = lower(btrim(email)))",
+		"check (username <> '' and username = lower(btrim(username)))",
+		"password_hash ~ '^\\$argon2id\\$v=19\\$m=",
+		"unique index roles_name_ci_idx on roles (lower(name))",
+		"create trigger roles_system_immutable",
+		"role_id text not null references roles(id) on delete restrict",
+	} {
+		if !strings.Contains(sql, fragment) {
+			t.Errorf("canonical migration does not contain identity constraint %q", fragment)
+		}
+	}
+}
