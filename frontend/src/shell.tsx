@@ -20,6 +20,10 @@ export function groupedRoutes(routes: RouteRule[]): Array<{ group: Group; routes
   return groups.map((group) => ({ group, routes: group.paths.map((path) => routes.find((route) => route.path === path)).filter((route): route is RouteRule => Boolean(route)) })).filter(({ routes }) => routes.length > 0)
 }
 
+export function activeGroupName(path: string): string | undefined {
+  return groups.find((group) => group.paths.includes(path) || (path !== '/' && group.paths.some((candidate) => path.startsWith(`${candidate}/`))))?.name
+}
+
 function routeIcon(path: string) {
   if (path === '/runs') return Activity
   if (path.startsWith('/admin')) return path === '/admin/roles' ? KeyRound : Users
@@ -41,6 +45,10 @@ export function Shell({ children }: { children: ReactNode }) {
   const grouped = groupedRoutes(visible)
   useEffect(() => { window.localStorage.setItem(SIDEBAR_KEY, String(collapsed)) }, [collapsed])
   useEffect(() => { setMobileOpen(false) }, [location.pathname])
+  useEffect(() => {
+    const active = activeGroupName(location.pathname)
+    if (active) setOpenGroups((current) => ({ ...current, [active]: true }))
+  }, [location.pathname])
   useEffect(() => {
     if (!mobileOpen) return
     const previous = document.activeElement as HTMLElement | null
