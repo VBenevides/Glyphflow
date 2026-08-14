@@ -5,6 +5,32 @@ import (
 	"strings"
 )
 
+type SSOIdentity struct {
+	UserID   string
+	Provider string
+	Subject  string
+}
+
+func MatchSSOIdentity(identities []SSOIdentity, provider, subject string) (string, bool) {
+	provider, subject = NormalizeIdentityKey(provider), strings.TrimSpace(subject)
+	if provider == "" || subject == "" {
+		return "", false
+	}
+	for _, identity := range identities {
+		if NormalizeIdentityKey(identity.Provider) == provider && identity.Subject == subject {
+			return identity.UserID, true
+		}
+	}
+	return "", false
+}
+
+func CanLinkSSOIdentity(authenticatedUserID, targetUserID string) error {
+	if authenticatedUserID == "" || targetUserID == "" || authenticatedUserID != targetUserID {
+		return errors.New("authenticated account linking is required")
+	}
+	return nil
+}
+
 func HasLoginMethod(passwordEnabled bool, enabledSSO int) bool {
 	return passwordEnabled || enabledSSO > 0
 }
