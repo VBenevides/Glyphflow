@@ -32,9 +32,10 @@ func BearerAuthenticator(token string) Authenticator {
 }
 
 type Server struct {
-	Auth  Authenticator
-	Audit func(Claims, string, string)
-	Ready func(context.Context) error
+	Auth       Authenticator
+	Audit      func(Claims, string, string)
+	Ready      func(context.Context) error
+	CSRFOrigin string
 }
 
 func (s Server) Handler() http.Handler {
@@ -85,7 +86,11 @@ func (s Server) Handler() http.Handler {
 	}, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "run action is not implemented"})
 	})))
-	return s.noStore(s.withCorrelation(mux))
+	var handler http.Handler = mux
+	if s.CSRFOrigin != "" {
+		handler = s.withCSRF(handler, s.CSRFOrigin)
+	}
+	return s.noStore(s.withCorrelation(handler))
 }
 
 func (s Server) require(role string, next http.Handler) http.Handler {

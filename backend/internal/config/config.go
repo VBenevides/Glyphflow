@@ -23,6 +23,7 @@ type Config struct {
 	NATSURL           string
 	APIToken          string // Deprecated: kept for v0 source compatibility.
 	AccessTokenSecret string
+	WebOrigin         string
 	DataDir           string
 	RunnerID          string
 	MaxMessageBytes   int
@@ -36,6 +37,7 @@ func FromEnv(role Role) (Config, error) {
 		NATSURL:           os.Getenv("NATS_URL"),
 		APIToken:          os.Getenv("API_AUTH_TOKEN"),
 		AccessTokenSecret: os.Getenv("ACCESS_TOKEN_SECRET"),
+		WebOrigin:         os.Getenv("WEB_ORIGIN"),
 		DataDir:           os.Getenv("DATA_DIR"),
 		RunnerID:          os.Getenv("RUNNER_ID"),
 	}
@@ -70,6 +72,9 @@ func (c Config) Validate() error {
 	if c.Role == ControlPlane {
 		if len([]byte(c.AccessTokenSecret)) < 32 {
 			return errors.New("ACCESS_TOKEN_SECRET must contain at least 32 bytes")
+		}
+		if err := requireURL("WEB_ORIGIN", c.WebOrigin, "http", "https"); err != nil {
+			return err
 		}
 		return requireURL("DATABASE_URL", c.DatabaseURL, "postgres", "postgresql")
 	}

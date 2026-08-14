@@ -8,6 +8,7 @@ func TestValidateControlPlane(t *testing.T) {
 		DatabaseURL:       "postgres://user:pass@localhost/db",
 		NATSURL:           "nats://localhost:4222",
 		AccessTokenSecret: "01234567890123456789012345678901",
+		WebOrigin:         "https://console.example",
 		DataDir:           "/var/lib/glyphflow",
 		MaxMessageBytes:   1 << 20,
 	}
