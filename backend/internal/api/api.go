@@ -36,6 +36,9 @@ func (s Server) Handler() http.Handler {
 		panic(err)
 	}
 	mux := http.NewServeMux()
+	mux.HandleFunc("/docs", swaggerUI)
+	mux.HandleFunc("/docs/login", s.docsLogin)
+	mux.HandleFunc("/openapi.json", openAPI)
 	if s.CurrentUser == nil && s.AuthService != nil {
 		s.CurrentUser = &CurrentUserService{Profile: s.AuthService.Profile, Sessions: s.AuthService.sessions}
 	}

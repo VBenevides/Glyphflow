@@ -41,6 +41,11 @@ func ValidateCSRFRequest(r *http.Request, expectedOrigin string) error {
 
 func (s Server) withCSRF(next http.Handler, expectedOrigin string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/docs/login" {
+			// This helper returns a bearer token in the response body and creates no cookie session.
+			next.ServeHTTP(w, r)
+			return
+		}
 		if err := ValidateCSRFRequest(r, expectedOrigin); err != nil {
 			writeJSON(w, http.StatusForbidden, map[string]string{"error": "cross-site request rejected"})
 			return
