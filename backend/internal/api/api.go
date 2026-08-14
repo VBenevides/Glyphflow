@@ -36,6 +36,7 @@ type Server struct {
 	Permissions  func(Claims) map[string]bool
 	PasswordAuth *PasswordAuthService
 	Sessions     *SessionManager
+	OIDC         *OIDCService
 	Audit        func(Claims, string, string)
 	Ready        func(context.Context) error
 	CSRFOrigin   string
@@ -47,6 +48,7 @@ func (s Server) Handler() http.Handler {
 	}
 	mux := http.NewServeMux()
 	s.passwordRoutes(mux)
+	s.oidcRoutes(mux)
 	mux.HandleFunc("/api/v1/healthz", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "ok"}) })
 	mux.HandleFunc("/api/v1/readyz", func(w http.ResponseWriter, r *http.Request) {
 		if s.Ready != nil {
