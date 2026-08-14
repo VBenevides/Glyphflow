@@ -1,1 +1,0 @@
--- The migration runner creates schema_migrations before applying versioned files.
