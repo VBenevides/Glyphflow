@@ -33,6 +33,7 @@ type RunnerRepository interface {
 	ConsumeEnrollment(context.Context, string, time.Time) (RunnerRecord, error)
 	CreateSession(context.Context, string, string) error
 	Heartbeat(context.Context, string, time.Time) error
+	MarkStale(context.Context, time.Time) error
 }
 
 type RunnerStore struct{ pool *pgxpool.Pool }
@@ -173,6 +174,11 @@ func (s *RunnerStore) CreateSession(ctx context.Context, runnerID, bootID string
 }
 
 func (s *RunnerStore) Heartbeat(ctx context.Context, runnerID string, now time.Time) error {
-	_, err := s.pool.Exec(ctx, `UPDATE runners SET observed_state = 'ONLINE', last_seen_at = $2, updated_at = now() WHERE id = $1`, runnerID, now)
+	_, err := s.pool.Exec(ctx, `UPDATE runners SET observed_state = 'ONLINE', last_seen_at = $2, updated_at = now() WHERE id = $1 AND observed_state <> 'REVOKED' AND (last_seen_at IS NULL OR last_seen_at < $2)`, runnerID, now)
+	return err
+}
+
+func (s *RunnerStore) MarkStale(ctx context.Context, cutoff time.Time) error {
+	_, err := s.pool.Exec(ctx, `UPDATE runners SET observed_state = 'OFFLINE', updated_at = now() WHERE observed_state = 'ONLINE' AND (last_seen_at IS NULL OR last_seen_at < $1)`, cutoff)
 	return err
 }

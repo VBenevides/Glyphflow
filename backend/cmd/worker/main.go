@@ -124,6 +124,11 @@ func main() {
 }
 
 func workerHeartbeat(ctx context.Context, jetstream *queue.JetStream, runnerID, bootID string) {
+	publish := func(now time.Time) {
+		payload, _ := json.Marshal(map[string]string{"runner_id": runnerID, "boot_id": bootID, "at": now.UTC().Format(time.RFC3339Nano)})
+		_ = jetstream.Publish(ctx, queue.Message{Subject: queue.Subject("events", runnerID), Data: payload, ID: "heartbeat:" + bootID + ":" + now.UTC().Format(time.RFC3339Nano)})
+	}
+	publish(time.Now().UTC())
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -131,8 +136,7 @@ func workerHeartbeat(ctx context.Context, jetstream *queue.JetStream, runnerID, 
 		case <-ctx.Done():
 			return
 		case now := <-ticker.C:
-			payload, _ := json.Marshal(map[string]string{"runner_id": runnerID, "boot_id": bootID, "at": now.UTC().Format(time.RFC3339Nano)})
-			_ = jetstream.Publish(ctx, queue.Message{Subject: queue.Subject("events", runnerID), Data: payload, ID: "heartbeat:" + bootID + ":" + now.UTC().Format(time.RFC3339Nano)})
+			publish(now)
 		}
 	}
 }

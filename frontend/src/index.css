@@ -105,6 +105,8 @@ a {
 .gf-status-failed, .gf-status-unknown, .gf-status-revoked { color: var(--gf-danger); }
 .gf-status-running, .gf-status-started, .gf-status-pending { color: var(--gf-info); }
 .gf-status-warning, .gf-status-draining { color: var(--gf-warning); }
+.gf-status-waiting-enrollment { color: var(--gf-warning); }
+.gf-status-runner-enrolled { color: var(--gf-success); }
 .gf-table-wrap { overflow-x: auto; background: var(--gf-card); border: 1px solid var(--gf-border); border-radius: var(--gf-radius); }
 .gf-table { width: 100%; border-collapse: collapse; min-width: 42rem; }
 .gf-table th, .gf-table td { padding: 0.75rem 1rem; border-bottom: 1px solid var(--gf-border); text-align: left; vertical-align: top; }

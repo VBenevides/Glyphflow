@@ -14,6 +14,7 @@ import (
 
 	"github.com/VBenevides/Glyphflow/backend/internal/api"
 	"github.com/VBenevides/Glyphflow/backend/internal/config"
+	"github.com/VBenevides/Glyphflow/backend/internal/controlplane"
 	"github.com/VBenevides/Glyphflow/backend/internal/platform"
 	"github.com/VBenevides/Glyphflow/backend/internal/queue"
 	"github.com/VBenevides/Glyphflow/backend/internal/store"
@@ -179,6 +180,14 @@ func main() {
 		os.Exit(1)
 	}
 	defer func() { jetstream.Close(); db.Close() }()
+	go func() {
+		for ctx.Err() == nil {
+			if err := controlplane.RunRunnerHeartbeatMonitor(ctx, jetstream, runnerRepository, 30*time.Second, 10*time.Second); err != nil && ctx.Err() == nil {
+				fmt.Fprintln(os.Stderr, "runner heartbeat monitor:", err)
+				time.Sleep(time.Second)
+			}
+		}
+	}()
 	server := &http.Server{
 		Addr: ":8080",
 		Handler: func() http.Handler {
