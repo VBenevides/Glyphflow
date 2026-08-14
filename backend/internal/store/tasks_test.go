@@ -48,4 +48,11 @@ func TestTaskRepositoryKeepsImmutableVersionsAndPointer(t *testing.T) {
 	if err != nil || !found || current.ActiveVersion != 2 {
 		t.Fatalf("failed version moved pointer: %#v, found=%t, err=%v", current, found, err)
 	}
+	deleted, err := repository.Delete(ctx, taskID)
+	if err != nil || !deleted {
+		t.Fatalf("task deletion failed: deleted=%t, err=%v", deleted, err)
+	}
+	if _, found, err := repository.Find(ctx, taskID); err != nil || found {
+		t.Fatalf("deleted task still exists: found=%t, err=%v", found, err)
+	}
 }

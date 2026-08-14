@@ -99,6 +99,9 @@ func auditDescription(method, path string) string {
 	case path == "/api/v1/schedules/preview":
 		return "Preview schedule occurrences"
 	case strings.HasPrefix(path, "/api/v1/schedules/"):
+		if method == http.MethodDelete {
+			return "Delete schedule"
+		}
 		if method == http.MethodGet {
 			return "View schedule"
 		}
@@ -112,6 +115,9 @@ func auditDescription(method, path string) string {
 		}
 		if strings.HasSuffix(path, "/retry") {
 			return "Retry task run"
+		}
+		if method == http.MethodDelete {
+			return "Delete task"
 		}
 		if method == http.MethodGet {
 			return "View task"

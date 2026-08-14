@@ -72,6 +72,18 @@ func TestResourceDeleteGuardsReferencesAndActiveLease(t *testing.T) {
 	}
 }
 
+func TestResourceCreate(t *testing.T) {
+	s := NewInfrastructureService()
+	response := httptest.NewRecorder()
+	s.resourceCollection(response, httptest.NewRequest(http.MethodPost, "/api/v1/resources", bytes.NewBufferString(`{"name":"Build lock"}`)))
+	if response.Code != http.StatusCreated || !bytes.Contains(response.Body.Bytes(), []byte(`"name":"Build lock"`)) {
+		t.Fatalf("create resource returned %d: %s", response.Code, response.Body.String())
+	}
+	if len(s.resources) != 1 {
+		t.Fatalf("resources = %d, want 1", len(s.resources))
+	}
+}
+
 func TestRunnerDeleteRemovesRunnerAndEnrollments(t *testing.T) {
 	s := NewInfrastructureService()
 	s.runners["runner-1"] = RunnerRecord{ID: "runner-1", Name: "runner-1"}

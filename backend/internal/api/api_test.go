@@ -83,6 +83,37 @@ func TestTaskCreationStoresAndReturnsTask(t *testing.T) {
 	}
 }
 
+func TestInMemoryTaskAndScheduleDeletion(t *testing.T) {
+	permissions := map[string]bool{"task.create": true, "task.manage": true, "task.read": true, "tasks.manage": true, "tasks.read": true}
+	h := (Server{Auth: func(*http.Request) (Claims, bool) { return Claims{Roles: permissions}, true }}).Handler()
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		h.ServeHTTP(response, httptest.NewRequest(method, path, bytes.NewBufferString(body)))
+		return response
+	}
+	if response := request(http.MethodPost, "/api/v1/tasks", `{"name":"Nightly","command":["echo","hi"],"runner_pool":"default"}`); response.Code != http.StatusCreated {
+		t.Fatalf("task creation returned %d", response.Code)
+	}
+	if response := request(http.MethodPost, "/api/v1/schedules", `{"name":"Hourly","task_id":"task-1","schedule_type":"cron","expression":"0 * * * *","timezone":"UTC"}`); response.Code != http.StatusCreated {
+		t.Fatalf("schedule creation returned %d", response.Code)
+	}
+	if response := request(http.MethodDelete, "/api/v1/schedules/schedule-1", ""); response.Code != http.StatusNoContent {
+		t.Fatalf("schedule deletion returned %d", response.Code)
+	}
+	if response := request(http.MethodPost, "/api/v1/schedules", `{"name":"Hourly again","task_id":"task-1","schedule_type":"cron","expression":"0 * * * *","timezone":"UTC"}`); response.Code != http.StatusCreated {
+		t.Fatalf("second schedule creation returned %d", response.Code)
+	}
+	if response := request(http.MethodDelete, "/api/v1/tasks/task-1", ""); response.Code != http.StatusNoContent {
+		t.Fatalf("task deletion returned %d", response.Code)
+	}
+	if response := request(http.MethodGet, "/api/v1/schedules/schedule-2", ""); response.Code != http.StatusNotFound {
+		t.Fatalf("task deletion left schedule with status %d", response.Code)
+	}
+	if response := request(http.MethodDelete, "/api/v1/tasks/task-1", ""); response.Code != http.StatusNotFound {
+		t.Fatalf("missing task deletion returned %d", response.Code)
+	}
+}
+
 func TestManagementRoutesFailClosedUntilBackedByStorage(t *testing.T) {
 	h := (Server{Auth: func(*http.Request) (Claims, bool) {
 		return Claims{Roles: map[string]bool{"run.read": true, "event.read": true, "runner.read": true, "runners.read": true, "run.cancel": true}}, true

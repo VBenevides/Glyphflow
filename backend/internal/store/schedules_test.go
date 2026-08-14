@@ -56,4 +56,11 @@ func TestScheduleRepositoryKeepsImmutableVersionsAndPointer(t *testing.T) {
 	if _, err := schedules.Create(ctx, ScheduleDefinition{ID: scheduleID + "-bad", Name: "Bad timezone", TaskID: taskID, ScheduleType: "cron", Expression: "0 * * * *", Timezone: "Not/AZone", Enabled: true}); err == nil {
 		t.Fatal("invalid timezone was accepted")
 	}
+	deleted, err := schedules.Delete(ctx, scheduleID)
+	if err != nil || !deleted {
+		t.Fatalf("schedule deletion failed: deleted=%t, err=%v", deleted, err)
+	}
+	if _, found, err := schedules.Find(ctx, scheduleID); err != nil || found {
+		t.Fatalf("deleted schedule still exists: found=%t, err=%v", found, err)
+	}
 }

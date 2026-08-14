@@ -32,6 +32,7 @@ type ScheduleRepository interface {
 	Find(context.Context, string) (ScheduleRecord, bool, error)
 	Create(context.Context, ScheduleDefinition) (ScheduleRecord, error)
 	Update(context.Context, string, ScheduleDefinition) (ScheduleRecord, error)
+	Delete(context.Context, string) (bool, error)
 }
 
 type ScheduleStore struct{ pool *pgxpool.Pool }
@@ -157,6 +158,11 @@ func (s *ScheduleStore) Update(ctx context.Context, id string, definition Schedu
 		return ScheduleRecord{}, errors.New("schedule was not found")
 	}
 	return item, nil
+}
+
+func (s *ScheduleStore) Delete(ctx context.Context, id string) (bool, error) {
+	result, err := s.pool.Exec(ctx, `DELETE FROM schedules WHERE id = $1`, id)
+	return result.RowsAffected() > 0, err
 }
 
 func normalizeScheduleDefinition(definition ScheduleDefinition) ScheduleDefinition {

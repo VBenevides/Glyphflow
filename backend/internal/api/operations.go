@@ -182,6 +182,31 @@ func (o *OperationsService) taskPath(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	if len(parts) == 4 && r.Method == http.MethodDelete {
+		o.mu.RLock()
+		repository := o.repository
+		o.mu.RUnlock()
+		if repository != nil {
+			deleted, err := repository.Delete(r.Context(), id)
+			if err != nil {
+				recordRequestError(r, err)
+				writeJSON(w, http.StatusConflict, map[string]string{"error": "task cannot be deleted"})
+				return
+			}
+			if !deleted {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if !o.deleteTask(id) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if len(parts) == 5 && parts[4] == "versions" && r.Method == http.MethodPost {
 		var input struct {
 			Name           string   `json:"name"`
@@ -307,6 +332,28 @@ func (o *OperationsService) schedulePath(w http.ResponseWriter, r *http.Request)
 		}
 		return
 	}
+	if r.Method == http.MethodDelete {
+		if repository != nil {
+			deleted, err := repository.Delete(r.Context(), id)
+			if err != nil {
+				recordRequestError(r, err)
+				writeJSON(w, http.StatusConflict, map[string]string{"error": "schedule cannot be deleted"})
+				return
+			}
+			if !deleted {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "schedule not found"})
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if !o.deleteSchedule(id) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "schedule not found"})
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
@@ -384,6 +431,21 @@ func (o *OperationsService) task(id string) (TaskRecord, bool) {
 	return task, ok
 }
 
+func (o *OperationsService) deleteTask(id string) bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if _, ok := o.tasks[id]; !ok {
+		return false
+	}
+	delete(o.tasks, id)
+	for scheduleID, schedule := range o.schedules {
+		if schedule.TaskID == id {
+			delete(o.schedules, scheduleID)
+		}
+	}
+	return true
+}
+
 func (o *OperationsService) addTaskVersion(id string, input struct {
 	Name           string   `json:"name"`
 	Command        []string `json:"command"`
@@ -437,6 +499,16 @@ func (o *OperationsService) schedule(id string) (ScheduleRecord, bool) {
 	defer o.mu.RUnlock()
 	schedule, ok := o.schedules[id]
 	return schedule, ok
+}
+
+func (o *OperationsService) deleteSchedule(id string) bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if _, ok := o.schedules[id]; !ok {
+		return false
+	}
+	delete(o.schedules, id)
+	return true
 }
 
 func writePage[T any](w http.ResponseWriter, r *http.Request, items []T) {

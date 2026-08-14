@@ -123,7 +123,9 @@ func TestAuditDescriptionsCoverAPIRequests(t *testing.T) {
 	}{
 		{http.MethodPost, "/api/v1/admin/auth/sessions/revoke", "Revoke user session"},
 		{http.MethodGet, "/api/v1/schedules/schedule-1", "View schedule"},
+		{http.MethodDelete, "/api/v1/schedules/schedule-1", "Delete schedule"},
 		{http.MethodPost, "/api/v1/tasks/task-1/versions", "Publish task version"},
+		{http.MethodDelete, "/api/v1/tasks/task-1", "Delete task"},
 		{http.MethodPost, "/api/v1/resources/resource-1/lease", "Acquire resource lease"},
 		{http.MethodPost, "/api/v1/runners/runner-1/drain", "Drain runner"},
 		{http.MethodDelete, "/api/v1/runners/runner-1", "Delete runner"},

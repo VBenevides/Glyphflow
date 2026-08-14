@@ -44,6 +44,7 @@ type TaskRepository interface {
 	Find(context.Context, string) (TaskRecord, bool, error)
 	Create(context.Context, TaskDefinition) (TaskRecord, error)
 	CreateVersion(context.Context, string, TaskDefinition) (TaskRecord, error)
+	Delete(context.Context, string) (bool, error)
 }
 
 type TaskStore struct{ pool *pgxpool.Pool }
@@ -163,6 +164,11 @@ func (s *TaskStore) CreateVersion(ctx context.Context, taskID string, definition
 		return TaskRecord{}, errors.New("task was not found")
 	}
 	return item, nil
+}
+
+func (s *TaskStore) Delete(ctx context.Context, id string) (bool, error) {
+	result, err := s.pool.Exec(ctx, `DELETE FROM tasks WHERE id = $1`, id)
+	return result.RowsAffected() > 0, err
 }
 
 func normalizeTaskDefinition(definition TaskDefinition) TaskDefinition {

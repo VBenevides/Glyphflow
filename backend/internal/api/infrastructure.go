@@ -283,6 +283,46 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 201, map[string]string{"artifact": token, "expires_at": expiry.UTC().Format(time.RFC3339), "filename": input.RunnerID + "-enrollment.bin"})
 }
 func (s *InfrastructureService) resourceCollection(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		var input struct {
+			Name string `json:"name"`
+			Kind string `json:"kind"`
+		}
+		if json.NewDecoder(r.Body).Decode(&input) != nil || strings.TrimSpace(input.Name) == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "resource name is required"})
+			return
+		}
+		if strings.TrimSpace(input.Kind) == "" {
+			input.Kind = "exclusive"
+		}
+		id, err := randomID()
+		if err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "resource creation failed"})
+			return
+		}
+		s.mu.RLock()
+		repository := s.resourceRepository
+		s.mu.RUnlock()
+		if repository != nil {
+			if err := repository.Create(r.Context(), "resource-"+id, strings.TrimSpace(input.Name), strings.TrimSpace(input.Kind)); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "resource creation failed"})
+				return
+			}
+			item, found, err := repository.Find(r.Context(), "resource-"+id)
+			if err != nil || !found {
+				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "resource storage unavailable"})
+				return
+			}
+			writeJSON(w, http.StatusCreated, resourceRecordFromStore(item))
+			return
+		}
+		item := ResourceRecord{ID: "resource-" + id, Name: strings.TrimSpace(input.Name), Enabled: true}
+		s.mu.Lock()
+		s.resources[item.ID] = item
+		s.mu.Unlock()
+		writeJSON(w, http.StatusCreated, item)
+		return
+	}
 	if r.Method != http.MethodGet {
 		writeJSON(w, 405, map[string]string{"error": "method not allowed"})
 		return
