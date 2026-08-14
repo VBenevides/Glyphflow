@@ -28,6 +28,7 @@ type RunnerRepository interface {
 	List(context.Context) ([]RunnerRecord, error)
 	Find(context.Context, string) (RunnerRecord, bool, error)
 	SetDesiredState(context.Context, string, string) (RunnerRecord, bool, error)
+	Delete(context.Context, string) (bool, error)
 	CreateEnrollment(context.Context, RunnerRecord, RunnerEnrollmentRecord) error
 	ConsumeEnrollment(context.Context, string, time.Time) (RunnerRecord, error)
 	CreateSession(context.Context, string, string) error
@@ -95,6 +96,11 @@ func (s *RunnerStore) SetDesiredState(ctx context.Context, id, state string) (Ru
 	}
 	item, found, err := s.Find(ctx, id)
 	return item, found, err
+}
+
+func (s *RunnerStore) Delete(ctx context.Context, id string) (bool, error) {
+	result, err := s.pool.Exec(ctx, `DELETE FROM runners WHERE id = $1`, id)
+	return result.RowsAffected() > 0, err
 }
 
 func (s *RunnerStore) CreateEnrollment(ctx context.Context, runner RunnerRecord, enrollment RunnerEnrollmentRecord) error {

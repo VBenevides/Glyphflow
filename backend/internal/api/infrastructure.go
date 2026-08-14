@@ -130,6 +130,10 @@ func (s *InfrastructureService) runnerPath(w http.ResponseWriter, r *http.Reques
 		s.enroll(w, r)
 		return
 	}
+	if len(parts) == 4 && r.Method == http.MethodDelete {
+		s.deleteRunner(w, r, parts[3])
+		return
+	}
 	if len(parts) == 4 && r.Method == http.MethodGet {
 		s.mu.RLock()
 		repository := s.runnerRepository
@@ -195,6 +199,40 @@ func (s *InfrastructureService) runnerPath(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	writeJSON(w, 404, map[string]string{"error": "runner route not found"})
+}
+
+func (s *InfrastructureService) deleteRunner(w http.ResponseWriter, r *http.Request, id string) {
+	s.mu.RLock()
+	repository := s.runnerRepository
+	s.mu.RUnlock()
+	if repository != nil {
+		deleted, err := repository.Delete(r.Context(), id)
+		if err != nil {
+			recordRequestError(r, err)
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "runner cannot be deleted"})
+			return
+		}
+		if !deleted {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "runner not found"})
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	s.mu.Lock()
+	if _, ok := s.runners[id]; !ok {
+		s.mu.Unlock()
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "runner not found"})
+		return
+	}
+	delete(s.runners, id)
+	for token, item := range s.enrollments {
+		if item.RunnerID == id {
+			delete(s.enrollments, token)
+		}
+	}
+	s.mu.Unlock()
+	w.WriteHeader(http.StatusNoContent)
 }
 func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {

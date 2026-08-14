@@ -71,3 +71,20 @@ func TestResourceDeleteGuardsReferencesAndActiveLease(t *testing.T) {
 		t.Fatalf("missing resource lease returned %d", response.Code)
 	}
 }
+
+func TestRunnerDeleteRemovesRunnerAndEnrollments(t *testing.T) {
+	s := NewInfrastructureService()
+	s.runners["runner-1"] = RunnerRecord{ID: "runner-1", Name: "runner-1"}
+	s.enrollments["token"] = &enrollment{RunnerID: "runner-1"}
+	response := httptest.NewRecorder()
+	s.runnerPath(response, httptest.NewRequest(http.MethodDelete, "/api/v1/runners/runner-1", nil))
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("delete runner returned %d", response.Code)
+	}
+	if _, ok := s.runners["runner-1"]; ok {
+		t.Fatal("runner was not deleted")
+	}
+	if _, ok := s.enrollments["token"]; ok {
+		t.Fatal("runner enrollment was not deleted")
+	}
+}

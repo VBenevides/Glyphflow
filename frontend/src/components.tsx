@@ -1,13 +1,14 @@
-import { forwardRef, useEffect, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from 'react'
+import { Children, forwardRef, useEffect, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from 'react'
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: 'primary' | 'secondary' | 'danger' | 'ghost'
   busy?: boolean
 }
 
-export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button({ variant = 'primary', busy = false, disabled, children, className, ...props }, ref) {
+export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button({ variant = 'primary', busy = false, disabled, children, className, title, ...props }, ref) {
+  const tooltip = title ?? props['aria-label'] ?? (Children.toArray(children).filter((child) => typeof child === 'string' || typeof child === 'number').join(' ').trim() || undefined)
   return (
-    <button ref={ref} className={`gf-button gf-button-${variant}${className ? ` ${className}` : ''}`} disabled={disabled || busy} {...props}>
+    <button ref={ref} title={tooltip} className={`gf-button gf-button-${variant}${className ? ` ${className}` : ''}`} disabled={disabled || busy} {...props}>
       {busy ? 'Working…' : children}
     </button>
   )

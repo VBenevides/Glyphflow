@@ -142,6 +142,9 @@ func auditDescription(method, path string) string {
 		if strings.HasSuffix(path, "/enrollments") {
 			return "Create runner enrollment"
 		}
+		if method == http.MethodDelete {
+			return "Delete runner"
+		}
 		for action, description := range map[string]string{"enable": "Enable runner", "disable": "Disable runner", "drain": "Drain runner", "reset": "Reset runner", "revoke": "Revoke runner"} {
 			if strings.HasSuffix(path, "/"+action) {
 				return description

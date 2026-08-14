@@ -126,6 +126,7 @@ func TestAuditDescriptionsCoverAPIRequests(t *testing.T) {
 		{http.MethodPost, "/api/v1/tasks/task-1/versions", "Publish task version"},
 		{http.MethodPost, "/api/v1/resources/resource-1/lease", "Acquire resource lease"},
 		{http.MethodPost, "/api/v1/runners/runner-1/drain", "Drain runner"},
+		{http.MethodDelete, "/api/v1/runners/runner-1", "Delete runner"},
 		{http.MethodGet, "/api/v1/runs/run-1/logs/download", "Download run logs"},
 		{http.MethodGet, "/api/v1/unknown", "GET /api/v1/unknown"},
 	}
