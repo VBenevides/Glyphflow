@@ -121,15 +121,15 @@ export function SsoSettingsPage() {
 }
 
 export function AuthenticationSettingsPage() {
-  const { config, permissions } = useAuth()
+  const { config, permissions, setConfig } = useAuth()
   const manage = hasPermission(permissions, 'auth.settings.manage')
   const rolesQuery = useQuery({ queryKey: ['admin-role-options'], queryFn: ({ signal }) => api.get<RoleDefinition[]>('/api/v1/admin/roles', undefined, signal) })
   const [passwordLogin, setPasswordLogin] = useState(config.passwordLogin)
   const [registration, setRegistration] = useState(config.registration)
-  const [defaultRole, setDefaultRole] = useState('user')
-  const [saved, setSaved] = useState({ passwordLogin: config.passwordLogin, registration: config.registration, defaultRole: 'user' })
+  const [defaultRole, setDefaultRole] = useState(config.defaultRole ?? 'user')
+  const [saved, setSaved] = useState({ passwordLogin: config.passwordLogin, registration: config.registration, defaultRole: config.defaultRole ?? 'user' })
   const [error, setError] = useState('')
   useUnsavedChanges(passwordLogin !== saved.passwordLogin || registration !== saved.registration || defaultRole !== saved.defaultRole)
-  const save = async () => { setError(''); try { const role = defaultRole.trim() || 'user'; await api.post('/api/v1/admin/auth/settings', { enabled: passwordLogin, registration, default_role: role }); setSaved({ passwordLogin, registration, defaultRole: role }) } catch (cause) { setError(cause instanceof Error ? cause.message : 'Authentication settings update failed') } }
+  const save = async () => { setError(''); try { const role = defaultRole.trim() || 'user'; await api.post('/api/v1/admin/auth/settings', { enabled: passwordLogin, registration, default_role: role }); setSaved({ passwordLogin, registration, defaultRole: role }); setConfig({ ...config, passwordLogin, registration, defaultRole: role }) } catch (cause) { setError(cause instanceof Error ? cause.message : 'Authentication settings update failed') } }
   return <main className="gf-content"><PageHeader title="Authentication settings" description="Control password sign-in, registration, and the default role for new identities." /><section className="gf-card-panel"><div className="gf-editor-form"><label><input type="checkbox" checked={passwordLogin} onChange={(event) => setPasswordLogin(event.target.checked)} /> Enable password login</label><label><input type="checkbox" checked={registration} onChange={(event) => setRegistration(event.target.checked)} /> Allow password registration</label><label htmlFor="default-role">Default role<RoleSelect id="default-role" value={defaultRole} roles={rolesQuery.data} disabled={rolesQuery.isPending || rolesQuery.isError} onChange={setDefaultRole} /></label>{rolesQuery.isError && <small className="gf-form-error">Roles could not be loaded.</small>}{error && <p className="gf-form-error" role="alert">{error}</p>}{manage && <DangerousAction label="Save settings" warning="Changing login methods can lock out administrators. Verify that another working login method remains before saving." onConfirm={save} />}</div></section></main>
 }

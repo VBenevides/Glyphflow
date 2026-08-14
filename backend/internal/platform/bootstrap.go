@@ -23,6 +23,6 @@ func BootstrapAdministrator(input BootstrapInput) (RoleAssignment, error) {
 }
 
 func BootstrapUsername() string {
-	email, _ := NormalizeEmail(os.Getenv("GLYPHFLOW_BOOTSTRAP_USERNAME"))
+	email, _ := NormalizeEmail(os.Getenv("GLYPHFLOW_BOOTSTRAP_EMAIL"))
 	return email
 }

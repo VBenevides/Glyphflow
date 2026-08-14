@@ -371,8 +371,9 @@ func (s *AuthService) ChangePassword(userID, currentPassword, newPassword string
 	s.mu.RLock()
 	user, exists := s.users[userID]
 	hash := s.passwords[userID]
+	enabled := s.passwordEnabled
 	s.mu.RUnlock()
-	if !exists || !user.Enabled || hash == "" {
+	if !enabled || !exists || !user.Enabled || hash == "" {
 		return errors.New("password change unavailable")
 	}
 	valid, err := s.hasher.Verify(hash, currentPassword)

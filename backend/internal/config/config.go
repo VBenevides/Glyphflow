@@ -32,6 +32,7 @@ type Config struct {
 	WebOrigin                   string
 	PasswordLoginEnabled        bool
 	PasswordRegistrationEnabled bool
+	DefaultRole                 string
 	BootstrapUsername           string
 	BootstrapPassword           string
 	BootstrapOIDCProvider       string
@@ -59,9 +60,10 @@ func FromEnv(role Role) (Config, error) {
 		AccessTokenSecret:           os.Getenv("ACCESS_TOKEN_SECRET"),
 		PasswordPepper:              os.Getenv("PASSWORD_PEPPER"),
 		WebOrigin:                   os.Getenv("WEB_ORIGIN"),
-		PasswordLoginEnabled:        envBoolDefault("PASSWORD_LOGIN_ENABLED", true),
-		PasswordRegistrationEnabled: envBoolDefault("PASSWORD_REGISTRATION_ENABLED", true),
-		BootstrapUsername:           strings.TrimSpace(os.Getenv("GLYPHFLOW_BOOTSTRAP_USERNAME")),
+		PasswordLoginEnabled:        envBoolDefault("ENABLE_PASSWORD_LOGIN", envBoolDefault("PASSWORD_LOGIN_ENABLED", true)),
+		PasswordRegistrationEnabled: envBoolDefault("ENABLE_PASSWORD_REGISTRATION", envBoolDefault("PASSWORD_REGISTRATION_ENABLED", true)),
+		DefaultRole:                 strings.TrimSpace(envStringDefault("DEFAULT_ROLE", "user")),
+		BootstrapUsername:           strings.TrimSpace(os.Getenv("GLYPHFLOW_BOOTSTRAP_EMAIL")),
 		BootstrapPassword:           os.Getenv("GLYPHFLOW_BOOTSTRAP_PASSWORD"),
 		BootstrapOIDCProvider:       strings.TrimSpace(os.Getenv("GLYPHFLOW_BOOTSTRAP_OIDC_PROVIDER")),
 		BootstrapOIDCSubject:        strings.TrimSpace(os.Getenv("GLYPHFLOW_BOOTSTRAP_OIDC_SUBJECT")),
@@ -150,6 +152,14 @@ func envBoolDefault(name string, fallback bool) bool {
 		return fallback
 	}
 	return parsed
+}
+
+func envStringDefault(name, fallback string) string {
+	value, ok := os.LookupEnv(name)
+	if !ok || strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
 }
 
 func requireURL(name, value string, schemes ...string) error {

@@ -17,6 +17,7 @@ func (s Server) runtimeConfig(w http.ResponseWriter, r *http.Request) {
 	if s.AuthService != nil {
 		config.PasswordLogin = s.AuthService.PasswordLoginEnabled()
 		config.Registration = s.AuthService.RegistrationEnabled()
+		config.DefaultRole, _ = s.AuthService.AuthSettings()["defaultRole"].(string)
 	}
 	if s.PasswordAuth != nil {
 		config.PasswordLogin = s.PasswordAuth.Enabled()

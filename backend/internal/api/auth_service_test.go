@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/VBenevides/Glyphflow/backend/internal/platform"
@@ -126,5 +127,37 @@ func TestSystemAdminEmailsGrantImmutableAdministrators(t *testing.T) {
 	}
 	if _, err := auth.Register("not-an-email", "another correct horse"); err == nil {
 		t.Fatal("invalid email accepted")
+	}
+}
+
+func TestPasswordFlagsBlockBackendEndpoints(t *testing.T) {
+	auth, err := NewAuthService("01234567890123456789012345678901", true, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.AddRole("user"); err != nil {
+		t.Fatal(err)
+	}
+	auth.SetDefaultRole("user")
+	user, err := auth.Register("alice@example.com", "correct horse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.UpdateAuthSettings(false, false, "user"); err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.ChangePassword(user.ID, "correct horse", "another correct horse"); err == nil {
+		t.Fatal("disabled password login allowed password changes")
+	}
+	handler := (Server{AuthService: auth}).Handler()
+	login := httptest.NewRecorder()
+	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"email":"alice@example.com","password":"correct horse"}`)))
+	if login.Code != http.StatusUnauthorized {
+		t.Fatalf("disabled password login returned %d", login.Code)
+	}
+	register := httptest.NewRecorder()
+	handler.ServeHTTP(register, httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(`{"email":"bob@example.com","password":"correct horse"}`)))
+	if register.Code != http.StatusBadRequest {
+		t.Fatalf("disabled password registration returned %d", register.Code)
 	}
 }

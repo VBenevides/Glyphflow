@@ -27,6 +27,71 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	db, err := pgxpool.New(ctx, cfg.DatabaseURL)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if err := db.Ping(ctx); err != nil {
+		db.Close()
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if err := store.ApplyMigrations(ctx, db, "migrations"); err != nil {
+		db.Close()
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	configStore := store.NewConfigStore(db)
+	persistence := api.NewPersistence(configStore)
+	if err := persistence.InitializeEnvironment(map[string]any{
+		"DATABASE_URL":                 cfg.DatabaseURL,
+		"NATS_URL":                     cfg.NATSURL,
+		"WEB_ORIGIN":                   cfg.WebOrigin,
+		"MAX_MESSAGE_BYTES":            cfg.MaxMessageBytes,
+		"GLYPHFLOW_BOOTSTRAP_EMAIL":    cfg.BootstrapUsername,
+		"GLYPHFLOW_SYSTEM_ADMINS":      cfg.SystemAdminEmails,
+		"ENABLE_PASSWORD_LOGIN":        cfg.PasswordLoginEnabled,
+		"ENABLE_PASSWORD_REGISTRATION": cfg.PasswordRegistrationEnabled,
+		"DEFAULT_ROLE":                 cfg.DefaultRole,
+	}); err != nil {
+		db.Close()
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if len(cfg.SystemAdminEmails) == 0 {
+		var storedSystemAdminEmails []string
+		if found, err := configStore.Get(ctx, "GLYPHFLOW_SYSTEM_ADMINS", &storedSystemAdminEmails); err != nil {
+			db.Close()
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		} else if found {
+			cfg.SystemAdminEmails = storedSystemAdminEmails
+		}
+	}
+	var storedPasswordLogin, storedPasswordRegistration bool
+	var storedDefaultRole string
+	if found, err := configStore.Get(ctx, "ENABLE_PASSWORD_LOGIN", &storedPasswordLogin); err != nil {
+		db.Close()
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	} else if found {
+		cfg.PasswordLoginEnabled = storedPasswordLogin
+	}
+	if found, err := configStore.Get(ctx, "ENABLE_PASSWORD_REGISTRATION", &storedPasswordRegistration); err != nil {
+		db.Close()
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	} else if found {
+		cfg.PasswordRegistrationEnabled = storedPasswordRegistration
+	}
+	if found, err := configStore.Get(ctx, "DEFAULT_ROLE", &storedDefaultRole); err != nil {
+		db.Close()
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	} else if found && strings.TrimSpace(storedDefaultRole) != "" {
+		cfg.DefaultRole = storedDefaultRole
+	}
 	authService, err := api.NewAuthService(cfg.AccessTokenSecret, cfg.PasswordLoginEnabled, cfg.PasswordRegistrationEnabled, []byte(cfg.PasswordPepper))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -40,17 +105,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	if err := authService.SetSystemAdminEmails(cfg.SystemAdminEmails); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-	authService.SetDefaultRole("user")
-	if cfg.BootstrapUsername != "" && cfg.BootstrapPassword != "" {
-		if _, err := authService.EnsureBootstrap(cfg.BootstrapUsername, cfg.BootstrapPassword, "", ""); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-	}
+	authService.SetDefaultRole(cfg.DefaultRole)
 	oidcService := api.NewOIDCService()
 	roles := api.NewRoleAdminService()
 	if err := roles.Seed("admin", platform.PermissionCatalog); err != nil {
@@ -61,17 +116,30 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	db, err := pgxpool.New(ctx, cfg.DatabaseURL)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-	if err := db.Ping(ctx); err != nil {
+	application := api.Server{AuthService: authService, AuthAdmin: &api.AuthAdminService{Auth: authService, OIDC: oidcService, Sessions: authService.SessionManager()}, Sessions: authService.SessionManager(), OIDC: oidcService, Roles: roles, Auth: authService.Authenticator(), Permissions: authService.Permissions, CSRFOrigin: cfg.WebOrigin, Operations: api.NewOperationsService(), Runs: api.NewRunService(), Infrastructure: api.NewInfrastructureService(), AuditQuery: api.NewAuditQueryService(), Persistence: persistence, Ready: func(ctx context.Context) error {
+		if err := db.Ping(ctx); err != nil {
+			return err
+		}
+		return nil
+	}}
+	if err := persistence.Restore(application); err != nil {
 		db.Close()
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	if err := store.ApplyMigrations(ctx, db, "migrations"); err != nil {
+	if err := authService.SetSystemAdminEmails(cfg.SystemAdminEmails); err != nil {
+		db.Close()
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if cfg.BootstrapUsername != "" && cfg.BootstrapPassword != "" {
+		if _, err := authService.EnsureBootstrap(cfg.BootstrapUsername, cfg.BootstrapPassword, "", ""); err != nil {
+			db.Close()
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	}
+	if err := persistence.Save(application); err != nil {
 		db.Close()
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -90,15 +158,18 @@ func main() {
 	defer func() { jetstream.Close(); db.Close() }()
 	server := &http.Server{
 		Addr: ":8080",
-		Handler: api.Server{AuthService: authService, AuthAdmin: &api.AuthAdminService{Auth: authService, OIDC: oidcService, Sessions: authService.SessionManager()}, OIDC: oidcService, Roles: roles, Auth: authService.Authenticator(), Permissions: authService.Permissions, CSRFOrigin: cfg.WebOrigin, Ready: func(ctx context.Context) error {
-			if err := db.Ping(ctx); err != nil {
-				return err
+		Handler: func() http.Handler {
+			application.Ready = func(ctx context.Context) error {
+				if err := db.Ping(ctx); err != nil {
+					return err
+				}
+				if jetstream == nil {
+					return fmt.Errorf("NATS is not connected")
+				}
+				return nil
 			}
-			if jetstream == nil {
-				return fmt.Errorf("NATS is not connected")
-			}
-			return nil
-		}}.Handler(),
+			return application.Handler()
+		}(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -106,6 +177,9 @@ func main() {
 	}
 	go func() {
 		<-ctx.Done()
+		if err := persistence.Save(application); err != nil {
+			fmt.Fprintln(os.Stderr, "persist application state during shutdown:", err)
+		}
 		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = server.Shutdown(shutdown)

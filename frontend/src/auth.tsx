@@ -16,7 +16,7 @@ export async function bootstrapSession(client: BootstrapClient = api, signal?: A
   return { config, profile, permissions }
 }
 
-type AuthContextValue = BootstrapResult & { loading: boolean; error: Error | null; restore: () => void; setProfile: (profile: Profile | null, permissions?: PermissionSnapshot) => void }
+type AuthContextValue = BootstrapResult & { loading: boolean; error: Error | null; restore: () => void; setProfile: (profile: Profile | null, permissions?: PermissionSnapshot) => void; setConfig: (config: RuntimeConfig) => void }
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -43,6 +43,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     error,
     restore: () => setAttempt((value) => value + 1),
     setProfile: (profile, permissions) => setState((current) => ({ ...current, profile, permissions: permissions?.permissions ?? profile?.permissions ?? [] })),
+    setConfig: (config) => setState((current) => ({ ...current, config })),
   }), [error, loading, state])
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
