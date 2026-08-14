@@ -116,6 +116,7 @@ func main() {
 		os.Exit(1)
 	}
 	oidcService := api.NewOIDCService()
+	oidcService.SetRepository(store.NewOIDCProviderRepository(db))
 	roles := api.NewRoleAdminService()
 	roles.SetRepository(roleRepository)
 	if err := roles.Seed("admin", platform.PermissionCatalog); err != nil {

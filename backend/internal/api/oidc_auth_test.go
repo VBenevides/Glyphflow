@@ -38,6 +38,21 @@ func TestOIDCProviderChallengeIsSingleUse(t *testing.T) {
 	_ = httptest.NewRecorder()
 }
 
+func TestOIDCProviderExposesOnlySecretReference(t *testing.T) {
+	s := NewOIDCService()
+	if err := s.AddProvider(OIDCProvider{Key: "corp", Issuer: "https://id.example", ClientID: "client", SecretReference: "secret://oidc/client", Callback: "https://app.example/callback", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	providers := s.Providers()
+	if len(providers) != 1 || providers[0].SecretReference != "secret://oidc/client" {
+		t.Fatalf("provider response = %#v", providers)
+	}
+	encoded, _ := json.Marshal(providers[0])
+	if strings.Contains(string(encoded), "client-secret") {
+		t.Fatal("provider response exposed a client secret")
+	}
+}
+
 func TestOIDCChallengeUsesPKCES256AndCompletesLogin(t *testing.T) {
 	s := NewOIDCService()
 	if err := s.AddProvider(OIDCProvider{Key: "corp", Issuer: "https://issuer.example", Audience: "client", AuthURL: "https://issuer.example/authorize", ClientID: "client", Callback: "https://app.example/callback", Enabled: true, AutoProvision: true}); err != nil {

@@ -14,22 +14,25 @@ import (
 	"time"
 
 	"github.com/VBenevides/Glyphflow/backend/internal/platform"
+	"github.com/VBenevides/Glyphflow/backend/internal/store"
 )
 
 type OIDCProvider struct {
-	Key           string   `json:"key"`
-	Issuer        string   `json:"issuer"`
-	ClientID      string   `json:"clientId,omitempty"`
-	Callback      string   `json:"callback"`
-	AuthURL       string   `json:"authUrl,omitempty"`
-	Audience      string   `json:"audience,omitempty"`
-	Enabled       bool     `json:"enabled"`
-	AutoProvision bool     `json:"autoProvision,omitempty"`
-	Callbacks     []string `json:"callbacks,omitempty"`
+	Key             string   `json:"key"`
+	Issuer          string   `json:"issuer"`
+	ClientID        string   `json:"clientId,omitempty"`
+	Callback        string   `json:"callback"`
+	AuthURL         string   `json:"authUrl,omitempty"`
+	Audience        string   `json:"audience,omitempty"`
+	SecretReference string   `json:"secretReference,omitempty"`
+	Enabled         bool     `json:"enabled"`
+	AutoProvision   bool     `json:"autoProvision,omitempty"`
+	Callbacks       []string `json:"callbacks,omitempty"`
 }
 type OIDCService struct {
 	mu         sync.RWMutex
 	providers  map[string]OIDCProvider
+	repository store.OIDCProviderRepository
 	states     *platform.AuthorizationStateStore
 	httpClient *http.Client
 }
@@ -46,6 +49,33 @@ func (s *OIDCService) SetHTTPClient(client *http.Client) {
 	s.httpClient = client
 	s.mu.Unlock()
 }
+
+func (s *OIDCService) SetRepository(repository store.OIDCProviderRepository) {
+	if repository == nil {
+		return
+	}
+	s.mu.Lock()
+	s.repository = repository
+	s.mu.Unlock()
+}
+
+func providerRecord(provider OIDCProvider) store.OIDCProviderRecord {
+	callbacks := append([]string{}, provider.Callbacks...)
+	if len(callbacks) == 0 {
+		callbacks = []string{provider.Callback}
+	}
+	return store.OIDCProviderRecord{ID: provider.Key, Name: provider.Key, Issuer: provider.Issuer, ClientID: provider.ClientID, SecretReference: provider.SecretReference, CallbackURLs: callbacks, AuthEndpointOverride: provider.AuthURL, Audience: provider.Audience, Enabled: provider.Enabled, AutoProvision: provider.AutoProvision}
+}
+
+func providerFromRecord(record store.OIDCProviderRecord) OIDCProvider {
+	callbacks := append([]string{}, record.CallbackURLs...)
+	callback := ""
+	if len(callbacks) > 0 {
+		callback = callbacks[0]
+	}
+	return OIDCProvider{Key: record.ID, Issuer: record.Issuer, ClientID: record.ClientID, SecretReference: record.SecretReference, Callback: callback, AuthURL: record.AuthEndpointOverride, Audience: record.Audience, Enabled: record.Enabled, AutoProvision: record.AutoProvision, Callbacks: callbacks}
+}
+
 func (s *OIDCService) AddProvider(provider OIDCProvider) error {
 	if provider.Key == "" || provider.Issuer == "" || provider.Callback == "" {
 		return errors.New("OIDC provider is incomplete")
@@ -62,12 +92,34 @@ func (s *OIDCService) AddProvider(provider OIDCProvider) error {
 			return err
 		}
 	}
+	s.mu.RLock()
+	repository := s.repository
+	s.mu.RUnlock()
+	if repository != nil {
+		return repository.Upsert(context.Background(), providerRecord(provider))
+	}
 	s.mu.Lock()
 	s.providers[provider.Key] = provider
 	s.mu.Unlock()
 	return nil
 }
 func (s *OIDCService) Providers() []OIDCProvider {
+	s.mu.RLock()
+	repository := s.repository
+	s.mu.RUnlock()
+	if repository != nil {
+		providers, err := repository.List(context.Background())
+		if err != nil {
+			return []OIDCProvider{}
+		}
+		out := []OIDCProvider{}
+		for _, provider := range providers {
+			if provider.Enabled {
+				out = append(out, providerFromRecord(provider))
+			}
+		}
+		return out
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var out []OIDCProvider
@@ -84,6 +136,13 @@ func (s *OIDCService) Provider(key string) (OIDCProvider, bool) {
 }
 
 func (s *OIDCService) EnabledCount() int {
+	s.mu.RLock()
+	repository := s.repository
+	s.mu.RUnlock()
+	if repository != nil {
+		count, _ := repository.EnabledCount(context.Background())
+		return count
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	count := 0
@@ -348,6 +407,16 @@ func (s Server) oidcRoutes(mux routeRegistrar) {
 }
 
 func (s *OIDCService) provider(key string) (OIDCProvider, bool) {
+	s.mu.RLock()
+	repository := s.repository
+	s.mu.RUnlock()
+	if repository != nil {
+		provider, ok, err := repository.Find(context.Background(), key)
+		if err != nil || !ok {
+			return OIDCProvider{}, false
+		}
+		return providerFromRecord(provider), true
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	p, ok := s.providers[key]
