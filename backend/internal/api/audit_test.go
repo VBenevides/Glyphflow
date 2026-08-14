@@ -42,6 +42,16 @@ func TestAuditQueryFiltersRedactsAndPaginates(t *testing.T) {
 	}
 }
 
+func TestAuditDetailsRedactInputAndOutput(t *testing.T) {
+	audit := NewAuditQueryService()
+	audit.Add(AuditEvent{Input: map[string]any{"password": "secret", "nested": []any{map[string]any{"token": "secret"}}}, Output: map[string]any{"status": "ok"}, Traceback: "trace"})
+	event := audit.events[0]
+	input := event.Input.(map[string]any)
+	if input["password"] != "[REDACTED]" || input["nested"].([]any)[0].(map[string]any)["token"] != "[REDACTED]" || event.Output.(map[string]any)["status"] != "ok" || event.Traceback != "trace" {
+		t.Fatalf("audit details were not preserved safely: %#v", event)
+	}
+}
+
 func TestAuditEventsIncludeUserActorDisplayData(t *testing.T) {
 	auth, err := NewAuthService("01234567890123456789012345678901", true, true, nil)
 	if err != nil {

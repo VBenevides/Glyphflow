@@ -18,6 +18,9 @@ type AuditEvent struct {
 	Target        string         `json:"target"`
 	Result        string         `json:"result"`
 	Request       string         `json:"request,omitempty"`
+	Input         any            `json:"input,omitempty"`
+	Output        any            `json:"output,omitempty"`
+	Traceback     string         `json:"traceback,omitempty"`
 	CorrelationID string         `json:"correlationId,omitempty"`
 	CreatedAt     string         `json:"createdAt"`
 	Before        map[string]any `json:"before,omitempty"`
@@ -98,6 +101,8 @@ func (s *AuditQueryService) Add(event AuditEvent) {
 	}
 	event.Before = redactAuditMap(event.Before)
 	event.After = redactAuditMap(event.After)
+	event.Input = redactAuditValue(event.Input)
+	event.Output = redactAuditValue(event.Output)
 	s.mu.Lock()
 	s.events = append(s.events, event)
 	s.mu.Unlock()
@@ -176,11 +181,22 @@ func redactAuditMap(values map[string]any) map[string]any {
 			result[key] = "[REDACTED]"
 			continue
 		}
-		if nested, ok := value.(map[string]any); ok {
-			result[key] = redactAuditMap(nested)
-		} else {
-			result[key] = value
-		}
+		result[key] = redactAuditValue(value)
 	}
 	return result
+}
+
+func redactAuditValue(value any) any {
+	switch value := value.(type) {
+	case map[string]any:
+		return redactAuditMap(value)
+	case []any:
+		out := make([]any, len(value))
+		for index, item := range value {
+			out[index] = redactAuditValue(item)
+		}
+		return out
+	default:
+		return value
+	}
 }
