@@ -29,7 +29,7 @@ mkdir -p "${DATA_DIR:-$project_root/.dev-data}"
   NATS_URL="${NATS_URL:-nats://localhost:4222}" \
   ACCESS_TOKEN_SECRET="${ACCESS_TOKEN_SECRET:-development-secret-at-least-32-characters}" \
   PASSWORD_PEPPER="${PASSWORD_PEPPER:-development-password-pepper-at-least-16}" \
-  WEB_ORIGIN="${WEB_ORIGIN:-http://${FRONTEND_HOST:-127.0.0.1}:5173}" \
+  WEB_ORIGIN="${WEB_ORIGIN:-http://${FRONTEND_HOST:-localhost}:5173}" \
   DATA_DIR="${DATA_DIR:-$project_root/.dev-data}" \
   MAX_MESSAGE_BYTES="${MAX_MESSAGE_BYTES:-1048576}" \
   GLYPHFLOW_BOOTSTRAP_USERNAME="${GLYPHFLOW_BOOTSTRAP_USERNAME:-admin@example_domain.com}" \
@@ -43,11 +43,11 @@ backend_pid=$!
   cd "$project_root/frontend"
   VITE_API_URL="${VITE_API_URL:-}" \
   VITE_BACKEND_URL="${VITE_BACKEND_URL:-http://localhost:8080}" \
-  npm run dev -- --host "${FRONTEND_HOST:-127.0.0.1}"
+  npm run dev -- --host "${FRONTEND_HOST:-localhost}"
 ) &
 frontend_pid=$!
 
-echo "Frontend: http://${FRONTEND_HOST:-127.0.0.1}:5173"
+echo "Frontend: http://${FRONTEND_HOST:-localhost}:5173"
 echo "Backend:  http://localhost:8080"
 echo "Press Ctrl-C to stop both processes and Docker dependencies."
 
