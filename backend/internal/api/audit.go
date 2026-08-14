@@ -14,6 +14,7 @@ type AuditEvent struct {
 	ActorName     string         `json:"actorName,omitempty"`
 	ActorEmail    string         `json:"actorEmail,omitempty"`
 	Action        string         `json:"action"`
+	Description   string         `json:"description,omitempty"`
 	Target        string         `json:"target"`
 	Result        string         `json:"result"`
 	Request       string         `json:"request,omitempty"`
@@ -21,6 +22,64 @@ type AuditEvent struct {
 	CreatedAt     string         `json:"createdAt"`
 	Before        map[string]any `json:"before,omitempty"`
 	After         map[string]any `json:"after,omitempty"`
+}
+
+func auditDescription(method, path string) string {
+	switch {
+	case path == "/api/v1/admin/auth/settings":
+		return "Update authentication settings"
+	case path == "/api/v1/admin/auth/providers":
+		if method == http.MethodGet {
+			return "List SSO providers"
+		}
+		return "Update SSO provider"
+	case strings.HasPrefix(path, "/api/v1/admin/auth/users/"):
+		return "Disable user"
+	case path == "/api/v1/admin/roles":
+		if method == http.MethodGet {
+			return "List roles"
+		}
+		return "Create role"
+	case strings.HasPrefix(path, "/api/v1/admin/roles/"):
+		if method == http.MethodDelete {
+			return "Delete role"
+		}
+		return "Update role"
+	case path == "/api/v1/users":
+		if method == http.MethodGet {
+			return "List users"
+		}
+		return "Create user"
+	case strings.HasPrefix(path, "/api/v1/users/"):
+		return "View user details"
+	case path == "/api/v1/audit":
+		return "View audit events"
+	case path == "/api/v1/me":
+		if method == http.MethodGet {
+			return "View own profile"
+		}
+		return "Update own profile"
+	case path == "/api/v1/me/password":
+		return "Change own password"
+	case strings.HasPrefix(path, "/api/v1/me/"):
+		return "Manage own account"
+	case path == "/api/v1/tasks":
+		if method == http.MethodGet {
+			return "List tasks"
+		}
+		return "Create task"
+	case path == "/api/v1/schedules":
+		if method == http.MethodGet {
+			return "List schedules"
+		}
+		return "Create schedule"
+	case path == "/api/v1/runs/execute":
+		return "Execute task"
+	case strings.HasPrefix(path, "/api/v1/runs/"):
+		return "Manage run"
+	default:
+		return method + " " + path
+	}
 }
 
 type AuditQueryService struct {

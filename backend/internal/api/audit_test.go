@@ -63,7 +63,7 @@ func TestAuditEventsIncludeUserActorDisplayData(t *testing.T) {
 	if response.Code != http.StatusOK || len(audit.events) != 1 {
 		t.Fatalf("user list audit: %d %d", response.Code, len(audit.events))
 	}
-	if audit.events[0].ActorName != user.Username || audit.events[0].ActorEmail != user.Email {
+	if audit.events[0].ActorName != user.Username || audit.events[0].ActorEmail != user.Email || audit.events[0].Description != "List users" {
 		t.Fatalf("actor display data: %#v", audit.events[0])
 	}
 }

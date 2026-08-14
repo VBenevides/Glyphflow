@@ -67,7 +67,7 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 		if s.AuditQuery != nil {
 			claims, _ := s.authenticator()(r)
 			actorName, actorEmail := s.auditActor(claims.UserID)
-			s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: "auth.settings.updated", Target: r.URL.Path, Result: "success", CorrelationID: r.Header.Get("X-Correlation-ID"), Before: before, After: after})
+			s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: "auth.settings.updated", Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: "success", CorrelationID: r.Header.Get("X-Correlation-ID"), Before: before, After: after})
 		}
 		writeJSON(w, 200, map[string]any{"password_login_enabled": in.Enabled, "registration_enabled": in.Registration, "default_role": in.DefaultRole})
 	})))

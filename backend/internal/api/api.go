@@ -232,7 +232,7 @@ func (s Server) require(role string, next http.Handler) http.Handler {
 			if recorder.status >= http.StatusBadRequest {
 				result = "failure"
 			}
-			s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Target: r.URL.Path, Result: result, CorrelationID: r.Header.Get("X-Correlation-ID")})
+			s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: result, CorrelationID: r.Header.Get("X-Correlation-ID")})
 		}
 	})
 }
