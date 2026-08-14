@@ -418,12 +418,27 @@ BEGIN
     RETURN COALESCE(NEW, OLD);
 END;
 $$;
+CREATE OR REPLACE FUNCTION reject_immutable_version_mutation() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION '% is immutable', TG_TABLE_NAME;
+END;
+$$;
 CREATE TRIGGER roles_system_immutable
     BEFORE UPDATE OR DELETE ON roles
     FOR EACH ROW EXECUTE FUNCTION reject_system_role_mutation();
+CREATE TRIGGER task_versions_immutable
+    BEFORE UPDATE OR DELETE ON task_versions
+    FOR EACH ROW EXECUTE FUNCTION reject_immutable_version_mutation();
+CREATE TRIGGER schedule_versions_immutable
+    BEFORE UPDATE OR DELETE ON schedule_versions
+    FOR EACH ROW EXECUTE FUNCTION reject_immutable_version_mutation();
 CREATE TRIGGER audit_events_append_only
     BEFORE UPDATE OR DELETE ON audit_events
     FOR EACH ROW EXECUTE FUNCTION reject_append_only_mutation();
 CREATE TRIGGER run_events_append_only
     BEFORE UPDATE OR DELETE ON run_events
+    FOR EACH ROW EXECUTE FUNCTION reject_append_only_mutation();
+CREATE TRIGGER execution_log_chunks_append_only
+    BEFORE UPDATE OR DELETE ON execution_log_chunks
     FOR EACH ROW EXECUTE FUNCTION reject_append_only_mutation();

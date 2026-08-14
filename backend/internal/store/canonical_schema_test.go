@@ -52,6 +52,10 @@ func TestCanonicalMigrationHasIntegrityGuards(t *testing.T) {
 		"unique index resource_leases_active_idx",
 		"unique (execution_attempt_id, state_sequence)",
 		"unique (execution_attempt_id, stream, chunk_sequence)",
+		"unique index runs_schedule_occurrence_idx",
+		"unique index runner_enrollments_unused_idx",
+		"create trigger task_versions_immutable",
+		"create trigger schedule_versions_immutable",
 		"create trigger audit_events_append_only",
 		"create trigger run_events_append_only",
 	} {
