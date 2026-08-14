@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth } from './auth'
 import { PageHeader } from './components'
 import { ForbiddenPage, LoginRequiredPage, NotFoundPage } from './feedback'
@@ -16,10 +16,10 @@ function PermissionRoute({ permission, children }: { permission?: string; childr
 }
 
 export function AppRoutes() {
-  return <BrowserRouter><Routes>
+  return <Routes>
     <Route path="/" element={<Placeholder title="Overview" />} />
     {ROUTES.filter((route) => route.path !== '/').map((route) => <Route key={route.path} path={route.path} element={<PermissionRoute permission={route.permission}><Placeholder title={route.label} /></PermissionRoute>} />)}
     <Route path="/login" element={<Navigate to="/" replace />} />
     <Route path="*" element={<NotFoundPage />} />
-  </Routes></BrowserRouter>
+  </Routes>
 }

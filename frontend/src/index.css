@@ -127,4 +127,14 @@ a {
 .gf-brand-name { color: var(--gf-text) !important; font-size: 1.6rem; font-weight: 800; letter-spacing: -0.04em; }
 .gf-startup-spinner { color: var(--gf-action); animation: gf-spin 0.9s linear infinite; }
 .gf-startup[role='alert'] > svg { color: var(--gf-danger); }
+.gf-auth-page { min-height: 100dvh; display: grid; place-items: center; padding: 1rem; }
+.gf-auth-card { width: min(28rem, 100%); display: grid; gap: 0.85rem; padding: clamp(1.25rem, 4vw, 2rem); background: var(--gf-card); border: 1px solid var(--gf-border); border-radius: var(--gf-radius); box-shadow: var(--gf-shadow); }
+.gf-auth-card > .gf-brand-mark, .gf-auth-card > .gf-brand-name { justify-self: center; }
+.gf-auth-card h1, .gf-auth-card h2 { margin: 0; }
+.gf-form { display: grid; gap: 0.6rem; }
+.gf-form-error { color: var(--gf-danger) !important; }
+.gf-muted { color: var(--gf-muted); }
+.gf-provider-list { display: grid; gap: 0.5rem; margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--gf-border); }
+.gf-provider-list .gf-state { min-height: 4rem; padding: 0.75rem; }
+.gf-auth-hint { display: inline-flex; align-items: center; gap: 0.4rem; color: var(--gf-muted); }
 @keyframes gf-spin { to { transform: rotate(360deg); } }
