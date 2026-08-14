@@ -4,6 +4,7 @@ import { useAuth } from './auth'
 import { PageHeader } from './components'
 import { ForbiddenPage, LoginRequiredPage, NotFoundPage } from './feedback'
 import { hasPermission, ROUTES } from './permissions'
+import { Shell } from './shell'
 
 function Placeholder({ title }: { title: string }) {
   return <main className="gf-content"><PageHeader title={title} description="This workspace is ready for its data view." /></main>
@@ -16,10 +17,10 @@ function PermissionRoute({ permission, children }: { permission?: string; childr
 }
 
 export function AppRoutes() {
-  return <Routes>
+  return <Shell><Routes>
     <Route path="/" element={<Placeholder title="Overview" />} />
     {ROUTES.filter((route) => route.path !== '/').map((route) => <Route key={route.path} path={route.path} element={<PermissionRoute permission={route.permission}><Placeholder title={route.label} /></PermissionRoute>} />)}
     <Route path="/login" element={<Navigate to="/" replace />} />
     <Route path="*" element={<NotFoundPage />} />
-  </Routes>
+  </Routes></Shell>
 }

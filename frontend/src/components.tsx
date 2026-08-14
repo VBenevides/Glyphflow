@@ -5,13 +5,13 @@ type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   busy?: boolean
 }
 
-export function Button({ variant = 'primary', busy = false, disabled, children, ...props }: ButtonProps) {
+export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button({ variant = 'primary', busy = false, disabled, children, className, ...props }, ref) {
   return (
-    <button className={`gf-button gf-button-${variant}`} disabled={disabled || busy} {...props}>
+    <button ref={ref} className={`gf-button gf-button-${variant}${className ? ` ${className}` : ''}`} disabled={disabled || busy} {...props}>
       {busy ? 'Working…' : children}
     </button>
   )
-}
+})
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input(props, ref) {
   return <input ref={ref} className="gf-input" {...props} />
