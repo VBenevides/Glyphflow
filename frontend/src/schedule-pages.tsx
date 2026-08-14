@@ -6,6 +6,7 @@ import { api, type Page, type Schedule } from './api'
 import { Button, DataTable, EmptyState, Input, PageHeader, Pagination, StatusPill } from './components'
 import { QueryState } from './query'
 import { describeError, FieldError } from './errors'
+import { useUnsavedChanges } from './unsaved'
 
 export type ScheduleDraft = { taskId: string; name: string; scheduleType: 'cron' | 'interval'; expression: string; timezone: string; misfirePolicy: string; catchupLimit: string; deadlineSeconds: string; concurrencyPolicy: string; maxConcurrentRuns: string }
 export const emptyScheduleDraft: ScheduleDraft = { taskId: '', name: '', scheduleType: 'cron', expression: '0 * * * *', timezone: 'UTC', misfirePolicy: 'SKIP_ALL', catchupLimit: '0', deadlineSeconds: '0', concurrencyPolicy: 'QUEUE', maxConcurrentRuns: '0' }
@@ -35,6 +36,7 @@ export function ScheduleInventoryPage() {
 export function ScheduleEditorPage() {
   const { scheduleId } = useParams(); const navigate = useNavigate(); const { permissions } = useAuth(); const [draft, setDraft] = useState<ScheduleDraft>(emptyScheduleDraft); const [errors, setErrors] = useState<Record<string, string>>({}); const [preview, setPreview] = useState<string[]>([]); const [error, setError] = useState(''); const [busy, setBusy] = useState(false)
   const update = (field: keyof ScheduleDraft, value: string) => setDraft((current) => ({ ...current, [field]: value }))
+  useUnsavedChanges(JSON.stringify(draft) !== JSON.stringify(emptyScheduleDraft))
   if (!permissions.includes('tasks.manage')) return <main className="gf-content"><h1>Access denied</h1></main>
   const showPreview = async () => { const next = validateScheduleDraft(draft); setErrors(next); if (Object.keys(next).length) return; setBusy(true); setError(''); try { const result = await api.post<{ occurrences?: string[] }>('/api/v1/schedules/preview', previewPayload(draft)); setPreview(result.occurrences ?? []) } catch (cause) { const details = describeError(cause); setError(details.message) } finally { setBusy(false) } }
   const save = async (event: FormEvent) => { event.preventDefault(); const next = validateScheduleDraft(draft); setErrors(next); if (Object.keys(next).length) return; setBusy(true); setError(''); try { await api.post(scheduleId ? `/api/v1/schedules/${encodeURIComponent(scheduleId)}` : '/api/v1/schedules', { ...previewPayload(draft), name: draft.name, misfire_policy: draft.misfirePolicy, catchup_limit: Number(draft.catchupLimit), start_deadline_seconds: Number(draft.deadlineSeconds), concurrency_policy: draft.concurrencyPolicy, max_concurrent_runs: Number(draft.maxConcurrentRuns) }); navigate('/schedules') } catch (cause) { setError(describeError(cause).message) } finally { setBusy(false) } }

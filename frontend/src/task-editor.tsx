@@ -4,6 +4,7 @@ import { useAuth } from './auth'
 import { api, ApiError } from './api'
 import { Button, Input, PageHeader } from './components'
 import { describeError, FieldError } from './errors'
+import { useUnsavedChanges } from './unsaved'
 
 export type TaskDraft = { name: string; command: string; workingDirectory: string; pool: string; pinnedRunner: string; selectors: string; environment: string; secretReferences: string; timeoutSeconds: string; maxOutputBytes: string; maxAttempts: string; ambiguityPolicy: string }
 
@@ -36,6 +37,7 @@ export function TaskEditorPage() {
   const [review, setReview] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [busy, setBusy] = useState(false)
+  useUnsavedChanges(JSON.stringify(draft) !== JSON.stringify(emptyTaskDraft))
   const update = (field: keyof TaskDraft, value: string) => setDraft((current) => ({ ...current, [field]: value }))
   const submit = async (event: FormEvent) => {
     event.preventDefault()

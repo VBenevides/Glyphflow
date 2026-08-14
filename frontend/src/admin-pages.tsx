@@ -7,6 +7,7 @@ import { Button, DataTable, EmptyState, Input, PageHeader, Pagination, StatusPil
 import { QueryState } from './query'
 import { hasPermission, PERMISSIONS } from './permissions'
 import { useAuth } from './auth'
+import { useUnsavedChanges } from './unsaved'
 
 function asPage(value: Page<UserRecord> | UserRecord[]): Page<UserRecord> {
   return Array.isArray(value) ? { items: value, page: 1, limit: value.length || 20, pages: 1 } : value
@@ -46,6 +47,7 @@ function RoleEditor({ role, onDone }: { role?: RoleDefinition; onDone: () => voi
   const [selected, setSelected] = useState(() => new Set(role?.permissions ?? []))
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  useUnsavedChanges(Boolean(key.trim() || selected.size))
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setBusy(true); setError('')
     try {
@@ -89,6 +91,7 @@ export function SsoSettingsPage() {
   const [draft, setDraft] = useState({ key: '', name: '', issuer: '', clientId: '', secretReference: '', claimMapping: '', groupMapping: '' })
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  useUnsavedChanges(Object.values(draft).some(Boolean))
   const addProvider = async (event: FormEvent) => {
     event.preventDefault(); setBusy(true); setError('')
     try {
@@ -111,6 +114,7 @@ export function AuthenticationSettingsPage() {
   const [registration, setRegistration] = useState(config.registration)
   const [defaultRole, setDefaultRole] = useState('user')
   const [error, setError] = useState('')
+  useUnsavedChanges(passwordLogin !== config.passwordLogin || registration !== config.registration || defaultRole !== 'user')
   const save = async () => { setError(''); try { await api.post('/api/v1/admin/auth/settings', { enabled: passwordLogin, registration, default_role: defaultRole.trim() || 'user' }) } catch (cause) { setError(cause instanceof Error ? cause.message : 'Authentication settings update failed') } }
   return <main className="gf-content"><PageHeader title="Authentication settings" description="Control password sign-in, registration, and the default role for new identities." /><section className="gf-card-panel"><div className="gf-editor-form"><label><input type="checkbox" checked={passwordLogin} onChange={(event) => setPasswordLogin(event.target.checked)} /> Enable password login</label><label><input type="checkbox" checked={registration} onChange={(event) => setRegistration(event.target.checked)} /> Allow password registration</label><label htmlFor="default-role">Default role<Input id="default-role" value={defaultRole} onChange={(event) => setDefaultRole(event.target.value)} /></label>{error && <p className="gf-form-error" role="alert">{error}</p>}{manage && <DangerousAction label="Save settings" warning="Changing login methods can lock out administrators. Verify that another working login method remains before saving." onConfirm={save} />}</div></section></main>
 }

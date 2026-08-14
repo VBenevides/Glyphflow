@@ -6,6 +6,7 @@ import { DangerousAction } from './actions'
 import { Button, Input, PageHeader, StatusPill } from './components'
 import { QueryState as DataState } from './query'
 import { useAuth } from './auth'
+import { useUnsavedChanges } from './unsaved'
 
 export function AccountPage() {
   const { config, setProfile } = useAuth()
@@ -23,6 +24,7 @@ export function AccountPage() {
   const identities = query.data?.identities ?? []
   const sessions = query.data?.sessions ?? []
   const section = location.pathname.split('/')[2] ?? 'profile'
+  useUnsavedChanges(Boolean(displayName.trim() || password.current || password.next || password.confirm))
   return <main className="gf-content"><PageHeader title="Account" description="Manage your profile, login methods, and active sessions." action={<div className="gf-related-links"><a href="/account">Profile</a><a href="/account/password">Password</a><a href="/account/identities">Identities</a><a href="/account/sessions">Sessions</a></div>} />
     <DataState query={query}>{(profile) => <>
       {(section === 'profile' || section === 'account') && <section className="gf-card-panel"><h2>Profile</h2><form className="gf-editor-form" onSubmit={saveProfile}><label htmlFor="account-username">Username<Input id="account-username" value={profile.username} readOnly /></label><label htmlFor="account-display-name">Display name<Input id="account-display-name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></label>{profile.email && <p className="gf-muted">Email: {profile.email}</p>}{profileError && <p className="gf-form-error" role="alert">{profileError}</p>}<Button type="submit">Save profile</Button></form></section>}
