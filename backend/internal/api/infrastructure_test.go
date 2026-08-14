@@ -80,6 +80,7 @@ func TestRunnerEnrollmentBuildsBootstrapBinaryAndConsumesToken(t *testing.T) {
 	directory := t.TempDir()
 	s.SetRunnerBinaryDirectory(directory)
 	s.SetRunnerArtifactConfig("nats://localhost:4222", 1<<20)
+	s.SetControlPlanePublicKey(base64.RawStdEncoding.EncodeToString(make([]byte, 32)))
 	if err := os.WriteFile(filepath.Join(directory, "glyphflow-runner-linux-amd64"), []byte("runner-binary"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -145,6 +146,16 @@ func TestInfrastructureMarksStaleRunnersAndFencesLeases(t *testing.T) {
 	lease, err = s.AcquireLease("resource-1", "run-2", time.Minute)
 	if err != nil || lease.FencingToken != 2 {
 		t.Fatalf("takeover = %#v, %v", lease, err)
+	}
+}
+
+func TestFilterRunnersByObservedState(t *testing.T) {
+	items := filterRunners([]RunnerRecord{
+		{ID: "runner-1", ObservedState: "ONLINE"},
+		{ID: "runner-2", ObservedState: "OFFLINE"},
+	}, "offline")
+	if len(items) != 1 || items[0].ID != "runner-2" {
+		t.Fatalf("offline runners = %#v", items)
 	}
 }
 

@@ -71,6 +71,7 @@ func (s *RunService) collection(w http.ResponseWriter, r *http.Request) {
 			for _, item := range items {
 				result = append(result, runRecordFromStore(item))
 			}
+			result = filterRuns(result, r.URL.Query().Get("state"))
 			writePage(w, r, result)
 			return
 		}
@@ -80,11 +81,39 @@ func (s *RunService) collection(w http.ResponseWriter, r *http.Request) {
 			items = append(items, run)
 		}
 		s.mu.RUnlock()
+		items = filterRuns(items, r.URL.Query().Get("state"))
 		sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 		writePage(w, r, items)
 		return
 	}
 	writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+}
+
+func filterRuns(items []RunRecord, state string) []RunRecord {
+	state = strings.ToUpper(strings.TrimSpace(state))
+	if state == "" {
+		return items
+	}
+	filtered := items[:0]
+	for _, item := range items {
+		match := item.State == state
+		if state == "ACTIVE" {
+			match = isActiveRunState(item.State)
+		}
+		if match {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
+}
+
+func isActiveRunState(state string) bool {
+	switch strings.ToUpper(strings.TrimSpace(state)) {
+	case "WAITING", "RUNNING", "RETRY_WAIT", "CANCELLING":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *RunService) execute(w http.ResponseWriter, r *http.Request) {

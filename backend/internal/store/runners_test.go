@@ -45,10 +45,18 @@ func TestRunnerRepositoryConsumesEnrollmentOnceAndProtectsActiveSessions(t *test
 	if strings.Contains(string(stored), plain) {
 		t.Fatal("enrollment token was stored in plaintext")
 	}
-	if _, err := repository.ConsumeEnrollment(ctx, hex.EncodeToString(digest[:]), time.Now()); err != nil {
+	replacement := "replacement-" + suffix
+	replacementDigest := sha256.Sum256([]byte(replacement))
+	if err := repository.CreateEnrollment(ctx, RunnerRecord{ID: runnerID, Name: runnerID, Pool: "pool-" + suffix, Capacity: 1}, RunnerEnrollmentRecord{ID: "replacement-enrollment-" + suffix, RunnerID: runnerID, TokenHash: hex.EncodeToString(replacementDigest[:]), ExpiresAt: time.Now().Add(time.Minute), Target: runnerID, Artifact: map[string]any{"platform": "linux"}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := repository.ConsumeEnrollment(ctx, hex.EncodeToString(digest[:]), time.Now()); err == nil {
+		t.Fatal("replaced enrollment was accepted")
+	}
+	if _, err := repository.ConsumeEnrollment(ctx, hex.EncodeToString(replacementDigest[:]), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.ConsumeEnrollment(ctx, hex.EncodeToString(replacementDigest[:]), time.Now()); err == nil {
 		t.Fatal("enrollment replay accepted")
 	}
 	if err := repository.CreateSession(ctx, runnerID, "boot-1"); err != nil {

@@ -9,7 +9,7 @@ export function enrollmentPayload(runnerId: string, platform: string, architectu
   return { runner_id: runnerId.trim(), platform: platform.trim(), architecture: architecture.trim(), ...(poolId ? { pool_id: poolId.trim() } : {}) }
 }
 
-function downloadArtifact(value: string, name: string) {
+export function downloadArtifact(value: string, name: string) {
   const bytes = Uint8Array.from(atob(value), (character) => character.charCodeAt(0)); const blob = new Blob([bytes], { type: 'application/octet-stream' }); const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = name; anchor.click(); URL.revokeObjectURL(url)
 }
 

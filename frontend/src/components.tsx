@@ -20,6 +20,8 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
 
 export function Dialog({ open, title, children, onClose, className }: { open: boolean; title: string; children: ReactNode; onClose: () => void; className?: string }) {
   const dialogRef = useRef<HTMLDivElement>(null)
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
   useEffect(() => {
     if (!open) return
     const previous = document.activeElement as HTMLElement | null
@@ -29,7 +31,7 @@ export function Dialog({ open, title, children, onClose, className }: { open: bo
     const focusable = dialog?.querySelector<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
     focusable?.focus()
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
+      if (event.key === 'Escape') onCloseRef.current()
       if (event.key !== 'Tab' || !dialog) return
       const items = [...dialog.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
       if (!items.length) return
@@ -49,7 +51,7 @@ export function Dialog({ open, title, children, onClose, className }: { open: bo
       document.body.style.overflow = previousOverflow
       previous?.focus()
     }
-  }, [onClose, open])
+  }, [open])
   if (!open) return null
   return (
     <div className="gf-dialog-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>

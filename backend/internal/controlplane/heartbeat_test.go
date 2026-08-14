@@ -4,11 +4,27 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/VBenevides/Glyphflow/backend/internal/protocol"
 )
 
 type heartbeatRepository struct {
 	id string
 	at time.Time
+}
+
+func TestRecordRunnerHeartbeatIgnoresRunnerEventEnvelope(t *testing.T) {
+	repository := &heartbeatRepository{}
+	raw, err := protocol.EncodeEnvelope(protocol.NewEnvelope("runner:1", []byte(`{"event_id":"event-1"}`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := recordRunnerHeartbeat(context.Background(), repository, raw); err != nil {
+		t.Fatal(err)
+	}
+	if repository.id != "" {
+		t.Fatalf("event envelope recorded as heartbeat for %q", repository.id)
+	}
 }
 
 func (r *heartbeatRepository) Heartbeat(_ context.Context, id string, at time.Time) error {

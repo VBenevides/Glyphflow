@@ -66,6 +66,7 @@ type InfrastructureService struct {
 	runnerBinaryDir       string
 	runnerNATSURL         string
 	runnerMaxMessageBytes int
+	controlPlanePublicKey string
 }
 
 func NewInfrastructureService() *InfrastructureService {
@@ -101,6 +102,12 @@ func (s *InfrastructureService) SetRunnerArtifactConfig(natsURL string, maxMessa
 	s.mu.Lock()
 	s.runnerNATSURL = strings.TrimSpace(natsURL)
 	s.runnerMaxMessageBytes = maxMessageBytes
+	s.mu.Unlock()
+}
+
+func (s *InfrastructureService) SetControlPlanePublicKey(publicKey string) {
+	s.mu.Lock()
+	s.controlPlanePublicKey = strings.TrimSpace(publicKey)
 	s.mu.Unlock()
 }
 
@@ -298,6 +305,7 @@ func (s *InfrastructureService) runnerCollection(w http.ResponseWriter, r *http.
 		for _, item := range items {
 			result = append(result, runnerRecordFromStore(item))
 		}
+		result = filterRunners(result, r.URL.Query().Get("state"))
 		sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 		writePage(w, r, result)
 		return
@@ -308,8 +316,23 @@ func (s *InfrastructureService) runnerCollection(w http.ResponseWriter, r *http.
 		items = append(items, item)
 	}
 	s.mu.RUnlock()
+	items = filterRunners(items, r.URL.Query().Get("state"))
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 	writePage(w, r, items)
+}
+
+func filterRunners(items []RunnerRecord, state string) []RunnerRecord {
+	state = strings.TrimSpace(state)
+	if state == "" {
+		return items
+	}
+	filtered := items[:0]
+	for _, item := range items {
+		if strings.EqualFold(item.ObservedState, state) {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
 }
 func (s *InfrastructureService) runnerPath(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
@@ -551,6 +574,11 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.mu.Lock()
+	for existingToken, item := range s.enrollments {
+		if item.RunnerID == input.RunnerID && !item.Used {
+			delete(s.enrollments, existingToken)
+		}
+	}
 	s.enrollments[token] = &enrollment{Token: token, RunnerID: input.RunnerID, Expires: expiry}
 	if _, ok := s.runners[input.RunnerID]; !ok {
 		s.runners[input.RunnerID] = RunnerRecord{ID: input.RunnerID, Name: input.RunnerID, PoolID: input.PoolID, DesiredState: "ENABLED", ObservedState: "PENDING", Pool: pool.Name, Capacity: 1, Platform: input.Platform, Architecture: input.Architecture}
@@ -562,7 +590,7 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 
 func (s *InfrastructureService) buildRunnerArtifact(r *http.Request, platformName, architecture, runnerID, token string) ([]byte, string, error) {
 	s.mu.RLock()
-	directory, natsURL, maxMessageBytes := s.runnerBinaryDir, s.runnerNATSURL, s.runnerMaxMessageBytes
+	directory, natsURL, maxMessageBytes, controlPlanePublicKey := s.runnerBinaryDir, s.runnerNATSURL, s.runnerMaxMessageBytes, s.controlPlanePublicKey
 	s.mu.RUnlock()
 	binaryName := "glyphflow-runner-" + platformName + "-" + architecture
 	filename := runnerID + "-" + binaryName
@@ -575,7 +603,7 @@ func (s *InfrastructureService) buildRunnerArtifact(r *http.Request, platformNam
 		return nil, "", err
 	}
 	controlPlaneURL := requestBaseURL(r)
-	packed, err := worker.PackBootstrap(raw, worker.Bootstrap{Token: token, RunnerID: runnerID, ControlPlaneURL: controlPlaneURL, NATSURL: natsURL, MaxMessageBytes: maxMessageBytes})
+	packed, err := worker.PackBootstrap(raw, worker.Bootstrap{Token: token, RunnerID: runnerID, ControlPlaneURL: controlPlaneURL, ControlPublicKey: controlPlanePublicKey, NATSURL: natsURL, MaxMessageBytes: maxMessageBytes})
 	return packed, filename, err
 }
 
@@ -827,8 +855,8 @@ func (s *InfrastructureService) ConsumeEnrollment(token string, now time.Time) (
 		return RunnerRecord{}, errEnrollmentNotFound
 	}
 	item.Used = true
-	runner.ObservedState = "ONLINE"
-	runner.HeartbeatAt = now.UTC().Format(time.RFC3339)
+	runner.ObservedState = "PENDING"
+	runner.HeartbeatAt = ""
 	s.runners[item.RunnerID] = runner
 	return runner, nil
 }

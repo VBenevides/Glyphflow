@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -36,5 +37,27 @@ func TestRunActionsAndResumableLogs(t *testing.T) {
 	runs.path(conflict, httptest.NewRequest(http.MethodPost, "/api/v1/runs/run-1/retry", bytes.NewBufferString(`{"reason":"repeat"}`)))
 	if conflict.Code != http.StatusConflict {
 		t.Fatalf("illegal retry status = %d", conflict.Code)
+	}
+}
+
+func TestRunCollectionFiltersActiveRuns(t *testing.T) {
+	runs := NewRunService()
+	runs.runs = map[string]RunRecord{
+		"waiting":   {ID: "waiting", State: "WAITING"},
+		"cancelled": {ID: "cancelled", State: "CANCELLED"},
+	}
+	response := httptest.NewRecorder()
+	runs.collection(response, httptest.NewRequest(http.MethodGet, "/api/v1/runs?state=active", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("list status = %d", response.Code)
+	}
+	var page struct {
+		Items []RunRecord `json:"items"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&page); err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) != 1 || page.Items[0].ID != "waiting" {
+		t.Fatalf("active runs = %#v", page.Items)
 	}
 }

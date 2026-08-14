@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"time"
@@ -43,6 +44,8 @@ type RunnerRepository interface {
 	ConsumeEnrollment(context.Context, string, time.Time) (RunnerRecord, error)
 	CreateSession(context.Context, string, string) error
 	Heartbeat(context.Context, string, time.Time) error
+	HeartbeatWithKey(context.Context, string, string, time.Time, string, []byte) error
+	FindPublicKey(context.Context, string, string) (ed25519.PublicKey, error)
 	MarkStale(context.Context, time.Time) error
 }
 
@@ -181,6 +184,13 @@ func (s *RunnerStore) CreateEnrollment(ctx context.Context, runner RunnerRecord,
 	if _, err := tx.Exec(ctx, `INSERT INTO runners (id, pool_id, name, desired_state, observed_state, capacity, capabilities) VALUES ($1, (SELECT id FROM runner_pools WHERE id = $2 OR name = $2), $3, 'ENABLED', 'PENDING', $4, $5::jsonb) ON CONFLICT (id) DO NOTHING`, runner.ID, poolID, runner.Name, maxRunnerCapacity(runner.Capacity), artifact); err != nil {
 		return err
 	}
+	var lockedRunnerID string
+	if err := tx.QueryRow(ctx, `SELECT id FROM runners WHERE id = $1 FOR UPDATE`, runner.ID).Scan(&lockedRunnerID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM runner_enrollments WHERE runner_id = $1 AND used_at IS NULL`, runner.ID); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, `INSERT INTO runner_enrollments (id, runner_id, token_hash, expires_at, requester, target, artifact) VALUES ($1, $2, decode($3, 'hex'), $4, $5, $6, $7::jsonb)`, enrollment.ID, runner.ID, enrollment.TokenHash, enrollment.ExpiresAt, enrollment.Requester, enrollment.Target, artifact); err != nil {
 		return err
 	}
@@ -219,7 +229,7 @@ func (s *RunnerStore) ConsumeEnrollment(ctx context.Context, tokenHash string, n
 	if _, err := tx.Exec(ctx, `UPDATE runner_enrollments SET used_at = now() WHERE token_hash = decode($1, 'hex')`, tokenHash); err != nil {
 		return RunnerRecord{}, err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE runners SET observed_state = 'ONLINE', last_seen_at = $2, updated_at = now() WHERE id = $1`, runnerID, now); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE runners SET observed_state = 'PENDING', last_seen_at = NULL, updated_at = now() WHERE id = $1`, runnerID); err != nil {
 		return RunnerRecord{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -242,7 +252,43 @@ func (s *RunnerStore) Heartbeat(ctx context.Context, runnerID string, now time.T
 	return err
 }
 
+func (s *RunnerStore) HeartbeatWithKey(ctx context.Context, runnerID, bootID string, now time.Time, keyID string, publicKey []byte) error {
+	if runnerID == "" || bootID == "" || keyID == "" || len(publicKey) != ed25519.PublicKeySize {
+		return errors.New("runner heartbeat key is incomplete")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `UPDATE runner_sessions SET disconnected_at = $2 WHERE runner_id = $1 AND disconnected_at IS NULL AND boot_id <> $3`, runnerID, now, bootID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO runner_sessions (id, runner_id, boot_id, last_heartbeat_at) VALUES ($1, $2, $3, $4) ON CONFLICT (runner_id, boot_id) DO UPDATE SET last_heartbeat_at = EXCLUDED.last_heartbeat_at, disconnected_at = NULL`, runnerID+"/"+bootID, runnerID, bootID, now); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO runner_keys (key_id, runner_id, public_key, not_before) VALUES ($1, $2, $3, $4) ON CONFLICT (key_id) DO UPDATE SET public_key = EXCLUDED.public_key, not_before = EXCLUDED.not_before, revoked_at = NULL`, keyID, runnerID, publicKey, now.Add(-time.Minute)); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE runners SET observed_state = 'ONLINE', last_seen_at = $2, updated_at = now() WHERE id = $1 AND observed_state <> 'REVOKED'`, runnerID, now); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *RunnerStore) FindPublicKey(ctx context.Context, runnerID, keyID string) (ed25519.PublicKey, error) {
+	var publicKey []byte
+	err := s.pool.QueryRow(ctx, `SELECT public_key FROM runner_keys WHERE runner_id = $1 AND key_id = $2 AND revoked_at IS NULL AND not_before <= now() AND (not_after IS NULL OR not_after > now())`, runnerID, keyID).Scan(&publicKey)
+	if err != nil {
+		return nil, err
+	}
+	if len(publicKey) != ed25519.PublicKeySize {
+		return nil, errors.New("runner public key is invalid")
+	}
+	return ed25519.PublicKey(publicKey), nil
+}
+
 func (s *RunnerStore) MarkStale(ctx context.Context, cutoff time.Time) error {
-	_, err := s.pool.Exec(ctx, `UPDATE runners SET observed_state = 'OFFLINE', updated_at = now() WHERE observed_state = 'ONLINE' AND (last_seen_at IS NULL OR last_seen_at < $1)`, cutoff)
+	_, err := s.pool.Exec(ctx, `UPDATE runners SET observed_state = 'OFFLINE', updated_at = now() WHERE observed_state = 'ONLINE' AND (last_seen_at IS NULL OR last_seen_at < $1 OR NOT EXISTS (SELECT 1 FROM runner_sessions WHERE runner_sessions.runner_id = runners.id AND runner_sessions.disconnected_at IS NULL))`, cutoff)
 	return err
 }

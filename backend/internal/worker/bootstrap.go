@@ -3,6 +3,8 @@ package worker
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -18,22 +20,28 @@ import (
 const bootstrapMagic = "GLYPHFLOW_RUNNER_BOOTSTRAP_V1"
 
 type Bootstrap struct {
-	Token           string `json:"token"`
-	RunnerID        string `json:"runner_id"`
-	ControlPlaneURL string `json:"control_plane_url"`
-	NATSURL         string `json:"nats_url"`
-	MaxMessageBytes int    `json:"max_message_bytes"`
+	Token            string `json:"token"`
+	RunnerID         string `json:"runner_id"`
+	ControlPlaneURL  string `json:"control_plane_url"`
+	ControlPublicKey string `json:"control_public_key,omitempty"`
+	NATSURL          string `json:"nats_url"`
+	MaxMessageBytes  int    `json:"max_message_bytes"`
 }
 
 type RunnerConnection struct {
-	RunnerID        string `json:"runner_id"`
-	NATSURL         string `json:"nats_url"`
-	MaxMessageBytes int    `json:"max_message_bytes"`
+	RunnerID         string `json:"runner_id"`
+	NATSURL          string `json:"nats_url"`
+	MaxMessageBytes  int    `json:"max_message_bytes"`
+	ControlPublicKey string `json:"control_public_key,omitempty"`
 }
 
 func PackBootstrap(executable []byte, bootstrap Bootstrap) ([]byte, error) {
 	if bootstrap.Token == "" || bootstrap.RunnerID == "" || bootstrap.ControlPlaneURL == "" || bootstrap.NATSURL == "" || bootstrap.MaxMessageBytes <= 0 {
 		return nil, errors.New("runner bootstrap is incomplete")
+	}
+	publicKey, err := base64.RawStdEncoding.DecodeString(bootstrap.ControlPublicKey)
+	if err != nil || len(publicKey) != ed25519.PublicKeySize {
+		return nil, errors.New("runner bootstrap control-plane public key is invalid")
 	}
 	payload, err := json.Marshal(bootstrap)
 	if err != nil {
@@ -114,7 +122,7 @@ func (b Bootstrap) Enroll(ctx context.Context) (RunnerConnection, error) {
 	if result.RunnerID == "" || result.NATSURL == "" || result.MaxMessageBytes <= 0 {
 		return RunnerConnection{}, errors.New("runner enrollment returned incomplete connection data")
 	}
-	return RunnerConnection{RunnerID: result.RunnerID, NATSURL: result.NATSURL, MaxMessageBytes: result.MaxMessageBytes}, nil
+	return RunnerConnection{RunnerID: result.RunnerID, NATSURL: result.NATSURL, MaxMessageBytes: result.MaxMessageBytes, ControlPublicKey: b.ControlPublicKey}, nil
 }
 
 func DefaultDataDir() string {

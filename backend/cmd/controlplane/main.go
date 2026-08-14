@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"os"
@@ -60,6 +61,12 @@ func main() {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
+	}
+	signingKey, err := loadControlPlaneSigningKey(ctx, configStore)
+	if err != nil {
+		db.Close()
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
 	if len(cfg.SystemAdminEmails) == 0 {
 		var storedSystemAdminEmails []string
@@ -136,7 +143,8 @@ func main() {
 	operations.SetTaskRepository(store.NewTaskRepository(db))
 	operations.SetScheduleRepository(store.NewScheduleRepository(db))
 	runs := api.NewRunService()
-	runs.SetRepository(store.NewRunRepository(db))
+	runRepository := store.NewRunRepository(db)
+	runs.SetRepository(runRepository)
 	runnerRepository := store.NewRunnerRepository(db)
 	if err := runnerRepository.EnsurePool(ctx, "default", "default"); err != nil {
 		db.Close()
@@ -148,6 +156,7 @@ func main() {
 	infrastructure.SetResourceRepository(store.NewResourceRepository(db))
 	infrastructure.SetRunnerBinaryDirectory(os.Getenv("RUNNER_BINARIES_DIR"))
 	infrastructure.SetRunnerArtifactConfig(cfg.NATSURL, cfg.MaxMessageBytes)
+	infrastructure.SetControlPlanePublicKey(base64.RawStdEncoding.EncodeToString(signingKey.Public.PublicKey))
 	audit := api.NewAuditQueryService()
 	audit.SetRepository(store.NewAuditRepository(db))
 	application := api.Server{AuthService: authService, AuthAdmin: &api.AuthAdminService{Auth: authService, OIDC: oidcService, Sessions: authService.SessionManager()}, Sessions: authService.SessionManager(), OIDC: oidcService, Roles: roles, Auth: authService.Authenticator(), Permissions: authService.Permissions, CSRFOrigin: cfg.WebOrigin, Operations: operations, Runs: runs, Infrastructure: infrastructure, AuditQuery: audit, Ready: func(ctx context.Context) error {
@@ -185,6 +194,18 @@ func main() {
 			if err := controlplane.RunRunnerHeartbeatMonitor(ctx, jetstream, runnerRepository, 30*time.Second, 10*time.Second); err != nil && ctx.Err() == nil {
 				fmt.Fprintln(os.Stderr, "runner heartbeat monitor:", err)
 				time.Sleep(time.Second)
+			}
+		}
+	}()
+	go func() {
+		for ctx.Err() == nil {
+			if err := controlplane.RunDispatcher(ctx, jetstream, runRepository, runnerRepository, signingKey, 500*time.Millisecond); err != nil && ctx.Err() == nil {
+				fmt.Fprintln(os.Stderr, "run dispatcher:", err)
+				select {
+				case <-time.After(time.Second):
+				case <-ctx.Done():
+					return
+				}
 			}
 		}
 	}()

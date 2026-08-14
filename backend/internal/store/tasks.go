@@ -36,6 +36,8 @@ type TaskRecord struct {
 	ID, CurrentVersionID, Name, RunnerPoolID, PinnedRunnerID string
 	Enabled                                                  bool
 	ActiveVersion, TimeoutSeconds                            int
+	MaxOutputBytes                                           int64
+	WorkingDirectory, ExecutionSpecDigest                    string
 	Command                                                  []string
 }
 
@@ -76,14 +78,14 @@ func (s *TaskStore) Find(ctx context.Context, id string) (TaskRecord, bool, erro
 	return item, err == nil, err
 }
 
-const taskQuery = `SELECT t.id, COALESCE(t.current_version_id, ''), t.name, t.enabled, COALESCE(v.version, 0), COALESCE(v.runner_pool_id, ''), COALESCE(v.pinned_runner_id, ''), COALESCE(v.command, '[]'::jsonb), COALESCE(v.timeout_seconds, 0) FROM tasks t LEFT JOIN task_versions v ON v.id = t.current_version_id`
+const taskQuery = `SELECT t.id, COALESCE(t.current_version_id, ''), t.name, t.enabled, COALESCE(v.version, 0), COALESCE(v.runner_pool_id, ''), COALESCE(v.pinned_runner_id, ''), COALESCE(v.command, '[]'::jsonb), COALESCE(v.timeout_seconds, 0), COALESCE(v.max_output_bytes, 0), COALESCE(v.working_directory, '.'), COALESCE(v.execution_spec_digest, '') FROM tasks t LEFT JOIN task_versions v ON v.id = t.current_version_id`
 
 type rowScanner interface{ Scan(...any) error }
 
 func scanTask(row rowScanner, _ ...string) (TaskRecord, error) {
 	var item TaskRecord
 	var command []byte
-	if err := row.Scan(&item.ID, &item.CurrentVersionID, &item.Name, &item.Enabled, &item.ActiveVersion, &item.RunnerPoolID, &item.PinnedRunnerID, &command, &item.TimeoutSeconds); err != nil {
+	if err := row.Scan(&item.ID, &item.CurrentVersionID, &item.Name, &item.Enabled, &item.ActiveVersion, &item.RunnerPoolID, &item.PinnedRunnerID, &command, &item.TimeoutSeconds, &item.MaxOutputBytes, &item.WorkingDirectory, &item.ExecutionSpecDigest); err != nil {
 		return TaskRecord{}, err
 	}
 	if err := json.Unmarshal(command, &item.Command); err != nil {
@@ -174,6 +176,9 @@ func (s *TaskStore) Delete(ctx context.Context, id string) (bool, error) {
 func normalizeTaskDefinition(definition TaskDefinition) TaskDefinition {
 	if definition.TimeoutSeconds <= 0 {
 		definition.TimeoutSeconds = 60
+	}
+	if definition.WorkingDirectory == "" {
+		definition.WorkingDirectory = "."
 	}
 	if definition.MaxOutputBytes <= 0 {
 		definition.MaxOutputBytes = 1 << 20

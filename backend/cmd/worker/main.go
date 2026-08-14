@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -12,6 +14,7 @@ import (
 	"time"
 
 	"github.com/VBenevides/Glyphflow/backend/internal/config"
+	"github.com/VBenevides/Glyphflow/backend/internal/protocol"
 	"github.com/VBenevides/Glyphflow/backend/internal/queue"
 	"github.com/VBenevides/Glyphflow/backend/internal/worker"
 )
@@ -57,6 +60,13 @@ func main() {
 			os.Exit(1)
 		}
 	}
+	if bootstrap != nil && bootstrap.ControlPublicKey != "" && connection.ControlPublicKey != bootstrap.ControlPublicKey {
+		connection.ControlPublicKey = bootstrap.ControlPublicKey
+		if err := localStore.SaveConnection(connection); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	}
 	if connection.RunnerID != "" {
 		_ = os.Setenv("RUNNER_ID", connection.RunnerID)
 	}
@@ -68,6 +78,11 @@ func main() {
 		if os.Getenv("MAX_OUTPUT_BYTES") == "" {
 			_ = os.Setenv("MAX_OUTPUT_BYTES", fmt.Sprintf("%d", connection.MaxMessageBytes))
 		}
+	}
+	controlPublicKey, err := base64.RawStdEncoding.DecodeString(connection.ControlPublicKey)
+	if err != nil || len(controlPublicKey) != ed25519.PublicKeySize {
+		fmt.Fprintln(os.Stderr, "runner control-plane public key is unavailable")
+		os.Exit(1)
 	}
 	cfg, err := config.FromEnv(config.Worker)
 	if err != nil {
@@ -89,6 +104,11 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	workerKey, err := protocol.GenerateSigningKey("runner:"+cfg.RunnerID, time.Now().UTC(), 365*24*time.Hour)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	var jetstream *queue.JetStream
 	if strings.HasPrefix(cfg.NATSURL, "tls://") {
 		jetstream, err = queue.ConnectJetStreamTLS(cfg.NATSURL, queue.TLSConfig{CertificateFile: cfg.NATSCertFile, KeyFile: cfg.NATSKeyFile, CAFile: cfg.NATSCAFile})
@@ -100,6 +120,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer jetstream.Close()
+	runtime := worker.OrderRuntime{Store: localStore, Publisher: jetstream, RunnerID: cfg.RunnerID, ExecutorBootID: bootID, ProcessID: int64(os.Getpid()), ControlPublicKey: ed25519.PublicKey(controlPublicKey), SigningKey: workerKey, Executor: worker.Executor{Roots: []string{cfg.DataDir, "."}, MaxOutputBytes: cfg.MaxOutputBytes}}
 	consumer, err := jetstream.Consumer(ctx, "runner-"+cfg.RunnerID, queue.Subject("orders", cfg.RunnerID), 100)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -107,25 +128,34 @@ func main() {
 	}
 	go func() {
 		for ctx.Err() == nil {
-			if err := jetstream.ConsumeOne(ctx, consumer, func(_ context.Context, message queue.Message) error {
-				key := "order:" + message.ID
-				if key == "order:" {
-					key += fmt.Sprintf("%d", time.Now().UnixNano())
-				}
-				return localStore.Put(key, string(message.Data))
+			if err := jetstream.ConsumeOne(ctx, consumer, func(handlerCtx context.Context, message queue.Message) error {
+				return runtime.Handle(handlerCtx, message)
 			}); err != nil && ctx.Err() == nil {
 				time.Sleep(time.Second)
 			}
 		}
 	}()
-	go workerHeartbeat(ctx, jetstream, cfg.RunnerID, bootID)
+	go func() {
+		for ctx.Err() == nil {
+			if err := worker.PublishPendingEvents(ctx, localStore, jetstream, cfg.RunnerID); err != nil && ctx.Err() == nil {
+				time.Sleep(time.Second)
+			}
+			select {
+			case <-time.After(time.Second):
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	go workerHeartbeat(ctx, jetstream, cfg.RunnerID, bootID, workerKey)
 	fmt.Println("Glyphflow worker")
 	<-ctx.Done()
 }
 
-func workerHeartbeat(ctx context.Context, jetstream *queue.JetStream, runnerID, bootID string) {
+func workerHeartbeat(ctx context.Context, jetstream *queue.JetStream, runnerID, bootID string, signingKey protocol.SigningKey) {
+	publicKey := signingKey.Private.Public().(ed25519.PublicKey)
 	publish := func(now time.Time) {
-		payload, _ := json.Marshal(map[string]string{"runner_id": runnerID, "boot_id": bootID, "at": now.UTC().Format(time.RFC3339Nano)})
+		payload, _ := json.Marshal(map[string]string{"runner_id": runnerID, "boot_id": bootID, "at": now.UTC().Format(time.RFC3339Nano), "key_id": signingKey.ID, "public_key": base64.RawStdEncoding.EncodeToString(publicKey)})
 		_ = jetstream.Publish(ctx, queue.Message{Subject: queue.Subject("events", runnerID), Data: payload, ID: "heartbeat:" + bootID + ":" + now.UTC().Format(time.RFC3339Nano)})
 	}
 	publish(time.Now().UTC())
