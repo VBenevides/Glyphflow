@@ -1,17 +1,18 @@
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useParams } from 'react-router-dom'
 import { useAuth } from './auth'
 import { api, type Page, type Resource } from './api'
 import { DangerousAction } from './actions'
-import { Button, DataTable, EmptyState, Input, PageHeader, Pagination, StatusPill } from './components'
+import { Button, DataTable, EmptyState, PageHeader, Pagination, StatusPill } from './components'
 import { QueryState } from './query'
 import { hasPermission } from './permissions'
 
 export function resourceState(resource: Resource) { return resource.enabled === false ? 'disabled' : resource.holder ? 'leased' : 'available' }
 
 export function ResourceInventoryPage() {
-  const { permissions } = useAuth(); const query = useQuery({ queryKey: ['resources'], queryFn: ({ signal }) => api.get<Page<Resource>>('/api/v1/resources', undefined, signal) }); const manage = hasPermission(permissions, 'resources.manage')
-  return <main className="gf-content"><PageHeader title="Resources and leases" description="Exclusive resources, fencing counters, and active holders." action={manage && <Button>Create resource</Button>} /><QueryState query={query} empty="Create an exclusive resource for task placement.">{(data) => data.items.length ? <DataTable caption="Resources" rows={data.items} columns={[{ key: 'name', label: 'Resource', render: (resource) => <Link to={`/resources/${resource.id}`}>{resource.name}</Link> }, { key: 'enabled', label: 'State', render: (resource) => <StatusPill status={resourceState(resource)} /> }, { key: 'holder', label: 'Holder', render: (resource) => resource.holder ? <Link to={`/runs/${resource.holder}`}>{resource.holder}</Link> : '—' }, { key: 'expiresAt', label: 'Lease expiry' }, { key: 'fencingToken', label: 'Fencing token' }, { key: 'actions', label: 'Actions', render: (resource) => manage && <DangerousAction label="Delete" onConfirm={() => api.delete(`/api/v1/resources/${encodeURIComponent(resource.id)}`)} /> }]} /> : <EmptyState title="No resources">Create an exclusive resource for task placement.</EmptyState>}</QueryState></main>
+  const { permissions } = useAuth(); const [page, setPage] = useState(1); const query = useQuery({ queryKey: ['resources', page], queryFn: ({ signal }) => api.get<Page<Resource>>('/api/v1/resources', { page, limit: 50 }, signal) }); const manage = hasPermission(permissions, 'resources.manage')
+  return <main className="gf-content"><PageHeader title="Resources and leases" description="Exclusive resources, fencing counters, and active holders." action={manage && <Button>Create resource</Button>} /><QueryState query={query} empty="Create an exclusive resource for task placement.">{(data) => data.items.length ? <><DataTable caption="Resources" rows={data.items} columns={[{ key: 'name', label: 'Resource', render: (resource) => <Link to={`/resources/${resource.id}`}>{resource.name}</Link> }, { key: 'enabled', label: 'State', render: (resource) => <StatusPill status={resourceState(resource)} /> }, { key: 'holder', label: 'Holder', render: (resource) => resource.holder ? <Link to={`/runs/${resource.holder}`}>{resource.holder}</Link> : '—' }, { key: 'expiresAt', label: 'Lease expiry' }, { key: 'fencingToken', label: 'Fencing token' }, { key: 'actions', label: 'Actions', render: (resource) => manage && <DangerousAction label="Delete" onConfirm={() => api.delete(`/api/v1/resources/${encodeURIComponent(resource.id)}`)} /> }]} /><Pagination page={data.page ?? page} pages={data.pages ?? 1} onChange={setPage} /></> : <EmptyState title="No resources">Create an exclusive resource for task placement.</EmptyState>}</QueryState></main>
 }
 
 export function ResourceDetailPage() {
