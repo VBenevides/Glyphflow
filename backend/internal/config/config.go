@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 type Role string
@@ -18,26 +19,32 @@ const (
 )
 
 type Config struct {
-	Role              Role
-	DatabaseURL       string
-	NATSURL           string
-	AccessTokenSecret string
-	WebOrigin         string
-	DataDir           string
-	RunnerID          string
-	MaxMessageBytes   int
-	MaxOutputBytes    int
+	Role                        Role
+	DatabaseURL                 string
+	NATSURL                     string
+	AccessTokenSecret           string
+	WebOrigin                   string
+	PasswordLoginEnabled        bool
+	PasswordRegistrationEnabled bool
+	BootstrapUsername           string
+	DataDir                     string
+	RunnerID                    string
+	MaxMessageBytes             int
+	MaxOutputBytes              int
 }
 
 func FromEnv(role Role) (Config, error) {
 	config := Config{
-		Role:              role,
-		DatabaseURL:       os.Getenv("DATABASE_URL"),
-		NATSURL:           os.Getenv("NATS_URL"),
-		AccessTokenSecret: os.Getenv("ACCESS_TOKEN_SECRET"),
-		WebOrigin:         os.Getenv("WEB_ORIGIN"),
-		DataDir:           os.Getenv("DATA_DIR"),
-		RunnerID:          os.Getenv("RUNNER_ID"),
+		Role:                        role,
+		DatabaseURL:                 os.Getenv("DATABASE_URL"),
+		NATSURL:                     os.Getenv("NATS_URL"),
+		AccessTokenSecret:           os.Getenv("ACCESS_TOKEN_SECRET"),
+		WebOrigin:                   os.Getenv("WEB_ORIGIN"),
+		PasswordLoginEnabled:        envBoolDefault("PASSWORD_LOGIN_ENABLED", true),
+		PasswordRegistrationEnabled: envBoolDefault("PASSWORD_REGISTRATION_ENABLED", true),
+		BootstrapUsername:           strings.TrimSpace(os.Getenv("GLYPHFLOW_BOOTSTRAP_USERNAME")),
+		DataDir:                     os.Getenv("DATA_DIR"),
+		RunnerID:                    os.Getenv("RUNNER_ID"),
 	}
 	var err error
 	if config.MaxMessageBytes, err = envInt("MAX_MESSAGE_BYTES"); err != nil {
@@ -94,6 +101,18 @@ func envInt(name string) (int, error) {
 		return 0, fmt.Errorf("%s must be an integer", name)
 	}
 	return parsed, nil
+}
+
+func envBoolDefault(name string, fallback bool) bool {
+	value, ok := os.LookupEnv(name)
+	if !ok || strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
 }
 
 func requireURL(name, value string, schemes ...string) error {

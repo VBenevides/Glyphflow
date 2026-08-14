@@ -11,6 +11,7 @@ import (
 
 	"github.com/VBenevides/Glyphflow/backend/internal/api"
 	"github.com/VBenevides/Glyphflow/backend/internal/config"
+	"github.com/VBenevides/Glyphflow/backend/internal/platform"
 )
 
 func main() {
@@ -21,14 +22,23 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	sessions, err := api.NewSessionManager(cfg.AccessTokenSecret)
+	authService, err := api.NewAuthService(cfg.AccessTokenSecret, cfg.PasswordLoginEnabled, cfg.PasswordRegistrationEnabled, nil)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	if err := authService.AddRole("admin", platform.PermissionCatalog...); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if err := authService.AddRole("user"); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	authService.SetDefaultRole("user")
 	server := &http.Server{
 		Addr:              ":8080",
-		Handler:           api.Server{Auth: sessions.Authenticator(), CSRFOrigin: cfg.WebOrigin}.Handler(),
+		Handler:           api.Server{AuthService: authService, Auth: authService.Authenticator(), Permissions: authService.Permissions, CSRFOrigin: cfg.WebOrigin}.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
