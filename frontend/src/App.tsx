@@ -4,9 +4,10 @@ import { FatalErrorPage, LoginRequiredPage } from './feedback'
 import { AppRoutes } from './routes'
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { LoginPage, OidcCallbackPage, RegistrationPage } from './auth-pages'
+import { QueryProvider } from './query'
 
 function App() {
-  return <AuthProvider><BrowserRouter><BootstrapGate /></BrowserRouter></AuthProvider>
+  return <QueryProvider><AuthProvider><BrowserRouter><BootstrapGate /></BrowserRouter></AuthProvider></QueryProvider>
 }
 
 function BootstrapGate() {
