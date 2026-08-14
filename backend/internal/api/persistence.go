@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/VBenevides/Glyphflow/backend/internal/platform"
@@ -222,7 +223,7 @@ func (p *Persistence) Save(s Server) error {
 		if err := p.config.Set(context.Background(), "ENABLE_PASSWORD_REGISTRATION", state.RegistrationEnabled); err != nil {
 			return err
 		}
-		if err := p.config.Set(context.Background(), "DEFAULT_ROLE", state.DefaultRole); err != nil {
+		if err := p.config.Set(context.Background(), "DEFAULT_ROLE_ID", state.DefaultRole); err != nil {
 			return err
 		}
 		systemAdmins := make([]string, 0, len(state.SystemAdminEmails))
@@ -317,11 +318,17 @@ func (p *Persistence) Wrap(next http.Handler, s Server) http.Handler {
 }
 
 func (p *Persistence) load(name string, target any) error {
+	if strings.HasPrefix(name, "state.") {
+		return nil
+	}
 	_, err := p.config.Get(context.Background(), name, target)
 	return err
 }
 
 func (p *Persistence) save(name string, value any) error {
+	if strings.HasPrefix(name, "state.") {
+		return nil
+	}
 	return p.config.Set(context.Background(), name, value)
 }
 

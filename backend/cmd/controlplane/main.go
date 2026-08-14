@@ -53,7 +53,7 @@ func main() {
 		"GLYPHFLOW_SYSTEM_ADMINS":      cfg.SystemAdminEmails,
 		"ENABLE_PASSWORD_LOGIN":        cfg.PasswordLoginEnabled,
 		"ENABLE_PASSWORD_REGISTRATION": cfg.PasswordRegistrationEnabled,
-		"DEFAULT_ROLE":                 cfg.DefaultRole,
+		"DEFAULT_ROLE_ID":              cfg.DefaultRole,
 	}); err != nil {
 		db.Close()
 		fmt.Fprintln(os.Stderr, err)
@@ -70,7 +70,7 @@ func main() {
 		}
 	}
 	var storedPasswordLogin, storedPasswordRegistration bool
-	var storedDefaultRole string
+	var storedDefaultRoleID string
 	if found, err := configStore.Get(ctx, "ENABLE_PASSWORD_LOGIN", &storedPasswordLogin); err != nil {
 		db.Close()
 		fmt.Fprintln(os.Stderr, err)
@@ -85,12 +85,12 @@ func main() {
 	} else if found {
 		cfg.PasswordRegistrationEnabled = storedPasswordRegistration
 	}
-	if found, err := configStore.Get(ctx, "DEFAULT_ROLE", &storedDefaultRole); err != nil {
+	if found, err := configStore.Get(ctx, "DEFAULT_ROLE_ID", &storedDefaultRoleID); err != nil {
 		db.Close()
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
-	} else if found && strings.TrimSpace(storedDefaultRole) != "" {
-		cfg.DefaultRole = storedDefaultRole
+	} else if found && strings.TrimSpace(storedDefaultRoleID) != "" {
+		cfg.DefaultRole = storedDefaultRoleID
 	}
 	authService, err := api.NewAuthService(cfg.AccessTokenSecret, cfg.PasswordLoginEnabled, cfg.PasswordRegistrationEnabled, []byte(cfg.PasswordPepper))
 	if err != nil {

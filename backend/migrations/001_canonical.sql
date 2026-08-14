@@ -1,7 +1,8 @@
 CREATE TABLE config (
     name text PRIMARY KEY,
     value jsonb NOT NULL,
-    updated_at timestamptz NOT NULL DEFAULT now()
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CHECK (name !~ '^state\.')
 );
 
 CREATE TABLE users (

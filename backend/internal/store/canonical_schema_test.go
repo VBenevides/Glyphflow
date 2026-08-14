@@ -47,6 +47,7 @@ func TestCanonicalMigrationContainsTargetTables(t *testing.T) {
 func TestCanonicalMigrationHasIntegrityGuards(t *testing.T) {
 	sql := canonicalMigrationSQL(t)
 	for _, fragment := range []string{
+		"check (name !~ '^state\\.')",
 		"foreign key (current_version_id, id) references task_versions",
 		"unique index runner_sessions_active_idx",
 		"unique index resource_leases_active_idx",
