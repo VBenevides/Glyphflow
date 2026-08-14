@@ -77,6 +77,32 @@ func TestManagementRoutesFailClosedUntilBackedByStorage(t *testing.T) {
 	}
 }
 
+func TestFrontendResourceAndRunPathsReachClassifiedHandlers(t *testing.T) {
+	permissions := map[string]bool{"task.read": true, "task.manage": true, "tasks.read": true, "tasks.manage": true, "resources.read": true, "resources.manage": true, "runners.read": true, "runners.manage": true, "runs.read": true, "runs.cancel": true, "runs.retry": true, "logs.read": true}
+	h := (Server{Auth: func(*http.Request) (Claims, bool) { return Claims{Roles: permissions}, true }}).Handler()
+	requests := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/v1/tasks/task-1"},
+		{http.MethodPost, "/api/v1/tasks/task-1/versions"},
+		{http.MethodPost, "/api/v1/schedules/preview"},
+		{http.MethodGet, "/api/v1/schedules/schedule-1"},
+		{http.MethodGet, "/api/v1/resources/resource-1"},
+		{http.MethodPost, "/api/v1/runners/enrollments"},
+		{http.MethodPost, "/api/v1/runs/run-1/cancel"},
+		{http.MethodGet, "/api/v1/runs/run-1/logs"},
+		{http.MethodGet, "/api/v1/runs/run-1/logs/download"},
+	}
+	for _, item := range requests {
+		response := httptest.NewRecorder()
+		h.ServeHTTP(response, httptest.NewRequest(item.method, item.path, nil))
+		if response.Code == http.StatusNotFound {
+			t.Fatalf("%s %s was not registered", item.method, item.path)
+		}
+	}
+}
+
 func TestReadinessReportsDependencyFailure(t *testing.T) {
 	h := (Server{Ready: func(_ context.Context) error { return errors.New("database down") }}).Handler()
 	w := httptest.NewRecorder()
