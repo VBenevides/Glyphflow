@@ -1,11 +1,15 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,17 +22,30 @@ type OIDCProvider struct {
 	Callbacks                                          []string
 }
 type OIDCService struct {
-	mu        sync.RWMutex
-	providers map[string]OIDCProvider
-	states    *platform.AuthorizationStateStore
+	mu         sync.RWMutex
+	providers  map[string]OIDCProvider
+	states     *platform.AuthorizationStateStore
+	httpClient *http.Client
 }
 
 func NewOIDCService() *OIDCService {
-	return &OIDCService{providers: map[string]OIDCProvider{}, states: platform.NewAuthorizationStateStore()}
+	return &OIDCService{providers: map[string]OIDCProvider{}, states: platform.NewAuthorizationStateStore(), httpClient: &http.Client{Timeout: 10 * time.Second}}
+}
+
+func (s *OIDCService) SetHTTPClient(client *http.Client) {
+	if client == nil {
+		return
+	}
+	s.mu.Lock()
+	s.httpClient = client
+	s.mu.Unlock()
 }
 func (s *OIDCService) AddProvider(provider OIDCProvider) error {
 	if provider.Key == "" || provider.Issuer == "" || provider.Callback == "" {
 		return errors.New("OIDC provider is incomplete")
+	}
+	if _, err := secureURL(provider.Issuer); err != nil {
+		return err
 	}
 	callbacks := provider.Callbacks
 	if len(callbacks) == 0 {
@@ -129,6 +146,131 @@ func (s *OIDCService) CompleteChallenge(key, state, nonce, callback, verifier st
 	}
 	return platform.ValidateOIDCClaims(claims, provider.Issuer, provider.Audience, nonce, now)
 }
+
+func (s *OIDCService) CompleteAuthorizationCode(state, nonce, code string, now time.Time) (OIDCProvider, platform.OIDCClaims, error) {
+	if code == "" {
+		return OIDCProvider{}, platform.OIDCClaims{}, errors.New("OIDC authorization code is required")
+	}
+	key, callback, verifier, err := s.states.ReadChallenge(state, nonce, "login", now)
+	if err != nil {
+		return OIDCProvider{}, platform.OIDCClaims{}, err
+	}
+	provider, ok := s.provider(key)
+	if !ok || !provider.Enabled {
+		return OIDCProvider{}, platform.OIDCClaims{}, errors.New("OIDC provider is unavailable")
+	}
+	metadata, err := s.discovery(provider)
+	if err != nil {
+		return OIDCProvider{}, platform.OIDCClaims{}, err
+	}
+	token, err := s.exchangeCode(provider, metadata.TokenEndpoint, code, callback, verifier)
+	if err != nil {
+		return OIDCProvider{}, platform.OIDCClaims{}, err
+	}
+	jwks, err := s.fetch(metadata.JWKSURI, nil)
+	if err != nil {
+		return OIDCProvider{}, platform.OIDCClaims{}, err
+	}
+	audience := provider.Audience
+	if audience == "" {
+		audience = provider.ClientID
+	}
+	claims, err := platform.VerifyOIDCIDToken(token, string(jwks), metadata.Issuer, audience, nonce, now)
+	if err != nil {
+		return OIDCProvider{}, platform.OIDCClaims{}, err
+	}
+	if err := s.states.ConsumeChallenge(state, nonce, key, "login", callback, verifier, now); err != nil {
+		return OIDCProvider{}, platform.OIDCClaims{}, err
+	}
+	return provider, claims, nil
+}
+
+type oidcMetadata struct {
+	Issuer        string `json:"issuer"`
+	TokenEndpoint string `json:"token_endpoint"`
+	JWKSURI       string `json:"jwks_uri"`
+}
+
+func (s *OIDCService) discovery(provider OIDCProvider) (oidcMetadata, error) {
+	issuer, err := secureURL(provider.Issuer)
+	if err != nil {
+		return oidcMetadata{}, err
+	}
+	body, err := s.fetch(strings.TrimRight(issuer, "/")+"/.well-known/openid-configuration", nil)
+	if err != nil {
+		return oidcMetadata{}, err
+	}
+	var metadata oidcMetadata
+	if err := json.Unmarshal(body, &metadata); err != nil || metadata.Issuer != provider.Issuer {
+		return oidcMetadata{}, errors.New("OIDC discovery issuer is invalid")
+	}
+	if _, err := secureURL(metadata.TokenEndpoint); err != nil {
+		return oidcMetadata{}, err
+	}
+	if _, err := secureURL(metadata.JWKSURI); err != nil {
+		return oidcMetadata{}, err
+	}
+	return metadata, nil
+}
+
+func (s *OIDCService) exchangeCode(provider OIDCProvider, endpoint, code, callback, verifier string) (string, error) {
+	form := url.Values{"grant_type": {"authorization_code"}, "code": {code}, "redirect_uri": {callback}, "client_id": {provider.ClientID}, "code_verifier": {verifier}}
+	body, err := s.fetch(endpoint, strings.NewReader(form.Encode()))
+	if err != nil {
+		return "", err
+	}
+	var response struct {
+		IDToken string `json:"id_token"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil || response.IDToken == "" {
+		return "", errors.New("OIDC token response has no ID token")
+	}
+	return response.IDToken, nil
+}
+
+func (s *OIDCService) fetch(endpoint string, body io.Reader) ([]byte, error) {
+	method := http.MethodGet
+	if body != nil {
+		method = http.MethodPost
+	}
+	s.mu.RLock()
+	client := s.httpClient
+	s.mu.RUnlock()
+	if client == nil {
+		client = &http.Client{Timeout: 10 * time.Second}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, method, endpoint, body)
+	if err != nil {
+		return nil, err
+	}
+	if body != nil {
+		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, errors.New("OIDC provider request failed")
+	}
+	var value json.RawMessage
+	if err := json.NewDecoder(response.Body).Decode(&value); err != nil {
+		return nil, err
+	}
+	return value, nil
+}
+
+func secureURL(value string) (string, error) {
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
+		return "", errors.New("OIDC endpoint must use HTTPS")
+	}
+	return parsed.String(), nil
+}
+
 func (s Server) oidcRoutes(mux *http.ServeMux) {
 	if s.OIDC == nil {
 		return
@@ -161,20 +303,13 @@ func (s Server) oidcRoutes(mux *http.ServeMux) {
 			writeJSON(w, 503, map[string]string{"error": "authentication unavailable"})
 			return
 		}
-		key := r.URL.Query().Get("provider")
 		now := time.Now()
-		claims := platform.OIDCClaims{Issuer: r.URL.Query().Get("issuer"), Subject: r.URL.Query().Get("subject"), Audience: []string{r.URL.Query().Get("audience")}, Nonce: r.URL.Query().Get("nonce")}
-		if expiry := r.URL.Query().Get("expires"); expiry != "" {
-			if parsed, err := time.Parse(time.RFC3339, expiry); err == nil {
-				claims.Expires = parsed
-			}
-		}
-		if err := s.OIDC.CompleteChallenge(key, r.URL.Query().Get("state"), r.URL.Query().Get("nonce"), r.URL.Query().Get("redirect_uri"), r.URL.Query().Get("verifier"), now, claims); err != nil {
+		provider, claims, err := s.OIDC.CompleteAuthorizationCode(r.URL.Query().Get("state"), r.URL.Query().Get("nonce"), r.URL.Query().Get("code"), now)
+		if err != nil {
 			writeJSON(w, 401, map[string]string{"error": "OIDC callback failed"})
 			return
 		}
-		provider, _ := s.OIDC.provider(key)
-		tokens, err := s.AuthService.LoginOIDC(key, claims.Subject, r.URL.Query().Get("username"), r.URL.Query().Get("email"), provider.AutoProvision)
+		tokens, err := s.AuthService.LoginOIDC(provider.Key, claims.Subject, claims.Username, claims.Email, provider.AutoProvision)
 		if err != nil {
 			writeJSON(w, 401, map[string]string{"error": "OIDC login failed"})
 			return

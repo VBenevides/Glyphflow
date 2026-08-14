@@ -99,6 +99,21 @@ func (s *AuthorizationStateStore) ConsumeChallenge(state, nonce, provider, purpo
 	return nil
 }
 
+func (s *AuthorizationStateStore) ReadChallenge(state, nonce, purpose string, now time.Time) (provider, callback, verifier string, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := hashString(state)
+	entry, ok := s.states[key]
+	if !ok || entry.Used || entry.Purpose != purpose || !now.Before(entry.Expires) || entry.Nonce != hashString(nonce) {
+		return "", "", "", errors.New("authorization state is invalid")
+	}
+	plain, err := s.decrypt(entry.Verifier)
+	if err != nil {
+		return "", "", "", errors.New("PKCE verifier is invalid")
+	}
+	return entry.Provider, entry.Callback, string(plain), nil
+}
+
 func (s *AuthorizationStateStore) encrypt(plain []byte) ([]byte, error) {
 	block, err := aes.NewCipher(s.key)
 	if err != nil {
