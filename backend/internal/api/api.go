@@ -89,9 +89,25 @@ func (s Server) Handler() http.Handler {
 		}
 		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "task creation is not implemented"})
 	})))
+	for path, readPermission := range map[string]string{"/api/v1/schedules": "tasks.read", "/api/v1/resources": "resources.read", "/api/v1/users": "users.read", "/api/v1/roles": "roles.read", "/api/v1/sso": "sso.read", "/api/v1/logs": "logs.read"} {
+		managePermission := map[string]string{"/api/v1/schedules": "tasks.manage", "/api/v1/resources": "resources.manage", "/api/v1/users": "users.manage", "/api/v1/roles": "roles.manage", "/api/v1/sso": "sso.manage", "/api/v1/logs": "logs.read"}[path]
+		mux.Handle(path, s.requireMethodRole(func(r *http.Request) string {
+			if r.Method == http.MethodGet {
+				return readPermission
+			}
+			return managePermission
+		}, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "endpoint is not implemented"})
+		})))
+	}
 	for path, role := range map[string]string{"/api/v1/runs": "run.read", "/api/v1/events": "event.read", "/api/v1/runners": "runner.read", "/api/v1/audit": "audit.read"} {
 		mux.Handle(path, s.require(role, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "endpoint is not implemented"})
+		})))
+	}
+	for path, permission := range map[string]string{"/api/v1/runs/execute": "runs.execute", "/api/v1/runs/retry": "runs.retry", "/api/v1/runs/cancel": "runs.cancel"} {
+		mux.Handle(path, s.require(permission, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "run action is not implemented"})
 		})))
 	}
 	mux.Handle("/api/v1/tasks/", s.requireMethodRole(func(r *http.Request) string {
