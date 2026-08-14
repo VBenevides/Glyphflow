@@ -58,3 +58,16 @@ func TestRevision3MigrationContainsExecutionIntegrityConstraints(t *testing.T) {
 		}
 	}
 }
+
+func TestConfigMigrationContainsJSONValues(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "migrations", "019_config.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sql := strings.ToLower(string(raw))
+	for _, fragment := range []string{"create table if not exists config", "name text primary key", "value jsonb not null"} {
+		if !strings.Contains(sql, fragment) {
+			t.Fatalf("config migration missing %q", fragment)
+		}
+	}
+}

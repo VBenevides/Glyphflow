@@ -33,13 +33,11 @@ func TestAuthenticationSettingsAuditContainsBeforeAndAfter(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("settings update: %d", response.Code)
 	}
-	var detailed *AuditEvent
-	for index := range audit.events {
-		if audit.events[index].Action == "auth.settings.updated" {
-			detailed = &audit.events[index]
-		}
+	if len(audit.events) != 1 || audit.events[0].Action != http.MethodPost {
+		t.Fatalf("settings audit count/action: %#v", audit.events)
 	}
-	if detailed == nil || detailed.Before["passwordLogin"] != true || detailed.After["passwordLogin"] != false {
+	detailed := &audit.events[0]
+	if detailed.Before["passwordLoginEnabled"] != true || detailed.After["passwordLoginEnabled"] != false {
 		t.Fatalf("settings before/after missing: %#v", audit.events)
 	}
 

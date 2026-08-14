@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { AuditValue, LogOutput, SafeLink, safeOutput } from './safe'
+import { AuditValue, LogOutput, SafeLink, redactAuditValue, safeOutput } from './safe'
 
 describe('safe output rendering', () => {
   it('keeps markup as text, removes controls, and bounds output', () => {
@@ -12,8 +12,9 @@ describe('safe output rendering', () => {
   })
 
   it('redacts secret-shaped audit keys and rejects external links', () => {
-    const html = renderToStaticMarkup(<><AuditValue value={{ token: 'hidden', nested: { password: 'hidden' }, name: 'visible' }} /><SafeLink href="https://evil.example">open</SafeLink></>)
+    const html = renderToStaticMarkup(<><AuditValue value={{ token: 'hidden', nested: { password: 'hidden' }, passwordLoginEnabled: true, name: 'visible' }} /><SafeLink href="https://evil.example">open</SafeLink></>)
     expect(html).toContain('[REDACTED]')
+    expect(redactAuditValue({ passwordLoginEnabled: true })).toEqual({ passwordLoginEnabled: true })
     expect(html).toContain('visible')
     expect(html).not.toContain('href="https://evil.example"')
   })

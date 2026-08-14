@@ -36,7 +36,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	if err := authService.AddRole("user"); err != nil {
+	if err := authService.AddRole("user", platform.UserPermissionCatalog...); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -57,7 +57,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	if err := roles.Seed("user", nil); err != nil {
+	if err := roles.Seed("user", platform.UserPermissionCatalog); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

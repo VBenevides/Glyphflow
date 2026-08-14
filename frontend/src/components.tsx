@@ -17,11 +17,13 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
   return <input ref={ref} className="gf-input" {...props} />
 })
 
-export function Dialog({ open, title, children, onClose }: { open: boolean; title: string; children: ReactNode; onClose: () => void }) {
+export function Dialog({ open, title, children, onClose, className }: { open: boolean; title: string; children: ReactNode; onClose: () => void; className?: string }) {
   const dialogRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!open) return
     const previous = document.activeElement as HTMLElement | null
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
     const dialog = dialogRef.current
     const focusable = dialog?.querySelector<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
     focusable?.focus()
@@ -43,13 +45,14 @@ export function Dialog({ open, title, children, onClose }: { open: boolean; titl
     document.addEventListener('keydown', onKeyDown)
     return () => {
       document.removeEventListener('keydown', onKeyDown)
+      document.body.style.overflow = previousOverflow
       previous?.focus()
     }
   }, [onClose, open])
   if (!open) return null
   return (
     <div className="gf-dialog-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <div ref={dialogRef} className="gf-dialog" role="dialog" aria-modal="true" aria-labelledby="gf-dialog-title">
+      <div ref={dialogRef} className={`gf-dialog${className ? ` ${className}` : ''}`} role="dialog" aria-modal="true" aria-labelledby="gf-dialog-title">
         <div className="gf-dialog-header">
           <h2 id="gf-dialog-title">{title}</h2>
           <Button variant="ghost" aria-label="Close dialog" onClick={onClose}>×</Button>

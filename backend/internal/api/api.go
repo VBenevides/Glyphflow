@@ -232,7 +232,9 @@ func (s Server) require(role string, next http.Handler) http.Handler {
 			if recorder.status >= http.StatusBadRequest {
 				result = "failure"
 			}
-			s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: result, CorrelationID: r.Header.Get("X-Correlation-ID"), Input: map[string]any{"method": r.Method, "endpoint": r.URL.Path}, Output: map[string]any{"status": recorder.status}})
+			if !(r.Method == http.MethodPost && r.URL.Path == "/api/v1/admin/auth/settings" && result == "success") {
+				s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: result, CorrelationID: r.Header.Get("X-Correlation-ID"), Input: map[string]any{"method": r.Method, "endpoint": r.URL.Path}, Output: map[string]any{"status": recorder.status}})
+			}
 		}
 	})
 }

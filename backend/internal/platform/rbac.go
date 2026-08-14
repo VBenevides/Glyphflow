@@ -12,6 +12,11 @@ var PermissionCatalog = []string{
 	"runs.retry", "logs.read", "resources.read", "resources.manage", "runners.read", "runners.manage", "audit.read",
 }
 
+var UserPermissionCatalog = []string{
+	"tasks.read", "tasks.manage", "runs.read", "runs.execute",
+	"resources.read", "resources.manage", "runners.read", "runners.manage",
+}
+
 type SeedRole struct {
 	Key         string
 	ID          string
@@ -30,6 +35,6 @@ func SeedRoles() ([]SeedRole, error) {
 	}
 	return []SeedRole{
 		{Key: "admin", ID: StableID("role:admin"), Permissions: append([]string(nil), PermissionCatalog...), System: true},
-		{Key: "user", ID: StableID("role:user"), Permissions: nil, System: true},
+		{Key: "user", ID: StableID("role:user"), Permissions: append([]string(nil), UserPermissionCatalog...), System: true},
 	}, nil
 }

@@ -177,7 +177,7 @@ func redactAuditMap(values map[string]any) map[string]any {
 	result := make(map[string]any, len(values))
 	for key, value := range values {
 		lower := strings.ToLower(key)
-		if (strings.Contains(lower, "password") && lower != "passwordlogin") || strings.Contains(lower, "secret") || strings.Contains(lower, "token") {
+		if (strings.Contains(lower, "password") && lower != "passwordloginenabled") || strings.Contains(lower, "secret") || strings.Contains(lower, "token") {
 			result[key] = "[REDACTED]"
 			continue
 		}

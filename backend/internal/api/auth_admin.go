@@ -38,7 +38,7 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 		if s.AuthAdmin.Auth != nil {
 			before = s.AuthAdmin.Auth.AuthSettings()
 		} else if s.AuthAdmin.Password != nil {
-			before = map[string]any{"passwordLogin": s.AuthAdmin.Password.Enabled(), "registration": s.AuthAdmin.Password.RegistrationEnabled(), "defaultRole": ""}
+			before = map[string]any{"passwordLoginEnabled": s.AuthAdmin.Password.Enabled(), "registration": s.AuthAdmin.Password.RegistrationEnabled(), "defaultRole": ""}
 		}
 		enabledSSO := 0
 		if s.AuthAdmin.OIDC != nil {
@@ -60,14 +60,14 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 			s.AuthAdmin.Password.registration = in.Registration
 			s.AuthAdmin.Password.mu.Unlock()
 		}
-		after := map[string]any{"passwordLogin": in.Enabled, "registration": in.Registration, "defaultRole": in.DefaultRole}
+		after := map[string]any{"passwordLoginEnabled": in.Enabled, "registration": in.Registration, "defaultRole": in.DefaultRole}
 		if s.AuthAdmin.Auth != nil {
 			after = s.AuthAdmin.Auth.AuthSettings()
 		}
 		if s.AuditQuery != nil {
 			claims, _ := s.authenticator()(r)
 			actorName, actorEmail := s.auditActor(claims.UserID)
-			s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: "auth.settings.updated", Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: "success", CorrelationID: r.Header.Get("X-Correlation-ID"), Before: before, After: after, Input: map[string]any{"enabled": in.Enabled, "registration": in.Registration, "defaultRole": in.DefaultRole}, Output: map[string]any{"passwordLoginEnabled": in.Enabled, "registrationEnabled": in.Registration, "defaultRole": in.DefaultRole}})
+			s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: "success", CorrelationID: r.Header.Get("X-Correlation-ID"), Before: before, After: after, Input: map[string]any{"enabled": in.Enabled, "registration": in.Registration, "defaultRole": in.DefaultRole}, Output: map[string]any{"passwordLoginEnabled": in.Enabled, "registrationEnabled": in.Registration, "defaultRole": in.DefaultRole}})
 		}
 		writeJSON(w, 200, map[string]any{"password_login_enabled": in.Enabled, "registration_enabled": in.Registration, "default_role": in.DefaultRole})
 	})))

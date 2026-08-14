@@ -25,7 +25,7 @@ export function EnvironmentValue({ name, value, secret = false }: { name: string
 export function redactAuditValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(redactAuditValue)
   if (!value || typeof value !== 'object') return value
-  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, secretKey.test(key) ? '[REDACTED]' : redactAuditValue(entry)]))
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, secretKey.test(key) && key.toLowerCase() !== 'passwordloginenabled' ? '[REDACTED]' : redactAuditValue(entry)]))
 }
 
 export function AuditValue({ value }: { value: unknown }) {
