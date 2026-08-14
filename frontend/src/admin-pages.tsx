@@ -88,7 +88,7 @@ export function RoleManagementPage() {
     <QueryState query={query} empty="No roles are configured.">{(roles) => roles.length ? <DataTable caption="Roles" rows={roles} columns={[
       { key: 'key', label: 'Role', render: (role) => <strong>{role.name ?? role.key}</strong> },
       { key: 'system', label: 'Source', render: (role) => <StatusPill status={role.system ? 'system' : 'custom'} /> },
-      { key: 'permissions', label: 'Permissions', render: (role) => role.permissions.join(', ') || '—' },
+      { key: 'permissions', label: 'Permissions', render: (role) => role.permissions?.join(', ') || '—' },
       { key: 'assignedUsers', label: 'Affected users', render: (role) => Array.isArray(role.assignedUsers) ? role.assignedUsers.length : role.assignedUsers ?? 0 },
       { key: 'actions', label: 'Actions', render: (role) => manage && !role.system && <div className="gf-dialog-actions"><Button variant="secondary" onClick={() => setEditing(role)}>Edit</Button><DangerousAction label="Delete" warning={`Review ${Array.isArray(role.assignedUsers) ? role.assignedUsers.length : role.assignedUsers ?? 0} affected users before deleting this role.`} onConfirm={() => remove(role)} /></div> },
     ]} /> : <EmptyState title="No roles">Seed or create a role before assigning access.</EmptyState>}</QueryState>

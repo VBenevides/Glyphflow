@@ -70,3 +70,19 @@ func TestRoleAndUserListsAllowReadOrManagePermission(t *testing.T) {
 		}
 	}
 }
+
+func TestRoleListSerializesEmptyPermissionsAsArray(t *testing.T) {
+	roles := NewRoleAdminService()
+	if err := roles.Seed("user", nil); err != nil {
+		t.Fatal(err)
+	}
+	server := Server{Roles: roles, Auth: func(*http.Request) (Claims, bool) {
+		return Claims{Roles: map[string]bool{"roles.read": true}}, true
+	}}
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/admin/roles", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !bytes.Contains(recorder.Body.Bytes(), []byte(`"permissions":[]`)) {
+		t.Fatalf("role permissions contract: %d %s", recorder.Code, recorder.Body.String())
+	}
+}

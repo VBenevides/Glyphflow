@@ -93,7 +93,7 @@ func (s *RoleAdminService) List() []RoleDefinition {
 	defer s.mu.Unlock()
 	out := make([]RoleDefinition, 0, len(s.roles))
 	for _, role := range s.roles {
-		role.Permissions = append([]string(nil), role.Permissions...)
+		role.Permissions = append([]string{}, role.Permissions...)
 		out = append(out, role)
 	}
 	return out
