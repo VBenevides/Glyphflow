@@ -16,6 +16,10 @@ export function safeReturnPath(value: string | null | undefined, fallback = '/')
   }
 }
 
+export function availableLoginMethods(config: { passwordLogin: boolean; oidc: boolean }): string[] {
+  return [config.passwordLogin ? 'password' : '', config.oidc ? 'oidc' : ''].filter(Boolean)
+}
+
 function AuthFrame({ title, children }: { title: string; children: React.ReactNode }) {
   return <main className="gf-auth-page"><section className="gf-auth-card"><BrandMark /><p className="gf-brand-name">Glyphflow</p><h1>{title}</h1>{children}</section></main>
 }
@@ -35,6 +39,7 @@ export function LoginPage() {
     if (!config.oidc) return
     api.get<OidcProvider[]>('/api/v1/auth/oidc/providers').then(setProviders).catch((cause) => setProvidersError(cause instanceof Error ? cause.message : 'Unable to load providers'))
   }, [config.oidc])
+  const methods = availableLoginMethods(config)
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     setBusy(true)
@@ -52,9 +57,10 @@ export function LoginPage() {
   return <AuthFrame title="Sign in"><form className="gf-form" onSubmit={submit}>
     {config.passwordLogin && <><label htmlFor="username">Username</label><Input id="username" autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} required /><label htmlFor="password">Password</label><Input id="password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /><Button type="submit" busy={busy}>Sign in</Button></>}
     {!config.passwordLogin && <p className="gf-muted">Password sign-in is disabled.</p>}
+    {!methods.length && <p className="gf-form-error" role="alert">No sign-in methods are configured. Contact an administrator.</p>}
     {error && <p className="gf-form-error" role="alert">{error}</p>}
     {config.registration && config.passwordLogin && <Button type="button" variant="ghost" onClick={() => navigate(`/register?redirect=${encodeURIComponent(redirect)}`)}>Create an account</Button>}
-    {config.oidc && <div className="gf-provider-list"><h2>Single sign-on</h2>{providersError && <p className="gf-form-error" role="alert">{providersError}</p>}{!providersError && !providers.length && <LoadingState label="Loading providers" />}{providers.map((provider) => <Button key={provider.key} type="button" variant="secondary" onClick={() => { window.location.assign(`/api/v1/auth/oidc/login?provider=${encodeURIComponent(provider.key)}&redirect_uri=${encodeURIComponent(`${window.location.origin}/auth/oidc/callback`)}`) }}><LogIn size={16} aria-hidden="true" /> Continue with {provider.name ?? provider.key}</Button>)}</div>}
+    {config.oidc && <div className="gf-provider-list"><h2>Single sign-on</h2>{providersError && <p className="gf-form-error" role="alert">{providersError}</p>}{!providersError && !providers.length && <LoadingState label="Loading providers" />}{providers.map((provider) => <Button key={provider.key} type="button" variant="secondary" onClick={() => { window.location.assign(`/api/v1/auth/oidc/login?provider=${encodeURIComponent(provider.key)}&redirect_uri=${encodeURIComponent(`${window.location.origin}/auth/oidc/callback`)}&redirect=${encodeURIComponent(redirect)}`) }}><LogIn size={16} aria-hidden="true" /> Continue with {provider.name ?? provider.key}</Button>)}</div>}
   </form></AuthFrame>
 }
 
@@ -82,7 +88,9 @@ export function OidcCallbackPage() {
   useEffect(() => {
     const query = new URLSearchParams(location.search)
     const redirect = safeReturnPath(query.get('redirect'))
-    api.get('/api/v1/auth/oidc/callback', Object.fromEntries(query.entries())).then(async () => { await restore(); navigate(redirect, { replace: true }) }).catch((cause) => setError(cause instanceof Error ? cause.message : 'Single sign-on failed'))
+    const values = Object.fromEntries(query.entries())
+    window.history.replaceState(null, '', '/auth/oidc/callback')
+    api.get('/api/v1/auth/oidc/callback', values).then(async () => { await restore(); navigate(redirect, { replace: true }) }).catch((cause) => setError(cause instanceof Error ? cause.message : 'Single sign-on failed'))
   }, [location.search, navigate, restore])
   if (error) return <AuthFrame title="Single sign-on failed"><ErrorState message={error} onRetry={() => navigate('/login', { replace: true })} /></AuthFrame>
   return <AuthFrame title="Completing sign-in"><LoadingState label="Verifying provider response" /></AuthFrame>
