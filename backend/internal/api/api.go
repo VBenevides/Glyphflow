@@ -216,10 +216,7 @@ func (s Server) require(role string, next http.Handler) http.Handler {
 			writeJSON(w, 401, map[string]string{"error": "authentication required"})
 			return
 		}
-		permissions := claims.Roles
-		if s.Permissions != nil {
-			permissions = s.Permissions(claims)
-		}
+		permissions := s.effectivePermissions(claims)
 		if !hasPermission(permissions, role) {
 			writeJSON(w, 403, map[string]string{"error": "forbidden"})
 			return
@@ -232,6 +229,16 @@ func (s Server) require(role string, next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (s Server) effectivePermissions(claims Claims) map[string]bool {
+	if s.Permissions != nil {
+		return s.Permissions(claims)
+	}
+	if s.AuthService != nil {
+		return s.AuthService.Permissions(claims)
+	}
+	return claims.Roles
 }
 
 func hasPermission(permissions map[string]bool, required string) bool {

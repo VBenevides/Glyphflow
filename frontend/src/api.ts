@@ -40,7 +40,7 @@ export type Runner = { id: string; name: string; desiredState?: string; observed
 export type Resource = { id: string; name: string; enabled?: boolean; holder?: string; expiresAt?: string; fencingToken?: number }
 export type AuditEvent = { id: string; actor?: string; action?: string; target?: string; result?: string; createdAt?: string; correlationId?: string; before?: unknown; after?: unknown }
 export type AuthSession = { id: string; createdAt?: string; expiresAt?: string; lastSeenAt?: string; current?: boolean; userAgent?: string; ipAddress?: string }
-export type UserRecord = { id: string; username: string; email?: string; displayName?: string; status?: string; enabled?: boolean; systemAdmin?: boolean; loginMethods?: string[]; roles?: string[]; roleSources?: string[]; permissions?: string[]; sessions?: AuthSession[] }
+export type UserRecord = { id: string; username: string; email?: string; displayName?: string; status?: string; enabled?: boolean; systemAdmin?: boolean; loginMethods?: string[]; roles?: string[]; roleSources?: string[]; permissions?: string[]; identities?: Identity[]; sessions?: AuthSession[] }
 export type RoleDefinition = { id?: string; key: string; name?: string; description?: string; permissions: string[]; system?: boolean; assignedUsers?: number | string[] }
 
 const unsafeMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])

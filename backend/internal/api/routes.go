@@ -79,6 +79,7 @@ var routeDefinitions = []RouteDefinition{
 	{Pattern: "/api/v1/runners/", Access: RoutePermission, Permission: "runners.read|runners.manage"},
 	{Pattern: "/api/v1/runs/", Access: RoutePermission, Permission: "runs.read|runs.cancel|runs.retry|logs.read"},
 	{Pattern: "/api/v1/users", Access: RoutePermission, Permission: "users.read|users.manage"},
+	{Pattern: "/api/v1/users/", Access: RoutePermission, Permission: "users.read|users.manage"},
 	{Pattern: "/api/v1/roles", Access: RoutePermission, Permission: "roles.read|roles.manage"},
 	{Pattern: "/api/v1/sso", Access: RoutePermission, Permission: "sso.read|sso.manage"},
 	{Pattern: "/api/v1/audit", Access: RoutePermission, Permission: "audit.read"},

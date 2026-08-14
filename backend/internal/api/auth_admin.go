@@ -144,4 +144,30 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 		}
 		writeJSON(w, http.StatusCreated, user)
 	})))
+	mux.Handle("/api/v1/users/", s.requireAuthenticated(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			return
+		}
+		if s.AuthAdmin.Auth == nil {
+			writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "user details unavailable"})
+			return
+		}
+		claims, _ := s.authenticator()(r)
+		userID := strings.TrimPrefix(r.URL.Path, "/api/v1/users/")
+		if userID == "" {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "user not found"})
+			return
+		}
+		if userID != claims.UserID && !hasPermission(s.effectivePermissions(claims), "users.read|users.manage") {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+			return
+		}
+		profile, ok := s.AuthAdmin.Auth.UserProfile(userID)
+		if !ok {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "user not found"})
+			return
+		}
+		writeJSON(w, http.StatusOK, profile)
+	})))
 }

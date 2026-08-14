@@ -16,6 +16,8 @@ import { ResourceDetailPage, ResourceInventoryPage } from './resource-pages'
 import { AuditPage } from './audit-page'
 import { AuthenticationSettingsPage, RoleManagementPage, SsoSettingsPage, UserManagementPage } from './admin-pages'
 import { AccountPage } from './account-pages'
+import { UserDetailsPage } from './user-details-page'
+import { useParams } from 'react-router-dom'
 
 function Placeholder({ title }: { title: string }) {
   return <main className="gf-content"><PageHeader title={title} description="This workspace is ready for its data view." /></main>
@@ -25,6 +27,14 @@ function PermissionRoute({ permission, children }: { permission?: string; childr
   const { profile, permissions } = useAuth()
   if (!profile) return <LoginRequiredPage onLogin={() => undefined} />
   return permission && !hasPermission(permissions, permission) ? <ForbiddenPage /> : <>{children}</>
+}
+
+function UserDetailsRoute() {
+  const { userId } = useParams()
+  const { profile, permissions } = useAuth()
+  if (!profile || !userId) return <NotFoundPage />
+  const self = profile.id === userId
+  return !self && !hasPermission(permissions, 'users.read|users.manage') ? <ForbiddenPage /> : <UserDetailsPage userId={userId} self={self} />
 }
 
 export function AppRoutes() {
@@ -47,6 +57,7 @@ export function AppRoutes() {
     <Route path="/resources/:resourceId" element={<PermissionRoute permission="resources.read|resources.manage"><ResourceDetailPage /></PermissionRoute>} />
     <Route path="/audit" element={<PermissionRoute permission="audit.read"><AuditPage /></PermissionRoute>} />
     <Route path="/admin/users" element={<PermissionRoute permission="users.read|users.manage"><UserManagementPage /></PermissionRoute>} />
+    <Route path="/admin/users/:userId" element={<UserDetailsRoute />} />
     <Route path="/admin/roles" element={<PermissionRoute permission="roles.read|roles.manage"><RoleManagementPage /></PermissionRoute>} />
     <Route path="/admin/sso" element={<PermissionRoute permission="sso.read|sso.manage"><SsoSettingsPage /></PermissionRoute>} />
     <Route path="/admin/auth" element={<PermissionRoute permission="auth.settings.manage"><AuthenticationSettingsPage /></PermissionRoute>} />

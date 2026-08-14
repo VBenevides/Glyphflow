@@ -574,16 +574,26 @@ func (s *AuthService) User(userID string) (AuthUser, bool) {
 func (s *AuthService) Profile(claims Claims) map[string]any {
 	s.mu.RLock()
 	user := s.users[claims.UserID]
+	systemAdmin := s.systemAdminEmails[user.Email]
 	roles := []string{}
+	roleSources := []string{}
 	permissions := map[string]bool{}
 	for role := range s.rolesForUserLocked(claims.UserID) {
 		roles = append(roles, role)
+		source := "assigned"
+		if role == "admin" && systemAdmin {
+			source = "system-admin"
+		} else if role == "admin" || role == "user" {
+			source = "system"
+		}
+		roleSources = append(roleSources, role+":"+source)
 		for permission := range s.rolePermissions[role] {
 			permissions[permission] = true
 		}
 	}
 	s.mu.RUnlock()
 	sort.Strings(roles)
+	sort.Strings(roleSources)
 	permissionKeys := make([]string, 0, len(permissions))
 	for permission := range permissions {
 		permissionKeys = append(permissionKeys, permission)
@@ -593,7 +603,29 @@ func (s *AuthService) Profile(claims Claims) map[string]any {
 	for index := range sessions {
 		sessions[index].Current = sessions[index].ID == claims.SessionID
 	}
-	return map[string]any{"id": user.ID, "username": user.Username, "email": user.Email, "displayName": user.DisplayName, "roles": roles, "permissions": permissionKeys, "sessions": sessions, "identities": s.Identities(claims.UserID)}
+	methods := []string{}
+	s.mu.RLock()
+	if s.passwords[claims.UserID] != "" {
+		methods = append(methods, "password")
+	}
+	for key, owner := range s.oidcIdentities {
+		if owner == claims.UserID {
+			methods = append(methods, strings.SplitN(key, "\x00", 2)[0])
+		}
+	}
+	s.mu.RUnlock()
+	sort.Strings(methods)
+	return map[string]any{"id": user.ID, "username": user.Username, "email": user.Email, "displayName": user.DisplayName, "enabled": user.Enabled, "systemAdmin": systemAdmin, "status": map[bool]string{true: "active", false: "disabled"}[user.Enabled], "roles": roles, "roleSources": roleSources, "permissions": permissionKeys, "loginMethods": methods, "sessions": sessions, "identities": s.Identities(claims.UserID)}
+}
+
+func (s *AuthService) UserProfile(userID string) (map[string]any, bool) {
+	s.mu.RLock()
+	_, ok := s.users[userID]
+	s.mu.RUnlock()
+	if !ok {
+		return nil, false
+	}
+	return s.Profile(Claims{UserID: userID}), true
 }
 
 func (s *AuthService) rolesForUserLocked(userID string) map[string]bool {
