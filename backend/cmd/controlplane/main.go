@@ -132,6 +132,7 @@ func main() {
 	}
 	operations := api.NewOperationsService()
 	operations.SetTaskRepository(store.NewTaskRepository(db))
+	operations.SetScheduleRepository(store.NewScheduleRepository(db))
 	application := api.Server{AuthService: authService, AuthAdmin: &api.AuthAdminService{Auth: authService, OIDC: oidcService, Sessions: authService.SessionManager()}, Sessions: authService.SessionManager(), OIDC: oidcService, Roles: roles, Auth: authService.Authenticator(), Permissions: authService.Permissions, CSRFOrigin: cfg.WebOrigin, Operations: operations, Runs: api.NewRunService(), Infrastructure: api.NewInfrastructureService(), AuditQuery: api.NewAuditQueryService(), Persistence: persistence, Ready: func(ctx context.Context) error {
 		if err := db.Ping(ctx); err != nil {
 			return err
