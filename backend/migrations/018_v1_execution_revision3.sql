@@ -89,8 +89,7 @@ CREATE TABLE IF NOT EXISTS task_versions_v1 (
     UNIQUE (task_id, version),
     UNIQUE (id, task_id)
 );
--- 017 already created a compatibility table with this name.  The unique
--- index makes its existing primary key usable by the v1 composite FKs.
+-- The composite key supports the same-parent foreign keys below.
 CREATE UNIQUE INDEX IF NOT EXISTS task_versions_v1_id_task_idx ON task_versions_v1(id, task_id);
 ALTER TABLE tasks_v1 DROP CONSTRAINT IF EXISTS tasks_v1_current_version_fk;
 ALTER TABLE tasks_v1 ADD CONSTRAINT tasks_v1_current_version_fk

@@ -74,17 +74,6 @@ CREATE TABLE IF NOT EXISTS sso_authorization_states_v1 (
     consumed_at timestamptz
 );
 
-CREATE TABLE IF NOT EXISTS task_versions_v1 (
-    id text PRIMARY KEY,
-    task_id text NOT NULL REFERENCES task_definitions(id) ON DELETE CASCADE,
-    version integer NOT NULL CHECK (version > 0),
-    execution_spec jsonb NOT NULL,
-    digest text NOT NULL,
-    active boolean NOT NULL DEFAULT false,
-    UNIQUE (task_id, version)
-);
-CREATE UNIQUE INDEX task_versions_v1_active_idx ON task_versions_v1(task_id) WHERE active;
-
 CREATE TABLE IF NOT EXISTS audit_events_v1 (
     id text PRIMARY KEY,
     actor_type text NOT NULL,
