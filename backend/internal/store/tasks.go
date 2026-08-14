@@ -13,30 +13,30 @@ import (
 )
 
 type TaskDefinition struct {
-	ID, Name, Description, RunnerPoolID string
-	Enabled                             bool
-	Command                             []string
-	TimeoutSeconds                      int
-	MaxOutputBytes                      int64
-	MaxAttempts                         int
-	InitialBackoffSeconds               int
-	MaxBackoffSeconds                   int
-	BackoffMultiplier                   float64
-	WorkingDirectory                    string
-	PlacementSelectors, Environment     map[string]any
-	SecretReferences                    map[string]any
-	RetryableExitCodes                  []int
-	RetryableTerminationReasons         []string
-	AmbiguityPolicy                     string
-	ExecutionSpecVersion                int
-	ExecutionSpecDigest                 string
+	ID, Name, Description, RunnerPoolID, PinnedRunnerID string
+	Enabled                                             bool
+	Command                                             []string
+	TimeoutSeconds                                      int
+	MaxOutputBytes                                      int64
+	MaxAttempts                                         int
+	InitialBackoffSeconds                               int
+	MaxBackoffSeconds                                   int
+	BackoffMultiplier                                   float64
+	WorkingDirectory                                    string
+	PlacementSelectors, Environment                     map[string]any
+	SecretReferences                                    map[string]any
+	RetryableExitCodes                                  []int
+	RetryableTerminationReasons                         []string
+	AmbiguityPolicy                                     string
+	ExecutionSpecVersion                                int
+	ExecutionSpecDigest                                 string
 }
 
 type TaskRecord struct {
-	ID, CurrentVersionID, Name, RunnerPoolID string
-	Enabled                                  bool
-	ActiveVersion, TimeoutSeconds            int
-	Command                                  []string
+	ID, CurrentVersionID, Name, RunnerPoolID, PinnedRunnerID string
+	Enabled                                                  bool
+	ActiveVersion, TimeoutSeconds                            int
+	Command                                                  []string
 }
 
 type TaskRepository interface {
@@ -76,14 +76,14 @@ func (s *TaskStore) Find(ctx context.Context, id string) (TaskRecord, bool, erro
 	return item, err == nil, err
 }
 
-const taskQuery = `SELECT t.id, COALESCE(t.current_version_id, ''), t.name, t.enabled, COALESCE(v.version, 0), COALESCE(v.runner_pool_id, ''), COALESCE(v.command, '[]'::jsonb), COALESCE(v.timeout_seconds, 0) FROM tasks t LEFT JOIN task_versions v ON v.id = t.current_version_id`
+const taskQuery = `SELECT t.id, COALESCE(t.current_version_id, ''), t.name, t.enabled, COALESCE(v.version, 0), COALESCE(v.runner_pool_id, ''), COALESCE(v.pinned_runner_id, ''), COALESCE(v.command, '[]'::jsonb), COALESCE(v.timeout_seconds, 0) FROM tasks t LEFT JOIN task_versions v ON v.id = t.current_version_id`
 
 type rowScanner interface{ Scan(...any) error }
 
 func scanTask(row rowScanner, _ ...string) (TaskRecord, error) {
 	var item TaskRecord
 	var command []byte
-	if err := row.Scan(&item.ID, &item.CurrentVersionID, &item.Name, &item.Enabled, &item.ActiveVersion, &item.RunnerPoolID, &command, &item.TimeoutSeconds); err != nil {
+	if err := row.Scan(&item.ID, &item.CurrentVersionID, &item.Name, &item.Enabled, &item.ActiveVersion, &item.RunnerPoolID, &item.PinnedRunnerID, &command, &item.TimeoutSeconds); err != nil {
 		return TaskRecord{}, err
 	}
 	if err := json.Unmarshal(command, &item.Command); err != nil {
@@ -236,7 +236,7 @@ func insertTaskVersion(ctx context.Context, tx pgx.Tx, taskID string, version in
 		return err
 	}
 	versionID := taskID + "-v" + strconv.Itoa(version)
-	_, err = tx.Exec(ctx, `INSERT INTO task_versions (id, task_id, version, runner_pool_id, placement_selectors, command, working_directory, environment, secret_references, timeout_seconds, max_output_bytes, max_attempts, initial_backoff_seconds, max_backoff_seconds, backoff_multiplier, retryable_exit_codes, retryable_termination_reasons, ambiguity_policy, execution_spec_version, execution_spec_digest) VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8::jsonb, $9::jsonb, $10, $11, $12, $13, $14, $15, $16::jsonb, $17::jsonb, $18, $19, $20)`, versionID, taskID, version, definition.RunnerPoolID, placement, command, definition.WorkingDirectory, environment, secrets, definition.TimeoutSeconds, definition.MaxOutputBytes, definition.MaxAttempts, definition.InitialBackoffSeconds, definition.MaxBackoffSeconds, definition.BackoffMultiplier, exitCodes, reasons, definition.AmbiguityPolicy, definition.ExecutionSpecVersion, definition.ExecutionSpecDigest)
+	_, err = tx.Exec(ctx, `INSERT INTO task_versions (id, task_id, version, runner_pool_id, pinned_runner_id, placement_selectors, command, working_directory, environment, secret_references, timeout_seconds, max_output_bytes, max_attempts, initial_backoff_seconds, max_backoff_seconds, backoff_multiplier, retryable_exit_codes, retryable_termination_reasons, ambiguity_policy, execution_spec_version, execution_spec_digest) VALUES ($1, $2, $3, $4, NULLIF($5, ''), $6::jsonb, $7::jsonb, $8, $9::jsonb, $10::jsonb, $11, $12, $13, $14, $15, $16, $17::jsonb, $18::jsonb, $19, $20, $21)`, versionID, taskID, version, definition.RunnerPoolID, definition.PinnedRunnerID, placement, command, definition.WorkingDirectory, environment, secrets, definition.TimeoutSeconds, definition.MaxOutputBytes, definition.MaxAttempts, definition.InitialBackoffSeconds, definition.MaxBackoffSeconds, definition.BackoffMultiplier, exitCodes, reasons, definition.AmbiguityPolicy, definition.ExecutionSpecVersion, definition.ExecutionSpecDigest)
 	return err
 }
 

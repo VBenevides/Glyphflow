@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -80,6 +81,32 @@ func TestTaskCreationStoresAndReturnsTask(t *testing.T) {
 	(Server{Auth: sessions.Authenticator(), Permissions: func(Claims) map[string]bool { return map[string]bool{"tasks.manage": true} }}).Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusCreated {
 		t.Fatalf("task creation returned %d", response.Code)
+	}
+}
+
+func TestRunnerPoolCRUD(t *testing.T) {
+	h := (Server{Auth: func(*http.Request) (Claims, bool) { return Claims{}, true }, Permissions: func(Claims) map[string]bool { return map[string]bool{"runners.read": true, "runners.manage": true} }, Infrastructure: NewInfrastructureService()}).Handler()
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		h.ServeHTTP(response, httptest.NewRequest(method, path, bytes.NewBufferString(body)))
+		return response
+	}
+	if response := request(http.MethodGet, "/api/v1/runners/pools", ""); response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"name":"default"`)) {
+		t.Fatalf("pool listing returned %d: %s", response.Code, response.Body.String())
+	}
+	response := request(http.MethodPost, "/api/v1/runners/pools", `{"name":"build","description":"Build workers"}`)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("pool creation returned %d: %s", response.Code, response.Body.String())
+	}
+	var pool RunnerPoolRecord
+	if err := json.Unmarshal(response.Body.Bytes(), &pool); err != nil || pool.ID == "" {
+		t.Fatalf("created pool: %s", response.Body.String())
+	}
+	if response = request(http.MethodPut, "/api/v1/runners/pools/"+pool.ID, `{"name":"release","enabled":true}`); response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"name":"release"`)) {
+		t.Fatalf("pool update returned %d: %s", response.Code, response.Body.String())
+	}
+	if response = request(http.MethodDelete, "/api/v1/runners/pools/"+pool.ID, ""); response.Code != http.StatusNoContent {
+		t.Fatalf("pool deletion returned %d: %s", response.Code, response.Body.String())
 	}
 }
 

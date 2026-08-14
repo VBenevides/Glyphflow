@@ -12,9 +12,14 @@ import (
 )
 
 type RunnerRecord struct {
-	ID, Name, Pool, DesiredState, ObservedState, Platform, Architecture string
-	Capacity, ActiveCount                                               int
-	HeartbeatAt                                                         *time.Time
+	ID, Name, PoolID, Pool, DesiredState, ObservedState, Platform, Architecture string
+	Capacity, ActiveCount                                                       int
+	HeartbeatAt                                                                 *time.Time
+}
+
+type RunnerPoolRecord struct {
+	ID, Name, Description string
+	Enabled               bool
 }
 
 type RunnerEnrollmentRecord struct {
@@ -25,6 +30,11 @@ type RunnerEnrollmentRecord struct {
 
 type RunnerRepository interface {
 	EnsurePool(context.Context, string, string) error
+	ListPools(context.Context) ([]RunnerPoolRecord, error)
+	FindPool(context.Context, string) (RunnerPoolRecord, bool, error)
+	CreatePool(context.Context, RunnerPoolRecord) error
+	UpdatePool(context.Context, RunnerPoolRecord) (RunnerPoolRecord, bool, error)
+	DeletePool(context.Context, string) error
 	List(context.Context) ([]RunnerRecord, error)
 	Find(context.Context, string) (RunnerRecord, bool, error)
 	SetDesiredState(context.Context, string, string) (RunnerRecord, bool, error)
@@ -45,7 +55,57 @@ func (s *RunnerStore) EnsurePool(ctx context.Context, id, name string) error {
 	return err
 }
 
-const runnerQuery = `SELECT r.id, r.name, p.name, r.desired_state, r.observed_state, r.capacity, r.active_count, r.last_seen_at, COALESCE(r.capabilities->>'platform', ''), COALESCE(r.capabilities->>'architecture', '') FROM runners r JOIN runner_pools p ON p.id = r.pool_id`
+func (s *RunnerStore) ListPools(ctx context.Context) ([]RunnerPoolRecord, error) {
+	rows, err := s.pool.Query(ctx, `SELECT id, name, description, enabled FROM runner_pools ORDER BY lower(name), id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []RunnerPoolRecord{}
+	for rows.Next() {
+		var item RunnerPoolRecord
+		if err := rows.Scan(&item.ID, &item.Name, &item.Description, &item.Enabled); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (s *RunnerStore) FindPool(ctx context.Context, id string) (RunnerPoolRecord, bool, error) {
+	var item RunnerPoolRecord
+	err := s.pool.QueryRow(ctx, `SELECT id, name, description, enabled FROM runner_pools WHERE id = $1`, id).Scan(&item.ID, &item.Name, &item.Description, &item.Enabled)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return RunnerPoolRecord{}, false, nil
+	}
+	return item, err == nil, err
+}
+
+func (s *RunnerStore) CreatePool(ctx context.Context, item RunnerPoolRecord) error {
+	_, err := s.pool.Exec(ctx, `INSERT INTO runner_pools (id, name, description, enabled) VALUES ($1, $2, $3, $4)`, item.ID, item.Name, item.Description, item.Enabled)
+	return err
+}
+
+func (s *RunnerStore) UpdatePool(ctx context.Context, item RunnerPoolRecord) (RunnerPoolRecord, bool, error) {
+	result, err := s.pool.Exec(ctx, `UPDATE runner_pools SET name = $2, description = $3, enabled = $4, updated_at = now() WHERE id = $1`, item.ID, item.Name, item.Description, item.Enabled)
+	if err != nil || result.RowsAffected() == 0 {
+		return RunnerPoolRecord{}, result.RowsAffected() > 0, err
+	}
+	return s.FindPool(ctx, item.ID)
+}
+
+func (s *RunnerStore) DeletePool(ctx context.Context, id string) error {
+	result, err := s.pool.Exec(ctx, `DELETE FROM runner_pools WHERE id = $1`, id)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return errors.New("runner pool not found")
+	}
+	return nil
+}
+
+const runnerQuery = `SELECT r.id, r.name, p.id, p.name, r.desired_state, r.observed_state, r.capacity, r.active_count, r.last_seen_at, COALESCE(r.capabilities->>'platform', ''), COALESCE(r.capabilities->>'architecture', '') FROM runners r JOIN runner_pools p ON p.id = r.pool_id`
 
 func (s *RunnerStore) List(ctx context.Context) ([]RunnerRecord, error) {
 	rows, err := s.pool.Query(ctx, runnerQuery+` ORDER BY r.id`)
@@ -74,7 +134,7 @@ func (s *RunnerStore) Find(ctx context.Context, id string) (RunnerRecord, bool, 
 
 func scanRunner(row interface{ Scan(...any) error }) (RunnerRecord, error) {
 	var item RunnerRecord
-	if err := row.Scan(&item.ID, &item.Name, &item.Pool, &item.DesiredState, &item.ObservedState, &item.Capacity, &item.ActiveCount, &item.HeartbeatAt, &item.Platform, &item.Architecture); err != nil {
+	if err := row.Scan(&item.ID, &item.Name, &item.PoolID, &item.Pool, &item.DesiredState, &item.ObservedState, &item.Capacity, &item.ActiveCount, &item.HeartbeatAt, &item.Platform, &item.Architecture); err != nil {
 		return RunnerRecord{}, err
 	}
 	return item, nil
@@ -114,7 +174,11 @@ func (s *RunnerStore) CreateEnrollment(ctx context.Context, runner RunnerRecord,
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `INSERT INTO runners (id, pool_id, name, desired_state, observed_state, capacity, capabilities) VALUES ($1, (SELECT id FROM runner_pools WHERE name = $2), $3, 'ENABLED', 'PENDING', $4, $5::jsonb) ON CONFLICT (id) DO NOTHING`, runner.ID, runner.Pool, runner.Name, maxRunnerCapacity(runner.Capacity), artifact); err != nil {
+	poolID := runner.PoolID
+	if poolID == "" {
+		poolID = runner.Pool
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO runners (id, pool_id, name, desired_state, observed_state, capacity, capabilities) VALUES ($1, (SELECT id FROM runner_pools WHERE id = $2 OR name = $2), $3, 'ENABLED', 'PENDING', $4, $5::jsonb) ON CONFLICT (id) DO NOTHING`, runner.ID, poolID, runner.Name, maxRunnerCapacity(runner.Capacity), artifact); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO runner_enrollments (id, runner_id, token_hash, expires_at, requester, target, artifact) VALUES ($1, $2, decode($3, 'hex'), $4, $5, $6, $7::jsonb)`, enrollment.ID, runner.ID, enrollment.TokenHash, enrollment.ExpiresAt, enrollment.Requester, enrollment.Target, artifact); err != nil {

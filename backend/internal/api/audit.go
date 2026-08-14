@@ -288,13 +288,14 @@ func (s *AuditQueryService) query(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	excludeTarget := strings.TrimSpace(r.URL.Query().Get("exclude_target"))
+	excludeRunLogs := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("exclude_run_logs")), "true")
 	s.mu.RLock()
 	repository := s.repository
 	s.mu.RUnlock()
 	if repository != nil {
 		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-		items, total, err := repository.Query(r.Context(), store.AuditFilter{Actor: filters["actor"], Action: filters["action"], Target: filters["target"], Result: filters["result"], CorrelationID: filters["correlationId"], ExcludeTarget: excludeTarget, From: from, To: to, Page: page, Limit: limit})
+		items, total, err := repository.Query(r.Context(), store.AuditFilter{Actor: filters["actor"], Action: filters["action"], Target: filters["target"], Result: filters["result"], CorrelationID: filters["correlationId"], ExcludeTarget: excludeTarget, ExcludeRunLogs: excludeRunLogs, From: from, To: to, Page: page, Limit: limit})
 		if err != nil {
 			writeError(w, http.StatusServiceUnavailable, "audit storage unavailable", err)
 			return
@@ -320,7 +321,7 @@ func (s *AuditQueryService) query(w http.ResponseWriter, r *http.Request) {
 	items := make([]AuditEvent, 0, len(s.events))
 	for _, event := range s.events {
 		created, err := time.Parse(time.RFC3339Nano, event.CreatedAt)
-		if err != nil || (excludeTarget != "" && strings.EqualFold(event.Target, excludeTarget)) || !auditMatches(event, filters, created, from, to) {
+		if err != nil || (excludeTarget != "" && strings.EqualFold(event.Target, excludeTarget)) || (excludeRunLogs && isRunLogAudit(event.Target, event.Request)) || !auditMatches(event, filters, created, from, to) {
 			continue
 		}
 		items = append(items, event)
@@ -328,6 +329,16 @@ func (s *AuditQueryService) query(w http.ResponseWriter, r *http.Request) {
 	s.mu.RUnlock()
 	sort.SliceStable(items, func(i, j int) bool { return items[i].CreatedAt > items[j].CreatedAt })
 	writePage(w, r, items)
+}
+
+func isRunLogAudit(paths ...string) bool {
+	for _, path := range paths {
+		path = strings.TrimSuffix(path, "/")
+		if strings.HasPrefix(path, "/api/v1/runs/") && strings.Contains(path, "/logs") {
+			return true
+		}
+	}
+	return false
 }
 
 func auditMatches(event AuditEvent, filters map[string]string, created, from, to time.Time) bool {

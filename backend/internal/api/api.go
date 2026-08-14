@@ -141,6 +141,18 @@ func (s Server) Handler() http.Handler {
 		}
 		return "resources.manage"
 	}, http.HandlerFunc(s.Infrastructure.resourceCollection)))
+	mux.Handle("/api/v1/runners/pools", s.requireMethodRole(func(r *http.Request) string {
+		if r.Method == http.MethodGet {
+			return "runners.read"
+		}
+		return "runners.manage"
+	}, http.HandlerFunc(s.Infrastructure.poolCollection)))
+	mux.Handle("/api/v1/runners/pools/", s.requireMethodRole(func(r *http.Request) string {
+		if r.Method == http.MethodGet {
+			return "runners.read"
+		}
+		return "runners.manage"
+	}, http.HandlerFunc(s.Infrastructure.poolPath)))
 	mux.Handle("/api/v1/runners", s.requireMethodRole(func(r *http.Request) string {
 		if r.Method == http.MethodGet {
 			return "runners.read"

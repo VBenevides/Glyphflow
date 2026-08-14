@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { emptyScheduleDraft, previewPayload, scheduleDraftFromRecord, validateScheduleDraft } from './schedule-pages'
+import { emptyScheduleDraft, previewPayload, scheduleDraftFromRecord, timezoneFromUTCOffset, validateScheduleDraft } from './schedule-pages'
 
 describe('schedule pages', () => {
+	it('uses a whole-hour UTC offset from -23 to +23', () => {
+		expect(emptyScheduleDraft.timezone).toBe('0')
+		expect(validateScheduleDraft({ ...emptyScheduleDraft, taskId: 'task-1', name: 'Hourly', timezone: '-23' }).timezone).toBeUndefined()
+		expect(validateScheduleDraft({ ...emptyScheduleDraft, taskId: 'task-1', name: 'Hourly', timezone: '24' }).timezone).toContain('-23 to +23')
+		expect(timezoneFromUTCOffset('3')).toBe('UTC+03:00')
+	})
+
   it('validates policy fields and sends explicit timezone preview data', () => {
     expect(Object.keys(validateScheduleDraft(emptyScheduleDraft))).toEqual(['taskId', 'name'])
     const draft = { ...emptyScheduleDraft, taskId: 'task-1', name: 'Hourly', timezone: 'America/Sao_Paulo' }

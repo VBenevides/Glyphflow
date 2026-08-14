@@ -94,6 +94,11 @@ a {
 .gf-button-danger { color: #fff; background: var(--gf-danger); }
 .gf-button-ghost { color: var(--gf-muted); background: transparent; }
 .gf-input { width: 100%; min-height: 2.5rem; padding: 0.5rem 0.7rem; color: var(--gf-text); background: var(--gf-card); border: 1px solid var(--gf-border); border-radius: 0.55rem; }
+.gf-task-picker-control { position: relative; }
+.gf-task-options { position: absolute; top: calc(100% + 0.25rem); left: 0; right: 0; z-index: 5; max-height: 16rem; overflow: auto; padding: 0.25rem; background: var(--gf-card); border: 1px solid var(--gf-border); border-radius: 0.55rem; box-shadow: var(--gf-shadow); }
+.gf-task-option { display: block; width: 100%; padding: 0.55rem 0.65rem; color: var(--gf-text); background: transparent; border: 0; border-radius: 0.35rem; text-align: left; cursor: pointer; }
+.gf-task-option:hover, .gf-task-option:focus-visible { background: var(--gf-surface); }
+.gf-task-empty { display: block; padding: 0.55rem 0.65rem; color: var(--gf-muted); }
 .gf-page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem; }
 .gf-page-header h1 { margin: 0; font-size: clamp(1.5rem, 3vw, 2rem); }
 .gf-page-header p { margin: 0.45rem 0 0; color: var(--gf-muted); }

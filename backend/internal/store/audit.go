@@ -17,6 +17,7 @@ type AuditEventRecord struct {
 
 type AuditFilter struct {
 	Actor, Action, Target, Result, CorrelationID, ExcludeTarget string
+	ExcludeRunLogs                                              bool
 	From, To                                                    time.Time
 	Page, Limit                                                 int
 }
@@ -61,7 +62,7 @@ func (s *AuditStore) Query(ctx context.Context, filter AuditFilter) ([]AuditEven
 	if filter.Limit <= 0 || filter.Limit > 100 {
 		filter.Limit = 50
 	}
-	where := ` WHERE ($1 = '' OR actor_id ILIKE '%' || $1 || '%' OR actor_name ILIKE '%' || $1 || '%' OR actor_email ILIKE '%' || $1 || '%') AND ($2 = '' OR method ILIKE '%' || $2 || '%') AND ($3 = '' OR target ILIKE '%' || $3 || '%') AND ($4 = '' OR result ILIKE '%' || $4 || '%') AND ($5 = '' OR correlation_id ILIKE '%' || $5 || '%') AND ($6 = '' OR target <> $6) AND ($7::timestamptz IS NULL OR created_at >= $7) AND ($8::timestamptz IS NULL OR created_at <= $8)`
+	where := ` WHERE ($1 = '' OR actor_id ILIKE '%' || $1 || '%' OR actor_name ILIKE '%' || $1 || '%' OR actor_email ILIKE '%' || $1 || '%') AND ($2 = '' OR method ILIKE '%' || $2 || '%') AND ($3 = '' OR target ILIKE '%' || $3 || '%') AND ($4 = '' OR result ILIKE '%' || $4 || '%') AND ($5 = '' OR correlation_id ILIKE '%' || $5 || '%') AND ($6 = '' OR target <> $6) AND ($7::timestamptz IS NULL OR created_at >= $7) AND ($8::timestamptz IS NULL OR created_at <= $8) AND ($9 = false OR (COALESCE(target, '') NOT LIKE '/api/v1/runs/%/logs%' AND COALESCE(endpoint, '') NOT LIKE '/api/v1/runs/%/logs%'))`
 	var from, to any
 	if !filter.From.IsZero() {
 		from = filter.From
@@ -70,11 +71,11 @@ func (s *AuditStore) Query(ctx context.Context, filter AuditFilter) ([]AuditEven
 		to = filter.To
 	}
 	var total int
-	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM audit_events`+where, filter.Actor, filter.Action, filter.Target, filter.Result, filter.CorrelationID, filter.ExcludeTarget, from, to).Scan(&total); err != nil {
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM audit_events`+where, filter.Actor, filter.Action, filter.Target, filter.Result, filter.CorrelationID, filter.ExcludeTarget, from, to, filter.ExcludeRunLogs).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 	offset := (filter.Page - 1) * filter.Limit
-	rows, err := s.pool.Query(ctx, `SELECT id, COALESCE(actor_id, ''), actor_name, actor_email, method, description, endpoint, target, result, request_input, response_output, before_value, after_value, COALESCE(traceback, ''), COALESCE(correlation_id, ''), created_at FROM audit_events`+where+` ORDER BY created_at DESC, id DESC LIMIT $9 OFFSET $10`, filter.Actor, filter.Action, filter.Target, filter.Result, filter.CorrelationID, filter.ExcludeTarget, from, to, filter.Limit, offset)
+	rows, err := s.pool.Query(ctx, `SELECT id, COALESCE(actor_id, ''), actor_name, actor_email, method, description, endpoint, target, result, request_input, response_output, before_value, after_value, COALESCE(traceback, ''), COALESCE(correlation_id, ''), created_at FROM audit_events`+where+` ORDER BY created_at DESC, id DESC LIMIT $10 OFFSET $11`, filter.Actor, filter.Action, filter.Target, filter.Result, filter.CorrelationID, filter.ExcludeTarget, from, to, filter.ExcludeRunLogs, filter.Limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}

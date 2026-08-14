@@ -21,7 +21,7 @@ func (s Schedule) Next(now time.Time) (time.Time, error) {
 	location := time.UTC
 	if s.Timezone != "" {
 		var err error
-		location, err = time.LoadLocation(s.Timezone)
+		location, err = scheduleLocation(s.Timezone)
 		if err != nil {
 			return time.Time{}, err
 		}
@@ -37,6 +37,32 @@ func (s Schedule) Next(now time.Time) (time.Time, error) {
 		return nextCronMinute(now.In(location), s.Cron)
 	}
 	return time.Time{}, errors.New("schedule must be manual, fixed-time, or five-field cron")
+}
+
+func scheduleLocation(value string) (*time.Location, error) {
+	if len(value) >= 5 && strings.HasPrefix(value, "UTC") && (value[3] == '+' || value[3] == '-') {
+		parts := strings.Split(strings.TrimPrefix(value[3:], "+"), ":")
+		if value[3] == '-' {
+			parts = strings.Split(strings.TrimPrefix(value[3:], "-"), ":")
+		}
+		hours, err := strconv.Atoi(parts[0])
+		if err != nil || hours > 23 || len(parts) > 2 {
+			return nil, errors.New("UTC offset is invalid")
+		}
+		minutes := 0
+		if len(parts) == 2 {
+			minutes, err = strconv.Atoi(parts[1])
+			if err != nil || minutes != 0 {
+				return nil, errors.New("UTC offset must use whole hours")
+			}
+		}
+		seconds := hours*60*60 + minutes*60
+		if value[3] == '-' {
+			seconds = -seconds
+		}
+		return time.FixedZone(value, seconds), nil
+	}
+	return time.LoadLocation(value)
 }
 
 func nextCronMinute(now time.Time, expression string) (time.Time, error) {

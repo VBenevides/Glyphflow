@@ -23,6 +23,7 @@ import (
 type RunnerRecord struct {
 	ID            string `json:"id"`
 	Name          string `json:"name"`
+	PoolID        string `json:"poolId,omitempty"`
 	DesiredState  string `json:"desiredState"`
 	ObservedState string `json:"observedState"`
 	Pool          string `json:"pool"`
@@ -31,6 +32,12 @@ type RunnerRecord struct {
 	HeartbeatAt   string `json:"heartbeatAt,omitempty"`
 	Platform      string `json:"platform,omitempty"`
 	Architecture  string `json:"architecture,omitempty"`
+}
+type RunnerPoolRecord struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Enabled     bool   `json:"enabled"`
 }
 type ResourceRecord struct {
 	ID               string `json:"id"`
@@ -50,6 +57,7 @@ type enrollment struct {
 type InfrastructureService struct {
 	mu                    sync.RWMutex
 	runners               map[string]RunnerRecord
+	pools                 map[string]RunnerPoolRecord
 	resources             map[string]ResourceRecord
 	enrollments           map[string]*enrollment
 	next                  int
@@ -61,7 +69,7 @@ type InfrastructureService struct {
 }
 
 func NewInfrastructureService() *InfrastructureService {
-	return &InfrastructureService{runners: map[string]RunnerRecord{}, resources: map[string]ResourceRecord{}, enrollments: map[string]*enrollment{}, runnerBinaryDir: "runner-binaries"}
+	return &InfrastructureService{runners: map[string]RunnerRecord{}, pools: map[string]RunnerPoolRecord{"default": {ID: "default", Name: "default", Enabled: true}}, resources: map[string]ResourceRecord{}, enrollments: map[string]*enrollment{}, runnerBinaryDir: "runner-binaries"}
 }
 
 func (s *InfrastructureService) SetRunnerRepository(repository store.RunnerRepository) {
@@ -101,7 +109,167 @@ func runnerRecordFromStore(runner store.RunnerRecord) RunnerRecord {
 	if runner.HeartbeatAt != nil {
 		heartbeat = runner.HeartbeatAt.UTC().Format(time.RFC3339)
 	}
-	return RunnerRecord{ID: runner.ID, Name: runner.Name, DesiredState: runner.DesiredState, ObservedState: runner.ObservedState, Pool: runner.Pool, Capacity: runner.Capacity, ActiveCount: runner.ActiveCount, HeartbeatAt: heartbeat, Platform: runner.Platform, Architecture: runner.Architecture}
+	return RunnerRecord{ID: runner.ID, Name: runner.Name, PoolID: runner.PoolID, DesiredState: runner.DesiredState, ObservedState: runner.ObservedState, Pool: runner.Pool, Capacity: runner.Capacity, ActiveCount: runner.ActiveCount, HeartbeatAt: heartbeat, Platform: runner.Platform, Architecture: runner.Architecture}
+}
+
+func runnerPoolRecordFromStore(pool store.RunnerPoolRecord) RunnerPoolRecord {
+	return RunnerPoolRecord{ID: pool.ID, Name: pool.Name, Description: pool.Description, Enabled: pool.Enabled}
+}
+
+func (s *InfrastructureService) poolCollection(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		s.mu.RLock()
+		repository := s.runnerRepository
+		s.mu.RUnlock()
+		if repository != nil {
+			items, err := repository.ListPools(r.Context())
+			if err != nil {
+				writeError(w, http.StatusServiceUnavailable, "runner pool storage unavailable", err)
+				return
+			}
+			result := make([]RunnerPoolRecord, 0, len(items))
+			for _, item := range items {
+				result = append(result, runnerPoolRecordFromStore(item))
+			}
+			writePage(w, r, result)
+			return
+		}
+		s.mu.RLock()
+		items := make([]RunnerPoolRecord, 0, len(s.pools))
+		for _, item := range s.pools {
+			items = append(items, item)
+		}
+		s.mu.RUnlock()
+		sort.Slice(items, func(i, j int) bool { return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name) })
+		writePage(w, r, items)
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	var input struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Enabled     *bool  `json:"enabled"`
+	}
+	if json.NewDecoder(r.Body).Decode(&input) != nil || strings.TrimSpace(input.Name) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "runner pool name is required"})
+		return
+	}
+	enabled := true
+	if input.Enabled != nil {
+		enabled = *input.Enabled
+	}
+	id, err := randomID()
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "runner pool creation failed", err)
+		return
+	}
+	item := RunnerPoolRecord{ID: "pool-" + id, Name: strings.TrimSpace(input.Name), Description: strings.TrimSpace(input.Description), Enabled: enabled}
+	s.mu.RLock()
+	repository := s.runnerRepository
+	s.mu.RUnlock()
+	if repository != nil {
+		if err := repository.CreatePool(r.Context(), store.RunnerPoolRecord{ID: item.ID, Name: item.Name, Description: item.Description, Enabled: item.Enabled}); err != nil {
+			writeError(w, http.StatusConflict, "runner pool creation failed", err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, item)
+		return
+	}
+	s.mu.Lock()
+	s.pools[item.ID] = item
+	s.mu.Unlock()
+	writeJSON(w, http.StatusCreated, item)
+}
+
+func (s *InfrastructureService) poolPath(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(parts) != 5 || parts[4] == "" {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "runner pool not found"})
+		return
+	}
+	id := parts[4]
+	s.mu.RLock()
+	repository := s.runnerRepository
+	s.mu.RUnlock()
+	if r.Method == http.MethodGet {
+		if repository != nil {
+			item, found, err := repository.FindPool(r.Context(), id)
+			if err != nil {
+				writeError(w, http.StatusServiceUnavailable, "runner pool storage unavailable", err)
+			} else if !found {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "runner pool not found"})
+			} else {
+				writeJSON(w, http.StatusOK, runnerPoolRecordFromStore(item))
+			}
+			return
+		}
+		s.mu.RLock()
+		item, found := s.pools[id]
+		s.mu.RUnlock()
+		if !found {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "runner pool not found"})
+			return
+		}
+		writeJSON(w, http.StatusOK, item)
+		return
+	}
+	if r.Method == http.MethodDelete {
+		if repository != nil {
+			if err := repository.DeletePool(r.Context(), id); err != nil {
+				writeError(w, http.StatusConflict, "runner pool deletion failed", err)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		s.mu.Lock()
+		if _, found := s.pools[id]; !found {
+			s.mu.Unlock()
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "runner pool not found"})
+			return
+		}
+		delete(s.pools, id)
+		s.mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method != http.MethodPut {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	var input struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Enabled     bool   `json:"enabled"`
+	}
+	if json.NewDecoder(r.Body).Decode(&input) != nil || strings.TrimSpace(input.Name) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "runner pool name is required"})
+		return
+	}
+	item := RunnerPoolRecord{ID: id, Name: strings.TrimSpace(input.Name), Description: strings.TrimSpace(input.Description), Enabled: input.Enabled}
+	if repository != nil {
+		updated, found, err := repository.UpdatePool(r.Context(), store.RunnerPoolRecord{ID: item.ID, Name: item.Name, Description: item.Description, Enabled: item.Enabled})
+		if err != nil {
+			writeError(w, http.StatusConflict, "runner pool update failed", err)
+		} else if !found {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "runner pool not found"})
+		} else {
+			writeJSON(w, http.StatusOK, runnerPoolRecordFromStore(updated))
+		}
+		return
+	}
+	s.mu.Lock()
+	if _, found := s.pools[id]; !found {
+		s.mu.Unlock()
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "runner pool not found"})
+		return
+	}
+	s.pools[id] = item
+	s.mu.Unlock()
+	writeJSON(w, http.StatusOK, item)
 }
 
 func resourceRecordFromStore(resource store.ResourceRecord) ResourceRecord {
@@ -304,6 +472,7 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 	}
 	var input struct {
 		RunnerID     string `json:"runner_id"`
+		PoolID       string `json:"pool_id"`
 		Platform     string `json:"platform"`
 		Architecture string `json:"architecture"`
 	}
@@ -316,6 +485,10 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input.RunnerID = strings.TrimSpace(input.RunnerID)
+	input.PoolID = strings.TrimSpace(input.PoolID)
+	if input.PoolID == "" {
+		input.PoolID = "default"
+	}
 	input.Platform = strings.ToLower(strings.TrimSpace(input.Platform))
 	input.Architecture = strings.ToLower(strings.TrimSpace(input.Architecture))
 	if !runnerIDPattern.MatchString(input.RunnerID) {
@@ -348,11 +521,20 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 	repository := s.runnerRepository
 	s.mu.RUnlock()
 	if repository != nil {
+		pool, found, err := repository.FindPool(r.Context(), input.PoolID)
+		if err != nil {
+			writeError(w, http.StatusServiceUnavailable, "runner pool lookup failed", err)
+			return
+		}
+		if !found || !pool.Enabled {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "selected runner pool does not exist or is disabled"})
+			return
+		}
 		requester := "system"
 		if claims, ok := r.Context().Value(requestClaimsContextKey{}).(Claims); ok && claims.UserID != "" {
 			requester = claims.UserID
 		}
-		if err := repository.CreateEnrollment(r.Context(), store.RunnerRecord{ID: input.RunnerID, Name: input.RunnerID, Pool: "default", Capacity: 1, Platform: input.Platform, Architecture: input.Architecture}, store.RunnerEnrollmentRecord{ID: "enrollment-" + input.RunnerID + "-" + platform.HashToken(token), RunnerID: input.RunnerID, TokenHash: platform.HashToken(token), ExpiresAt: expiry, Requester: requester, Target: input.RunnerID, Artifact: map[string]any{"platform": input.Platform, "architecture": input.Architecture}}); err != nil {
+		if err := repository.CreateEnrollment(r.Context(), store.RunnerRecord{ID: input.RunnerID, Name: input.RunnerID, PoolID: input.PoolID, Capacity: 1, Platform: input.Platform, Architecture: input.Architecture}, store.RunnerEnrollmentRecord{ID: "enrollment-" + input.RunnerID + "-" + platform.HashToken(token), RunnerID: input.RunnerID, TokenHash: platform.HashToken(token), ExpiresAt: expiry, Requester: requester, Target: input.RunnerID, Artifact: map[string]any{"platform": input.Platform, "architecture": input.Architecture}}); err != nil {
 			recordRequestError(r, err)
 			writeError(w, http.StatusConflict, "enrollment could not be saved", err)
 			return
@@ -361,10 +543,17 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusCreated, map[string]string{"artifact": base64.StdEncoding.EncodeToString(artifact), "expires_at": expiry.UTC().Format(time.RFC3339), "filename": filename})
 		return
 	}
+	s.mu.RLock()
+	pool, found := s.pools[input.PoolID]
+	s.mu.RUnlock()
+	if !found || !pool.Enabled {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "selected runner pool does not exist or is disabled"})
+		return
+	}
 	s.mu.Lock()
 	s.enrollments[token] = &enrollment{Token: token, RunnerID: input.RunnerID, Expires: expiry}
 	if _, ok := s.runners[input.RunnerID]; !ok {
-		s.runners[input.RunnerID] = RunnerRecord{ID: input.RunnerID, Name: input.RunnerID, DesiredState: "ENABLED", ObservedState: "PENDING", Pool: "default", Capacity: 1, Platform: input.Platform, Architecture: input.Architecture}
+		s.runners[input.RunnerID] = RunnerRecord{ID: input.RunnerID, Name: input.RunnerID, PoolID: input.PoolID, DesiredState: "ENABLED", ObservedState: "PENDING", Pool: pool.Name, Capacity: 1, Platform: input.Platform, Architecture: input.Architecture}
 	}
 	s.mu.Unlock()
 	w.Header().Set("Cache-Control", "no-store")

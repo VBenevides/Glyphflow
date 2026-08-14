@@ -20,6 +20,7 @@ type TaskRecord struct {
 	Enabled        bool     `json:"enabled"`
 	ActiveVersion  int      `json:"activeVersion"`
 	Pool           string   `json:"pool"`
+	PinnedRunner   string   `json:"pinnedRunner,omitempty"`
 	Command        []string `json:"command,omitempty"`
 	TimeoutSeconds int      `json:"timeoutSeconds"`
 }
@@ -71,11 +72,26 @@ func (o *OperationsService) SetScheduleRepository(repository store.ScheduleRepos
 }
 
 func taskRecordFromStore(task store.TaskRecord) TaskRecord {
-	return TaskRecord{ID: task.ID, Name: task.Name, Enabled: task.Enabled, ActiveVersion: task.ActiveVersion, Pool: task.RunnerPoolID, Command: append([]string(nil), task.Command...), TimeoutSeconds: task.TimeoutSeconds}
+	return TaskRecord{ID: task.ID, Name: task.Name, Enabled: task.Enabled, ActiveVersion: task.ActiveVersion, Pool: task.RunnerPoolID, PinnedRunner: task.PinnedRunnerID, Command: append([]string(nil), task.Command...), TimeoutSeconds: task.TimeoutSeconds}
 }
 
-func taskDefinition(id, name, pool string, command []string, timeout int) store.TaskDefinition {
-	return store.TaskDefinition{ID: id, Name: strings.TrimSpace(name), RunnerPoolID: strings.TrimSpace(pool), Command: append([]string(nil), command...), TimeoutSeconds: timeout, Enabled: true}
+type taskInput struct {
+	Name               string         `json:"name"`
+	Command            []string       `json:"command"`
+	RunnerPool         string         `json:"runner_pool"`
+	PinnedRunner       string         `json:"pinned_runner"`
+	WorkingDirectory   string         `json:"working_directory"`
+	PlacementSelectors map[string]any `json:"placement_selectors"`
+	Environment        map[string]any `json:"environment"`
+	SecretReferences   map[string]any `json:"secret_references"`
+	TimeoutSeconds     int            `json:"timeout_seconds"`
+	MaxOutputBytes     int64          `json:"max_output_bytes"`
+	MaxAttempts        int            `json:"max_attempts"`
+	AmbiguityPolicy    string         `json:"ambiguity_policy"`
+}
+
+func taskDefinition(id string, input taskInput) store.TaskDefinition {
+	return store.TaskDefinition{ID: id, Name: strings.TrimSpace(input.Name), RunnerPoolID: strings.TrimSpace(input.RunnerPool), PinnedRunnerID: strings.TrimSpace(input.PinnedRunner), Command: append([]string(nil), input.Command...), WorkingDirectory: input.WorkingDirectory, PlacementSelectors: input.PlacementSelectors, Environment: input.Environment, SecretReferences: input.SecretReferences, TimeoutSeconds: input.TimeoutSeconds, MaxOutputBytes: input.MaxOutputBytes, MaxAttempts: input.MaxAttempts, AmbiguityPolicy: input.AmbiguityPolicy, Enabled: true}
 }
 
 func scheduleRecordFromStore(schedule store.ScheduleRecord) ScheduleRecord {
@@ -122,12 +138,7 @@ func (o *OperationsService) taskCollection(w http.ResponseWriter, r *http.Reques
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
-	var input struct {
-		Name           string   `json:"name"`
-		Command        []string `json:"command"`
-		RunnerPool     string   `json:"runner_pool"`
-		TimeoutSeconds int      `json:"timeout_seconds"`
-	}
+	var input taskInput
 	if json.NewDecoder(r.Body).Decode(&input) != nil || strings.TrimSpace(input.Name) == "" || len(input.Command) == 0 || strings.TrimSpace(input.RunnerPool) == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "task name, command, and runner pool are required"})
 		return
@@ -141,7 +152,7 @@ func (o *OperationsService) taskCollection(w http.ResponseWriter, r *http.Reques
 			writeError(w, http.StatusServiceUnavailable, "task creation failed", err)
 			return
 		}
-		created, err := repository.Create(r.Context(), taskDefinition("task-"+id, input.Name, input.RunnerPool, input.Command, input.TimeoutSeconds))
+		created, err := repository.Create(r.Context(), taskDefinition("task-"+id, input))
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "task creation failed", err)
 			return
@@ -149,7 +160,7 @@ func (o *OperationsService) taskCollection(w http.ResponseWriter, r *http.Reques
 		writeJSON(w, http.StatusCreated, taskRecordFromStore(created))
 		return
 	}
-	task := o.createTask(input.Name, input.Command, input.RunnerPool, input.TimeoutSeconds)
+	task := o.createTask(input.Name, input.Command, input.RunnerPool, input.PinnedRunner, input.TimeoutSeconds)
 	writeJSON(w, http.StatusCreated, task)
 }
 
@@ -208,12 +219,7 @@ func (o *OperationsService) taskPath(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(parts) == 5 && parts[4] == "versions" && r.Method == http.MethodPost {
-		var input struct {
-			Name           string   `json:"name"`
-			Command        []string `json:"command"`
-			RunnerPool     string   `json:"runner_pool"`
-			TimeoutSeconds int      `json:"timeout_seconds"`
-		}
+		var input taskInput
 		if json.NewDecoder(r.Body).Decode(&input) != nil || len(input.Command) == 0 {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "command is required"})
 			return
@@ -222,7 +228,7 @@ func (o *OperationsService) taskPath(w http.ResponseWriter, r *http.Request) {
 		repository := o.repository
 		o.mu.RUnlock()
 		if repository != nil {
-			updated, err := repository.CreateVersion(r.Context(), id, taskDefinition("", input.Name, input.RunnerPool, input.Command, input.TimeoutSeconds))
+			updated, err := repository.CreateVersion(r.Context(), id, taskDefinition("", input))
 			if err != nil {
 				writeError(w, http.StatusBadRequest, "task version creation failed", err)
 				return
@@ -415,11 +421,11 @@ type scheduleInput struct {
 	MaxConcurrentRuns int    `json:"max_concurrent_runs"`
 }
 
-func (o *OperationsService) createTask(name string, command []string, pool string, timeout int) TaskRecord {
+func (o *OperationsService) createTask(name string, command []string, pool, pinnedRunner string, timeout int) TaskRecord {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.nextTaskID++
-	task := TaskRecord{ID: "task-" + strconv.Itoa(o.nextTaskID), Name: strings.TrimSpace(name), Enabled: true, ActiveVersion: 1, Pool: strings.TrimSpace(pool), Command: append([]string(nil), command...), TimeoutSeconds: timeout}
+	task := TaskRecord{ID: "task-" + strconv.Itoa(o.nextTaskID), Name: strings.TrimSpace(name), Enabled: true, ActiveVersion: 1, Pool: strings.TrimSpace(pool), PinnedRunner: strings.TrimSpace(pinnedRunner), Command: append([]string(nil), command...), TimeoutSeconds: timeout}
 	o.tasks[task.ID] = task
 	return task
 }
@@ -446,12 +452,7 @@ func (o *OperationsService) deleteTask(id string) bool {
 	return true
 }
 
-func (o *OperationsService) addTaskVersion(id string, input struct {
-	Name           string   `json:"name"`
-	Command        []string `json:"command"`
-	RunnerPool     string   `json:"runner_pool"`
-	TimeoutSeconds int      `json:"timeout_seconds"`
-}) (TaskRecord, bool) {
+func (o *OperationsService) addTaskVersion(id string, input taskInput) (TaskRecord, bool) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	task, ok := o.tasks[id]
@@ -464,6 +465,7 @@ func (o *OperationsService) addTaskVersion(id string, input struct {
 	if input.RunnerPool != "" {
 		task.Pool = input.RunnerPool
 	}
+	task.PinnedRunner = input.PinnedRunner
 	task.Command = append([]string(nil), input.Command...)
 	if input.TimeoutSeconds > 0 {
 		task.TimeoutSeconds = input.TimeoutSeconds
