@@ -101,6 +101,7 @@ func main() {
 	roleRepository := store.NewRoleRepository(db)
 	authService.SetRoleRepository(roleRepository)
 	authService.SetConfigStore(configStore)
+	authService.SetSessionRepository(store.NewSessionRepository(db))
 	if err := authService.AddRole("admin", platform.PermissionCatalog...); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

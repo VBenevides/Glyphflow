@@ -36,6 +36,7 @@ type AuthService struct {
 	passwordEnabled, registrationEnabled bool
 	defaultRoleID                        string
 	sessions                             *SessionManager
+	sessionRepository                    store.SessionRepository
 	refresh                              *platform.RefreshSessionManager
 	accessLifetime, refreshLifetime      time.Duration
 	audit                                func(string, string, string)
@@ -73,6 +74,16 @@ func (s *AuthService) SetConfigStore(config *store.ConfigStore) {
 	s.mu.Lock()
 	s.config = config
 	s.mu.Unlock()
+}
+
+func (s *AuthService) SetSessionRepository(repository store.SessionRepository) {
+	if repository == nil {
+		return
+	}
+	s.mu.Lock()
+	s.sessionRepository = repository
+	s.mu.Unlock()
+	s.sessions.SetRepository(repository)
 }
 
 func toAuthUser(user store.UserRecord) AuthUser {
@@ -583,6 +594,33 @@ func (s *AuthService) Users() []map[string]any {
 }
 
 func (s *AuthService) issueTokens(userID string) (AuthTokens, error) {
+	s.mu.RLock()
+	repository := s.sessionRepository
+	accessLifetime, refreshLifetime := s.accessLifetime, s.refreshLifetime
+	s.mu.RUnlock()
+	if repository != nil {
+		sessionID, err := randomID()
+		if err != nil {
+			return AuthTokens{}, err
+		}
+		refreshToken, err := randomID()
+		if err != nil {
+			return AuthTokens{}, err
+		}
+		familyID, err := randomID()
+		if err != nil {
+			return AuthTokens{}, err
+		}
+		accessToken, _, err := s.sessions.IssueForSession(userID, sessionID, accessLifetime)
+		if err != nil {
+			return AuthTokens{}, err
+		}
+		now := time.Now().UTC()
+		if err := repository.Create(context.Background(), store.SessionRecord{ID: sessionID, UserID: userID, RefreshTokenHash: platform.HashToken(refreshToken), AccessExpiresAt: now.Add(accessLifetime), RefreshExpiresAt: now.Add(refreshLifetime), SessionFamilyID: familyID, LastSeenAt: now}); err != nil {
+			return AuthTokens{}, err
+		}
+		return AuthTokens{AccessToken: accessToken, RefreshToken: refreshToken, SessionID: sessionID}, nil
+	}
 	sessionID, refreshToken, err := s.refresh.Issue(userID, s.refreshLifetime)
 	if err != nil {
 		return AuthTokens{}, err
@@ -601,6 +639,38 @@ func minInt(a, b int) int {
 }
 
 func (s *AuthService) Refresh(sessionID, refreshToken string) (AuthTokens, error) {
+	s.mu.RLock()
+	repository := s.sessionRepository
+	accessLifetime, refreshLifetime := s.accessLifetime, s.refreshLifetime
+	audit := s.audit
+	s.mu.RUnlock()
+	if repository != nil {
+		current, ok, err := repository.Get(context.Background(), sessionID)
+		if err != nil || !ok {
+			return AuthTokens{}, errors.New("refresh token is invalid")
+		}
+		newID, err := randomID()
+		if err != nil {
+			return AuthTokens{}, err
+		}
+		newToken, err := randomID()
+		if err != nil {
+			return AuthTokens{}, err
+		}
+		access, _, err := s.sessions.IssueForSession(current.UserID, newID, accessLifetime)
+		if err != nil {
+			return AuthTokens{}, err
+		}
+		now := time.Now().UTC()
+		err = repository.Rotate(context.Background(), sessionID, platform.HashToken(refreshToken), store.SessionRecord{ID: newID, RefreshTokenHash: platform.HashToken(newToken), AccessExpiresAt: now.Add(accessLifetime), RefreshExpiresAt: now.Add(refreshLifetime), LastSeenAt: now})
+		if err != nil {
+			if errors.Is(err, store.ErrSessionReplay) && audit != nil {
+				audit(current.UserID, "auth.refresh.replay", sessionID)
+			}
+			return AuthTokens{}, errors.New("refresh token is invalid")
+		}
+		return AuthTokens{AccessToken: access, RefreshToken: newToken, SessionID: newID}, nil
+	}
 	userID, ok := s.refresh.UserID(sessionID)
 	if !ok {
 		return AuthTokens{}, errors.New("refresh token is invalid")

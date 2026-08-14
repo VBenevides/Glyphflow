@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -11,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/VBenevides/Glyphflow/backend/internal/store"
 )
 
 const accessTokenVersion = "gf1"
@@ -28,9 +31,10 @@ type accessTokenPayload struct {
 }
 
 type SessionManager struct {
-	mu       sync.RWMutex
-	secret   []byte
-	sessions map[string]accessTokenPayload
+	mu         sync.RWMutex
+	secret     []byte
+	sessions   map[string]accessTokenPayload
+	repository store.SessionRepository
 }
 type SessionInfo struct {
 	ID        string    `json:"id"`
@@ -40,10 +44,20 @@ type SessionInfo struct {
 }
 
 func (m *SessionManager) Owns(userID, sessionID string) bool {
+	if m.repository != nil {
+		session, ok, err := m.repository.Get(context.Background(), sessionID)
+		return err == nil && ok && session.UserID == userID && session.RevokedAt == nil
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	session, ok := m.sessions[sessionID]
 	return ok && session.UserID == userID
+}
+
+func (m *SessionManager) SetRepository(repository store.SessionRepository) {
+	m.mu.Lock()
+	m.repository = repository
+	m.mu.Unlock()
 }
 
 func NewSessionManager(secret string) (*SessionManager, error) {
@@ -70,7 +84,9 @@ func (m *SessionManager) Issue(userID string, lifetime time.Duration) (string, C
 		return "", Claims{}, err
 	}
 	m.mu.Lock()
-	m.sessions[payload.SessionID] = payload
+	if m.repository == nil {
+		m.sessions[payload.SessionID] = payload
+	}
 	m.mu.Unlock()
 	return token, Claims{Subject: userID, UserID: userID, SessionID: payload.SessionID}, nil
 }
@@ -85,12 +101,18 @@ func (m *SessionManager) IssueForSession(userID, sessionID string, lifetime time
 		return "", Claims{}, err
 	}
 	m.mu.Lock()
-	m.sessions[sessionID] = payload
+	if m.repository == nil {
+		m.sessions[sessionID] = payload
+	}
 	m.mu.Unlock()
 	return token, Claims{Subject: userID, UserID: userID, SessionID: sessionID}, nil
 }
 
 func (m *SessionManager) RevokeUser(userID string) {
+	if m.repository != nil {
+		_ = m.repository.RevokeUser(context.Background(), userID)
+		return
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for id, session := range m.sessions {
@@ -101,6 +123,17 @@ func (m *SessionManager) RevokeUser(userID string) {
 }
 
 func (m *SessionManager) List(userID string) []SessionInfo {
+	if m.repository != nil {
+		sessions, err := m.repository.List(context.Background(), userID)
+		if err != nil {
+			return []SessionInfo{}
+		}
+		out := make([]SessionInfo, 0, len(sessions))
+		for _, session := range sessions {
+			out = append(out, SessionInfo{ID: session.ID, UserID: userID, ExpiresAt: session.AccessExpiresAt})
+		}
+		return out
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	out := []SessionInfo{}
@@ -113,6 +146,10 @@ func (m *SessionManager) List(userID string) []SessionInfo {
 }
 
 func (m *SessionManager) Revoke(sessionID string) {
+	if m.repository != nil {
+		_ = m.repository.Revoke(context.Background(), sessionID)
+		return
+	}
 	m.mu.Lock()
 	delete(m.sessions, sessionID)
 	m.mu.Unlock()
@@ -171,9 +208,15 @@ func (m *SessionManager) verify(token string) (accessTokenPayload, bool) {
 		return accessTokenPayload{}, false
 	}
 	m.mu.RLock()
+	repository := m.repository
 	active, ok := m.sessions[payload.SessionID]
 	m.mu.RUnlock()
-	if !ok || active.UserID != payload.UserID || active.ExpiresAt != payload.ExpiresAt {
+	if repository != nil {
+		activeInDatabase, err := repository.Active(context.Background(), payload.SessionID, payload.UserID)
+		if err != nil || !activeInDatabase {
+			return accessTokenPayload{}, false
+		}
+	} else if !ok || active.UserID != payload.UserID || active.ExpiresAt != payload.ExpiresAt {
 		return accessTokenPayload{}, false
 	}
 	return payload, true
