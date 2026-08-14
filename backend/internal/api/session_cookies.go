@@ -28,4 +28,6 @@ func (s Server) clearSessionCookies(w http.ResponseWriter) {
 	clearCookie(w, accessCookie, "/")
 	clearCookie(w, refreshCookie, "/api/v1/auth")
 	clearCookie(w, sessionCookie, "/api/v1/auth")
+	secure := strings.HasPrefix(strings.ToLower(strings.TrimSpace(s.CSRFOrigin)), "https://")
+	http.SetCookie(w, &http.Cookie{Name: "glyphflow_csrf", Value: "", Path: "/", MaxAge: -1, Secure: secure, SameSite: http.SameSiteLaxMode})
 }

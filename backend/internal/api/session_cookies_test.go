@@ -51,6 +51,10 @@ func TestCookieSessionLoginRefreshAndLogout(t *testing.T) {
 	if loggedOut.Code != http.StatusNoContent {
 		t.Fatalf("cookie logout status = %d", loggedOut.Code)
 	}
+	logoutCookies := loggedOut.Result().Cookies()
+	if !hasExpiredCookie(logoutCookies, "glyphflow_csrf") {
+		t.Fatalf("logout did not clear CSRF cookie: %#v", logoutCookies)
+	}
 	me = httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
 	addCookies(me, cookies)
 	profile = httptest.NewRecorder()
@@ -73,6 +77,15 @@ func TestSessionCookiesUseSecureFlagForHTTPSOrigin(t *testing.T) {
 func hasCookie(cookies []*http.Cookie, name string) bool {
 	for _, cookie := range cookies {
 		if cookie.Name == name && cookie.Value != "" && cookie.HttpOnly {
+			return true
+		}
+	}
+	return false
+}
+
+func hasExpiredCookie(cookies []*http.Cookie, name string) bool {
+	for _, cookie := range cookies {
+		if cookie.Name == name && cookie.MaxAge < 0 {
 			return true
 		}
 	}
