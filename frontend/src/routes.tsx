@@ -15,6 +15,7 @@ import { EnrollmentPage } from './enrollment-page'
 import { ResourceDetailPage, ResourceInventoryPage } from './resource-pages'
 import { AuditPage } from './audit-page'
 import { AuthenticationSettingsPage, RoleManagementPage, SsoSettingsPage, UserManagementPage } from './admin-pages'
+import { AccountPage } from './account-pages'
 
 function Placeholder({ title }: { title: string }) {
   return <main className="gf-content"><PageHeader title={title} description="This workspace is ready for its data view." /></main>
@@ -49,6 +50,10 @@ export function AppRoutes() {
     <Route path="/admin/roles" element={<PermissionRoute permission="roles.read|roles.manage"><RoleManagementPage /></PermissionRoute>} />
     <Route path="/admin/sso" element={<PermissionRoute permission="sso.read|sso.manage"><SsoSettingsPage /></PermissionRoute>} />
     <Route path="/admin/auth" element={<PermissionRoute permission="auth.settings.manage"><AuthenticationSettingsPage /></PermissionRoute>} />
+    <Route path="/account" element={<AccountPage />} />
+    <Route path="/account/password" element={<AccountPage />} />
+    <Route path="/account/identities" element={<AccountPage />} />
+    <Route path="/account/sessions" element={<AccountPage />} />
     {ROUTES.filter((route) => !['/', '/tasks', '/schedules', '/runs', '/runners', '/resources', '/audit', '/admin/users', '/admin/roles', '/admin/sso', '/admin/auth'].includes(route.path)).map((route) => <Route key={route.path} path={route.path} element={<PermissionRoute permission={route.permission}><Placeholder title={route.label} /></PermissionRoute>} />)}
     <Route path="/login" element={<Navigate to="/" replace />} />
     <Route path="*" element={<NotFoundPage />} />

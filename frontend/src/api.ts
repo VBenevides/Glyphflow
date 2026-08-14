@@ -28,7 +28,8 @@ export class ApiError extends Error {
 }
 
 export type Page<T> = { items: T[]; page: number; limit: number; total?: number; pages?: number }
-export type Profile = { id: string; username: string; displayName?: string; status?: string; permissions?: string[]; roles?: string[] }
+export type Identity = { id: string; provider: string; subject?: string; email?: string; createdAt?: string }
+export type Profile = { id: string; username: string; displayName?: string; status?: string; email?: string; permissions?: string[]; roles?: string[]; sessions?: AuthSession[]; identities?: Identity[] }
 export type PermissionSnapshot = { permissions: string[]; roles?: string[] }
 export type RuntimeConfig = { brand: string; passwordLogin: boolean; registration: boolean; oidc: boolean; csrfCookie: string }
 export type OidcProvider = { id?: string; key: string; name?: string; issuer: string; icon?: string; enabled?: boolean; clientId?: string; secretReference?: string; claimMapping?: Record<string, string>; groupMapping?: Record<string, string> }
