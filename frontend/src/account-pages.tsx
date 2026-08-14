@@ -8,23 +8,28 @@ import { QueryState as DataState } from './query'
 import { useAuth } from './auth'
 import { useUnsavedChanges } from './unsaved'
 
+export function accountDirty(displayName: string, baseline: string, password: { current: string; next: string; confirm: string }): boolean {
+  return displayName !== baseline || Boolean(password.current || password.next || password.confirm)
+}
+
 export function AccountPage() {
   const { config, setProfile } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const query = useQuery({ queryKey: ['me-account'], queryFn: ({ signal }) => api.get<Profile>('/api/v1/me', undefined, signal) })
   const [displayName, setDisplayName] = useState('')
+  const [displayNameBaseline, setDisplayNameBaseline] = useState('')
   const [profileError, setProfileError] = useState('')
   const [password, setPassword] = useState({ current: '', next: '', confirm: '' })
   const [passwordError, setPasswordError] = useState('')
-  useEffect(() => { if (query.data) setDisplayName(query.data.displayName ?? '') }, [query.data])
+  useEffect(() => { if (query.data) { const value = query.data.displayName ?? ''; setDisplayName(value); setDisplayNameBaseline(value) } }, [query.data])
   const saveProfile = async (event: FormEvent) => { event.preventDefault(); setProfileError(''); try { await api.put('/api/v1/me', { display_name: displayName.trim() }); await query.refetch() } catch (cause) { setProfileError(cause instanceof Error ? cause.message : 'Profile update failed') } }
   const changePassword = async (event: FormEvent) => { event.preventDefault(); setPasswordError(''); if (password.next !== password.confirm) { setPasswordError('New passwords must match.'); return } try { await api.post('/api/v1/me/password', { current_password: password.current, new_password: password.next }); setPassword({ current: '', next: '', confirm: '' }) } catch (cause) { setPasswordError(cause instanceof Error ? cause.message : 'Password update failed') } }
   const revoke = async (sessionId: string, current: boolean) => { await api.post(`/api/v1/me/sessions/revoke?session_id=${encodeURIComponent(sessionId)}`); if (current) { setProfile(null); navigate('/login', { replace: true }) } else await query.refetch() }
   const identities = query.data?.identities ?? []
   const sessions = query.data?.sessions ?? []
   const section = location.pathname.split('/')[2] ?? 'profile'
-  useUnsavedChanges(Boolean(displayName.trim() || password.current || password.next || password.confirm))
+  useUnsavedChanges(accountDirty(displayName, displayNameBaseline, password))
   return <main className="gf-content"><PageHeader title="Account" description="Manage your profile, login methods, and active sessions." action={<div className="gf-related-links"><a href="/account">Profile</a><a href="/account/password">Password</a><a href="/account/identities">Identities</a><a href="/account/sessions">Sessions</a></div>} />
     <DataState query={query}>{(profile) => <>
       {(section === 'profile' || section === 'account') && <section className="gf-card-panel"><h2>Profile</h2><form className="gf-editor-form" onSubmit={saveProfile}><label htmlFor="account-username">Username<Input id="account-username" value={profile.username} readOnly /></label><label htmlFor="account-display-name">Display name<Input id="account-display-name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></label>{profile.email && <p className="gf-muted">Email: {profile.email}</p>}{profileError && <p className="gf-form-error" role="alert">{profileError}</p>}<Button type="submit">Save profile</Button></form></section>}
