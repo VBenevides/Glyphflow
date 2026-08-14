@@ -1,7 +1,9 @@
 package platform
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
 	"errors"
@@ -57,7 +59,7 @@ func (h PasswordHasher) Hash(password string) (string, error) {
 	if _, err := rand.Read(salt); err != nil {
 		return "", err
 	}
-	key := argon2.IDKey([]byte(password), append(salt, h.Pepper...), h.Time, h.Memory, h.Threads, h.KeyLen)
+	key := argon2.IDKey(h.pepperInput(password), salt, h.Time, h.Memory, h.Threads, h.KeyLen)
 	return fmt.Sprintf("$argon2id$v=19$m=%d,t=%d,p=%d$%s$%s", h.Memory, h.Time, h.Threads, base64.RawStdEncoding.EncodeToString(salt), base64.RawStdEncoding.EncodeToString(key)), nil
 }
 
@@ -86,8 +88,14 @@ func (h PasswordHasher) Verify(encoded, password string) (bool, error) {
 	if !okTime || !okMemory || !okThreads || err != nil || errHash != nil || len(salt) < 16 || len(want) == 0 || timeCost == 0 || memory == 0 || threads == 0 {
 		return false, errors.New("malformed Argon2id hash")
 	}
-	got := argon2.IDKey([]byte(password), append(salt, h.Pepper...), uint32(timeCost), uint32(memory), uint8(threads), uint32(len(want)))
+	got := argon2.IDKey(h.pepperInput(password), salt, uint32(timeCost), uint32(memory), uint8(threads), uint32(len(want)))
 	return subtle.ConstantTimeCompare(got, want) == 1, nil
+}
+
+func (h PasswordHasher) pepperInput(password string) []byte {
+	mac := hmac.New(sha256.New, h.Pepper)
+	_, _ = mac.Write([]byte(password))
+	return mac.Sum(nil)
 }
 
 func (h PasswordHasher) NeedsRehash(encoded string) bool {

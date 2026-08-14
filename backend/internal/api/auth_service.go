@@ -29,6 +29,7 @@ type AuthTokens struct {
 type AuthService struct {
 	mu                                   sync.RWMutex
 	hasher                               platform.PasswordHasher
+	dummyPasswordHash                    string
 	users                                store.UserRepository
 	oidcIdentities                       map[string]string
 	roles                                store.RoleRepository
@@ -49,7 +50,12 @@ func NewAuthService(accessSecret string, passwordEnabled, registrationEnabled bo
 	if err != nil {
 		return nil, err
 	}
-	return &AuthService{hasher: platform.DefaultPasswordHasher(pepper), users: newMemoryUserRepository(), oidcIdentities: map[string]string{}, roles: newMemoryRoleRepository(), passwordEnabled: passwordEnabled, registrationEnabled: registrationEnabled, sessions: sessions, refresh: platform.NewRefreshSessionManager(), accessLifetime: 15 * time.Minute, refreshLifetime: 30 * time.Hour * 24, adminGuard: platform.NewAdministratorGuard(), systemAdminEmails: map[string]bool{}}, nil
+	hasher := platform.DefaultPasswordHasher(pepper)
+	dummyPasswordHash, err := hasher.Hash("glyphflow-invalid-login-dummy")
+	if err != nil {
+		return nil, err
+	}
+	return &AuthService{hasher: hasher, dummyPasswordHash: dummyPasswordHash, users: newMemoryUserRepository(), oidcIdentities: map[string]string{}, roles: newMemoryRoleRepository(), passwordEnabled: passwordEnabled, registrationEnabled: registrationEnabled, sessions: sessions, refresh: platform.NewRefreshSessionManager(), accessLifetime: 15 * time.Minute, refreshLifetime: 30 * time.Hour * 24, adminGuard: platform.NewAdministratorGuard(), systemAdminEmails: map[string]bool{}}, nil
 }
 
 func (s *AuthService) SetUserRepository(repository store.UserRepository) {
@@ -379,6 +385,13 @@ func (s *AuthService) Login(email, password string) (AuthTokens, error) {
 	valid := false
 	if enabled && ok && user.Enabled && hasHash {
 		valid, _ = s.hasher.Verify(hash, password)
+		if valid && s.hasher.NeedsRehash(hash) {
+			if upgraded, err := s.hasher.Hash(password); err == nil {
+				_ = s.users.SetPasswordHash(context.Background(), user.ID, upgraded)
+			}
+		}
+	} else if enabled {
+		_, _ = s.hasher.Verify(s.dummyPasswordHash, password)
 	}
 	if !valid {
 		if audit != nil {

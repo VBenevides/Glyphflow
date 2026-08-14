@@ -22,6 +22,24 @@ func TestArgon2idPasswordHashingAndUpgrade(t *testing.T) {
 	}
 }
 
+func TestArgon2idPepperAndSaltProperties(t *testing.T) {
+	hasher := DefaultPasswordHasher([]byte("pepper-one"))
+	first, err := hasher.Hash("correct horse battery staple")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := hasher.Hash("correct horse battery staple")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatal("password hashes reused salt")
+	}
+	if ok, err := DefaultPasswordHasher([]byte("pepper-two")).Verify(first, "correct horse battery staple"); err != nil || ok {
+		t.Fatalf("wrong pepper accepted: %v %v", ok, err)
+	}
+}
+
 func TestPasswordPolicy(t *testing.T) {
 	if err := ValidatePassword("short"); err == nil {
 		t.Fatal("short password accepted")
