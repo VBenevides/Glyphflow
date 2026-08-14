@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/VBenevides/Glyphflow/backend/internal/controlplane"
+	"github.com/VBenevides/Glyphflow/backend/internal/store"
 )
 
 type TaskRecord struct {
@@ -45,14 +46,47 @@ type OperationsService struct {
 	tasks                      map[string]TaskRecord
 	schedules                  map[string]ScheduleRecord
 	nextTaskID, nextScheduleID int
+	repository                 store.TaskRepository
 }
 
 func NewOperationsService() *OperationsService {
 	return &OperationsService{tasks: map[string]TaskRecord{}, schedules: map[string]ScheduleRecord{}}
 }
 
+func (o *OperationsService) SetTaskRepository(repository store.TaskRepository) {
+	if repository != nil {
+		o.mu.Lock()
+		o.repository = repository
+		o.mu.Unlock()
+	}
+}
+
+func taskRecordFromStore(task store.TaskRecord) TaskRecord {
+	return TaskRecord{ID: task.ID, Name: task.Name, Enabled: task.Enabled, ActiveVersion: task.ActiveVersion, Pool: task.RunnerPoolID, Command: append([]string(nil), task.Command...), TimeoutSeconds: task.TimeoutSeconds}
+}
+
+func taskDefinition(id, name, pool string, command []string, timeout int) store.TaskDefinition {
+	return store.TaskDefinition{ID: id, Name: strings.TrimSpace(name), RunnerPoolID: strings.TrimSpace(pool), Command: append([]string(nil), command...), TimeoutSeconds: timeout, Enabled: true}
+}
+
 func (o *OperationsService) taskCollection(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
+		o.mu.RLock()
+		repository := o.repository
+		o.mu.RUnlock()
+		if repository != nil {
+			items, err := repository.List(r.Context())
+			if err != nil {
+				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "task storage unavailable"})
+				return
+			}
+			result := make([]TaskRecord, 0, len(items))
+			for _, item := range items {
+				result = append(result, taskRecordFromStore(item))
+			}
+			writePage(w, r, result)
+			return
+		}
 		o.mu.RLock()
 		items := make([]TaskRecord, 0, len(o.tasks))
 		for _, task := range o.tasks {
@@ -77,6 +111,23 @@ func (o *OperationsService) taskCollection(w http.ResponseWriter, r *http.Reques
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "task name, command, and runner pool are required"})
 		return
 	}
+	o.mu.RLock()
+	repository := o.repository
+	o.mu.RUnlock()
+	if repository != nil {
+		id, err := randomID()
+		if err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "task creation failed"})
+			return
+		}
+		created, err := repository.Create(r.Context(), taskDefinition("task-"+id, input.Name, input.RunnerPool, input.Command, input.TimeoutSeconds))
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "task creation failed"})
+			return
+		}
+		writeJSON(w, http.StatusCreated, taskRecordFromStore(created))
+		return
+	}
 	task := o.createTask(input.Name, input.Command, input.RunnerPool, input.TimeoutSeconds)
 	writeJSON(w, http.StatusCreated, task)
 }
@@ -89,6 +140,20 @@ func (o *OperationsService) taskPath(w http.ResponseWriter, r *http.Request) {
 	}
 	id := parts[3]
 	if len(parts) == 4 && r.Method == http.MethodGet {
+		o.mu.RLock()
+		repository := o.repository
+		o.mu.RUnlock()
+		if repository != nil {
+			task, found, err := repository.Find(r.Context(), id)
+			if err != nil {
+				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "task storage unavailable"})
+			} else if !found {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})
+			} else {
+				writeJSON(w, http.StatusOK, taskRecordFromStore(task))
+			}
+			return
+		}
 		if task, ok := o.task(id); ok {
 			writeJSON(w, http.StatusOK, task)
 		} else {
@@ -105,6 +170,18 @@ func (o *OperationsService) taskPath(w http.ResponseWriter, r *http.Request) {
 		}
 		if json.NewDecoder(r.Body).Decode(&input) != nil || len(input.Command) == 0 {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "command is required"})
+			return
+		}
+		o.mu.RLock()
+		repository := o.repository
+		o.mu.RUnlock()
+		if repository != nil {
+			updated, err := repository.CreateVersion(r.Context(), id, taskDefinition("", input.Name, input.RunnerPool, input.Command, input.TimeoutSeconds))
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "task version creation failed"})
+				return
+			}
+			writeJSON(w, http.StatusCreated, taskRecordFromStore(updated))
 			return
 		}
 		updated, ok := o.addTaskVersion(id, input)
