@@ -164,6 +164,18 @@ a {
 .gf-collapse-button { position: fixed; left: 15rem; bottom: 1rem; z-index: 4; transition: left 160ms ease; }
 .gf-sidebar.is-collapsed ~ .gf-main + .gf-collapse-button { left: 3.5rem; }
 .gf-mobile-menu, .gf-drawer-scrim { display: none; }
+@media (max-width: 767px) {
+  .gf-app-shell { display: block; }
+  .gf-sidebar { position: fixed; inset: 0 auto 0 0; z-index: 10; width: min(18rem, 88vw); transform: translateX(-105%); visibility: hidden; box-shadow: var(--gf-shadow); transition: transform 160ms ease, visibility 160ms ease; }
+  .gf-sidebar.is-mobile-open { transform: translateX(0); visibility: visible; }
+  .gf-sidebar.is-collapsed { width: min(18rem, 88vw); }
+  .gf-sidebar.is-collapsed .gf-sidebar-brand-copy, .gf-sidebar.is-collapsed .gf-nav-link span, .gf-sidebar.is-collapsed .gf-nav-group-button span, .gf-sidebar.is-collapsed .gf-nav-group-button svg:last-child, .gf-sidebar.is-collapsed .gf-user-card span { display: grid; }
+  .gf-sidebar.is-collapsed .gf-nav-group-button svg:last-child { margin-left: auto; }
+  .gf-drawer-scrim { position: fixed; inset: 0; z-index: 9; display: block; padding: 0; background: rgb(5 12 25 / 60%); border: 0; }
+  .gf-mobile-menu { position: fixed; top: 0.75rem; left: 0.75rem; z-index: 5; display: inline-flex; }
+  .gf-collapse-button { display: none; }
+  .gf-main { min-height: 100dvh; padding-top: 3.75rem; }
+}
 .gf-danger-dialog { display: grid; gap: 0.75rem; }
 .gf-dialog-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
 .gf-log, .gf-audit-value { max-width: 100%; overflow: auto; padding: 1rem; color: var(--gf-text); background: #07101f; border-radius: 0.5rem; white-space: pre-wrap; overflow-wrap: anywhere; }
