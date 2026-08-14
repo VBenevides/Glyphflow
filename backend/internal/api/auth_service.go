@@ -33,7 +33,7 @@ type AuthService struct {
 	oidcIdentities                       map[string]string
 	roles                                store.RoleRepository
 	passwordEnabled, registrationEnabled bool
-	defaultRole                          string
+	defaultRoleID                        string
 	sessions                             *SessionManager
 	refresh                              *platform.RefreshSessionManager
 	accessLifetime, refreshLifetime      time.Duration
@@ -122,15 +122,34 @@ func (s *AuthService) SetSystemAdminEmails(emails []string) error {
 }
 
 func (s *AuthService) SetDefaultRole(role string) {
+	if definition, ok, _ := s.roles.FindByID(context.Background(), strings.TrimSpace(role)); ok {
+		role = definition.ID
+	} else if definition, ok, _ := s.roles.FindByName(context.Background(), role); ok {
+		role = definition.ID
+	}
 	s.mu.Lock()
-	s.defaultRole = strings.TrimSpace(role)
+	s.defaultRoleID = strings.TrimSpace(role)
 	s.mu.Unlock()
+}
+
+func (s *AuthService) SetDefaultRoleID(roleID string) error {
+	definition, ok, err := s.roles.FindByID(context.Background(), strings.TrimSpace(roleID))
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.New("default role not found")
+	}
+	s.mu.Lock()
+	s.defaultRoleID = definition.ID
+	s.mu.Unlock()
+	return nil
 }
 
 func (s *AuthService) AuthSettings() map[string]any {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return map[string]any{"passwordLoginEnabled": s.passwordEnabled, "registration": s.registrationEnabled, "defaultRole": s.defaultRole}
+	return map[string]any{"passwordLoginEnabled": s.passwordEnabled, "registration": s.registrationEnabled, "defaultRoleId": s.defaultRoleID}
 }
 
 func (s *AuthService) PasswordLoginEnabled() bool {
@@ -149,16 +168,25 @@ func (s *AuthService) SessionManager() *SessionManager { return s.sessions }
 
 func (s *AuthService) UpdateAuthSettings(passwordEnabled, registrationEnabled bool, defaultRole string) error {
 	if defaultRole != "" {
-		if _, ok, err := s.roles.FindByName(context.Background(), defaultRole); err != nil {
+		definition, ok, err := s.roles.FindByID(context.Background(), defaultRole)
+		if err != nil {
 			return err
-		} else if !ok {
+		}
+		if !ok {
+			definition, ok, err = s.roles.FindByName(context.Background(), defaultRole)
+			if err != nil {
+				return err
+			}
+		}
+		if !ok {
 			return errors.New("default role not found")
 		}
+		defaultRole = definition.ID
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if defaultRole != "" {
-		s.defaultRole = defaultRole
+		s.defaultRoleID = defaultRole
 	}
 	s.passwordEnabled = passwordEnabled
 	s.registrationEnabled = registrationEnabled
@@ -201,7 +229,16 @@ func (s *AuthService) AddRole(role string, permissions ...string) error {
 	if err := validatePermissions(permissions); err != nil {
 		return err
 	}
-	return s.roles.Ensure(context.Background(), systemRoleID(role), platform.NormalizeIdentityKey(role), "", role == "admin" || role == "user", permissions)
+	roleID := systemRoleID(role)
+	if err := s.roles.Ensure(context.Background(), roleID, platform.NormalizeIdentityKey(role), "", role == "admin" || role == "user", permissions); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	if s.defaultRoleID == role || s.defaultRoleID == platform.NormalizeIdentityKey(role) {
+		s.defaultRoleID = roleID
+	}
+	s.mu.Unlock()
+	return nil
 }
 func (s *AuthService) Grant(userID, role string) error {
 	if _, ok, err := s.userByID(userID); err != nil {
@@ -241,10 +278,10 @@ func (s *AuthService) register(email, password string, requireRegistration bool)
 		return AuthUser{}, err
 	}
 	s.mu.RLock()
-	role := s.defaultRole
+	roleID := s.defaultRoleID
 	systemAdmin := s.systemAdminEmails[key]
 	s.mu.RUnlock()
-	if role == "" {
+	if roleID == "" {
 		return AuthUser{}, errors.New("default role is not configured")
 	}
 	if _, exists, err := s.userByEmail(key); err != nil {
@@ -252,7 +289,7 @@ func (s *AuthService) register(email, password string, requireRegistration bool)
 	} else if exists {
 		return AuthUser{}, errors.New("registration failed")
 	}
-	roleDefinition, roleFound, err := s.roles.FindByName(context.Background(), role)
+	roleDefinition, roleFound, err := s.roles.FindByID(context.Background(), roleID)
 	if err != nil {
 		return AuthUser{}, err
 	}
@@ -338,12 +375,12 @@ func (s *AuthService) LoginOIDC(provider, subject, username, email string, autoP
 	key := provider + "\x00" + subject
 	s.mu.RLock()
 	userID := s.oidcIdentities[key]
-	defaultRole := s.defaultRole
+	defaultRoleID := s.defaultRoleID
 	systemAdmin := s.systemAdminEmails[email]
 	audit := s.audit
 	s.mu.RUnlock()
 	if userID == "" && autoProvision {
-		if defaultRole == "" {
+		if defaultRoleID == "" {
 			return AuthTokens{}, errors.New("default role is not configured")
 		}
 		if _, exists, err := s.userByEmail(email); err != nil {
@@ -359,7 +396,7 @@ func (s *AuthService) LoginOIDC(provider, subject, username, email string, autoP
 		if err := s.users.Create(context.Background(), store.UserRecord{ID: userID, Username: email, Email: email, Enabled: true}, ""); err != nil {
 			return AuthTokens{}, err
 		}
-		roleDefinition, found, err := s.roles.FindByName(context.Background(), defaultRole)
+		roleDefinition, found, err := s.roles.FindByID(context.Background(), defaultRoleID)
 		if err != nil || !found {
 			return AuthTokens{}, errors.New("default role is not configured")
 		}

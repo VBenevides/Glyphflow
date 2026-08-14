@@ -48,7 +48,7 @@ func TestAdministrationAndAccountRoutes(t *testing.T) {
 	}
 
 	response = httptest.NewRecorder()
-	h.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/admin/auth/settings", bytes.NewBufferString(`{"enabled":true,"registration":false,"default_role":"user"}`)))
+	h.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/admin/auth/settings", bytes.NewBufferString(`{"enabled":true,"registration":false,"default_role_id":"system-user"}`)))
 	if response.Code != http.StatusOK || auth.RegistrationEnabled() {
 		t.Fatalf("settings update: %d", response.Code)
 	}

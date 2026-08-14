@@ -32,7 +32,8 @@ func TestRoleRepositoryRoundTrip(t *testing.T) {
 	if err := users.Create(ctx, UserRecord{ID: userID, Username: email, Email: email, Enabled: true}, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := repository.Create(ctx, roleID, "operator", "", []string{"tasks.read"}); err != nil {
+	roleName := "operator-" + suffix
+	if err := repository.Create(ctx, roleID, roleName, "", []string{"tasks.read"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := repository.Assign(ctx, userID, roleID, "manual", "test"); err != nil {
@@ -48,6 +49,14 @@ func TestRoleRepositoryRoundTrip(t *testing.T) {
 	permissions, err = repository.EffectivePermissions(ctx, userID)
 	if err != nil || len(permissions) != 1 || permissions[0] != "runs.read" {
 		t.Fatalf("updated permissions = %#v, %v", permissions, err)
+	}
+	renamed := "renamed-" + suffix
+	if err := repository.Rename(ctx, roleID, renamed); err != nil {
+		t.Fatal(err)
+	}
+	role, ok, err := repository.FindByID(ctx, roleID)
+	if err != nil || !ok || role.Name != renamed {
+		t.Fatalf("renamed role = %#v, %v, %v", role, ok, err)
 	}
 	roles, assignments, err := repository.UserRoles(ctx, userID)
 	if err != nil || len(roles) != 1 || len(assignments) != 1 || roles[0].ID != roleID {

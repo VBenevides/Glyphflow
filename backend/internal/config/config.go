@@ -32,7 +32,7 @@ type Config struct {
 	WebOrigin                   string
 	PasswordLoginEnabled        bool
 	PasswordRegistrationEnabled bool
-	DefaultRole                 string
+	DefaultRoleID               string
 	BootstrapUsername           string
 	BootstrapPassword           string
 	BootstrapOIDCProvider       string
@@ -62,7 +62,7 @@ func FromEnv(role Role) (Config, error) {
 		WebOrigin:                   os.Getenv("WEB_ORIGIN"),
 		PasswordLoginEnabled:        envBoolDefault("ENABLE_PASSWORD_LOGIN", envBoolDefault("PASSWORD_LOGIN_ENABLED", true)),
 		PasswordRegistrationEnabled: envBoolDefault("ENABLE_PASSWORD_REGISTRATION", envBoolDefault("PASSWORD_REGISTRATION_ENABLED", true)),
-		DefaultRole:                 strings.TrimSpace(envStringDefault("DEFAULT_ROLE", "user")),
+		DefaultRoleID:               strings.TrimSpace(envStringDefault("DEFAULT_ROLE_ID", "system-user")),
 		BootstrapUsername:           strings.TrimSpace(os.Getenv("GLYPHFLOW_BOOTSTRAP_EMAIL")),
 		BootstrapPassword:           os.Getenv("GLYPHFLOW_BOOTSTRAP_PASSWORD"),
 		BootstrapOIDCProvider:       strings.TrimSpace(os.Getenv("GLYPHFLOW_BOOTSTRAP_OIDC_PROVIDER")),

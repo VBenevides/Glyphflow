@@ -11,7 +11,7 @@ import (
 
 func TestCustomRoleEndpointCreatesRoleWithPermissions(t *testing.T) {
 	server := Server{Roles: NewRoleAdminService(), Auth: func(*http.Request) (Claims, bool) { return Claims{Roles: map[string]bool{"roles.manage": true}}, true }}
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/roles", bytes.NewBufferString(`{"key":"operator","permissions":["tasks.read"]}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/roles", bytes.NewBufferString(`{"name":"operator","permissions":["tasks.read"]}`))
 	w := httptest.NewRecorder()
 	server.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusCreated {

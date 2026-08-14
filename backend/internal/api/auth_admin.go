@@ -26,11 +26,12 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 			return
 		}
 		var in struct {
-			Enabled      bool   `json:"enabled"`
-			Registration bool   `json:"registration"`
-			DefaultRole  string `json:"default_role"`
+			Enabled       bool    `json:"enabled"`
+			Registration  bool    `json:"registration"`
+			DefaultRoleID string  `json:"default_role_id"`
+			LegacyRole    *string `json:"default_role"`
 		}
-		if json.NewDecoder(r.Body).Decode(&in) != nil {
+		if json.NewDecoder(r.Body).Decode(&in) != nil || in.LegacyRole != nil {
 			writeJSON(w, 400, map[string]string{"error": "invalid settings"})
 			return
 		}
@@ -38,7 +39,7 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 		if s.AuthAdmin.Auth != nil {
 			before = s.AuthAdmin.Auth.AuthSettings()
 		} else if s.AuthAdmin.Password != nil {
-			before = map[string]any{"passwordLoginEnabled": s.AuthAdmin.Password.Enabled(), "registration": s.AuthAdmin.Password.RegistrationEnabled(), "defaultRole": ""}
+			before = map[string]any{"passwordLoginEnabled": s.AuthAdmin.Password.Enabled(), "registration": s.AuthAdmin.Password.RegistrationEnabled(), "defaultRoleId": ""}
 		}
 		enabledSSO := 0
 		if s.AuthAdmin.OIDC != nil {
@@ -49,7 +50,7 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 			return
 		}
 		if s.AuthAdmin.Auth != nil {
-			if err := s.AuthAdmin.Auth.UpdateAuthSettings(in.Enabled, in.Registration, in.DefaultRole); err != nil {
+			if err := s.AuthAdmin.Auth.UpdateAuthSettings(in.Enabled, in.Registration, in.DefaultRoleID); err != nil {
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid authentication settings"})
 				return
 			}
@@ -60,16 +61,16 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 			s.AuthAdmin.Password.registration = in.Registration
 			s.AuthAdmin.Password.mu.Unlock()
 		}
-		after := map[string]any{"passwordLoginEnabled": in.Enabled, "registration": in.Registration, "defaultRole": in.DefaultRole}
+		after := map[string]any{"passwordLoginEnabled": in.Enabled, "registration": in.Registration, "defaultRoleId": in.DefaultRoleID}
 		if s.AuthAdmin.Auth != nil {
 			after = s.AuthAdmin.Auth.AuthSettings()
 		}
 		if s.AuditQuery != nil {
 			claims, _ := s.authenticator()(r)
 			actorName, actorEmail := s.auditActor(claims.UserID)
-			s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: "success", CorrelationID: r.Header.Get("X-Correlation-ID"), Before: before, After: after, Input: map[string]any{"enabled": in.Enabled, "registration": in.Registration, "defaultRole": in.DefaultRole}, Output: map[string]any{"passwordLoginEnabled": in.Enabled, "registrationEnabled": in.Registration, "defaultRole": in.DefaultRole}})
+			s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: "success", CorrelationID: r.Header.Get("X-Correlation-ID"), Before: before, After: after, Input: map[string]any{"enabled": in.Enabled, "registration": in.Registration, "defaultRoleId": in.DefaultRoleID}, Output: map[string]any{"passwordLoginEnabled": in.Enabled, "registrationEnabled": in.Registration, "defaultRoleId": in.DefaultRoleID}})
 		}
-		writeJSON(w, 200, map[string]any{"password_login_enabled": in.Enabled, "registration_enabled": in.Registration, "default_role": in.DefaultRole})
+		writeJSON(w, 200, map[string]any{"password_login_enabled": in.Enabled, "registration_enabled": in.Registration, "default_role_id": in.DefaultRoleID})
 	})))
 	mux.Handle("/api/v1/admin/auth/sessions/revoke", s.require("users.manage", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || s.AuthAdmin.Sessions == nil {

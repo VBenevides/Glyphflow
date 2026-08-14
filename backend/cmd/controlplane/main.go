@@ -53,7 +53,7 @@ func main() {
 		"GLYPHFLOW_SYSTEM_ADMINS":      cfg.SystemAdminEmails,
 		"ENABLE_PASSWORD_LOGIN":        cfg.PasswordLoginEnabled,
 		"ENABLE_PASSWORD_REGISTRATION": cfg.PasswordRegistrationEnabled,
-		"DEFAULT_ROLE_ID":              cfg.DefaultRole,
+		"DEFAULT_ROLE_ID":              cfg.DefaultRoleID,
 	}); err != nil {
 		db.Close()
 		fmt.Fprintln(os.Stderr, err)
@@ -90,13 +90,16 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	} else if found && strings.TrimSpace(storedDefaultRoleID) != "" {
-		cfg.DefaultRole = storedDefaultRoleID
+		cfg.DefaultRoleID = storedDefaultRoleID
 	}
 	authService, err := api.NewAuthService(cfg.AccessTokenSecret, cfg.PasswordLoginEnabled, cfg.PasswordRegistrationEnabled, []byte(cfg.PasswordPepper))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	authService.SetUserRepository(store.NewUserRepository(db))
+	roleRepository := store.NewRoleRepository(db)
+	authService.SetRoleRepository(roleRepository)
 	if err := authService.AddRole("admin", platform.PermissionCatalog...); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -105,10 +108,11 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	authService.SetUserRepository(store.NewUserRepository(db))
-	roleRepository := store.NewRoleRepository(db)
-	authService.SetRoleRepository(roleRepository)
-	authService.SetDefaultRole(cfg.DefaultRole)
+	if err := authService.SetDefaultRoleID(cfg.DefaultRoleID); err != nil {
+		db.Close()
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	oidcService := api.NewOIDCService()
 	roles := api.NewRoleAdminService()
 	roles.SetRepository(roleRepository)

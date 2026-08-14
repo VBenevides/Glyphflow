@@ -31,7 +31,7 @@ export type Page<T> = { items: T[]; page: number; limit: number; total?: number;
 export type Identity = { id: string; provider: string; subject?: string; email?: string; createdAt?: string }
 export type Profile = { id: string; username: string; displayName?: string; status?: string; email?: string; permissions?: string[]; roles?: string[]; sessions?: AuthSession[]; identities?: Identity[] }
 export type PermissionSnapshot = { permissions: string[]; roles?: string[] }
-export type RuntimeConfig = { brand: string; passwordLogin: boolean; registration: boolean; oidc: boolean; csrfCookie: string; defaultRole?: string }
+export type RuntimeConfig = { brand: string; passwordLogin: boolean; registration: boolean; oidc: boolean; csrfCookie: string; defaultRoleId?: string }
 export type OidcProvider = { id?: string; key: string; name?: string; issuer: string; icon?: string; enabled?: boolean; clientId?: string; secretReference?: string; claimMapping?: Record<string, string>; groupMapping?: Record<string, string> }
 export type Task = { id: string; name: string; enabled?: boolean; state?: string; activeVersion?: number; pool?: string; timeoutSeconds?: number; latestRun?: Run }
 export type Schedule = { id: string; name: string; taskId: string; enabled?: boolean; nextFireAt?: string; state?: string; timezone?: string; scheduleType?: 'cron' | 'interval'; expression?: string; misfirePolicy?: string; catchupLimit?: number; deadlineSeconds?: number; concurrencyPolicy?: string; maxConcurrentRuns?: number }
@@ -41,7 +41,7 @@ export type Resource = { id: string; name: string; enabled?: boolean; holder?: s
 export type AuditEvent = { id: string; actor?: string; actorName?: string; actorEmail?: string; action?: string; description?: string; target?: string; result?: string; createdAt?: string; correlationId?: string; request?: string; input?: unknown; output?: unknown; traceback?: string; before?: unknown; after?: unknown }
 export type AuthSession = { id: string; createdAt?: string; expiresAt?: string; lastSeenAt?: string; current?: boolean; userAgent?: string; ipAddress?: string }
 export type UserRecord = { id: string; username: string; email?: string; displayName?: string; status?: string; enabled?: boolean; systemAdmin?: boolean; loginMethods?: string[]; roles?: string[]; roleSources?: string[]; permissions?: string[]; identities?: Identity[]; sessions?: AuthSession[] }
-export type RoleDefinition = { id?: string; key: string; name?: string; description?: string; permissions: string[]; system?: boolean; assignedUsers?: number | string[] }
+export type RoleDefinition = { id: string; name: string; description?: string; permissions: string[]; system?: boolean; assignedUsers?: number | string[] }
 
 const unsafeMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 

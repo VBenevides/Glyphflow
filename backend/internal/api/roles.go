@@ -13,7 +13,7 @@ import (
 
 type RoleDefinition struct {
 	ID          string   `json:"id"`
-	Key         string   `json:"key"`
+	Name        string   `json:"name"`
 	Permissions []string `json:"permissions"`
 	System      bool     `json:"system"`
 }
@@ -42,11 +42,11 @@ func systemRoleID(name string) string {
 	}
 }
 
-func (s *RoleAdminService) Create(key string, permissions []string) error {
-	if key == "" {
-		return errors.New("role key is required")
+func (s *RoleAdminService) Create(name string, permissions []string) error {
+	if name == "" {
+		return errors.New("role name is required")
 	}
-	key = platform.NormalizeIdentityKey(key)
+	name = platform.NormalizeIdentityKey(name)
 	if err := validatePermissions(permissions); err != nil {
 		return err
 	}
@@ -54,10 +54,17 @@ func (s *RoleAdminService) Create(key string, permissions []string) error {
 	if err != nil {
 		return err
 	}
-	return s.repository.Create(context.Background(), "role-"+id, key, "", uniqueStrings(permissions))
+	return s.repository.Create(context.Background(), "role-"+id, name, "", uniqueStrings(permissions))
 }
-func (s *RoleAdminService) ReplacePermissions(key string, permissions []string) error {
-	role, ok, err := s.repository.FindByName(context.Background(), key)
+func (s *RoleAdminService) role(identifier string) (store.RoleRecord, bool, error) {
+	role, ok, err := s.repository.FindByID(context.Background(), identifier)
+	if err == nil && !ok {
+		role, ok, err = s.repository.FindByName(context.Background(), identifier)
+	}
+	return role, ok, err
+}
+func (s *RoleAdminService) ReplacePermissions(identifier string, permissions []string) error {
+	role, ok, err := s.role(identifier)
 	if err != nil {
 		return err
 	}
@@ -72,8 +79,21 @@ func (s *RoleAdminService) ReplacePermissions(key string, permissions []string) 
 	}
 	return s.repository.ReplacePermissions(context.Background(), role.ID, uniqueStrings(permissions))
 }
-func (s *RoleAdminService) Delete(key string) error {
-	role, ok, err := s.repository.FindByName(context.Background(), key)
+func (s *RoleAdminService) Rename(identifier, name string) error {
+	if strings.TrimSpace(name) == "" {
+		return nil
+	}
+	role, ok, err := s.role(identifier)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.New("role not found")
+	}
+	return s.repository.Rename(context.Background(), role.ID, platform.NormalizeIdentityKey(name))
+}
+func (s *RoleAdminService) Delete(identifier string) error {
+	role, ok, err := s.role(identifier)
 	if err != nil {
 		return err
 	}
@@ -98,12 +118,12 @@ func (s *RoleAdminService) List() []RoleDefinition {
 	}
 	out := make([]RoleDefinition, 0, len(roles))
 	for _, role := range roles {
-		out = append(out, RoleDefinition{ID: role.ID, Key: role.Name, Permissions: append([]string{}, role.Permissions...), System: role.System})
+		out = append(out, RoleDefinition{ID: role.ID, Name: role.Name, Permissions: append([]string{}, role.Permissions...), System: role.System})
 	}
 	return out
 }
 func (s *RoleAdminService) Assign(user, role string) error {
-	definition, ok, err := s.repository.FindByName(context.Background(), role)
+	definition, ok, err := s.role(role)
 	if err != nil {
 		return err
 	}
@@ -113,7 +133,7 @@ func (s *RoleAdminService) Assign(user, role string) error {
 	return s.repository.Assign(context.Background(), user, definition.ID, "manual", "admin-api")
 }
 func (s *RoleAdminService) Unassign(user, role string) error {
-	definition, ok, err := s.repository.FindByName(context.Background(), role)
+	definition, ok, err := s.role(role)
 	if err != nil {
 		return err
 	}
@@ -177,31 +197,35 @@ func (s Server) roleRoutes(mux routeRegistrar) {
 			return
 		}
 		var in struct {
-			Key         string
+			Name        string `json:"name"`
 			Permissions []string
 		}
-		if json.NewDecoder(r.Body).Decode(&in) != nil || s.Roles.Create(in.Key, in.Permissions) != nil {
+		if json.NewDecoder(r.Body).Decode(&in) != nil || s.Roles.Create(in.Name, in.Permissions) != nil {
 			writeJSON(w, 400, map[string]string{"error": "role creation failed"})
 			return
 		}
-		writeJSON(w, 201, map[string]string{"key": in.Key})
+		role, _, _ := s.Roles.role(in.Name)
+		writeJSON(w, 201, map[string]string{"id": role.ID, "name": role.Name})
 	})))
 	mux.Handle("/api/v1/admin/roles/", s.require("roles.manage", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		key := strings.TrimPrefix(r.URL.Path, "/api/v1/admin/roles/")
-		if key == "" {
-			writeJSON(w, 400, map[string]string{"error": "role key is required"})
+		roleID := strings.TrimPrefix(r.URL.Path, "/api/v1/admin/roles/")
+		if roleID == "" {
+			writeJSON(w, 400, map[string]string{"error": "role_id is required"})
 			return
 		}
 		switch r.Method {
 		case http.MethodPut:
-			var in struct{ Permissions []string }
-			if json.NewDecoder(r.Body).Decode(&in) != nil || s.Roles.ReplacePermissions(key, in.Permissions) != nil {
+			var in struct {
+				Name        string `json:"name"`
+				Permissions []string
+			}
+			if json.NewDecoder(r.Body).Decode(&in) != nil || s.Roles.Rename(roleID, in.Name) != nil || s.Roles.ReplacePermissions(roleID, in.Permissions) != nil {
 				writeJSON(w, 400, map[string]string{"error": "role update failed"})
 				return
 			}
-			writeJSON(w, 200, map[string]string{"key": key})
+			writeJSON(w, 200, map[string]string{"id": roleID})
 		case http.MethodDelete:
-			if err := s.Roles.Delete(key); err != nil {
+			if err := s.Roles.Delete(roleID); err != nil {
 				writeJSON(w, 400, map[string]string{"error": "role deletion failed"})
 				return
 			}

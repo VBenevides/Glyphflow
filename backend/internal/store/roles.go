@@ -25,6 +25,7 @@ type RoleRepository interface {
 	List(context.Context) ([]RoleRecord, error)
 	FindByID(context.Context, string) (RoleRecord, bool, error)
 	FindByName(context.Context, string) (RoleRecord, bool, error)
+	Rename(context.Context, string, string) error
 	ReplacePermissions(context.Context, string, []string) error
 	Delete(context.Context, string) error
 	Assign(context.Context, string, string, string, string) error
@@ -99,6 +100,19 @@ func (s *RoleStore) FindByID(ctx context.Context, id string) (RoleRecord, bool, 
 
 func (s *RoleStore) FindByName(ctx context.Context, name string) (RoleRecord, bool, error) {
 	return s.find(ctx, `WHERE lower(name) = lower($1)`, name)
+}
+
+func (s *RoleStore) Rename(ctx context.Context, roleID, name string) error {
+	var system bool
+	if err := s.pool.QueryRow(ctx, `SELECT is_system FROM roles WHERE id = $1`, roleID).Scan(&system); errors.Is(err, pgx.ErrNoRows) {
+		return errors.New("role not found")
+	} else if err != nil {
+		return err
+	} else if system {
+		return errors.New("system role is immutable")
+	}
+	_, err := s.pool.Exec(ctx, `UPDATE roles SET name = $2 WHERE id = $1`, roleID, name)
+	return err
 }
 
 func (s *RoleStore) find(ctx context.Context, clause, value string) (RoleRecord, bool, error) {

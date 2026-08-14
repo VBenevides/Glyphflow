@@ -68,6 +68,26 @@ func (s *memoryRoleRepository) FindByName(_ context.Context, name string) (store
 	return role, ok, nil
 }
 
+func (s *memoryRoleRepository) Rename(_ context.Context, roleID, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	role, ok := s.roles[roleID]
+	if !ok {
+		return errors.New("role not found")
+	}
+	if role.System {
+		return errors.New("system role is immutable")
+	}
+	name = normalizeRoleName(name)
+	if existing := s.byName[name]; existing != "" && existing != roleID {
+		return errors.New("role exists")
+	}
+	delete(s.byName, role.Name)
+	role.Name = name
+	s.roles[roleID], s.byName[name] = role, roleID
+	return nil
+}
+
 func (s *memoryRoleRepository) ReplacePermissions(_ context.Context, roleID string, permissions []string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -16,7 +16,7 @@ export function roleMappingsValue(mappings: GroupRoleMapping[]): Record<string, 
 }
 
 function RoleSelect({ id, value, roles, onChange, disabled = false }: { id: string; value: string; roles?: RoleDefinition[]; onChange: (value: string) => void; disabled?: boolean }) {
-  return <select id={id} className="gf-input" value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} required><option value="">Select a role</option>{roles?.map((role) => <option key={role.key} value={role.key}>{role.name ?? role.key}</option>)}</select>
+  return <select id={id} className="gf-input" value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} required><option value="">Select a role</option>{roles?.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}</select>
 }
 
 function asPage(value: Page<UserRecord> | UserRecord[]): Page<UserRecord> {
@@ -54,22 +54,21 @@ export function UserManagementPage() {
 }
 
 function RoleEditor({ role, onDone }: { role?: RoleDefinition; onDone: () => void }) {
-  const [key, setKey] = useState(role?.key ?? '')
+  const [name, setName] = useState(role?.name ?? '')
   const [selected, setSelected] = useState(() => new Set(role?.permissions ?? []))
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  useUnsavedChanges(Boolean(key.trim() || selected.size))
+  useUnsavedChanges(Boolean(name.trim() || selected.size))
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setBusy(true); setError('')
     try {
-      if (role) await api.put(`/api/v1/admin/roles/${encodeURIComponent(role.key)}`, { permissions: [...selected] })
-      else await api.post('/api/v1/admin/roles', { key: key.trim(), permissions: [...selected] })
+      if (role) await api.put(`/api/v1/admin/roles/${encodeURIComponent(role.id)}`, { name: name.trim(), permissions: [...selected] })
+      else await api.post('/api/v1/admin/roles', { name: name.trim(), permissions: [...selected] })
       onDone()
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Role update failed') } finally { setBusy(false) }
   }
   return <form className="gf-editor-form" onSubmit={submit}>
-    {!role && <label htmlFor="role-key">Role key<Input id="role-key" value={key} onChange={(event) => setKey(event.target.value)} pattern="[A-Za-z0-9._-]+" required /></label>}
-    {role && <p><strong>{role.key}</strong>{role.description ? ` — ${role.description}` : ''}</p>}
+    <label htmlFor="role-name">Role name<Input id="role-name" value={name} onChange={(event) => setName(event.target.value)} disabled={role?.system} required /></label>
     <fieldset><legend>Permissions</legend><div className="gf-permission-grid">{PERMISSIONS.map((permission) => <label key={permission}><input type="checkbox" checked={selected.has(permission)} onChange={(event) => setSelected((current) => { const next = new Set(current); event.target.checked ? next.add(permission) : next.delete(permission); return next })} /> {permission}</label>)}</div></fieldset>
     {error && <p className="gf-form-error" role="alert">{error}</p>}
     <div className="gf-dialog-actions"><Button type="submit" busy={busy}>{role ? 'Save permissions' : 'Create role'}</Button><Button type="button" variant="ghost" onClick={onDone}>Cancel</Button></div>
@@ -82,11 +81,11 @@ export function RoleManagementPage() {
   const query = useQuery({ queryKey: ['admin-roles'], queryFn: ({ signal }) => api.get<RoleDefinition[]>('/api/v1/admin/roles', undefined, signal) })
   const [editing, setEditing] = useState<RoleDefinition | null | undefined>(undefined)
   const refresh = async () => { setEditing(undefined); await query.refetch() }
-  const remove = async (role: RoleDefinition) => { await api.delete(`/api/v1/admin/roles/${encodeURIComponent(role.key)}`); await query.refetch() }
+  const remove = async (role: RoleDefinition) => { await api.delete(`/api/v1/admin/roles/${encodeURIComponent(role.id)}`); await query.refetch() }
   return <main className="gf-content"><PageHeader title="Roles and permissions" description="Seeded roles are immutable. Custom roles select from the application permission catalog." action={manage && <Button onClick={() => setEditing(null)}>Create role</Button>} />
-    {editing !== undefined && <section className="gf-card-panel"><h2>{editing ? `Edit ${editing.key}` : 'New custom role'}</h2><RoleEditor role={editing ?? undefined} onDone={refresh} /></section>}
+    {editing !== undefined && <section className="gf-card-panel"><h2>{editing ? `Edit ${editing.name}` : 'New custom role'}</h2><RoleEditor role={editing ?? undefined} onDone={refresh} /></section>}
     <QueryState query={query} empty="No roles are configured.">{(roles) => roles.length ? <DataTable caption="Roles" rows={roles} columns={[
-      { key: 'key', label: 'Role', render: (role) => <strong>{role.name ?? role.key}</strong> },
+      { key: 'name', label: 'Role', render: (role) => <strong>{role.name}</strong> },
       { key: 'system', label: 'Source', render: (role) => <StatusPill status={role.system ? 'system' : 'custom'} /> },
       { key: 'permissions', label: 'Permissions', render: (role) => role.permissions?.join(', ') || '—' },
       { key: 'assignedUsers', label: 'Affected users', render: (role) => Array.isArray(role.assignedUsers) ? role.assignedUsers.length : role.assignedUsers ?? 0 },
@@ -126,10 +125,12 @@ export function AuthenticationSettingsPage() {
   const rolesQuery = useQuery({ queryKey: ['admin-role-options'], queryFn: ({ signal }) => api.get<RoleDefinition[]>('/api/v1/admin/roles', undefined, signal) })
   const [passwordLogin, setPasswordLogin] = useState(config.passwordLogin)
   const [registration, setRegistration] = useState(config.registration)
-  const [defaultRole, setDefaultRole] = useState(config.defaultRole ?? 'user')
-  const [saved, setSaved] = useState({ passwordLogin: config.passwordLogin, registration: config.registration, defaultRole: config.defaultRole ?? 'user' })
+  const [defaultRoleId, setDefaultRoleId] = useState(config.defaultRoleId ?? '')
+  const [saved, setSaved] = useState({ passwordLogin: config.passwordLogin, registration: config.registration, defaultRoleId: config.defaultRoleId ?? '' })
   const [error, setError] = useState('')
-  useUnsavedChanges(passwordLogin !== saved.passwordLogin || registration !== saved.registration || defaultRole !== saved.defaultRole)
-  const save = async () => { setError(''); try { const role = defaultRole.trim() || 'user'; await api.post('/api/v1/admin/auth/settings', { enabled: passwordLogin, registration, default_role: role }); setSaved({ passwordLogin, registration, defaultRole: role }); setConfig({ ...config, passwordLogin, registration, defaultRole: role }) } catch (cause) { setError(cause instanceof Error ? cause.message : 'Authentication settings update failed') } }
+  useUnsavedChanges(passwordLogin !== saved.passwordLogin || registration !== saved.registration || defaultRoleId !== saved.defaultRoleId)
+  const save = async () => { setError(''); try { await api.post('/api/v1/admin/auth/settings', { enabled: passwordLogin, registration, default_role_id: defaultRoleId }); setSaved({ passwordLogin, registration, defaultRoleId }); setConfig({ ...config, passwordLogin, registration, defaultRoleId }) } catch (cause) { setError(cause instanceof Error ? cause.message : 'Authentication settings update failed') } }
+  const defaultRole = defaultRoleId
+  const setDefaultRole = setDefaultRoleId
   return <main className="gf-content"><PageHeader title="Authentication settings" description="Control password sign-in, registration, and the default role for new identities." /><section className="gf-card-panel"><div className="gf-editor-form"><label><input type="checkbox" checked={passwordLogin} onChange={(event) => setPasswordLogin(event.target.checked)} /> Enable password login</label><label><input type="checkbox" checked={registration} onChange={(event) => setRegistration(event.target.checked)} /> Allow password registration</label><label htmlFor="default-role">Default role<RoleSelect id="default-role" value={defaultRole} roles={rolesQuery.data} disabled={rolesQuery.isPending || rolesQuery.isError} onChange={setDefaultRole} /></label>{rolesQuery.isError && <small className="gf-form-error">Roles could not be loaded.</small>}{error && <p className="gf-form-error" role="alert">{error}</p>}{manage && <DangerousAction label="Save settings" warning="Changing login methods can lock out administrators. Verify that another working login method remains before saving." onConfirm={save} />}</div></section></main>
 }

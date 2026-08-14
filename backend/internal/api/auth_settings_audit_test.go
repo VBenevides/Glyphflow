@@ -27,7 +27,7 @@ func TestAuthenticationSettingsAuditContainsBeforeAndAfter(t *testing.T) {
 	audit := NewAuditQueryService()
 	server := Server{AuthService: auth, Auth: func(*http.Request) (Claims, bool) { return Claims{UserID: user.ID}, true }, Permissions: func(Claims) map[string]bool { return map[string]bool{"auth.settings.manage": true} }, AuditQuery: audit}
 	server.AuthAdmin = &AuthAdminService{Auth: auth, OIDC: oidc}
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/auth/settings", bytes.NewBufferString(`{"enabled":false,"registration":false,"default_role":"user"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/auth/settings", bytes.NewBufferString(`{"enabled":false,"registration":false,"default_role_id":"system-user"}`))
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
@@ -41,7 +41,7 @@ func TestAuthenticationSettingsAuditContainsBeforeAndAfter(t *testing.T) {
 		t.Fatalf("settings before/after missing: %#v", audit.events)
 	}
 
-	request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/auth/settings", bytes.NewBufferString(`{"enabled":false,"registration":false,"default_role":"missing"}`))
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/auth/settings", bytes.NewBufferString(`{"enabled":false,"registration":false,"default_role_id":"missing"}`))
 	response = httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusBadRequest || audit.events[len(audit.events)-1].Result != "failure" {

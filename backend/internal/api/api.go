@@ -24,7 +24,7 @@ type RuntimeConfig struct {
 	Registration  bool   `json:"registration"`
 	OIDC          bool   `json:"oidc"`
 	CSRFCookie    string `json:"csrfCookie"`
-	DefaultRole   string `json:"defaultRole,omitempty"`
+	DefaultRoleID string `json:"defaultRoleId,omitempty"`
 }
 
 type Server struct {

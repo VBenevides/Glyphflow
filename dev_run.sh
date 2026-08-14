@@ -37,7 +37,7 @@ mkdir -p "${DATA_DIR:-$project_root/.dev-data}"
   GLYPHFLOW_SYSTEM_ADMINS="${GLYPHFLOW_SYSTEM_ADMINS:-admin@example_domain.com}" \
   ENABLE_PASSWORD_LOGIN="${ENABLE_PASSWORD_LOGIN:-true}" \
   ENABLE_PASSWORD_REGISTRATION="${ENABLE_PASSWORD_REGISTRATION:-true}" \
-  DEFAULT_ROLE_ID="${DEFAULT_ROLE_ID:-user}" \
+  DEFAULT_ROLE_ID="${DEFAULT_ROLE_ID:-system-user}" \
   go run ./cmd/controlplane
 ) &
 backend_pid=$!
