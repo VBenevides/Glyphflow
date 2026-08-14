@@ -42,6 +42,43 @@ func RetryDelay(attempt int, base, max time.Duration) time.Duration {
 	}
 	return delay
 }
+
+type RetryPolicy struct {
+	MaxAttempts         int
+	RetryableExitCodes  map[int]bool
+	RetryableReasons    map[string]bool
+	BaseDelay, MaxDelay time.Duration
+}
+
+func (p RetryPolicy) Decide(attempt, exitCode int, reason string) (string, time.Duration) {
+	if attempt < 1 || p.MaxAttempts < 1 || attempt >= p.MaxAttempts {
+		return "failed", 0
+	}
+	if !p.RetryableExitCodes[exitCode] && !p.RetryableReasons[reason] {
+		return "failed", 0
+	}
+	return "retry_wait", RetryDelay(attempt, p.BaseDelay, p.MaxDelay)
+}
+
+type RunAggregator struct {
+	Attempts int
+	State    string
+}
+
+func (r *RunAggregator) Apply(outcome string, retryable bool, maxAttempts int) string {
+	r.Attempts++
+	switch {
+	case outcome == "completed":
+		r.State = "completed"
+	case outcome == "unknown":
+		r.State = "unknown"
+	case retryable && r.Attempts < maxAttempts:
+		r.State = "retry_wait"
+	default:
+		r.State = "failed"
+	}
+	return r.State
+}
 func FinalState(state string) bool {
 	switch state {
 	case "completed", "failed", "timed_out", "cancelled", "lost", "unknown":
