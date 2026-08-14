@@ -7,6 +7,9 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
+
+	"github.com/VBenevides/Glyphflow/backend/internal/store"
 )
 
 type RunRecord struct {
@@ -26,18 +29,51 @@ type LogChunk struct {
 }
 
 type RunService struct {
-	mu   sync.RWMutex
-	runs map[string]RunRecord
-	logs map[string]map[string][]LogChunk
-	next int
+	mu         sync.RWMutex
+	runs       map[string]RunRecord
+	logs       map[string]map[string][]LogChunk
+	next       int
+	repository store.RunRepository
 }
 
 func NewRunService() *RunService {
 	return &RunService{runs: map[string]RunRecord{}, logs: map[string]map[string][]LogChunk{}}
 }
 
+func (s *RunService) SetRepository(repository store.RunRepository) {
+	if repository != nil {
+		s.mu.Lock()
+		s.repository = repository
+		s.mu.Unlock()
+	}
+}
+
+func runRecordFromStore(run store.RunRecord) RunRecord {
+	scheduledFor := ""
+	if !run.ScheduledFor.IsZero() {
+		scheduledFor = run.ScheduledFor.UTC().Format(time.RFC3339)
+	}
+	return RunRecord{ID: run.ID, TaskID: run.TaskID, TaskName: run.TaskName, State: run.State, Attempt: run.Attempt, Trigger: run.TriggerType, ScheduledFor: scheduledFor}
+}
+
 func (s *RunService) collection(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
+		s.mu.RLock()
+		repository := s.repository
+		s.mu.RUnlock()
+		if repository != nil {
+			items, err := repository.List(r.Context())
+			if err != nil {
+				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "run storage unavailable"})
+				return
+			}
+			result := make([]RunRecord, 0, len(items))
+			for _, item := range items {
+				result = append(result, runRecordFromStore(item))
+			}
+			writePage(w, r, result)
+			return
+		}
 		s.mu.RLock()
 		items := make([]RunRecord, 0, len(s.runs))
 		for _, run := range s.runs {
@@ -57,10 +93,32 @@ func (s *RunService) execute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		TaskID string `json:"task_id"`
+		TaskID         string `json:"task_id"`
+		IdempotencyKey string `json:"idempotency_key"`
 	}
 	if json.NewDecoder(r.Body).Decode(&input) != nil || strings.TrimSpace(input.TaskID) == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "task_id is required"})
+		return
+	}
+	s.mu.RLock()
+	repository := s.repository
+	s.mu.RUnlock()
+	if repository != nil {
+		id, err := randomID()
+		if err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "run creation failed"})
+			return
+		}
+		idempotencyKey := input.IdempotencyKey
+		if idempotencyKey == "" {
+			idempotencyKey = r.Header.Get("Idempotency-Key")
+		}
+		created, err := repository.Create(r.Context(), store.RunDefinition{ID: "run-" + id, TaskID: input.TaskID, TriggerType: "MANUAL", IdempotencyKey: idempotencyKey, ScheduledFor: time.Now().UTC()})
+		if err != nil {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "run creation failed"})
+			return
+		}
+		writeJSON(w, http.StatusCreated, runRecordFromStore(created))
 		return
 	}
 	s.mu.Lock()
@@ -80,6 +138,20 @@ func (s *RunService) path(w http.ResponseWriter, r *http.Request) {
 	}
 	id := parts[3]
 	if len(parts) == 4 && r.Method == http.MethodGet {
+		s.mu.RLock()
+		repository := s.repository
+		s.mu.RUnlock()
+		if repository != nil {
+			run, found, err := repository.Find(r.Context(), id)
+			if err != nil {
+				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "run storage unavailable"})
+			} else if !found {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "run not found"})
+			} else {
+				writeJSON(w, http.StatusOK, runRecordFromStore(run))
+			}
+			return
+		}
 		s.mu.RLock()
 		run, ok := s.runs[id]
 		s.mu.RUnlock()
@@ -102,6 +174,30 @@ func (s *RunService) path(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *RunService) logsResponse(w http.ResponseWriter, r *http.Request, id string, _ bool) {
+	s.mu.RLock()
+	repository := s.repository
+	s.mu.RUnlock()
+	if repository != nil {
+		stream := r.URL.Query().Get("stream")
+		after, _ := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)
+		chunks, err := repository.ListLogChunks(r.Context(), id, stream, after)
+		if err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "log storage unavailable"})
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/download") {
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			for _, chunk := range chunks {
+				_, _ = w.Write([]byte(chunk.Text))
+			}
+			return
+		}
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		for _, chunk := range chunks {
+			_ = json.NewEncoder(w).Encode(LogChunk{Sequence: int(chunk.Sequence), Text: chunk.Text})
+		}
+		return
+	}
 	s.mu.RLock()
 	streams := s.logs[id]
 	chunks := append([]LogChunk(nil), streams[r.URL.Query().Get("stream")]...)
@@ -141,6 +237,33 @@ func (s *RunService) action(w http.ResponseWriter, r *http.Request, id, action s
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.repository != nil {
+		var from []string
+		var to string
+		switch action {
+		case "cancel":
+			from, to = []string{"WAITING", "RUNNING", "RETRY_WAIT", "CANCELLING"}, "CANCELLED"
+		case "retry":
+			from, to = []string{"FAILED"}, "RETRY_WAIT"
+		case "reconcile":
+			from, to = []string{"UNKNOWN"}, "RETRY_WAIT"
+		}
+		updated, changed, err := s.repository.Transition(r.Context(), id, from, to)
+		if err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "run transition failed"})
+			return
+		}
+		if !changed {
+			if _, found, findErr := s.repository.Find(r.Context(), id); findErr != nil || !found {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "run not found"})
+			} else {
+				writeJSON(w, http.StatusConflict, map[string]string{"error": "run action is not allowed in the current state"})
+			}
+			return
+		}
+		writeJSON(w, http.StatusOK, runRecordFromStore(updated))
+		return
+	}
 	run, ok := s.runs[id]
 	if !ok {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "run not found"})
