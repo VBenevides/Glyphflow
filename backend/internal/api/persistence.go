@@ -93,17 +93,6 @@ func (p *Persistence) Restore(s Server) error {
 			s.AuthService.refresh.Restore(state.Sessions, state.Disabled)
 		}
 	}
-	if s.Roles != nil {
-		var state roleState
-		if err := p.load(stateRoles, &state); err != nil {
-			return err
-		}
-		if state.Roles != nil {
-			s.Roles.mu.Lock()
-			s.Roles.roles, s.Roles.assignments = state.Roles, state.Assignments
-			s.Roles.mu.Unlock()
-		}
-	}
 	if s.OIDC != nil {
 		var state oidcState
 		if err := p.load(stateOIDC, &state); err != nil {
@@ -211,14 +200,6 @@ func (p *Persistence) Save(s Server) error {
 			Sessions map[string]platform.RefreshSessionSnapshot `json:"sessions"`
 			Disabled map[string]bool                            `json:"disabled"`
 		}{sessions, disabled}); err != nil {
-			return err
-		}
-	}
-	if s.Roles != nil {
-		s.Roles.mu.Lock()
-		state := roleState{Roles: s.Roles.roles, Assignments: s.Roles.assignments}
-		s.Roles.mu.Unlock()
-		if err := p.save(stateRoles, state); err != nil {
 			return err
 		}
 	}

@@ -1,49 +1,66 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
-	"sync"
 
 	"github.com/VBenevides/Glyphflow/backend/internal/platform"
+	"github.com/VBenevides/Glyphflow/backend/internal/store"
 )
 
 type RoleDefinition struct {
+	ID          string   `json:"id"`
 	Key         string   `json:"key"`
 	Permissions []string `json:"permissions"`
 	System      bool     `json:"system"`
 }
 type RoleAdminService struct {
-	mu          sync.Mutex
-	roles       map[string]RoleDefinition
-	assignments map[string]map[string]bool
+	repository store.RoleRepository
 }
 
 func NewRoleAdminService() *RoleAdminService {
-	return &RoleAdminService{roles: map[string]RoleDefinition{}, assignments: map[string]map[string]bool{}}
+	return &RoleAdminService{repository: newMemoryRoleRepository()}
 }
+
+func (s *RoleAdminService) SetRepository(repository store.RoleRepository) {
+	if repository != nil {
+		s.repository = repository
+	}
+}
+
+func systemRoleID(name string) string {
+	switch platform.NormalizeIdentityKey(name) {
+	case "admin":
+		return "system-admin"
+	case "user":
+		return "system-user"
+	default:
+		return "system-" + platform.NormalizeIdentityKey(name)
+	}
+}
+
 func (s *RoleAdminService) Create(key string, permissions []string) error {
 	if key == "" {
 		return errors.New("role key is required")
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	key = platform.NormalizeIdentityKey(key)
-	if _, ok := s.roles[key]; ok {
-		return errors.New("role exists")
-	}
 	if err := validatePermissions(permissions); err != nil {
 		return err
 	}
-	s.roles[key] = RoleDefinition{Key: key, Permissions: uniqueStrings(permissions)}
-	return nil
+	id, err := randomID()
+	if err != nil {
+		return err
+	}
+	return s.repository.Create(context.Background(), "role-"+id, key, "", uniqueStrings(permissions))
 }
 func (s *RoleAdminService) ReplacePermissions(key string, permissions []string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	role, ok := s.roles[key]
+	role, ok, err := s.repository.FindByName(context.Background(), key)
+	if err != nil {
+		return err
+	}
 	if !ok {
 		return errors.New("role not found")
 	}
@@ -53,80 +70,66 @@ func (s *RoleAdminService) ReplacePermissions(key string, permissions []string) 
 	if err := validatePermissions(permissions); err != nil {
 		return err
 	}
-	role.Permissions = uniqueStrings(permissions)
-	s.roles[key] = role
-	return nil
+	return s.repository.ReplacePermissions(context.Background(), role.ID, uniqueStrings(permissions))
 }
 func (s *RoleAdminService) Delete(key string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	role, ok := s.roles[key]
+	role, ok, err := s.repository.FindByName(context.Background(), key)
+	if err != nil {
+		return err
+	}
 	if !ok {
 		return errors.New("role not found")
 	}
 	if role.System {
 		return errors.New("system role is immutable")
 	}
-	delete(s.roles, key)
-	for user, roles := range s.assignments {
-		delete(roles, key)
-		if len(roles) == 0 {
-			delete(s.assignments, user)
-		}
-	}
-	return nil
+	return s.repository.Delete(context.Background(), role.ID)
 }
 func (s *RoleAdminService) Seed(key string, permissions []string) error {
 	if err := validatePermissions(permissions); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, ok := s.roles[key]; ok {
-		return nil
-	}
-	s.roles[key] = RoleDefinition{Key: key, Permissions: uniqueStrings(permissions), System: true}
-	return nil
+	return s.repository.Ensure(context.Background(), systemRoleID(key), platform.NormalizeIdentityKey(key), "", true, uniqueStrings(permissions))
 }
 func (s *RoleAdminService) List() []RoleDefinition {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	out := make([]RoleDefinition, 0, len(s.roles))
-	for _, role := range s.roles {
-		role.Permissions = append([]string{}, role.Permissions...)
-		out = append(out, role)
+	roles, err := s.repository.List(context.Background())
+	if err != nil {
+		return []RoleDefinition{}
+	}
+	out := make([]RoleDefinition, 0, len(roles))
+	for _, role := range roles {
+		out = append(out, RoleDefinition{ID: role.ID, Key: role.Name, Permissions: append([]string{}, role.Permissions...), System: role.System})
 	}
 	return out
 }
 func (s *RoleAdminService) Assign(user, role string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, ok := s.roles[role]; !ok {
+	definition, ok, err := s.repository.FindByName(context.Background(), role)
+	if err != nil {
+		return err
+	}
+	if !ok {
 		return errors.New("role not found")
 	}
-	if s.assignments[user] == nil {
-		s.assignments[user] = map[string]bool{}
-	}
-	s.assignments[user][role] = true
-	return nil
+	return s.repository.Assign(context.Background(), user, definition.ID, "manual", "admin-api")
 }
 func (s *RoleAdminService) Unassign(user, role string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.assignments[user] == nil || !s.assignments[user][role] {
+	definition, ok, err := s.repository.FindByName(context.Background(), role)
+	if err != nil {
+		return err
+	}
+	if !ok {
 		return errors.New("assignment not found")
 	}
-	delete(s.assignments[user], role)
-	return nil
+	return s.repository.Unassign(context.Background(), user, definition.ID)
 }
 func (s *RoleAdminService) Effective(user string) map[string]bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	out := map[string]bool{}
-	for role := range s.assignments[user] {
-		for _, permission := range s.roles[role].Permissions {
-			out[permission] = true
-		}
+	permissions, err := s.repository.EffectivePermissions(context.Background(), user)
+	if err != nil {
+		return out
+	}
+	for _, permission := range permissions {
+		out[permission] = true
 	}
 	return out
 }

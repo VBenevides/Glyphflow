@@ -106,9 +106,12 @@ func main() {
 		os.Exit(1)
 	}
 	authService.SetUserRepository(store.NewUserRepository(db))
+	roleRepository := store.NewRoleRepository(db)
+	authService.SetRoleRepository(roleRepository)
 	authService.SetDefaultRole(cfg.DefaultRole)
 	oidcService := api.NewOIDCService()
 	roles := api.NewRoleAdminService()
+	roles.SetRepository(roleRepository)
 	if err := roles.Seed("admin", platform.PermissionCatalog); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
