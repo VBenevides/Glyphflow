@@ -1,7 +1,8 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from './auth'
-import { api, ApiError } from './api'
+import { api, ApiError, type Task } from './api'
 import { Button, Input, PageHeader } from './components'
 import { describeError, FieldError } from './errors'
 import { useUnsavedChanges } from './unsaved'
@@ -9,6 +10,10 @@ import { useUnsavedChanges } from './unsaved'
 export type TaskDraft = { name: string; command: string; workingDirectory: string; pool: string; pinnedRunner: string; selectors: string; environment: string; secretReferences: string; timeoutSeconds: string; maxOutputBytes: string; maxAttempts: string; ambiguityPolicy: string }
 
 export const emptyTaskDraft: TaskDraft = { name: '', command: '', workingDirectory: '', pool: '', pinnedRunner: '', selectors: '{}', environment: '{}', secretReferences: '{}', timeoutSeconds: '300', maxOutputBytes: '1048576', maxAttempts: '1', ambiguityPolicy: 'REQUIRE_MANUAL_RECONCILIATION' }
+
+export function taskDraftFromRecord(task: Task): TaskDraft {
+  return { ...emptyTaskDraft, name: task.name, pool: task.pool ?? '', timeoutSeconds: task.timeoutSeconds ? String(task.timeoutSeconds) : emptyTaskDraft.timeoutSeconds }
+}
 
 export function commandArguments(value: string): string[] {
   return value.split('\n').map((line) => line.trim()).filter(Boolean)
@@ -33,11 +38,23 @@ export function TaskEditorPage() {
   const navigate = useNavigate()
   const { permissions } = useAuth()
   const [draft, setDraft] = useState<TaskDraft>(emptyTaskDraft)
+  const [baseline, setBaseline] = useState<TaskDraft>(emptyTaskDraft)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [review, setReview] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [busy, setBusy] = useState(false)
-  useUnsavedChanges(JSON.stringify(draft) !== JSON.stringify(emptyTaskDraft))
+  const query = useQuery({ queryKey: ['task-edit', taskId], queryFn: ({ signal }) => api.get<Task>(`/api/v1/tasks/${encodeURIComponent(taskId ?? '')}`, undefined, signal), enabled: Boolean(taskId) })
+  useEffect(() => {
+    if (query.data) {
+      const next = taskDraftFromRecord(query.data)
+      setDraft(next)
+      setBaseline(next)
+    } else if (!taskId) {
+      setDraft(emptyTaskDraft)
+      setBaseline(emptyTaskDraft)
+    }
+  }, [query.data, taskId])
+  useUnsavedChanges(JSON.stringify(draft) !== JSON.stringify(baseline))
   const update = (field: keyof TaskDraft, value: string) => setDraft((current) => ({ ...current, [field]: value }))
   const submit = async (event: FormEvent) => {
     event.preventDefault()

@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from './auth'
@@ -10,6 +10,10 @@ import { useUnsavedChanges } from './unsaved'
 
 export type ScheduleDraft = { taskId: string; name: string; scheduleType: 'cron' | 'interval'; expression: string; timezone: string; misfirePolicy: string; catchupLimit: string; deadlineSeconds: string; concurrencyPolicy: string; maxConcurrentRuns: string }
 export const emptyScheduleDraft: ScheduleDraft = { taskId: '', name: '', scheduleType: 'cron', expression: '0 * * * *', timezone: 'UTC', misfirePolicy: 'SKIP_ALL', catchupLimit: '0', deadlineSeconds: '0', concurrencyPolicy: 'QUEUE', maxConcurrentRuns: '0' }
+
+export function scheduleDraftFromRecord(schedule: Schedule): ScheduleDraft {
+  return { ...emptyScheduleDraft, taskId: schedule.taskId, name: schedule.name, scheduleType: schedule.scheduleType ?? 'cron', expression: schedule.expression ?? emptyScheduleDraft.expression, timezone: schedule.timezone ?? emptyScheduleDraft.timezone, misfirePolicy: schedule.misfirePolicy ?? emptyScheduleDraft.misfirePolicy, catchupLimit: String(schedule.catchupLimit ?? 0), deadlineSeconds: String(schedule.deadlineSeconds ?? 0), concurrencyPolicy: schedule.concurrencyPolicy ?? emptyScheduleDraft.concurrencyPolicy, maxConcurrentRuns: String(schedule.maxConcurrentRuns ?? 0) }
+}
 
 export function validateScheduleDraft(draft: ScheduleDraft): Record<string, string> {
   const errors: Record<string, string> = {}
@@ -34,9 +38,20 @@ export function ScheduleInventoryPage() {
 }
 
 export function ScheduleEditorPage() {
-  const { scheduleId } = useParams(); const navigate = useNavigate(); const { permissions } = useAuth(); const [draft, setDraft] = useState<ScheduleDraft>(emptyScheduleDraft); const [errors, setErrors] = useState<Record<string, string>>({}); const [preview, setPreview] = useState<string[]>([]); const [error, setError] = useState(''); const [busy, setBusy] = useState(false)
+  const { scheduleId } = useParams(); const navigate = useNavigate(); const { permissions } = useAuth(); const [draft, setDraft] = useState<ScheduleDraft>(emptyScheduleDraft); const [baseline, setBaseline] = useState<ScheduleDraft>(emptyScheduleDraft); const [errors, setErrors] = useState<Record<string, string>>({}); const [preview, setPreview] = useState<string[]>([]); const [error, setError] = useState(''); const [busy, setBusy] = useState(false)
+  const query = useQuery({ queryKey: ['schedule-edit', scheduleId], queryFn: ({ signal }) => api.get<Schedule>(`/api/v1/schedules/${encodeURIComponent(scheduleId ?? '')}`, undefined, signal), enabled: Boolean(scheduleId) })
+  useEffect(() => {
+    if (query.data) {
+      const next = scheduleDraftFromRecord(query.data)
+      setDraft(next)
+      setBaseline(next)
+    } else if (!scheduleId) {
+      setDraft(emptyScheduleDraft)
+      setBaseline(emptyScheduleDraft)
+    }
+  }, [query.data, scheduleId])
   const update = (field: keyof ScheduleDraft, value: string) => setDraft((current) => ({ ...current, [field]: value }))
-  useUnsavedChanges(JSON.stringify(draft) !== JSON.stringify(emptyScheduleDraft))
+  useUnsavedChanges(JSON.stringify(draft) !== JSON.stringify(baseline))
   if (!permissions.includes('tasks.manage')) return <main className="gf-content"><h1>Access denied</h1></main>
   const showPreview = async () => { const next = validateScheduleDraft(draft); setErrors(next); if (Object.keys(next).length) return; setBusy(true); setError(''); try { const result = await api.post<{ occurrences?: string[] }>('/api/v1/schedules/preview', previewPayload(draft)); setPreview(result.occurrences ?? []) } catch (cause) { const details = describeError(cause); setError(details.message) } finally { setBusy(false) } }
   const save = async (event: FormEvent) => { event.preventDefault(); const next = validateScheduleDraft(draft); setErrors(next); if (Object.keys(next).length) return; setBusy(true); setError(''); try { await api.post(scheduleId ? `/api/v1/schedules/${encodeURIComponent(scheduleId)}` : '/api/v1/schedules', { ...previewPayload(draft), name: draft.name, misfire_policy: draft.misfirePolicy, catchup_limit: Number(draft.catchupLimit), start_deadline_seconds: Number(draft.deadlineSeconds), concurrency_policy: draft.concurrencyPolicy, max_concurrent_runs: Number(draft.maxConcurrentRuns) }); navigate('/schedules') } catch (cause) { setError(describeError(cause).message) } finally { setBusy(false) } }
