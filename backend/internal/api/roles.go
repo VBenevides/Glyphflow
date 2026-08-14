@@ -200,8 +200,12 @@ func (s Server) roleRoutes(mux routeRegistrar) {
 			Name        string `json:"name"`
 			Permissions []string
 		}
-		if json.NewDecoder(r.Body).Decode(&in) != nil || s.Roles.Create(in.Name, in.Permissions) != nil {
-			writeJSON(w, 400, map[string]string{"error": "role creation failed"})
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid role request", err)
+			return
+		}
+		if err := s.Roles.Create(in.Name, in.Permissions); err != nil {
+			writeError(w, http.StatusBadRequest, "role creation failed", err)
 			return
 		}
 		role, _, _ := s.Roles.role(in.Name)
@@ -219,14 +223,22 @@ func (s Server) roleRoutes(mux routeRegistrar) {
 				Name        string `json:"name"`
 				Permissions []string
 			}
-			if json.NewDecoder(r.Body).Decode(&in) != nil || s.Roles.Rename(roleID, in.Name) != nil || s.Roles.ReplacePermissions(roleID, in.Permissions) != nil {
-				writeJSON(w, 400, map[string]string{"error": "role update failed"})
+			if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid role request", err)
+				return
+			}
+			if err := s.Roles.Rename(roleID, in.Name); err != nil {
+				writeError(w, http.StatusBadRequest, "role rename failed", err)
+				return
+			}
+			if err := s.Roles.ReplacePermissions(roleID, in.Permissions); err != nil {
+				writeError(w, http.StatusBadRequest, "role permission update failed", err)
 				return
 			}
 			writeJSON(w, 200, map[string]string{"id": roleID})
 		case http.MethodDelete:
 			if err := s.Roles.Delete(roleID); err != nil {
-				writeJSON(w, 400, map[string]string{"error": "role deletion failed"})
+				writeError(w, http.StatusBadRequest, "role deletion failed", err)
 				return
 			}
 			writeJSON(w, 204, nil)

@@ -549,7 +549,7 @@ func (s Server) oidcRoutes(mux routeRegistrar) {
 		}
 		redirect, err := s.OIDC.Challenge(r.URL.Query().Get("provider"), r.URL.Query().Get("redirect_uri"), time.Now())
 		if err != nil {
-			writeJSON(w, 400, map[string]string{"error": "OIDC challenge failed"})
+			writeError(w, http.StatusBadRequest, "OIDC challenge failed", err)
 			return
 		}
 		http.Redirect(w, r, redirect, http.StatusFound)
@@ -569,12 +569,12 @@ func (s Server) oidcRoutes(mux routeRegistrar) {
 		now := time.Now()
 		provider, claims, err := s.OIDC.CompleteAuthorizationCode(r.URL.Query().Get("state"), r.URL.Query().Get("nonce"), r.URL.Query().Get("code"), now)
 		if err != nil {
-			writeJSON(w, 401, map[string]string{"error": "OIDC callback failed"})
+			writeError(w, http.StatusUnauthorized, "OIDC callback failed", err)
 			return
 		}
 		tokens, err := s.AuthService.LoginOIDCWithGroups(provider.Key, claims.Subject, claims.Username, claims.Email, provider.AutoProvision, claims.Groups)
 		if err != nil {
-			writeJSON(w, 401, map[string]string{"error": "OIDC login failed"})
+			writeError(w, http.StatusUnauthorized, "OIDC login failed", err)
 			return
 		}
 		s.setSessionCookies(w, tokens)

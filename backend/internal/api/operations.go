@@ -98,7 +98,7 @@ func (o *OperationsService) taskCollection(w http.ResponseWriter, r *http.Reques
 		if repository != nil {
 			items, err := repository.List(r.Context())
 			if err != nil {
-				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "task storage unavailable"})
+				writeError(w, http.StatusServiceUnavailable, "task storage unavailable", err)
 				return
 			}
 			result := make([]TaskRecord, 0, len(items))
@@ -138,12 +138,12 @@ func (o *OperationsService) taskCollection(w http.ResponseWriter, r *http.Reques
 	if repository != nil {
 		id, err := randomID()
 		if err != nil {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "task creation failed"})
+			writeError(w, http.StatusServiceUnavailable, "task creation failed", err)
 			return
 		}
 		created, err := repository.Create(r.Context(), taskDefinition("task-"+id, input.Name, input.RunnerPool, input.Command, input.TimeoutSeconds))
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "task creation failed"})
+			writeError(w, http.StatusBadRequest, "task creation failed", err)
 			return
 		}
 		writeJSON(w, http.StatusCreated, taskRecordFromStore(created))
@@ -167,7 +167,7 @@ func (o *OperationsService) taskPath(w http.ResponseWriter, r *http.Request) {
 		if repository != nil {
 			task, found, err := repository.Find(r.Context(), id)
 			if err != nil {
-				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "task storage unavailable"})
+				writeError(w, http.StatusServiceUnavailable, "task storage unavailable", err)
 			} else if !found {
 				writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})
 			} else {
@@ -224,7 +224,7 @@ func (o *OperationsService) taskPath(w http.ResponseWriter, r *http.Request) {
 		if repository != nil {
 			updated, err := repository.CreateVersion(r.Context(), id, taskDefinition("", input.Name, input.RunnerPool, input.Command, input.TimeoutSeconds))
 			if err != nil {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "task version creation failed"})
+				writeError(w, http.StatusBadRequest, "task version creation failed", err)
 				return
 			}
 			writeJSON(w, http.StatusCreated, taskRecordFromStore(updated))
@@ -249,7 +249,7 @@ func (o *OperationsService) scheduleCollection(w http.ResponseWriter, r *http.Re
 		if repository != nil {
 			items, err := repository.List(r.Context())
 			if err != nil {
-				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "schedule storage unavailable"})
+				writeError(w, http.StatusServiceUnavailable, "schedule storage unavailable", err)
 				return
 			}
 			result := make([]ScheduleRecord, 0, len(items))
@@ -284,7 +284,7 @@ func (o *OperationsService) scheduleCollection(w http.ResponseWriter, r *http.Re
 	if repository != nil {
 		id, err := randomID()
 		if err != nil {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "schedule creation failed"})
+			writeError(w, http.StatusServiceUnavailable, "schedule creation failed", err)
 			return
 		}
 		created, err := repository.Create(r.Context(), scheduleDefinition("schedule-"+id, input))
@@ -317,7 +317,7 @@ func (o *OperationsService) schedulePath(w http.ResponseWriter, r *http.Request)
 		if repository != nil {
 			schedule, found, err := repository.Find(r.Context(), id)
 			if err != nil {
-				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "schedule storage unavailable"})
+				writeError(w, http.StatusServiceUnavailable, "schedule storage unavailable", err)
 			} else if !found {
 				writeJSON(w, http.StatusNotFound, map[string]string{"error": "schedule not found"})
 			} else {

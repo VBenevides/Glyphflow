@@ -45,6 +45,30 @@ func TestLocalStoreSurvivesReopen(t *testing.T) {
 	}
 }
 
+func TestLocalStorePersistsRunnerConnection(t *testing.T) {
+	path := t.TempDir() + "/runner.sqlite"
+	first, err := OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection := RunnerConnection{RunnerID: "runner-1", NATSURL: "nats://localhost:4222", MaxMessageBytes: 1024}
+	if err := first.SaveConnection(connection); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	second, err := OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	loaded, found, err := second.LoadConnection()
+	if err != nil || !found || loaded != connection {
+		t.Fatalf("connection = %#v, found=%t, err=%v", loaded, found, err)
+	}
+}
+
 func TestLocalStoreClaimsRecoversOrdersAndPublishesEvents(t *testing.T) {
 	store, err := OpenStore(t.TempDir() + "/runner.sqlite")
 	if err != nil {

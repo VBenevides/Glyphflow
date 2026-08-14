@@ -87,8 +87,8 @@ func (s Server) passwordRoutes(mux routeRegistrar) {
 				return
 			}
 			var in passwordRequest
-			if json.NewDecoder(r.Body).Decode(&in) != nil {
-				writeJSON(w, 400, map[string]string{"error": "registration failed"})
+			if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid registration request", err)
 				return
 			}
 			if !s.allowAuth(w, r, "password-register|"+platform.NormalizeIdentityKey(in.Email)) {
@@ -96,7 +96,7 @@ func (s Server) passwordRoutes(mux routeRegistrar) {
 			}
 			user, err := s.AuthService.Register(in.Email, in.Password)
 			if err != nil {
-				writeJSON(w, 400, map[string]string{"error": "registration failed"})
+				writeError(w, http.StatusBadRequest, "registration failed", err)
 				return
 			}
 			writeJSON(w, 201, map[string]string{"id": user.ID, "email": user.Email})
@@ -187,15 +187,15 @@ func (s Server) passwordRoutes(mux routeRegistrar) {
 			return
 		}
 		var in passwordRequest
-		if json.NewDecoder(r.Body).Decode(&in) != nil {
-			writeJSON(w, 400, map[string]string{"error": "registration failed"})
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid registration request", err)
 			return
 		}
 		if !s.allowAuth(w, r, "password-register|"+platform.NormalizeIdentityKey(in.Email)) {
 			return
 		}
-		if s.PasswordAuth.Register(in.Email, in.Password) != nil {
-			writeJSON(w, 400, map[string]string{"error": "registration failed"})
+		if err := s.PasswordAuth.Register(in.Email, in.Password); err != nil {
+			writeError(w, http.StatusBadRequest, "registration failed", err)
 			return
 		}
 		writeJSON(w, 201, map[string]string{"status": "created"})
@@ -224,7 +224,7 @@ func (s Server) passwordRoutes(mux routeRegistrar) {
 		}
 		token, _, err := s.Sessions.Issue(email, time.Hour)
 		if err != nil {
-			writeJSON(w, 500, map[string]string{"error": "login failed"})
+			writeError(w, http.StatusInternalServerError, "login failed", err)
 			return
 		}
 		s.setAccessCookie(w, token)

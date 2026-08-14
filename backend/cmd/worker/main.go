@@ -17,35 +17,75 @@ import (
 )
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	bootstrap, err := worker.LoadEmbeddedBootstrap()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if os.Getenv("DATA_DIR") == "" {
+		dataDir := worker.DefaultDataDir()
+		if bootstrap != nil {
+			dataDir = filepath.Join(dataDir, bootstrap.RunnerID)
+		}
+		_ = os.Setenv("DATA_DIR", dataDir)
+	}
+	if err := os.MkdirAll(os.Getenv("DATA_DIR"), 0o700); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	localStore, err := worker.OpenStore(filepath.Join(os.Getenv("DATA_DIR"), "runner.sqlite"))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	defer localStore.Close()
+	connection, found, err := localStore.LoadConnection()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if !found {
+		if bootstrap == nil {
+			connection = worker.RunnerConnection{}
+		} else if connection, err = bootstrap.Enroll(ctx); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		} else if err := localStore.SaveConnection(connection); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	}
+	if connection.RunnerID != "" {
+		_ = os.Setenv("RUNNER_ID", connection.RunnerID)
+	}
+	if connection.NATSURL != "" {
+		_ = os.Setenv("NATS_URL", connection.NATSURL)
+	}
+	if connection.MaxMessageBytes > 0 {
+		_ = os.Setenv("MAX_MESSAGE_BYTES", fmt.Sprintf("%d", connection.MaxMessageBytes))
+		if os.Getenv("MAX_OUTPUT_BYTES") == "" {
+			_ = os.Setenv("MAX_OUTPUT_BYTES", fmt.Sprintf("%d", connection.MaxMessageBytes))
+		}
+	}
 	cfg, err := config.FromEnv(config.Worker)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-	store, err := worker.OpenStore(filepath.Join(cfg.DataDir, "runner.sqlite"))
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-	defer store.Close()
 	var previousBootID string
-	if raw, err := store.Get("worker.boot"); err == nil {
+	if raw, err := localStore.Get("worker.boot"); err == nil {
 		_ = json.Unmarshal(raw, &previousBootID)
 	}
 	if previousBootID != "" {
-		if _, err := worker.RecoverDurable(store, previousBootID); err != nil {
+		if _, err := worker.RecoverDurable(localStore, previousBootID); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
 	}
 	bootID := fmt.Sprintf("%s-%d", cfg.RunnerID, time.Now().UnixNano())
-	if err := store.Put("worker.boot", bootID); err != nil {
+	if err := localStore.Put("worker.boot", bootID); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -72,7 +112,7 @@ func main() {
 				if key == "order:" {
 					key += fmt.Sprintf("%d", time.Now().UnixNano())
 				}
-				return store.Put(key, string(message.Data))
+				return localStore.Put(key, string(message.Data))
 			}); err != nil && ctx.Err() == nil {
 				time.Sleep(time.Second)
 			}

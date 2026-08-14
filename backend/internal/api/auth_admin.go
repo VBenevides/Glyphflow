@@ -31,8 +31,12 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 			DefaultRoleID string  `json:"default_role_id"`
 			LegacyRole    *string `json:"default_role"`
 		}
-		if json.NewDecoder(r.Body).Decode(&in) != nil || in.LegacyRole != nil {
-			writeJSON(w, 400, map[string]string{"error": "invalid settings"})
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid authentication settings request", err)
+			return
+		}
+		if in.LegacyRole != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "default_role is no longer accepted; use default_role_id"})
 			return
 		}
 		before := map[string]any{}
@@ -51,7 +55,7 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 		}
 		if s.AuthAdmin.Auth != nil {
 			if err := s.AuthAdmin.Auth.UpdateAuthSettings(in.Enabled, in.Registration, in.DefaultRoleID); err != nil {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid authentication settings"})
+				writeError(w, http.StatusBadRequest, "authentication settings update failed", err)
 				return
 			}
 		}
@@ -90,8 +94,8 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 			writeJSON(w, 200, s.AuthAdmin.OIDC.Providers())
 		case http.MethodPost:
 			var provider OIDCProvider
-			if json.NewDecoder(r.Body).Decode(&provider) != nil {
-				writeJSON(w, 400, map[string]string{"error": "provider update failed"})
+			if err := json.NewDecoder(r.Body).Decode(&provider); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid SSO provider request", err)
 				return
 			}
 			previous, existed := s.AuthAdmin.OIDC.Provider(provider.Key)
@@ -105,8 +109,8 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 				writeJSON(w, http.StatusConflict, map[string]string{"error": "a login method must remain enabled"})
 				return
 			}
-			if s.AuthAdmin.OIDC.AddProvider(provider) != nil {
-				writeJSON(w, 400, map[string]string{"error": "provider update failed"})
+			if err := s.AuthAdmin.OIDC.AddProvider(provider); err != nil {
+				writeError(w, http.StatusBadRequest, "SSO provider update failed", err)
 				return
 			}
 			writeJSON(w, 201, map[string]string{"key": provider.Key})
@@ -149,13 +153,13 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 			return
 		}
 		var input passwordRequest
-		if json.NewDecoder(r.Body).Decode(&input) != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "user creation failed"})
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid user request", err)
 			return
 		}
 		user, err := s.AuthAdmin.Auth.Register(input.Email, input.Password)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "user creation failed"})
+			writeError(w, http.StatusBadRequest, "user creation failed", err)
 			return
 		}
 		writeJSON(w, http.StatusCreated, user)

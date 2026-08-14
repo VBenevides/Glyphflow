@@ -7,6 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -14,6 +17,7 @@ import (
 
 	"github.com/VBenevides/Glyphflow/backend/internal/platform"
 	"github.com/VBenevides/Glyphflow/backend/internal/store"
+	"github.com/VBenevides/Glyphflow/backend/internal/worker"
 )
 
 type RunnerRecord struct {
@@ -44,17 +48,20 @@ type enrollment struct {
 	Used     bool
 }
 type InfrastructureService struct {
-	mu                 sync.RWMutex
-	runners            map[string]RunnerRecord
-	resources          map[string]ResourceRecord
-	enrollments        map[string]*enrollment
-	next               int
-	runnerRepository   store.RunnerRepository
-	resourceRepository store.ResourceRepository
+	mu                    sync.RWMutex
+	runners               map[string]RunnerRecord
+	resources             map[string]ResourceRecord
+	enrollments           map[string]*enrollment
+	next                  int
+	runnerRepository      store.RunnerRepository
+	resourceRepository    store.ResourceRepository
+	runnerBinaryDir       string
+	runnerNATSURL         string
+	runnerMaxMessageBytes int
 }
 
 func NewInfrastructureService() *InfrastructureService {
-	return &InfrastructureService{runners: map[string]RunnerRecord{}, resources: map[string]ResourceRecord{}, enrollments: map[string]*enrollment{}}
+	return &InfrastructureService{runners: map[string]RunnerRecord{}, resources: map[string]ResourceRecord{}, enrollments: map[string]*enrollment{}, runnerBinaryDir: "runner-binaries"}
 }
 
 func (s *InfrastructureService) SetRunnerRepository(repository store.RunnerRepository) {
@@ -71,6 +78,22 @@ func (s *InfrastructureService) SetResourceRepository(repository store.ResourceR
 		s.resourceRepository = repository
 		s.mu.Unlock()
 	}
+}
+
+func (s *InfrastructureService) SetRunnerBinaryDirectory(directory string) {
+	if strings.TrimSpace(directory) == "" {
+		return
+	}
+	s.mu.Lock()
+	s.runnerBinaryDir = directory
+	s.mu.Unlock()
+}
+
+func (s *InfrastructureService) SetRunnerArtifactConfig(natsURL string, maxMessageBytes int) {
+	s.mu.Lock()
+	s.runnerNATSURL = strings.TrimSpace(natsURL)
+	s.runnerMaxMessageBytes = maxMessageBytes
+	s.mu.Unlock()
 }
 
 func runnerRecordFromStore(runner store.RunnerRecord) RunnerRecord {
@@ -100,7 +123,7 @@ func (s *InfrastructureService) runnerCollection(w http.ResponseWriter, r *http.
 	if repository != nil {
 		items, err := repository.List(r.Context())
 		if err != nil {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "runner storage unavailable"})
+			writeError(w, http.StatusServiceUnavailable, "runner storage unavailable", err)
 			return
 		}
 		result := make([]RunnerRecord, 0, len(items))
@@ -141,7 +164,7 @@ func (s *InfrastructureService) runnerPath(w http.ResponseWriter, r *http.Reques
 		if repository != nil {
 			item, found, err := repository.Find(r.Context(), parts[3])
 			if err != nil {
-				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "runner storage unavailable"})
+				writeError(w, http.StatusServiceUnavailable, "runner storage unavailable", err)
 			} else if !found {
 				writeJSON(w, http.StatusNotFound, map[string]string{"error": "runner not found"})
 			} else {
@@ -172,7 +195,7 @@ func (s *InfrastructureService) runnerPath(w http.ResponseWriter, r *http.Reques
 			}
 			item, found, err := repository.SetDesiredState(r.Context(), parts[3], state)
 			if err != nil {
-				writeJSON(w, http.StatusConflict, map[string]string{"error": "runner state update failed"})
+				writeError(w, http.StatusConflict, "runner state update failed", err)
 			} else if !found {
 				writeJSON(w, http.StatusNotFound, map[string]string{"error": "runner not found"})
 			} else {
@@ -201,6 +224,46 @@ func (s *InfrastructureService) runnerPath(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, 404, map[string]string{"error": "runner route not found"})
 }
 
+func (s *InfrastructureService) enrollRunner(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	var input struct {
+		RunnerID string `json:"runner_id"`
+		Token    string `json:"token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid runner enrollment request", err)
+		return
+	}
+	if !runnerIDPattern.MatchString(input.RunnerID) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "runner_id must contain only letters, digits, dot, underscore, or hyphen"})
+		return
+	}
+	if input.Token == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "runner enrollment token is required"})
+		return
+	}
+	s.mu.RLock()
+	natsURL, maxMessageBytes := s.runnerNATSURL, s.runnerMaxMessageBytes
+	s.mu.RUnlock()
+	if natsURL == "" || maxMessageBytes <= 0 {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "runner connection is not configured"})
+		return
+	}
+	runner, err := s.ConsumeEnrollment(input.Token, time.Now().UTC())
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "runner enrollment rejected", err)
+		return
+	}
+	if runner.ID != input.RunnerID {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "runner enrollment belongs to a different runner"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"runner_id": runner.ID, "nats_url": natsURL, "max_message_bytes": maxMessageBytes})
+}
+
 func (s *InfrastructureService) deleteRunner(w http.ResponseWriter, r *http.Request, id string) {
 	s.mu.RLock()
 	repository := s.runnerRepository
@@ -209,7 +272,7 @@ func (s *InfrastructureService) deleteRunner(w http.ResponseWriter, r *http.Requ
 		deleted, err := repository.Delete(r.Context(), id)
 		if err != nil {
 			recordRequestError(r, err)
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "runner cannot be deleted"})
+			writeError(w, http.StatusConflict, "runner deletion failed", err)
 			return
 		}
 		if !deleted {
@@ -244,18 +307,43 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 		Platform     string `json:"platform"`
 		Architecture string `json:"architecture"`
 	}
-	if json.NewDecoder(r.Body).Decode(&input) != nil || strings.TrimSpace(input.RunnerID) == "" {
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid runner enrollment request", err)
+		return
+	}
+	if strings.TrimSpace(input.RunnerID) == "" {
 		writeJSON(w, 400, map[string]string{"error": "runner_id is required"})
+		return
+	}
+	input.RunnerID = strings.TrimSpace(input.RunnerID)
+	input.Platform = strings.ToLower(strings.TrimSpace(input.Platform))
+	input.Architecture = strings.ToLower(strings.TrimSpace(input.Architecture))
+	if !runnerIDPattern.MatchString(input.RunnerID) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "runner_id must contain only letters, digits, dot, underscore, or hyphen"})
+		return
+	}
+	if input.Platform != "linux" && input.Platform != "windows" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "platform must be linux or windows"})
+		return
+	}
+	if input.Architecture != "amd64" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "architecture must be amd64"})
 		return
 	}
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		recordRequestError(r, err)
-		writeJSON(w, 500, map[string]string{"error": "enrollment failed"})
+		writeError(w, http.StatusInternalServerError, "enrollment failed while generating a credential", err)
 		return
 	}
 	token := base64.RawURLEncoding.EncodeToString(raw)
 	expiry := time.Now().Add(15 * time.Minute)
+	artifact, filename, err := s.buildRunnerArtifact(r, input.Platform, input.Architecture, input.RunnerID, token)
+	if err != nil {
+		recordRequestError(r, err)
+		writeError(w, http.StatusServiceUnavailable, "runner binary is unavailable", err)
+		return
+	}
 	s.mu.RLock()
 	repository := s.runnerRepository
 	s.mu.RUnlock()
@@ -266,11 +354,11 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := repository.CreateEnrollment(r.Context(), store.RunnerRecord{ID: input.RunnerID, Name: input.RunnerID, Pool: "default", Capacity: 1, Platform: input.Platform, Architecture: input.Architecture}, store.RunnerEnrollmentRecord{ID: "enrollment-" + input.RunnerID + "-" + platform.HashToken(token), RunnerID: input.RunnerID, TokenHash: platform.HashToken(token), ExpiresAt: expiry, Requester: requester, Target: input.RunnerID, Artifact: map[string]any{"platform": input.Platform, "architecture": input.Architecture}}); err != nil {
 			recordRequestError(r, err)
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "enrollment failed"})
+			writeError(w, http.StatusConflict, "enrollment could not be saved", err)
 			return
 		}
 		w.Header().Set("Cache-Control", "no-store")
-		writeJSON(w, http.StatusCreated, map[string]string{"artifact": token, "expires_at": expiry.UTC().Format(time.RFC3339), "filename": input.RunnerID + "-enrollment.bin"})
+		writeJSON(w, http.StatusCreated, map[string]string{"artifact": base64.StdEncoding.EncodeToString(artifact), "expires_at": expiry.UTC().Format(time.RFC3339), "filename": filename})
 		return
 	}
 	s.mu.Lock()
@@ -280,7 +368,44 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Unlock()
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, 201, map[string]string{"artifact": token, "expires_at": expiry.UTC().Format(time.RFC3339), "filename": input.RunnerID + "-enrollment.bin"})
+	writeJSON(w, http.StatusCreated, map[string]string{"artifact": base64.StdEncoding.EncodeToString(artifact), "expires_at": expiry.UTC().Format(time.RFC3339), "filename": filename})
+}
+
+func (s *InfrastructureService) buildRunnerArtifact(r *http.Request, platformName, architecture, runnerID, token string) ([]byte, string, error) {
+	s.mu.RLock()
+	directory, natsURL, maxMessageBytes := s.runnerBinaryDir, s.runnerNATSURL, s.runnerMaxMessageBytes
+	s.mu.RUnlock()
+	binaryName := "glyphflow-runner-" + platformName + "-" + architecture
+	filename := runnerID + "-" + binaryName
+	if platformName == "windows" {
+		binaryName += ".exe"
+		filename += ".exe"
+	}
+	raw, err := os.ReadFile(filepath.Join(directory, binaryName))
+	if err != nil {
+		return nil, "", err
+	}
+	controlPlaneURL := requestBaseURL(r)
+	packed, err := worker.PackBootstrap(raw, worker.Bootstrap{Token: token, RunnerID: runnerID, ControlPlaneURL: controlPlaneURL, NATSURL: natsURL, MaxMessageBytes: maxMessageBytes})
+	return packed, filename, err
+}
+
+func requestBaseURL(r *http.Request) string {
+	host := r.Header.Get("X-Forwarded-Host")
+	if host == "" {
+		host = r.Host
+	}
+	scheme := r.Header.Get("X-Forwarded-Proto")
+	if scheme == "" {
+		scheme = "http"
+		if r.TLS != nil {
+			scheme = "https"
+		}
+	}
+	if host == "" {
+		return ""
+	}
+	return scheme + "://" + host
 }
 func (s *InfrastructureService) resourceCollection(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
@@ -297,7 +422,7 @@ func (s *InfrastructureService) resourceCollection(w http.ResponseWriter, r *htt
 		}
 		id, err := randomID()
 		if err != nil {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "resource creation failed"})
+			writeError(w, http.StatusServiceUnavailable, "resource creation failed", err)
 			return
 		}
 		s.mu.RLock()
@@ -305,12 +430,16 @@ func (s *InfrastructureService) resourceCollection(w http.ResponseWriter, r *htt
 		s.mu.RUnlock()
 		if repository != nil {
 			if err := repository.Create(r.Context(), "resource-"+id, strings.TrimSpace(input.Name), strings.TrimSpace(input.Kind)); err != nil {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "resource creation failed"})
+				writeError(w, http.StatusBadRequest, "resource creation failed", err)
 				return
 			}
 			item, found, err := repository.Find(r.Context(), "resource-"+id)
-			if err != nil || !found {
-				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "resource storage unavailable"})
+			if err != nil {
+				writeError(w, http.StatusServiceUnavailable, "resource storage unavailable", err)
+				return
+			}
+			if !found {
+				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "resource was created but could not be read back"})
 				return
 			}
 			writeJSON(w, http.StatusCreated, resourceRecordFromStore(item))
@@ -333,7 +462,7 @@ func (s *InfrastructureService) resourceCollection(w http.ResponseWriter, r *htt
 	if repository != nil {
 		items, err := repository.List(r.Context())
 		if err != nil {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "resource storage unavailable"})
+			writeError(w, http.StatusServiceUnavailable, "resource storage unavailable", err)
 			return
 		}
 		result := make([]ResourceRecord, 0, len(items))
@@ -373,7 +502,7 @@ func (s *InfrastructureService) resourcePath(w http.ResponseWriter, r *http.Requ
 			if repository != nil {
 				item, err := repository.Acquire(r.Context(), parts[3], input.Holder, time.Duration(input.TTLSeconds)*time.Second, time.Now().UTC())
 				if err != nil {
-					writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+					writeError(w, http.StatusConflict, "resource lease could not be acquired", err)
 					return
 				}
 				writeJSON(w, http.StatusCreated, resourceRecordFromStore(item))
@@ -385,7 +514,7 @@ func (s *InfrastructureService) resourcePath(w http.ResponseWriter, r *http.Requ
 				if errors.Is(err, errResourceNotFound) || errors.Is(err, errInvalidLease) {
 					status = http.StatusBadRequest
 				}
-				writeJSON(w, status, map[string]string{"error": err.Error()})
+				writeError(w, status, "resource lease could not be acquired", err)
 				return
 			}
 			writeJSON(w, http.StatusCreated, item)
@@ -402,14 +531,14 @@ func (s *InfrastructureService) resourcePath(w http.ResponseWriter, r *http.Requ
 			}
 			if repository != nil {
 				if err := repository.Release(r.Context(), parts[3], input.Holder, input.FencingToken); err != nil {
-					writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+					writeError(w, http.StatusConflict, "resource lease could not be released", err)
 					return
 				}
 				w.WriteHeader(http.StatusNoContent)
 				return
 			}
 			if err := s.ReleaseLease(parts[3], input.Holder, input.FencingToken); err != nil {
-				writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+				writeError(w, http.StatusConflict, "resource lease could not be released", err)
 				return
 			}
 			w.WriteHeader(http.StatusNoContent)
@@ -427,7 +556,7 @@ func (s *InfrastructureService) resourcePath(w http.ResponseWriter, r *http.Requ
 	if repository != nil {
 		item, found, err := repository.Find(r.Context(), id)
 		if err != nil {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "resource storage unavailable"})
+			writeError(w, http.StatusServiceUnavailable, "resource storage unavailable", err)
 			return
 		}
 		if !found {
@@ -438,7 +567,7 @@ func (s *InfrastructureService) resourcePath(w http.ResponseWriter, r *http.Requ
 			writeJSON(w, http.StatusOK, resourceRecordFromStore(item))
 		} else if r.Method == http.MethodDelete {
 			if err := repository.Delete(r.Context(), id); err != nil {
-				writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+				writeError(w, http.StatusConflict, "resource deletion failed", err)
 				return
 			}
 			w.WriteHeader(http.StatusNoContent)
@@ -480,6 +609,8 @@ var (
 	errLeaseConflict      = errors.New("resource lease is active")
 	errLeaseOwner         = errors.New("lease owner or fencing token does not match")
 )
+
+var runnerIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
 // ConsumeEnrollment atomically validates and consumes a runner enrollment artifact.
 func (s *InfrastructureService) ConsumeEnrollment(token string, now time.Time) (RunnerRecord, error) {

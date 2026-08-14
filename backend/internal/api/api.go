@@ -97,6 +97,7 @@ func (s Server) Handler() http.Handler {
 	mux.HandleFunc("/docs/login", s.docsLogin)
 	mux.HandleFunc("/openapi.json", openAPI)
 	mux.HandleFunc("/api/v1/config", s.runtimeConfig)
+	mux.Handle("/api/v1/runners/enroll", http.HandlerFunc(s.Infrastructure.enrollRunner))
 	if s.CurrentUser == nil && s.AuthService != nil {
 		s.CurrentUser = &CurrentUserService{Profile: s.AuthService.Profile, Sessions: s.AuthService.sessions}
 	}
@@ -376,7 +377,7 @@ func (s Server) withCorrelation(next http.Handler) http.Handler {
 }
 func (s Server) noStore(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Path, "enrollment") {
+		if strings.Contains(r.URL.Path, "enrollment") || strings.HasSuffix(r.URL.Path, "/enroll") {
 			w.Header().Set("Cache-Control", "no-store")
 		}
 		next.ServeHTTP(w, r)
@@ -386,4 +387,11 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
+}
+
+func writeError(w http.ResponseWriter, status int, operation string, err error) {
+	if err != nil && strings.TrimSpace(err.Error()) != "" {
+		operation += ": " + strings.TrimSpace(err.Error())
+	}
+	writeJSON(w, status, map[string]string{"error": operation})
 }

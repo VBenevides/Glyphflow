@@ -50,6 +50,7 @@ var routeDefinitions = []RouteDefinition{
 	{Pattern: "/api/v1/healthz", Access: RoutePublic},
 	{Pattern: "/api/v1/readyz", Access: RoutePublic},
 	{Pattern: "/api/v1/config", Access: RoutePublic},
+	{Pattern: "/api/v1/runners/enroll", Access: RoutePublic},
 	{Pattern: "/api/v1/auth/login", Access: RoutePublic},
 	{Pattern: "/api/v1/auth/register", Access: RoutePublic},
 	{Pattern: "/api/v1/auth/refresh", Access: RoutePublic},

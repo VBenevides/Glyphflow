@@ -29,8 +29,12 @@ func (s Server) currentUserRoutes(mux routeRegistrar) {
 			var input struct {
 				DisplayName string `json:"display_name"`
 			}
-			if json.NewDecoder(r.Body).Decode(&input) != nil || s.AuthService.UpdateProfile(claims.UserID, input.DisplayName) != nil {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "profile update failed"})
+			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid profile request", err)
+				return
+			}
+			if err := s.AuthService.UpdateProfile(claims.UserID, input.DisplayName); err != nil {
+				writeError(w, http.StatusBadRequest, "profile update failed", err)
 				return
 			}
 			writeJSON(w, http.StatusOK, s.AuthService.Profile(claims))
@@ -48,8 +52,12 @@ func (s Server) currentUserRoutes(mux routeRegistrar) {
 			CurrentPassword string `json:"current_password"`
 			NewPassword     string `json:"new_password"`
 		}
-		if json.NewDecoder(r.Body).Decode(&input) != nil || s.AuthService.ChangePassword(claims.UserID, input.CurrentPassword, input.NewPassword) != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password change failed"})
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid password request", err)
+			return
+		}
+		if err := s.AuthService.ChangePassword(claims.UserID, input.CurrentPassword, input.NewPassword); err != nil {
+			writeError(w, http.StatusBadRequest, "password change failed", err)
 			return
 		}
 		writeJSON(w, http.StatusNoContent, nil)

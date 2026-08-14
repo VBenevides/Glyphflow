@@ -33,3 +33,4 @@ go.work.sum
 
 # Manual entries
 local/
+/backend/runner-binaries/

@@ -24,6 +24,30 @@ type OutboxEvent struct {
 	PublishedAt                                           *time.Time
 }
 
+func (s *LocalStore) SaveConnection(connection RunnerConnection) error {
+	raw, err := json.Marshal(connection)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`INSERT INTO messages (id, value) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET value = excluded.value`, "runner.connection", raw)
+	return err
+}
+
+func (s *LocalStore) LoadConnection() (RunnerConnection, bool, error) {
+	raw, err := s.Get("runner.connection")
+	if errors.Is(err, sql.ErrNoRows) {
+		return RunnerConnection{}, false, nil
+	}
+	if err != nil {
+		return RunnerConnection{}, false, err
+	}
+	var connection RunnerConnection
+	if err := json.Unmarshal(raw, &connection); err != nil {
+		return RunnerConnection{}, false, err
+	}
+	return connection, true, nil
+}
+
 func OpenStore(path string) (*LocalStore, error) {
 	db, err := sql.Open("sqlite", path)
 	if err != nil {

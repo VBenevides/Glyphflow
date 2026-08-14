@@ -22,6 +22,7 @@ if [[ ! -d "$project_root/frontend/node_modules" ]]; then
 fi
 
 mkdir -p "${DATA_DIR:-$project_root/.dev-data}"
+bash "$project_root/backend/build_runner_binaries.sh"
 
 (
   cd "$project_root/backend"
@@ -38,6 +39,7 @@ mkdir -p "${DATA_DIR:-$project_root/.dev-data}"
   ENABLE_PASSWORD_LOGIN="${ENABLE_PASSWORD_LOGIN:-true}" \
   ENABLE_PASSWORD_REGISTRATION="${ENABLE_PASSWORD_REGISTRATION:-true}" \
   DEFAULT_ROLE_ID="${DEFAULT_ROLE_ID:-system-user}" \
+  RUNNER_BINARIES_DIR="${RUNNER_BINARIES_DIR:-$project_root/backend/runner-binaries}" \
   go run ./cmd/controlplane
 ) &
 backend_pid=$!

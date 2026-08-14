@@ -2,11 +2,18 @@ package api
 
 import (
 	"bytes"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/VBenevides/Glyphflow/backend/internal/worker"
 )
 
 func TestEnrollmentExpiresAndIsSingleUse(t *testing.T) {
@@ -23,6 +30,93 @@ func TestEnrollmentExpiresAndIsSingleUse(t *testing.T) {
 	s.enrollments["expired"] = &enrollment{Token: "expired", RunnerID: "runner-1", Expires: expires}
 	if _, err := s.ConsumeEnrollment("expired", expires); !errors.Is(err, errEnrollmentExpired) {
 		t.Fatalf("expired token returned %v", err)
+	}
+}
+
+func TestRunnerEnrollmentExplainsInvalidTarget(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"runner ID", `{"runner_id":"Runner 2","platform":"linux","architecture":"amd64"}`, "runner_id must contain only letters, digits, dot, underscore, or hyphen"},
+		{"platform", `{"runner_id":"runner-2","platform":"darwin","architecture":"amd64"}`, "platform must be linux or windows"},
+		{"architecture", `{"runner_id":"runner-2","platform":"linux","architecture":"arm64"}`, "architecture must be amd64"},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			NewInfrastructureService().enroll(response, httptest.NewRequest(http.MethodPost, "/api/v1/runners/enrollments", bytes.NewBufferString(test.body)))
+			if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), test.want) {
+				t.Fatalf("response = %d %s", response.Code, response.Body.String())
+			}
+		})
+	}
+}
+
+func TestRunnerEnrollmentExplainsArtifactFailure(t *testing.T) {
+	s := NewInfrastructureService()
+	s.SetRunnerArtifactConfig("nats://localhost:4222", 1<<20)
+	response := httptest.NewRecorder()
+	s.enroll(response, httptest.NewRequest(http.MethodPost, "/api/v1/runners/enrollments", bytes.NewBufferString(`{"runner_id":"runner-1","platform":"linux","architecture":"amd64"}`)))
+	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "runner binary is unavailable:") {
+		t.Fatalf("response = %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestRunnerEnrollmentExplainsTokenFailure(t *testing.T) {
+	s := NewInfrastructureService()
+	s.SetRunnerArtifactConfig("nats://localhost:4222", 1<<20)
+	s.enrollments["token"] = &enrollment{RunnerID: "runner-1", Expires: time.Now().Add(-time.Minute)}
+	response := httptest.NewRecorder()
+	s.enrollRunner(response, httptest.NewRequest(http.MethodPost, "/api/v1/runners/enroll", bytes.NewBufferString(`{"runner_id":"runner-1","token":"token"}`)))
+	if response.Code != http.StatusUnauthorized || !strings.Contains(response.Body.String(), "runner enrollment rejected: enrollment expired") {
+		t.Fatalf("response = %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestRunnerEnrollmentBuildsBootstrapBinaryAndConsumesToken(t *testing.T) {
+	s := NewInfrastructureService()
+	directory := t.TempDir()
+	s.SetRunnerBinaryDirectory(directory)
+	s.SetRunnerArtifactConfig("nats://localhost:4222", 1<<20)
+	if err := os.WriteFile(filepath.Join(directory, "glyphflow-runner-linux-amd64"), []byte("runner-binary"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/runners/enrollments", bytes.NewBufferString(`{"runner_id":"runner-1","platform":"linux","architecture":"amd64"}`))
+	request.Host = "control.example:8080"
+	response := httptest.NewRecorder()
+	s.enroll(response, request)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("enrollment returned %d: %s", response.Code, response.Body.String())
+	}
+	var result struct {
+		Artifact string `json:"artifact"`
+		Filename string `json:"filename"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Filename != "runner-1-glyphflow-runner-linux-amd64" {
+		t.Fatalf("filename = %q", result.Filename)
+	}
+	raw, err := base64.StdEncoding.DecodeString(result.Artifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrap, err := worker.UnpackBootstrap(raw)
+	if err != nil || bootstrap == nil || bootstrap.RunnerID != "runner-1" || bootstrap.ControlPlaneURL != "http://control.example:8080" || bootstrap.NATSURL != "nats://localhost:4222" {
+		t.Fatalf("bootstrap = %#v, err=%v", bootstrap, err)
+	}
+	consume := httptest.NewRecorder()
+	s.enrollRunner(consume, httptest.NewRequest(http.MethodPost, "/api/v1/runners/enroll", bytes.NewBufferString(`{"runner_id":"runner-1","token":"`+bootstrap.Token+`"}`)))
+	if consume.Code != http.StatusOK {
+		t.Fatalf("consumption returned %d: %s", consume.Code, consume.Body.String())
+	}
+	replay := httptest.NewRecorder()
+	s.enrollRunner(replay, httptest.NewRequest(http.MethodPost, "/api/v1/runners/enroll", bytes.NewBufferString(`{"runner_id":"runner-1","token":"`+bootstrap.Token+`"}`)))
+	if replay.Code != http.StatusUnauthorized {
+		t.Fatalf("replay returned %d", replay.Code)
 	}
 }
 

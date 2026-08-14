@@ -41,7 +41,7 @@ func ValidateCSRFRequest(r *http.Request, expectedOrigin string) error {
 
 func (s Server) withCSRF(next http.Handler, expectedOrigin string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/docs/login" {
+		if r.URL.Path == "/docs/login" || r.URL.Path == "/api/v1/runners/enroll" {
 			// This helper returns a bearer token in the response body and creates no cookie session.
 			next.ServeHTTP(w, r)
 			return

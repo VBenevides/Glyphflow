@@ -64,7 +64,7 @@ func (s *RunService) collection(w http.ResponseWriter, r *http.Request) {
 		if repository != nil {
 			items, err := repository.List(r.Context())
 			if err != nil {
-				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "run storage unavailable"})
+				writeError(w, http.StatusServiceUnavailable, "run storage unavailable", err)
 				return
 			}
 			result := make([]RunRecord, 0, len(items))
@@ -106,7 +106,7 @@ func (s *RunService) execute(w http.ResponseWriter, r *http.Request) {
 	if repository != nil {
 		id, err := randomID()
 		if err != nil {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "run creation failed"})
+			writeError(w, http.StatusServiceUnavailable, "run creation failed", err)
 			return
 		}
 		idempotencyKey := input.IdempotencyKey
@@ -115,7 +115,7 @@ func (s *RunService) execute(w http.ResponseWriter, r *http.Request) {
 		}
 		created, err := repository.Create(r.Context(), store.RunDefinition{ID: "run-" + id, TaskID: input.TaskID, TriggerType: "MANUAL", IdempotencyKey: idempotencyKey, ScheduledFor: time.Now().UTC()})
 		if err != nil {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "run creation failed"})
+			writeError(w, http.StatusConflict, "run creation failed", err)
 			return
 		}
 		writeJSON(w, http.StatusCreated, runRecordFromStore(created))
@@ -144,7 +144,7 @@ func (s *RunService) path(w http.ResponseWriter, r *http.Request) {
 		if repository != nil {
 			run, found, err := repository.Find(r.Context(), id)
 			if err != nil {
-				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "run storage unavailable"})
+				writeError(w, http.StatusServiceUnavailable, "run storage unavailable", err)
 			} else if !found {
 				writeJSON(w, http.StatusNotFound, map[string]string{"error": "run not found"})
 			} else {
@@ -182,7 +182,7 @@ func (s *RunService) logsResponse(w http.ResponseWriter, r *http.Request, id str
 		after, _ := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)
 		chunks, err := repository.ListLogChunks(r.Context(), id, stream, after)
 		if err != nil {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "log storage unavailable"})
+			writeError(w, http.StatusServiceUnavailable, "log storage unavailable", err)
 			return
 		}
 		if strings.HasSuffix(r.URL.Path, "/download") {
@@ -250,7 +250,7 @@ func (s *RunService) action(w http.ResponseWriter, r *http.Request, id, action s
 		}
 		updated, changed, err := s.repository.Transition(r.Context(), id, from, to)
 		if err != nil {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "run transition failed"})
+			writeError(w, http.StatusServiceUnavailable, "run transition failed", err)
 			return
 		}
 		if !changed {

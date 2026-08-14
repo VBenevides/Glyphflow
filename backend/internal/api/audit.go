@@ -296,7 +296,7 @@ func (s *AuditQueryService) query(w http.ResponseWriter, r *http.Request) {
 		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 		items, total, err := repository.Query(r.Context(), store.AuditFilter{Actor: filters["actor"], Action: filters["action"], Target: filters["target"], Result: filters["result"], CorrelationID: filters["correlationId"], ExcludeTarget: excludeTarget, From: from, To: to, Page: page, Limit: limit})
 		if err != nil {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "audit storage unavailable"})
+			writeError(w, http.StatusServiceUnavailable, "audit storage unavailable", err)
 			return
 		}
 		result := make([]AuditEvent, 0, len(items))

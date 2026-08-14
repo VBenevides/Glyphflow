@@ -145,6 +145,8 @@ func main() {
 	infrastructure := api.NewInfrastructureService()
 	infrastructure.SetRunnerRepository(runnerRepository)
 	infrastructure.SetResourceRepository(store.NewResourceRepository(db))
+	infrastructure.SetRunnerBinaryDirectory(os.Getenv("RUNNER_BINARIES_DIR"))
+	infrastructure.SetRunnerArtifactConfig(cfg.NATSURL, cfg.MaxMessageBytes)
 	audit := api.NewAuditQueryService()
 	audit.SetRepository(store.NewAuditRepository(db))
 	application := api.Server{AuthService: authService, AuthAdmin: &api.AuthAdminService{Auth: authService, OIDC: oidcService, Sessions: authService.SessionManager()}, Sessions: authService.SessionManager(), OIDC: oidcService, Roles: roles, Auth: authService.Authenticator(), Permissions: authService.Permissions, CSRFOrigin: cfg.WebOrigin, Operations: operations, Runs: runs, Infrastructure: infrastructure, AuditQuery: audit, Ready: func(ctx context.Context) error {
