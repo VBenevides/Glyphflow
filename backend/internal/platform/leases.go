@@ -12,6 +12,7 @@ type Lease struct {
 	Token    string
 	Fencing  uint64
 	Expires  time.Time
+	State    string
 }
 
 type LeaseManager struct {
@@ -33,8 +34,12 @@ func (m *LeaseManager) Acquire(resource, attempt, token string, now time.Time, l
 	if current, ok := m.leases[resource]; ok && current.Expires.After(now) {
 		return Lease{}, errors.New("resource is already leased")
 	}
+	if current, ok := m.leases[resource]; ok {
+		current.State = "EXPIRED"
+		m.leases[resource] = current
+	}
 	m.fencing[resource]++
-	lease := Lease{Resource: resource, Attempt: attempt, Token: token, Fencing: m.fencing[resource], Expires: now.Add(lifetime)}
+	lease := Lease{Resource: resource, Attempt: attempt, Token: token, Fencing: m.fencing[resource], Expires: now.Add(lifetime), State: "ACTIVE"}
 	m.leases[resource] = lease
 	return lease, nil
 }
@@ -43,10 +48,39 @@ func (m *LeaseManager) Release(lease Lease, now time.Time) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	current, ok := m.leases[lease.Resource]
-	if !ok || current.Attempt != lease.Attempt || current.Token != lease.Token || current.Fencing != lease.Fencing {
+	if !ok || current.State != "ACTIVE" || current.Attempt != lease.Attempt || current.Token != lease.Token || current.Fencing != lease.Fencing {
 		return errors.New("stale lease release")
 	}
-	delete(m.leases, lease.Resource)
+	current.State = "RELEASED"
+	m.leases[lease.Resource] = current
 	_ = now
 	return nil
+}
+
+func (m *LeaseManager) Renew(lease Lease, now time.Time, lifetime time.Duration) (Lease, error) {
+	if lifetime <= 0 {
+		return Lease{}, errors.New("lease lifetime is required")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	current, ok := m.leases[lease.Resource]
+	if !ok || current != lease || current.State != "ACTIVE" || !current.Expires.After(now) {
+		return Lease{}, errors.New("stale lease renewal")
+	}
+	current.Expires = now.Add(lifetime)
+	m.leases[lease.Resource] = current
+	return current, nil
+}
+func (m *LeaseManager) Expire(now time.Time) []Lease {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var expired []Lease
+	for resource, lease := range m.leases {
+		if lease.State == "ACTIVE" && !lease.Expires.After(now) {
+			lease.State = "EXPIRED"
+			m.leases[resource] = lease
+			expired = append(expired, lease)
+		}
+	}
+	return expired
 }
