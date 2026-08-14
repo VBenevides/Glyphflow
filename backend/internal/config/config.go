@@ -21,7 +21,6 @@ type Config struct {
 	Role              Role
 	DatabaseURL       string
 	NATSURL           string
-	APIToken          string // Deprecated: kept for v0 source compatibility.
 	AccessTokenSecret string
 	WebOrigin         string
 	DataDir           string
@@ -35,7 +34,6 @@ func FromEnv(role Role) (Config, error) {
 		Role:              role,
 		DatabaseURL:       os.Getenv("DATABASE_URL"),
 		NATSURL:           os.Getenv("NATS_URL"),
-		APIToken:          os.Getenv("API_AUTH_TOKEN"),
 		AccessTokenSecret: os.Getenv("ACCESS_TOKEN_SECRET"),
 		WebOrigin:         os.Getenv("WEB_ORIGIN"),
 		DataDir:           os.Getenv("DATA_DIR"),

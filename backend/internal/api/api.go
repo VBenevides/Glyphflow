@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -16,20 +15,6 @@ type Claims struct {
 	Roles     map[string]bool
 }
 type Authenticator func(*http.Request) (Claims, bool)
-
-func BearerAuthenticator(token string) Authenticator {
-	return func(r *http.Request) (Claims, bool) {
-		const prefix = "Bearer "
-		value := r.Header.Get("Authorization")
-		if len(value) <= len(prefix) || !strings.EqualFold(value[:len(prefix)], prefix) {
-			return Claims{}, false
-		}
-		if subtle.ConstantTimeCompare([]byte(value[len(prefix):]), []byte(token)) != 1 {
-			return Claims{}, false
-		}
-		return Claims{Subject: "api-token", Roles: map[string]bool{"task.read": true, "task.create": true}}, true
-	}
-}
 
 type Server struct {
 	Auth         Authenticator

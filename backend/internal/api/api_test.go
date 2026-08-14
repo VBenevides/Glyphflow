@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestAuthAndPagination(t *testing.T) {
@@ -18,8 +19,16 @@ func TestAuthAndPagination(t *testing.T) {
 	}
 }
 
-func TestBearerAuthenticatorAndCreateRole(t *testing.T) {
-	h := Server{Auth: BearerAuthenticator("secret")}.Handler()
+func TestSessionAuthenticatorAndCreateRole(t *testing.T) {
+	sessions, err := NewSessionManager("01234567890123456789012345678901")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, _, err := sessions.Issue("user-1", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := Server{Auth: sessions.Authenticator(), Permissions: func(Claims) map[string]bool { return map[string]bool{"tasks.read": true, "tasks.manage": true} }}.Handler()
 	unauthorized := httptest.NewRecorder()
 	h.ServeHTTP(unauthorized, httptest.NewRequest(http.MethodGet, "/api/v1/tasks", nil))
 	if unauthorized.Code != http.StatusUnauthorized {
@@ -27,7 +36,7 @@ func TestBearerAuthenticatorAndCreateRole(t *testing.T) {
 	}
 	for _, method := range []string{http.MethodGet, http.MethodPost} {
 		request := httptest.NewRequest(method, "/api/v1/tasks", nil)
-		request.Header.Set("Authorization", "Bearer secret")
+		request.Header.Set("Authorization", "Bearer "+token)
 		response := httptest.NewRecorder()
 		h.ServeHTTP(response, request)
 		if response.Code == http.StatusUnauthorized || response.Code == http.StatusForbidden {
@@ -38,9 +47,17 @@ func TestBearerAuthenticatorAndCreateRole(t *testing.T) {
 
 func TestTaskCreationDoesNotAcceptUnstoredRequests(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", nil)
-	request.Header.Set("Authorization", "Bearer secret")
+	sessions, err := NewSessionManager("01234567890123456789012345678901")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, _, err := sessions.Issue("user-1", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
 	response := httptest.NewRecorder()
-	(Server{Auth: BearerAuthenticator("secret")}).Handler().ServeHTTP(response, request)
+	(Server{Auth: sessions.Authenticator(), Permissions: func(Claims) map[string]bool { return map[string]bool{"tasks.manage": true} }}).Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusNotImplemented {
 		t.Fatalf("stub task creation returned %d", response.Code)
 	}
