@@ -7,6 +7,7 @@ const (
 	EventAccepted  EventType = "accepted"
 	EventRejected  EventType = "rejected"
 	EventStarted   EventType = "started"
+	EventLogChunk  EventType = "log_chunk"
 	EventHeartbeat EventType = "heartbeat"
 	EventCompleted EventType = "completed"
 	EventFailed    EventType = "failed"
@@ -20,7 +21,7 @@ func (t OrderType) Valid() bool {
 
 func (t EventType) Valid() bool {
 	switch t {
-	case EventAccepted, EventRejected, EventStarted, EventHeartbeat, EventCompleted, EventFailed, EventTimedOut, EventCancelled:
+	case EventAccepted, EventRejected, EventStarted, EventLogChunk, EventHeartbeat, EventCompleted, EventFailed, EventTimedOut, EventCancelled:
 		return true
 	default:
 		return false

@@ -46,3 +46,24 @@ func TestExecutorUsesValidatedWorkingDirectory(t *testing.T) {
 		t.Fatalf("command ran in %q, want %q", got, filepath.Clean(dir))
 	}
 }
+
+func TestExecutorStreamsOutputBeforeProcessExit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sh is not a Windows command")
+	}
+	var chunks []string
+	executor := Executor{Roots: []string{"/tmp"}, AllowedCommands: map[string]bool{"sh": true}, MaxOutputBytes: 1024}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, err := executor.RunStreaming(ctx, []string{"sh", "-c", "printf first; printf err >&2; sleep 0.03; printf second"}, "/tmp", 10*time.Millisecond, func(stream string, chunk []byte) error {
+		chunks = append(chunks, stream+":"+string(chunk))
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(chunks, "")
+	if len(chunks) < 2 || !strings.Contains(joined, "stdout:first") || !strings.Contains(joined, "stderr:err") || !strings.Contains(joined, "stdout:second") {
+		t.Fatalf("streamed chunks = %v", chunks)
+	}
+}

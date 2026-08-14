@@ -6,6 +6,8 @@ import (
 	"io"
 	"os/exec"
 	"path/filepath"
+	"sync/atomic"
+	"time"
 
 	"github.com/VBenevides/Glyphflow/backend/internal/platform"
 )
@@ -19,6 +21,10 @@ type Executor struct {
 }
 
 func (e Executor) Run(ctx context.Context, args []string, dir string) ([]byte, error) {
+	return e.RunStreaming(ctx, args, dir, 0, nil)
+}
+
+func (e Executor) RunStreaming(ctx context.Context, args []string, dir string, flushInterval time.Duration, onChunk func(string, []byte) error) ([]byte, error) {
 	if len(args) == 0 {
 		return nil, &ValidationError{"command is required"}
 	}
@@ -45,20 +51,115 @@ func (e Executor) Run(ctx context.Context, args []string, dir string) ([]byte, e
 	if !allowed {
 		return nil, &ValidationError{"working directory is outside configured roots"}
 	}
-	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	cmd := exec.CommandContext(runCtx, args[0], args[1:]...)
 	cmd.Dir = clean
 	configureCommand(cmd)
+	chunks := make(chan executorOutput, 32)
+	stopped := &atomic.Bool{}
+	cmd.Stdout = executorStreamWriter{stream: "stdout", chunks: chunks, stopped: stopped}
+	cmd.Stderr = executorStreamWriter{stream: "stderr", chunks: chunks, stopped: stopped}
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	wait := make(chan error, 1)
+	go func() { wait <- cmd.Wait() }()
+
 	var output boundedBuffer
 	output.limit = e.MaxOutputBytes
-	cmd.Stdout = &output
-	cmd.Stderr = &output
-	if err := cmd.Run(); err != nil {
-		if output.exceeded {
-			return output.Bytes(), ErrOutputLimit
+	buffers := map[string][]byte{"stdout": nil, "stderr": nil}
+	var callbackErr error
+	flush := func(stream string) {
+		if callbackErr != nil || len(buffers[stream]) == 0 {
+			return
 		}
-		return output.Bytes(), err
+		chunk := append([]byte(nil), buffers[stream]...)
+		buffers[stream] = nil
+		if onChunk != nil {
+			if err := onChunk(stream, chunk); err != nil {
+				callbackErr = err
+				stopped.Store(true)
+				cancel()
+			}
+		}
 	}
-	return output.Bytes(), nil
+	flushAll := func() {
+		flush("stdout")
+		flush("stderr")
+	}
+	processChunk := func(chunk executorOutput) {
+		if stopped.Load() {
+			return
+		}
+		remaining := e.MaxOutputBytes - len(output.data)
+		if remaining <= 0 {
+			output.exceeded = true
+			stopped.Store(true)
+			cancel()
+			return
+		}
+		accepted := chunk.data
+		if len(accepted) > remaining {
+			accepted = accepted[:remaining]
+			output.exceeded = true
+			stopped.Store(true)
+			cancel()
+		}
+		output.data = append(output.data, accepted...)
+		buffers[chunk.stream] = append(buffers[chunk.stream], accepted...)
+	}
+
+	var ticker *time.Ticker
+	var tick <-chan time.Time
+	if flushInterval > 0 {
+		ticker = time.NewTicker(flushInterval)
+		defer ticker.Stop()
+		tick = ticker.C
+	}
+	for {
+		select {
+		case chunk := <-chunks:
+			processChunk(chunk)
+		case <-tick:
+			flushAll()
+		case err := <-wait:
+			for {
+				select {
+				case chunk := <-chunks:
+					processChunk(chunk)
+				default:
+					flushAll()
+					if callbackErr != nil {
+						return output.Bytes(), callbackErr
+					}
+					if output.exceeded {
+						return output.Bytes(), ErrOutputLimit
+					}
+					return output.Bytes(), err
+				}
+			}
+		}
+	}
+}
+
+type executorOutput struct {
+	stream string
+	data   []byte
+}
+
+type executorStreamWriter struct {
+	stream  string
+	chunks  chan<- executorOutput
+	stopped *atomic.Bool
+}
+
+func (w executorStreamWriter) Write(p []byte) (int, error) {
+	if w.stopped.Load() {
+		return 0, ErrOutputLimit
+	}
+	w.chunks <- executorOutput{stream: w.stream, data: append([]byte(nil), p...)}
+	return len(p), nil
 }
 
 type boundedBuffer struct {

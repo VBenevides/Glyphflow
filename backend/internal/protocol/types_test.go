@@ -15,7 +15,7 @@ func TestOrderTypes(t *testing.T) {
 
 func TestEventTypes(t *testing.T) {
 	for _, kind := range []EventType{
-		EventAccepted, EventRejected, EventStarted, EventHeartbeat,
+		EventAccepted, EventRejected, EventStarted, EventLogChunk, EventHeartbeat,
 		EventCompleted, EventFailed, EventTimedOut, EventCancelled,
 	} {
 		if !kind.Valid() {

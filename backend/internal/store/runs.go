@@ -68,7 +68,7 @@ type DispatchOutboxRecord struct {
 
 type RunEventInput struct {
 	EventID, OrderID, RunID, TaskID, RunnerID, RunnerSessionID, LeaseToken string
-	EventType, Subject, Error, Result                                      string
+	EventType, EventChannel, Subject, Error, Result                        string
 	Attempt, Sequence, FencingToken                                        int64
 	ReportedAt                                                             time.Time
 	Envelope                                                               []byte
@@ -287,6 +287,18 @@ func (s *RunStore) ApplyRunEvent(ctx context.Context, event RunEventInput) error
 		return err
 	}
 	if result.RowsAffected() == 0 {
+		return tx.Commit(ctx)
+	}
+	if event.EventType == "log_chunk" {
+		if event.EventChannel != "stdout" && event.EventChannel != "stderr" {
+			return errors.New("log chunk stream is invalid")
+		}
+		if event.Result == "" {
+			return errors.New("log chunk is empty")
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO execution_log_chunks (event_id, execution_attempt_id, stream, chunk_sequence, reported_at, payload, size_bytes, checksum) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT DO NOTHING`, event.EventID, attemptID, event.EventChannel, event.Sequence, event.ReportedAt, []byte(event.Result), len([]byte(event.Result)), sha256Hex([]byte(event.Result))); err != nil {
+			return err
+		}
 		return tx.Commit(ctx)
 	}
 	payload, _ := json.Marshal(map[string]any{"result": event.Result, "error": event.Error})

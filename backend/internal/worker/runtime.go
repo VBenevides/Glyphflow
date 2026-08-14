@@ -4,10 +4,16 @@ import (
 	"context"
 	"crypto/ed25519"
 	"errors"
+	"strconv"
 	"time"
 
 	"github.com/VBenevides/Glyphflow/backend/internal/protocol"
 	"github.com/VBenevides/Glyphflow/backend/internal/queue"
+)
+
+const (
+	logFlushInterval      = 30 * time.Second
+	maxEventLogChunkBytes = 64 * 1024
 )
 
 type OrderRuntime struct {
@@ -58,7 +64,27 @@ func (r OrderRuntime) Handle(ctx context.Context, message queue.Message) error {
 	}
 	executionContext, cancel := context.WithTimeout(ctx, time.Duration(payload.TimeoutSeconds)*time.Second)
 	defer cancel()
-	output, runErr := r.Executor.Run(executionContext, payload.Command, payload.WorkingDir)
+	logSequences := map[string]uint64{"stdout": 0, "stderr": 0}
+	streamed := false
+	output, runErr := r.Executor.RunStreaming(executionContext, payload.Command, payload.WorkingDir, logFlushInterval, func(stream string, chunk []byte) error {
+		if stream != "stdout" && stream != "stderr" {
+			return errors.New("executor returned an invalid output stream")
+		}
+		for len(chunk) > 0 {
+			size := len(chunk)
+			if size > maxEventLogChunkBytes {
+				size = maxEventLogChunkBytes
+			}
+			logSequences[stream]++
+			if err := r.persistEvent(payload, protocol.EventLogChunk, logSequences[stream], string(chunk[:size]), "", stream); err != nil {
+				return err
+			}
+			_ = PublishPendingEvents(ctx, r.Store, r.Publisher, r.RunnerID)
+			streamed = true
+			chunk = chunk[size:]
+		}
+		return nil
+	})
 	eventType := protocol.EventCompleted
 	if runErr != nil {
 		eventType = protocol.EventFailed
@@ -67,7 +93,11 @@ func (r OrderRuntime) Handle(ctx context.Context, message queue.Message) error {
 	if runErr != nil {
 		errorText = runErr.Error()
 	}
-	if err := r.publishEvent(ctx, payload, eventType, 3, string(output), errorText); err != nil {
+	terminalOutput := ""
+	if !streamed {
+		terminalOutput = string(output)
+	}
+	if err := r.publishEvent(ctx, payload, eventType, 3, terminalOutput, errorText); err != nil {
 		return err
 	}
 	state := "COMPLETED"
@@ -78,7 +108,20 @@ func (r OrderRuntime) Handle(ctx context.Context, message queue.Message) error {
 }
 
 func (r OrderRuntime) publishEvent(ctx context.Context, order protocol.OrderPayload, eventType protocol.EventType, sequence uint64, result, eventError string) error {
-	event := protocol.EventPayload{Version: protocol.ProtocolVersion, EventID: order.OrderID + ":" + string(eventType), OrderID: order.OrderID, RunID: order.RunID, TaskID: order.TaskID, Attempt: order.Attempt, LeaseToken: order.LeaseToken, RunnerID: order.RunnerID, Sequence: sequence, ObservedAt: time.Now().UTC(), Type: eventType, Result: result, Error: eventError, RunnerSessionID: order.RunnerSessionID, FencingToken: order.FencingToken}
+	if err := r.persistEvent(order, eventType, sequence, result, eventError, "state"); err != nil {
+		return err
+	}
+	// The event is durable locally; the background publisher retries transient broker failures.
+	_ = PublishPendingEvents(ctx, r.Store, r.Publisher, r.RunnerID)
+	return nil
+}
+
+func (r OrderRuntime) persistEvent(order protocol.OrderPayload, eventType protocol.EventType, sequence uint64, result, eventError, eventChannel string) error {
+	eventID := order.OrderID + ":" + string(eventType)
+	if eventType == protocol.EventLogChunk {
+		eventID = order.OrderID + ":" + eventChannel + ":" + strconv.FormatUint(sequence, 10)
+	}
+	event := protocol.EventPayload{Version: protocol.ProtocolVersion, EventID: eventID, OrderID: order.OrderID, RunID: order.RunID, TaskID: order.TaskID, Attempt: order.Attempt, LeaseToken: order.LeaseToken, RunnerID: order.RunnerID, Sequence: sequence, ObservedAt: time.Now().UTC(), Type: eventType, Result: result, Error: eventError, RunnerSessionID: order.RunnerSessionID, FencingToken: order.FencingToken, EventChannel: eventChannel}
 	payload, err := protocol.EncodeEventPayload(event)
 	if err != nil {
 		return err
@@ -91,10 +134,10 @@ func (r OrderRuntime) publishEvent(ctx context.Context, order protocol.OrderPayl
 	if err != nil {
 		return err
 	}
-	if err := r.Store.PutEvent(OutboxEvent{EventID: event.EventID, OrderID: order.OrderID, Channel: "events", Sequence: int64(sequence), EventType: string(eventType), Envelope: string(raw)}); err != nil {
+	if err := r.Store.PutEvent(OutboxEvent{EventID: event.EventID, OrderID: order.OrderID, Channel: eventChannel, Sequence: int64(sequence), EventType: string(eventType), Envelope: string(raw)}); err != nil {
 		return err
 	}
-	return PublishPendingEvents(ctx, r.Store, r.Publisher, r.RunnerID)
+	return nil
 }
 
 func PublishPendingEvents(ctx context.Context, store *LocalStore, publisher queue.Publisher, runnerID string) error {

@@ -50,9 +50,10 @@ func TestOrderRuntimeExecutesOrderAndPublishesEvents(t *testing.T) {
 	if err := runtime.Handle(context.Background(), queue.Message{Subject: queue.Subject("orders", order.RunnerID), ID: order.OrderID, Data: rawOrder}); err != nil {
 		t.Fatal(err)
 	}
-	if len(publisher.messages) != 3 {
-		t.Fatalf("published events = %d, want 3", len(publisher.messages))
+	if len(publisher.messages) != 4 {
+		t.Fatalf("published events = %d, want 4", len(publisher.messages))
 	}
+	var types []protocol.EventType
 	for _, message := range publisher.messages {
 		decoded, err := protocol.DecodeEnvelope(message.Data)
 		if err != nil {
@@ -60,6 +61,24 @@ func TestOrderRuntimeExecutesOrderAndPublishesEvents(t *testing.T) {
 		}
 		if err := decoded.VerifyEvent(workerKey.Public.PublicKey); err != nil {
 			t.Fatal(err)
+		}
+		raw, err := decoded.PayloadBytes()
+		if err != nil {
+			t.Fatal(err)
+		}
+		event, err := protocol.DecodeEventPayload(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		types = append(types, event.Type)
+	}
+	if want := []protocol.EventType{protocol.EventAccepted, protocol.EventStarted, protocol.EventLogChunk, protocol.EventCompleted}; len(types) != len(want) {
+		t.Fatalf("event types = %v", types)
+	} else {
+		for i := range want {
+			if types[i] != want[i] {
+				t.Fatalf("event types = %v, want %v", types, want)
+			}
 		}
 	}
 }
