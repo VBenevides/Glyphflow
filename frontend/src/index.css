@@ -205,6 +205,9 @@ a {
 .gf-dialog-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
 .gf-log, .gf-audit-value { max-width: 100%; overflow: auto; padding: 1rem; color: var(--gf-text); background: #07101f; border-radius: 0.5rem; white-space: pre-wrap; overflow-wrap: anywhere; }
 .gf-log-stderr { color: #ffb4ae; }
+.gf-log-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.65rem; }
+.gf-log-toolbar h2 { margin: 0; margin-right: auto; font-size: 1rem; }
+.gf-log-toolbar span { color: var(--gf-muted); font-size: 0.82rem; }
 .gf-secret-reference { color: var(--gf-muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .gf-environment-field { display: grid; gap: 0.25rem; padding: 0.55rem 0; border-bottom: 1px solid var(--gf-border); }
 @keyframes gf-spin { to { transform: rotate(360deg); } }
