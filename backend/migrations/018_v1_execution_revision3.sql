@@ -127,6 +127,7 @@ CREATE TABLE IF NOT EXISTS schedule_versions_v1 (
     created_at timestamptz NOT NULL DEFAULT now(),
     UNIQUE (schedule_id, version),
     UNIQUE (id, schedule_id),
+    UNIQUE (id, task_id),
     FOREIGN KEY (task_version_id, task_id) REFERENCES task_versions_v1(id, task_id)
 );
 ALTER TABLE schedules_v1 DROP CONSTRAINT IF EXISTS schedules_v1_current_version_fk;
