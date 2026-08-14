@@ -1,6 +1,9 @@
 package worker
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestLocalStoreDeduplicatesOrders(t *testing.T) {
 	s, err := OpenStore(t.TempDir() + "/worker.json")
@@ -39,5 +42,35 @@ func TestLocalStoreSurvivesReopen(t *testing.T) {
 	defer second.Close()
 	if _, err := second.Get("order-1"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestLocalStoreClaimsRecoversOrdersAndPublishesEvents(t *testing.T) {
+	store, err := OpenStore(t.TempDir() + "/runner.sqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.PutOrder(InboxOrder{OrderID: "o", ExecutionAttemptID: "a", RunID: "r", TaskVersionID: "t", RunnerID: "runner", RunnerSessionID: "session", Envelope: "order", LeaseToken: "lease", LeaseNotAfter: time.Now().Add(time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ClaimOrder("o", "boot-1", 42); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkProcessStarted("o"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PutEvent(OutboxEvent{EventID: "e", OrderID: "o", Channel: "state", Sequence: 1, EventType: "started", Envelope: "event"}); err != nil {
+		t.Fatal(err)
+	}
+	pending, err := store.PendingEvents(10)
+	if err != nil || len(pending) != 1 {
+		t.Fatalf("pending events: %#v %v", pending, err)
+	}
+	if err := store.MarkEventPublished("e"); err != nil {
+		t.Fatal(err)
+	}
+	if ids, err := store.RecoverOrders("boot-1"); err != nil || len(ids) != 1 || ids[0] != "o" {
+		t.Fatalf("recovery: %#v %v", ids, err)
 	}
 }
