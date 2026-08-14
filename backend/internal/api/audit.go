@@ -59,9 +59,10 @@ func (s *AuditQueryService) query(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.RLock()
 	items := make([]AuditEvent, 0, len(s.events))
+	excludeTarget := strings.TrimSpace(r.URL.Query().Get("exclude_target"))
 	for _, event := range s.events {
 		created, err := time.Parse(time.RFC3339Nano, event.CreatedAt)
-		if err != nil || !auditMatches(event, filters, created, from, to) {
+		if err != nil || (excludeTarget != "" && strings.EqualFold(event.Target, excludeTarget)) || !auditMatches(event, filters, created, from, to) {
 			continue
 		}
 		items = append(items, event)
