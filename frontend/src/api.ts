@@ -1,0 +1,119 @@
+export type QueryValue = string | number | boolean | null | undefined
+
+export type ApiErrorBody = {
+  error?: string
+  code?: string
+  message?: string
+  fields?: Record<string, string>
+}
+
+export class ApiError extends Error {
+  readonly status: number
+  readonly code?: string
+  readonly fields: Record<string, string>
+  readonly correlationId?: string
+  readonly retryAfter?: number
+
+  constructor(status: number, body: ApiErrorBody | string, headers?: Headers) {
+    const message = typeof body === 'string' ? body : body.message ?? body.error ?? `Request failed (${status})`
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.code = typeof body === 'string' ? undefined : body.code
+    this.fields = typeof body === 'string' ? {} : body.fields ?? {}
+    this.correlationId = headers?.get('X-Correlation-ID') ?? undefined
+    const retryAfter = headers?.get('Retry-After')
+    this.retryAfter = retryAfter ? Number(retryAfter) || undefined : undefined
+  }
+}
+
+export type Page<T> = { items: T[]; page: number; limit: number; total?: number; pages?: number }
+export type Profile = { id: string; username: string; displayName?: string; status?: string; permissions?: string[]; roles?: string[] }
+export type PermissionSnapshot = { permissions: string[]; roles?: string[] }
+export type RuntimeConfig = { brand: string; passwordLogin: boolean; registration: boolean; oidc: boolean; csrfCookie: string }
+export type OidcProvider = { key: string; name?: string; issuer: string; icon?: string; enabled?: boolean }
+export type Task = { id: string; name: string; enabled?: boolean; state?: string; activeVersion?: number; pool?: string; timeoutSeconds?: number; latestRun?: Run }
+export type Schedule = { id: string; name: string; taskId: string; enabled?: boolean; nextFireAt?: string; state?: string; timezone?: string }
+export type Run = { id: string; taskId?: string; taskName?: string; state: string; attempt?: number; runner?: string; trigger?: string; scheduledFor?: string; duration?: number }
+export type Runner = { id: string; name: string; desiredState?: string; observedState?: string; pool?: string; capacity?: number; activeCount?: number; heartbeatAt?: string }
+export type Resource = { id: string; name: string; enabled?: boolean; holder?: string; expiresAt?: string; fencingToken?: number }
+export type AuditEvent = { id: string; actor?: string; action?: string; target?: string; result?: string; createdAt?: string; correlationId?: string; before?: unknown; after?: unknown }
+
+const unsafeMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
+
+function readCookie(name: string): string | undefined {
+  if (typeof document === 'undefined') return undefined
+  const match = document.cookie.split('; ').find((part) => part.startsWith(`${name}=`))
+  return match ? decodeURIComponent(match.slice(name.length + 1)) : undefined
+}
+
+export function buildUrl(baseUrl: string, path: string, query?: Record<string, QueryValue>): string {
+  const url = new URL(path, baseUrl || window.location.origin)
+  for (const [key, value] of Object.entries(query ?? {})) {
+    if (value !== undefined && value !== null && value !== '') url.searchParams.set(key, String(value))
+  }
+  return url.toString()
+}
+
+async function readResponse(response: Response): Promise<unknown> {
+  if (response.status === 204) return undefined
+  const text = await response.text()
+  if (!text) return undefined
+  const contentType = response.headers.get('content-type') ?? ''
+  if (contentType.includes('json')) {
+    try { return JSON.parse(text) } catch { return text }
+  }
+  return text
+}
+
+export class ApiClient {
+  private refreshPromise: Promise<boolean> | null = null
+
+  constructor(private readonly baseUrl = '') {}
+
+  async request<T>(path: string, init: RequestInit = {}, query?: Record<string, QueryValue>, retried = false): Promise<T> {
+    const method = (init.method ?? 'GET').toUpperCase()
+    const headers = new Headers(init.headers)
+    if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
+    if (unsafeMethods.has(method)) {
+      const token = readCookie('glyphflow_csrf')
+      if (token) headers.set('X-CSRF-Token', token)
+    }
+    const response = await fetch(buildUrl(this.baseUrl, path, query), { ...init, method, headers, credentials: 'include' })
+    const body = await readResponse(response)
+    if (response.status === 401 && !retried && path !== '/api/v1/auth/refresh') {
+      const refreshed = await this.refresh()
+      if (refreshed) return this.request<T>(path, init, query, true)
+    }
+    if (!response.ok) throw new ApiError(response.status, (body ?? 'Request failed') as ApiErrorBody | string, response.headers)
+    return body as T
+  }
+
+  get<T>(path: string, query?: Record<string, QueryValue>, signal?: AbortSignal) {
+    return this.request<T>(path, { signal }, query)
+  }
+
+  post<T>(path: string, body?: unknown, signal?: AbortSignal) {
+    return this.request<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body), signal })
+  }
+
+  put<T>(path: string, body: unknown, signal?: AbortSignal) {
+    return this.request<T>(path, { method: 'PUT', body: JSON.stringify(body), signal })
+  }
+
+  delete<T>(path: string, signal?: AbortSignal) {
+    return this.request<T>(path, { method: 'DELETE', signal })
+  }
+
+  private refresh(): Promise<boolean> {
+    if (!this.refreshPromise) {
+      this.refreshPromise = this.request<unknown>('/api/v1/auth/refresh', { method: 'POST' }, undefined, true)
+        .then(() => true)
+        .catch(() => false)
+        .finally(() => { this.refreshPromise = null })
+    }
+    return this.refreshPromise
+  }
+}
+
+export const api = new ApiClient(import.meta.env.VITE_API_URL ?? '')
