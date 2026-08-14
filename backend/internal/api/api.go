@@ -44,6 +44,7 @@ type Server struct {
 	Operations      *OperationsService
 	Runs            *RunService
 	Infrastructure  *InfrastructureService
+	AuditQuery      *AuditQueryService
 }
 
 func (s Server) Handler() http.Handler {
@@ -61,6 +62,9 @@ func (s Server) Handler() http.Handler {
 	}
 	if s.Infrastructure == nil {
 		s.Infrastructure = NewInfrastructureService()
+	}
+	if s.AuditQuery == nil {
+		s.AuditQuery = NewAuditQueryService()
 	}
 	if s.AuthAdmin == nil && s.AuthService != nil {
 		s.AuthAdmin = &AuthAdminService{Auth: s.AuthService, Sessions: s.AuthService.sessions, OIDC: s.OIDC}
@@ -131,7 +135,8 @@ func (s Server) Handler() http.Handler {
 		})))
 	}
 	mux.Handle("/api/v1/runs", s.require("run.read", http.HandlerFunc(s.Runs.collection)))
-	for path, role := range map[string]string{"/api/v1/events": "event.read", "/api/v1/audit": "audit.read"} {
+	mux.Handle("/api/v1/audit", s.require("audit.read", http.HandlerFunc(s.AuditQuery.query)))
+	for path, role := range map[string]string{"/api/v1/events": "event.read"} {
 		mux.Handle(path, s.require(role, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "endpoint is not implemented"})
 		})))
@@ -221,6 +226,9 @@ func (s Server) require(role string, next http.Handler) http.Handler {
 		}
 		if s.Audit != nil {
 			s.Audit(claims, r.Method, r.URL.Path)
+		}
+		if s.AuditQuery != nil {
+			s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, Action: r.Method, Target: r.URL.Path, Result: "success", CorrelationID: r.Header.Get("X-Correlation-ID")})
 		}
 		next.ServeHTTP(w, r)
 	})
