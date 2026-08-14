@@ -137,8 +137,11 @@ func (s *AuthService) Register(username, password string) (AuthUser, error) {
 	if !s.passwordEnabled || !s.registrationEnabled {
 		return AuthUser{}, errors.New("registration is disabled")
 	}
-	if key == "" || password == "" {
+	if key == "" {
 		return AuthUser{}, errors.New("username and password are required")
+	}
+	if err := platform.ValidatePassword(password); err != nil {
+		return AuthUser{}, err
 	}
 	s.mu.RLock()
 	role := s.defaultRole

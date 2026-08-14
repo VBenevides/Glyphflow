@@ -21,3 +21,15 @@ func TestArgon2idPasswordHashingAndUpgrade(t *testing.T) {
 		t.Fatal("malformed hash accepted")
 	}
 }
+
+func TestPasswordPolicy(t *testing.T) {
+	if err := ValidatePassword("short"); err == nil {
+		t.Fatal("short password accepted")
+	}
+	if err := ValidatePassword("valid password"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidatePassword("valid\npassword"); err == nil {
+		t.Fatal("control character accepted")
+	}
+}

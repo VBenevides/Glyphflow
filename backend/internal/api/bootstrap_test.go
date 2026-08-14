@@ -25,3 +25,23 @@ func TestEnsureBootstrapSupportsPasswordDisabledSSO(t *testing.T) {
 		t.Fatal("empty bootstrap accepted")
 	}
 }
+
+func TestEnsureBootstrapEnforcesPasswordPolicy(t *testing.T) {
+	auth, err := NewAuthService("01234567890123456789012345678901", true, true, []byte("0123456789012345"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.AddRole("user"); err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.AddRole("admin"); err != nil {
+		t.Fatal(err)
+	}
+	auth.SetDefaultRole("user")
+	if _, err := auth.EnsureBootstrap("admin", "short", "", ""); err == nil {
+		t.Fatal("short bootstrap password accepted")
+	}
+	if _, err := auth.EnsureBootstrap("admin", "correct horse", "", ""); err != nil {
+		t.Fatal(err)
+	}
+}

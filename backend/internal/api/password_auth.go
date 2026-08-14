@@ -27,6 +27,9 @@ func (s *PasswordAuthService) Register(username, password string) error {
 	if username == "" || password == "" {
 		return errors.New("username and password are required")
 	}
+	if err := platform.ValidatePassword(password); err != nil {
+		return err
+	}
 	hash, err := s.hasher.Hash(password)
 	if err != nil {
 		return err

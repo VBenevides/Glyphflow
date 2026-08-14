@@ -15,7 +15,7 @@ func TestAuthenticationModesAndImmediatePermissionChanges(t *testing.T) {
 		sessions, _ := api.NewSessionManager("01234567890123456789012345678901")
 		password := api.NewPasswordAuthService(enabled, enabled, nil)
 		server := api.Server{PasswordAuth: password, Sessions: sessions, Auth: sessions.Authenticator()}
-		register := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewBufferString(`{"username":"u","password":"password"}`))
+		register := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewBufferString(`{"username":"u","password":"correct horse"}`))
 		response := httptest.NewRecorder()
 		server.Handler().ServeHTTP(response, register)
 		if enabled && response.Code != http.StatusCreated {

@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"golang.org/x/crypto/argon2"
 )
@@ -23,6 +25,18 @@ type PasswordHasher struct {
 
 func DefaultPasswordHasher(pepper []byte) PasswordHasher {
 	return PasswordHasher{Time: 2, Memory: 64 * 1024, Threads: 2, KeyLen: 32, SaltLen: 16, Pepper: append([]byte(nil), pepper...)}
+}
+
+func ValidatePassword(password string) error {
+	if utf8.RuneCountInString(password) < 12 {
+		return errors.New("password must contain at least 12 characters")
+	}
+	for _, character := range password {
+		if unicode.IsControl(character) {
+			return errors.New("password contains an invalid character")
+		}
+	}
+	return nil
 }
 
 func (h PasswordHasher) validate() error {

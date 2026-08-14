@@ -23,6 +23,7 @@ type Config struct {
 	DatabaseURL                 string
 	NATSURL                     string
 	AccessTokenSecret           string
+	PasswordPepper              string
 	WebOrigin                   string
 	PasswordLoginEnabled        bool
 	PasswordRegistrationEnabled bool
@@ -43,6 +44,7 @@ func FromEnv(role Role) (Config, error) {
 		DatabaseURL:                 os.Getenv("DATABASE_URL"),
 		NATSURL:                     os.Getenv("NATS_URL"),
 		AccessTokenSecret:           os.Getenv("ACCESS_TOKEN_SECRET"),
+		PasswordPepper:              os.Getenv("PASSWORD_PEPPER"),
 		WebOrigin:                   os.Getenv("WEB_ORIGIN"),
 		PasswordLoginEnabled:        envBoolDefault("PASSWORD_LOGIN_ENABLED", true),
 		PasswordRegistrationEnabled: envBoolDefault("PASSWORD_REGISTRATION_ENABLED", true),
@@ -85,6 +87,9 @@ func (c Config) Validate() error {
 	if c.Role == ControlPlane {
 		if len([]byte(c.AccessTokenSecret)) < 32 {
 			return errors.New("ACCESS_TOKEN_SECRET must contain at least 32 bytes")
+		}
+		if c.PasswordLoginEnabled && len([]byte(c.PasswordPepper)) < 16 {
+			return errors.New("PASSWORD_PEPPER must contain at least 16 bytes when password login is enabled")
 		}
 		if err := requireURL("WEB_ORIGIN", c.WebOrigin, "http", "https"); err != nil {
 			return err

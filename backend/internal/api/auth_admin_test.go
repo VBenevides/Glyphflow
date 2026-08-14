@@ -36,7 +36,7 @@ func TestAuthenticationAdministrationManagesSSOAndUsers(t *testing.T) {
 		t.Fatal(err)
 	}
 	auth.SetDefaultRole("user")
-	user, err := auth.Register("u", "password")
+	user, err := auth.Register("u", "correct horse")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -28,6 +28,7 @@ mkdir -p "${DATA_DIR:-$project_root/.dev-data}"
   DATABASE_URL="${DATABASE_URL:-postgres://glyphflow:glyphflow@localhost:5432/glyphflow?sslmode=disable}" \
   NATS_URL="${NATS_URL:-nats://localhost:4222}" \
   ACCESS_TOKEN_SECRET="${ACCESS_TOKEN_SECRET:-development-secret-at-least-32-characters}" \
+  PASSWORD_PEPPER="${PASSWORD_PEPPER:-development-password-pepper-at-least-16}" \
   WEB_ORIGIN="${WEB_ORIGIN:-http://localhost:5173}" \
   DATA_DIR="${DATA_DIR:-$project_root/.dev-data}" \
   MAX_MESSAGE_BYTES="${MAX_MESSAGE_BYTES:-1048576}" \
