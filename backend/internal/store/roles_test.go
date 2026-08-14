@@ -39,6 +39,26 @@ func TestRoleRepositoryRoundTrip(t *testing.T) {
 	if err := repository.Assign(ctx, userID, roleID, "manual", "test"); err != nil {
 		t.Fatal(err)
 	}
+	if err := repository.Assign(ctx, userID, roleID, "system-admin", userID); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.ReplaceSourceAssignments(ctx, roleID, "system-admin", nil); err != nil {
+		t.Fatal(err)
+	}
+	_, assignments, err := repository.UserRoles(ctx, userID)
+	if err != nil || len(assignments) != 1 || assignments[0].SourceType != "manual" {
+		t.Fatalf("source reconciliation removed explicit assignment: %#v, %v", assignments, err)
+	}
+	if err := repository.Assign(ctx, userID, roleID, "system-admin", userID); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.Unassign(ctx, userID, roleID); err != nil {
+		t.Fatal(err)
+	}
+	_, assignments, err = repository.UserRoles(ctx, userID)
+	if err != nil || len(assignments) != 1 || assignments[0].SourceType != "system-admin" {
+		t.Fatalf("manual unassignment removed derived assignment: %#v, %v", assignments, err)
+	}
 	permissions, err := repository.EffectivePermissions(ctx, userID)
 	if err != nil || len(permissions) != 1 || permissions[0] != "tasks.read" {
 		t.Fatalf("effective permissions = %#v, %v", permissions, err)

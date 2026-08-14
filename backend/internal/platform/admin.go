@@ -56,6 +56,18 @@ func (g *AdministratorGuard) Add(id string) {
 	g.mu.Unlock()
 }
 
+func (g *AdministratorGuard) Set(administrators ...string) {
+	active := make(map[string]bool, len(administrators))
+	for _, administrator := range administrators {
+		if administrator != "" {
+			active[administrator] = true
+		}
+	}
+	g.mu.Lock()
+	g.active = active
+	g.mu.Unlock()
+}
+
 func ValidateRoleMutation(systemRole bool) error {
 	if systemRole {
 		return ErrSystemRole

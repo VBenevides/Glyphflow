@@ -29,7 +29,9 @@ type RoleRepository interface {
 	ReplacePermissions(context.Context, string, []string) error
 	Delete(context.Context, string) error
 	Assign(context.Context, string, string, string, string) error
+	ReplaceSourceAssignments(context.Context, string, string, []string) error
 	Unassign(context.Context, string, string) error
+	UnassignSource(context.Context, string, string, string) error
 	UserRoles(context.Context, string) ([]RoleRecord, []RoleAssignmentRecord, error)
 	EffectivePermissions(context.Context, string) ([]string, error)
 }
@@ -198,7 +200,11 @@ func (s *RoleStore) Assign(ctx context.Context, userID, roleID, sourceType, sour
 }
 
 func (s *RoleStore) Unassign(ctx context.Context, userID, roleID string) error {
-	result, err := s.pool.Exec(ctx, `DELETE FROM role_assignments WHERE user_id = $1 AND role_id = $2`, userID, roleID)
+	return s.UnassignSource(ctx, userID, roleID, "manual")
+}
+
+func (s *RoleStore) UnassignSource(ctx context.Context, userID, roleID, sourceType string) error {
+	result, err := s.pool.Exec(ctx, `DELETE FROM role_assignments WHERE user_id = $1 AND role_id = $2 AND source_type = $3`, userID, roleID, sourceType)
 	if err != nil {
 		return err
 	}
@@ -206,6 +212,30 @@ func (s *RoleStore) Unassign(ctx context.Context, userID, roleID string) error {
 		return errors.New("assignment not found")
 	}
 	return nil
+}
+
+func (s *RoleStore) ReplaceSourceAssignments(ctx context.Context, roleID, sourceType string, userIDs []string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var exists bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM roles WHERE id = $1)`, roleID).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return errors.New("role not found")
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM role_assignments WHERE role_id = $1 AND source_type = $2`, roleID, sourceType); err != nil {
+		return err
+	}
+	for _, userID := range uniqueNonEmpty(userIDs) {
+		if _, err := tx.Exec(ctx, `INSERT INTO role_assignments (user_id, role_id, source_type, source_key) VALUES ($1, $2, $3, $1)`, userID, roleID, sourceType); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *RoleStore) UserRoles(ctx context.Context, userID string) ([]RoleRecord, []RoleAssignmentRecord, error) {

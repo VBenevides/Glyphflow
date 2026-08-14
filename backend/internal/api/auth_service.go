@@ -119,30 +119,54 @@ func (s *AuthService) SetSystemAdminEmails(emails []string) error {
 	if err != nil {
 		return err
 	}
-	s.mu.Lock()
-	s.systemAdminEmails = configured
-	var administrators []string
+	var systemAdminUsers, activeAdministrators []string
 	for _, record := range users {
-		if !configured[record.Email] {
-			continue
+		if configured[record.Email] {
+			systemAdminUsers = append(systemAdminUsers, record.ID)
 		}
-		administrators = append(administrators, record.ID)
+		roles, _, roleErr := s.roles.UserRoles(context.Background(), record.ID)
+		if roleErr != nil {
+			return roleErr
+		}
+		for _, role := range roles {
+			if role.Name == "admin" && record.Enabled {
+				activeAdministrators = append(activeAdministrators, record.ID)
+				break
+			}
+		}
 	}
-	s.mu.Unlock()
 	adminRole, found, err := s.roles.FindByName(context.Background(), "admin")
 	if err != nil {
 		return err
 	}
-	if !found && len(administrators) > 0 {
+	if !found && len(systemAdminUsers) > 0 {
 		return errors.New("admin role is not configured")
 	}
-	for _, id := range administrators {
-		if err := s.roles.Assign(context.Background(), id, adminRole.ID, "system-admin", id); err != nil {
+	if found {
+		if err := s.roles.ReplaceSourceAssignments(context.Background(), adminRole.ID, "system-admin", systemAdminUsers); err != nil {
 			return err
 		}
-		s.adminGuard.Add(id)
 	}
+	s.mu.Lock()
+	s.systemAdminEmails = configured
+	s.mu.Unlock()
+	s.adminGuard.Set(activeAdministrators...)
 	return nil
+}
+
+func hasSystemAdminAssignment(roles []store.RoleRecord, assignments []store.RoleAssignmentRecord) bool {
+	adminRoles := map[string]bool{}
+	for _, role := range roles {
+		if role.Name == "admin" {
+			adminRoles[role.ID] = true
+		}
+	}
+	for _, assignment := range assignments {
+		if assignment.SourceType == "system-admin" && adminRoles[assignment.RoleID] {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *AuthService) SetDefaultRole(role string) {
@@ -578,7 +602,7 @@ func (s *AuthService) Users() []map[string]any {
 	users := make([]map[string]any, 0, len(records))
 	for _, record := range records {
 		user := toAuthUser(record)
-		userRoles, _, err := s.roles.UserRoles(context.Background(), user.ID)
+		userRoles, assignments, err := s.roles.UserRoles(context.Background(), user.ID)
 		if err != nil {
 			continue
 		}
@@ -592,7 +616,7 @@ func (s *AuthService) Users() []map[string]any {
 			methods = append(methods, "password")
 		}
 		s.mu.RLock()
-		systemAdmin := s.systemAdminEmails[user.Email]
+		systemAdmin := s.systemAdminEmails[user.Email] || hasSystemAdminAssignment(userRoles, assignments)
 		for key, owner := range s.oidcIdentities {
 			if owner == user.ID {
 				methods = append(methods, strings.SplitN(key, "\x00", 2)[0])
@@ -719,12 +743,12 @@ func (s *AuthService) DisableUser(userID string) error {
 	if !ok {
 		return errors.New("user not found")
 	}
-	userRoles, _, err := s.roles.UserRoles(context.Background(), userID)
+	userRoles, assignments, err := s.roles.UserRoles(context.Background(), userID)
 	if err != nil {
 		return err
 	}
 	s.mu.RLock()
-	systemAdmin := s.systemAdminEmails[user.Email]
+	systemAdmin := s.systemAdminEmails[user.Email] || hasSystemAdminAssignment(userRoles, assignments)
 	s.mu.RUnlock()
 	isAdmin := false
 	for _, role := range userRoles {
@@ -764,12 +788,12 @@ func (s *AuthService) Revoke(userID, role string) error {
 	if !roleFound {
 		return errors.New("role not assigned")
 	}
-	userRoles, _, err := s.roles.UserRoles(context.Background(), userID)
+	userRoles, assignments, err := s.roles.UserRoles(context.Background(), userID)
 	if err != nil {
 		return err
 	}
 	s.mu.RLock()
-	systemAdmin := s.systemAdminEmails[user.Email]
+	systemAdmin := s.systemAdminEmails[user.Email] || hasSystemAdminAssignment(userRoles, assignments)
 	s.mu.RUnlock()
 	assigned := false
 	for _, assignedRole := range userRoles {
@@ -834,7 +858,7 @@ func (s *AuthService) Profile(claims Claims) map[string]any {
 		assignmentSource[assignment.RoleID] = assignment.SourceType
 	}
 	s.mu.RLock()
-	systemAdmin := s.systemAdminEmails[user.Email]
+	systemAdmin := s.systemAdminEmails[user.Email] || hasSystemAdminAssignment(rolesForUser, assignments)
 	roles := []string{}
 	roleSources := []string{}
 	permissions := map[string]bool{}

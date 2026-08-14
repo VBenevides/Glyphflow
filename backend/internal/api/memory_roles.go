@@ -136,17 +136,51 @@ func (s *memoryRoleRepository) Assign(_ context.Context, userID, roleID, sourceT
 }
 
 func (s *memoryRoleRepository) Unassign(_ context.Context, userID, roleID string) error {
+	return s.UnassignSource(context.Background(), userID, roleID, "manual")
+}
+
+func (s *memoryRoleRepository) UnassignSource(_ context.Context, userID, roleID, sourceType string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	removed := false
 	for key, assignment := range s.assignments[userID] {
-		if assignment.RoleID == roleID {
+		if assignment.RoleID == roleID && assignment.SourceType == sourceType {
 			delete(s.assignments[userID], key)
 			removed = true
 		}
 	}
 	if !removed {
 		return errors.New("assignment not found")
+	}
+	return nil
+}
+
+func (s *memoryRoleRepository) ReplaceSourceAssignments(_ context.Context, roleID, sourceType string, userIDs []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.roles[roleID]; !ok {
+		return errors.New("role not found")
+	}
+	desired := map[string]bool{}
+	for _, userID := range uniqueStrings(userIDs) {
+		desired[userID] = true
+	}
+	for userID, assignments := range s.assignments {
+		for key, assignment := range assignments {
+			if assignment.RoleID == roleID && assignment.SourceType == sourceType {
+				delete(assignments, key)
+			}
+		}
+		if len(assignments) == 0 {
+			delete(s.assignments, userID)
+		}
+	}
+	for _, userID := range uniqueStrings(userIDs) {
+		if s.assignments[userID] == nil {
+			s.assignments[userID] = map[string]store.RoleAssignmentRecord{}
+		}
+		key := roleID + "\x00" + sourceType + "\x00" + userID
+		s.assignments[userID][key] = store.RoleAssignmentRecord{UserID: userID, RoleID: roleID, SourceType: sourceType, SourceKey: userID}
 	}
 	return nil
 }

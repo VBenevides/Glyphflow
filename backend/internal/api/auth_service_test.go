@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -127,6 +128,64 @@ func TestSystemAdminEmailsGrantImmutableAdministrators(t *testing.T) {
 	}
 	if _, err := auth.Register("not-an-email", "another correct horse"); err == nil {
 		t.Fatal("invalid email accepted")
+	}
+}
+
+func TestSystemAdminReconciliationPreservesManualAssignments(t *testing.T) {
+	auth, err := NewAuthService("01234567890123456789012345678901", true, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.AddRole("user"); err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.AddRole("admin"); err != nil {
+		t.Fatal(err)
+	}
+	auth.SetDefaultRole("user")
+	if err := auth.SetSystemAdminEmails([]string{"admin@example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	admin, err := auth.Register("admin@example.com", "correct horse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.Grant(admin.ID, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	second, err := auth.Register("second@example.com", "another correct horse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.Grant(second.ID, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.SetSystemAdminEmails(nil); err != nil {
+		t.Fatal(err)
+	}
+	roles, assignments, err := auth.roles.UserRoles(context.Background(), admin.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adminRoleID := ""
+	for _, role := range roles {
+		if role.Name == "admin" {
+			adminRoleID = role.ID
+		}
+	}
+	manual, derived := false, false
+	for _, assignment := range assignments {
+		if assignment.RoleID != adminRoleID {
+			continue
+		}
+		manual = manual || assignment.SourceType == "manual"
+		derived = derived || assignment.SourceType == "system-admin"
+	}
+	if !manual || derived {
+		t.Fatalf("reconciled assignments = %#v", assignments)
+	}
+	if err := auth.Revoke(admin.ID, "admin"); err != nil {
+		t.Fatalf("manual administrator demotion failed: %v", err)
 	}
 }
 
