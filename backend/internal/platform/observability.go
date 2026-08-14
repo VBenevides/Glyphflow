@@ -30,6 +30,19 @@ type AuditRecord struct {
 	Result  string    `json:"result"`
 	At      time.Time `json:"at"`
 }
+
+type SecurityAuditRecord struct {
+	ActorType  string            `json:"actor_type"`
+	ActorID    string            `json:"actor_id"`
+	SessionID  string            `json:"session_id"`
+	Endpoint   string            `json:"endpoint"`
+	TargetType string            `json:"target_type"`
+	TargetID   string            `json:"target_id"`
+	Result     string            `json:"result"`
+	Before     map[string]string `json:"before,omitempty"`
+	After      map[string]string `json:"after,omitempty"`
+	At         time.Time         `json:"at"`
+}
 type AuditLog struct {
 	mu      sync.Mutex
 	Records []AuditRecord
@@ -68,6 +81,16 @@ func (a *AuditLog) Add(record AuditRecord) {
 	if err := os.WriteFile(tmp, raw, 0600); err == nil {
 		_ = os.Rename(tmp, a.path)
 	}
+}
+
+func (a *AuditLog) AddSecurity(record SecurityAuditRecord) {
+	a.Add(AuditRecord{
+		Actor:  record.ActorType + ":" + record.ActorID,
+		Action: record.Endpoint,
+		Target: record.TargetType + ":" + record.TargetID,
+		Result: record.Result,
+		At:     record.At,
+	})
 }
 
 type Metrics struct {
