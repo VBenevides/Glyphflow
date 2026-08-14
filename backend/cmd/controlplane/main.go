@@ -36,6 +36,12 @@ func main() {
 		os.Exit(1)
 	}
 	authService.SetDefaultRole("user")
+	if cfg.BootstrapUsername != "" {
+		if _, err := authService.EnsureBootstrap(cfg.BootstrapUsername, cfg.BootstrapPassword, cfg.BootstrapOIDCProvider, cfg.BootstrapOIDCSubject); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	}
 	server := &http.Server{
 		Addr:              ":8080",
 		Handler:           api.Server{AuthService: authService, Auth: authService.Authenticator(), Permissions: authService.Permissions, CSRFOrigin: cfg.WebOrigin}.Handler(),

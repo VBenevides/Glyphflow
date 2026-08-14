@@ -48,6 +48,54 @@ func (s *AuthService) SetDefaultRole(role string) {
 	s.defaultRole = strings.TrimSpace(role)
 	s.mu.Unlock()
 }
+
+func (s *AuthService) EnsureBootstrap(username, password, provider, subject string) (AuthUser, error) {
+	key := platform.NormalizeIdentityKey(username)
+	if key == "" {
+		return AuthUser{}, errors.New("bootstrap username is required")
+	}
+	s.mu.RLock()
+	existingID := s.byUsername[key]
+	s.mu.RUnlock()
+	if existingID != "" {
+		if err := s.Grant(existingID, "admin"); err != nil {
+			return AuthUser{}, err
+		}
+		user, _ := s.User(existingID)
+		return user, nil
+	}
+	var user AuthUser
+	var err error
+	if password != "" {
+		user, err = s.Register(key, password)
+	} else if provider != "" && subject != "" {
+		s.mu.Lock()
+		if s.defaultRole == "" {
+			s.mu.Unlock()
+			return AuthUser{}, errors.New("default role is not configured")
+		}
+		id, idErr := randomID()
+		if idErr != nil {
+			s.mu.Unlock()
+			return AuthUser{}, idErr
+		}
+		user = AuthUser{ID: id, Username: key, Enabled: true}
+		s.users[id] = user
+		s.byUsername[key] = id
+		s.roles[id] = map[string]bool{s.defaultRole: true}
+		s.oidcIdentities[platform.NormalizeIdentityKey(provider)+"\x00"+subject] = id
+		s.mu.Unlock()
+	} else {
+		return AuthUser{}, errors.New("bootstrap password or OIDC identity is required")
+	}
+	if err != nil {
+		return AuthUser{}, err
+	}
+	if err := s.Grant(user.ID, "admin"); err != nil {
+		return AuthUser{}, err
+	}
+	return user, nil
+}
 func (s *AuthService) SetAudit(fn func(string, string, string)) {
 	s.mu.Lock()
 	s.audit = fn

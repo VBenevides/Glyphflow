@@ -27,6 +27,10 @@ type Config struct {
 	PasswordLoginEnabled        bool
 	PasswordRegistrationEnabled bool
 	BootstrapUsername           string
+	BootstrapPassword           string
+	BootstrapOIDCProvider       string
+	BootstrapOIDCSubject        string
+	Environment                 string
 	DataDir                     string
 	RunnerID                    string
 	MaxMessageBytes             int
@@ -43,6 +47,10 @@ func FromEnv(role Role) (Config, error) {
 		PasswordLoginEnabled:        envBoolDefault("PASSWORD_LOGIN_ENABLED", true),
 		PasswordRegistrationEnabled: envBoolDefault("PASSWORD_REGISTRATION_ENABLED", true),
 		BootstrapUsername:           strings.TrimSpace(os.Getenv("GLYPHFLOW_BOOTSTRAP_USERNAME")),
+		BootstrapPassword:           os.Getenv("GLYPHFLOW_BOOTSTRAP_PASSWORD"),
+		BootstrapOIDCProvider:       strings.TrimSpace(os.Getenv("GLYPHFLOW_BOOTSTRAP_OIDC_PROVIDER")),
+		BootstrapOIDCSubject:        strings.TrimSpace(os.Getenv("GLYPHFLOW_BOOTSTRAP_OIDC_SUBJECT")),
+		Environment:                 strings.ToLower(strings.TrimSpace(os.Getenv("ENVIRONMENT"))),
 		DataDir:                     os.Getenv("DATA_DIR"),
 		RunnerID:                    os.Getenv("RUNNER_ID"),
 	}
@@ -80,6 +88,9 @@ func (c Config) Validate() error {
 		}
 		if err := requireURL("WEB_ORIGIN", c.WebOrigin, "http", "https"); err != nil {
 			return err
+		}
+		if c.Environment == "production" && c.BootstrapUsername == "" {
+			return errors.New("production requires GLYPHFLOW_BOOTSTRAP_USERNAME")
 		}
 		return requireURL("DATABASE_URL", c.DatabaseURL, "postgres", "postgresql")
 	}
