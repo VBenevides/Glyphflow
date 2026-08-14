@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -16,7 +17,11 @@ type AuthUser struct {
 	ID, Username, Email string
 	Enabled             bool
 }
-type AuthTokens struct{ AccessToken, RefreshToken, SessionID string }
+type AuthTokens struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	SessionID    string `json:"session_id"`
+}
 
 type AuthService struct {
 	mu                                   sync.RWMutex
@@ -395,7 +400,13 @@ func (s *AuthService) Profile(claims Claims) map[string]any {
 		}
 	}
 	s.mu.RUnlock()
-	return map[string]any{"id": user.ID, "username": user.Username, "email": user.Email, "roles": roles, "permissions": permissions, "sessions": s.sessions.List(claims.UserID)}
+	sort.Strings(roles)
+	permissionKeys := make([]string, 0, len(permissions))
+	for permission := range permissions {
+		permissionKeys = append(permissionKeys, permission)
+	}
+	sort.Strings(permissionKeys)
+	return map[string]any{"id": user.ID, "username": user.Username, "email": user.Email, "roles": roles, "permissions": permissionKeys, "sessions": s.sessions.List(claims.UserID)}
 }
 
 func randomID() (string, error) {

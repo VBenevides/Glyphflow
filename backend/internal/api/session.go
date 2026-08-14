@@ -33,9 +33,9 @@ type SessionManager struct {
 	sessions map[string]accessTokenPayload
 }
 type SessionInfo struct {
-	ID        string
-	UserID    string
-	ExpiresAt time.Time
+	ID        string    `json:"id"`
+	UserID    string    `json:"userId"`
+	ExpiresAt time.Time `json:"expiresAt"`
 }
 
 func NewSessionManager(secret string) (*SessionManager, error) {

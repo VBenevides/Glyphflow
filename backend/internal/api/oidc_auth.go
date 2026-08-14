@@ -17,9 +17,15 @@ import (
 )
 
 type OIDCProvider struct {
-	Key, Issuer, ClientID, Callback, AuthURL, Audience string
-	Enabled, AutoProvision                             bool
-	Callbacks                                          []string
+	Key           string   `json:"key"`
+	Issuer        string   `json:"issuer"`
+	ClientID      string   `json:"clientId,omitempty"`
+	Callback      string   `json:"callback"`
+	AuthURL       string   `json:"authUrl,omitempty"`
+	Audience      string   `json:"audience,omitempty"`
+	Enabled       bool     `json:"enabled"`
+	AutoProvision bool     `json:"autoProvision,omitempty"`
+	Callbacks     []string `json:"callbacks,omitempty"`
 }
 type OIDCService struct {
 	mu         sync.RWMutex

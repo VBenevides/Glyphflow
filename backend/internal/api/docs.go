@@ -17,7 +17,7 @@ const openAPISpec = `{
       "Credentials": {"type": "object", "required": ["username", "password"], "properties": {"username": {"type": "string"}, "password": {"type": "string", "format": "password"}}},
       "RefreshRequest": {"type": "object", "required": ["session_id", "refresh_token"], "properties": {"session_id": {"type": "string"}, "refresh_token": {"type": "string"}}},
       "SessionRequest": {"type": "object", "required": ["session_id"], "properties": {"session_id": {"type": "string"}}},
-      "TokenResponse": {"type": "object", "properties": {"AccessToken": {"type": "string"}, "RefreshToken": {"type": "string"}, "SessionID": {"type": "string"}, "access_token": {"type": "string"}}},
+      "TokenResponse": {"type": "object", "required": ["access_token", "refresh_token", "session_id"], "properties": {"access_token": {"type": "string"}, "refresh_token": {"type": "string"}, "session_id": {"type": "string"}}},
       "Error": {"type": "object", "properties": {"error": {"type": "string"}}}
     }
   },
