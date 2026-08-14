@@ -61,3 +61,19 @@ func (d *DispatchCoordinator) Pending() []DispatchOutbox {
 	}
 	return out
 }
+
+func (d *DispatchCoordinator) PublishPending(publish func(DispatchOutbox) error) (int, error) {
+	if publish == nil {
+		return 0, errors.New("publisher is required")
+	}
+	published := 0
+	for _, item := range d.Pending() {
+		if err := publish(item); err != nil {
+			return published, err
+		}
+		if d.MarkPublished(item.MessageID) {
+			published++
+		}
+	}
+	return published, nil
+}
