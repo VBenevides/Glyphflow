@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from './auth'
 import { api, type Page, type Task } from './api'
 import { Button, DataTable, EmptyState, Input, MetricCard, PageHeader, Pagination, StatusPill } from './components'
-import { QueryState } from './query'
+import { QueryState, useDebouncedValue } from './query'
 import { hasPermission } from './permissions'
 
 export function taskQuery(search: string, state: string, page: number) {
@@ -17,7 +17,8 @@ export function TaskInventoryPage() {
   const [search, setSearch] = useState('')
   const [state, setState] = useState('')
   const [page, setPage] = useState(1)
-  const query = useQuery({ queryKey: ['tasks', search, state, page], queryFn: ({ signal }) => api.get<Page<Task>>('/api/v1/tasks', taskQuery(search, state, page), signal) })
+  const debouncedSearch = useDebouncedValue(search)
+  const query = useQuery({ queryKey: ['tasks', debouncedSearch, state, page], queryFn: ({ signal }) => api.get<Page<Task>>('/api/v1/tasks', taskQuery(debouncedSearch, state, page), signal) })
   const canManage = hasPermission(permissions, 'tasks.manage')
   return <main className="gf-content"><PageHeader title="Tasks" description="Versioned commands and their schedules." action={canManage && <Button onClick={() => navigate('/tasks/new')}>Create task</Button>} /><div className="gf-filter-bar"><label>Search <Input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} placeholder="Name" /></label><label>State <select className="gf-input" value={state} onChange={(event) => { setState(event.target.value); setPage(1) }}><option value="">All</option><option value="enabled">Enabled</option><option value="disabled">Disabled</option></select></label></div><QueryState query={query} empty="Create a task version to schedule work.">{(data) => data.items.length ? <><DataTable caption="Tasks" rows={data.items} columns={[{ key: 'name', label: 'Task', render: (task) => <Link to={`/tasks/${task.id}`}>{task.name}</Link> }, { key: 'enabled', label: 'State', render: (task) => <StatusPill status={task.enabled === false ? 'disabled' : 'enabled'} /> }, { key: 'activeVersion', label: 'Version' }, { key: 'pool', label: 'Runner pool' }, { key: 'latestRun', label: 'Latest run', render: (task) => task.latestRun ? <StatusPill status={task.latestRun.state} /> : '—' }]} /><Pagination page={data.page} pages={data.pages ?? (data.total ? Math.ceil(data.total / data.limit) : 1)} onChange={setPage} /></> : <EmptyState title="No tasks">Create a task version to schedule work.</EmptyState>}</QueryState></main>
 }

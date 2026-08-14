@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from './auth'
 import { api, type Page, type Schedule } from './api'
 import { Button, DataTable, EmptyState, Input, PageHeader, Pagination, StatusPill } from './components'
-import { QueryState } from './query'
+import { QueryState, useDebouncedValue } from './query'
 import { describeError, FieldError } from './errors'
 import { useUnsavedChanges } from './unsaved'
 
@@ -28,8 +28,8 @@ export function previewPayload(draft: ScheduleDraft) {
 }
 
 export function ScheduleInventoryPage() {
-  const { permissions } = useAuth(); const navigate = useNavigate(); const [page, setPage] = useState(1); const [task, setTask] = useState('')
-  const query = useQuery({ queryKey: ['schedules', page, task], queryFn: ({ signal }) => api.get<Page<Schedule>>('/api/v1/schedules', { page, task: task || undefined }, signal) })
+  const { permissions } = useAuth(); const navigate = useNavigate(); const [page, setPage] = useState(1); const [task, setTask] = useState(''); const debouncedTask = useDebouncedValue(task)
+  const query = useQuery({ queryKey: ['schedules', page, debouncedTask], queryFn: ({ signal }) => api.get<Page<Schedule>>('/api/v1/schedules', { page, task: debouncedTask || undefined }, signal) })
   return <main className="gf-content"><PageHeader title="Schedules" description="Versioned triggers with explicit time-zone and misfire policy." action={permissions.includes('tasks.manage') && <Button onClick={() => navigate('/schedules/new')}>Create schedule</Button>} /><div className="gf-filter-bar"><label>Task ID<Input value={task} onChange={(event) => { setTask(event.target.value); setPage(1) }} /></label></div><QueryState query={query} empty="Create a schedule to trigger a task.">{(data) => data.items.length ? <><DataTable caption="Schedules" rows={data.items} columns={[{ key: 'name', label: 'Schedule', render: (schedule) => <Link to={`/schedules/${schedule.id}/edit`}>{schedule.name}</Link> }, { key: 'taskId', label: 'Task' }, { key: 'timezone', label: 'Time zone' }, { key: 'nextFireAt', label: 'Next fire' }, { key: 'enabled', label: 'State', render: (schedule) => <StatusPill status={schedule.enabled === false ? 'disabled' : 'enabled'} /> }]} /><Pagination page={data.page} pages={data.pages ?? 1} onChange={setPage} /></> : <EmptyState title="No schedules">Create a schedule to trigger a task.</EmptyState>}</QueryState></main>
 }
 

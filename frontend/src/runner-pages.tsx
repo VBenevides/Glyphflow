@@ -5,7 +5,7 @@ import { useAuth } from './auth'
 import { api, type Page, type Runner } from './api'
 import { DangerousAction } from './actions'
 import { Button, DataTable, EmptyState, Input, PageHeader, Pagination, StatusPill } from './components'
-import { QueryState } from './query'
+import { QueryState, useDebouncedValue } from './query'
 import { hasPermission } from './permissions'
 
 export function runnerIsStale(lastHeartbeat?: string, now = Date.now(), thresholdMs = 60_000) {
@@ -18,7 +18,8 @@ function hasActiveRunners(data?: Page<Runner>) {
 
 export function RunnerInventoryPage() {
   const { permissions } = useAuth(); const navigate = useNavigate(); const [search, setSearch] = useState(''); const [page, setPage] = useState(1)
-  const query = useQuery({ queryKey: ['runners', search, page], queryFn: ({ signal }) => api.get<Page<Runner>>('/api/v1/runners', { search: search || undefined, page }, signal), refetchInterval: (current) => hasActiveRunners(current.state.data as Page<Runner> | undefined) ? 15_000 : false })
+  const debouncedSearch = useDebouncedValue(search)
+  const query = useQuery({ queryKey: ['runners', debouncedSearch, page], queryFn: ({ signal }) => api.get<Page<Runner>>('/api/v1/runners', { search: debouncedSearch || undefined, page }, signal), refetchInterval: (current) => hasActiveRunners(current.state.data as Page<Runner> | undefined) ? 15_000 : false })
   const manage = hasPermission(permissions, 'runners.manage')
   return <main className="gf-content"><PageHeader title="Runners and pools" description="Capacity, sessions, capabilities, and lifecycle state." /><div className="gf-filter-bar"><label>Search<Input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} placeholder="Name or pool" /></label></div><QueryState query={query} empty="Enroll a runner to execute tasks.">{(data) => data.items.length ? <><DataTable caption="Runners" rows={data.items} columns={[{ key: 'name', label: 'Runner', render: (runner) => <Link to={`/runners/${runner.id}`}>{runner.name}</Link> }, { key: 'pool', label: 'Pool' }, { key: 'desiredState', label: 'Desired', render: (runner) => <StatusPill status={runner.desiredState ?? '—'} /> }, { key: 'observedState', label: 'Observed', render: (runner) => <StatusPill status={runner.observedState ?? '—'} /> }, { key: 'capacity', label: 'Capacity', render: (runner) => `${runner.activeCount ?? 0}/${runner.capacity ?? 0}` }, { key: 'heartbeatAt', label: 'Heartbeat', render: (runner) => runnerIsStale(runner.heartbeatAt) ? <span className="gf-stale-warning">Stale</span> : runner.heartbeatAt ?? '—' }]} /><Pagination page={data.page} pages={data.pages ?? 1} onChange={setPage} /></> : <EmptyState title="No runners">Enroll a runner to execute tasks.</EmptyState>}</QueryState>{manage && <Button onClick={() => navigate('/runners/enroll')}>Enroll runner</Button>}</main>
 }
