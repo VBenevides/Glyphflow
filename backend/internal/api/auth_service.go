@@ -86,6 +86,12 @@ func (s *AuthService) SetDefaultRole(role string) {
 	s.mu.Unlock()
 }
 
+func (s *AuthService) AuthSettings() map[string]any {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return map[string]any{"passwordLogin": s.passwordEnabled, "registration": s.registrationEnabled, "defaultRole": s.defaultRole}
+}
+
 func (s *AuthService) PasswordLoginEnabled() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

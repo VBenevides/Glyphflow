@@ -224,12 +224,34 @@ func (s Server) require(role string, next http.Handler) http.Handler {
 		if s.Audit != nil {
 			s.Audit(claims, r.Method, r.URL.Path)
 		}
+		recorder := &auditResponseWriter{ResponseWriter: w}
+		next.ServeHTTP(recorder, r)
 		if s.AuditQuery != nil {
 			actorName, actorEmail := s.auditActor(claims.UserID)
-			s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Target: r.URL.Path, Result: "success", CorrelationID: r.Header.Get("X-Correlation-ID")})
+			result := "success"
+			if recorder.status >= http.StatusBadRequest {
+				result = "failure"
+			}
+			s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Target: r.URL.Path, Result: result, CorrelationID: r.Header.Get("X-Correlation-ID")})
 		}
-		next.ServeHTTP(w, r)
 	})
+}
+
+type auditResponseWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *auditResponseWriter) WriteHeader(status int) {
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *auditResponseWriter) Write(value []byte) (int, error) {
+	if w.status == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.ResponseWriter.Write(value)
 }
 
 func (s Server) auditActor(userID string) (string, string) {
@@ -244,6 +266,9 @@ func (s Server) auditActor(userID string) (string, string) {
 }
 
 func (s Server) effectivePermissions(claims Claims) map[string]bool {
+	if len(claims.Roles) > 0 {
+		return claims.Roles
+	}
 	if s.Permissions != nil {
 		return s.Permissions(claims)
 	}
