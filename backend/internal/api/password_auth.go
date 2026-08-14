@@ -68,6 +68,9 @@ func (s Server) passwordRoutes(mux *http.ServeMux) {
 				writeJSON(w, 400, map[string]string{"error": "registration failed"})
 				return
 			}
+			if !s.allowAuth(w, r, "password-register|"+platform.NormalizeIdentityKey(in.Username)) {
+				return
+			}
 			user, err := s.AuthService.Register(in.Username, in.Password)
 			if err != nil {
 				writeJSON(w, 400, map[string]string{"error": "registration failed"})
@@ -83,6 +86,9 @@ func (s Server) passwordRoutes(mux *http.ServeMux) {
 			var in passwordRequest
 			if json.NewDecoder(r.Body).Decode(&in) != nil {
 				writeJSON(w, 401, map[string]string{"error": "invalid credentials"})
+				return
+			}
+			if !s.allowAuth(w, r, "password-login|"+platform.NormalizeIdentityKey(in.Username)) {
 				return
 			}
 			tokens, err := s.AuthService.Login(in.Username, in.Password)
@@ -143,7 +149,14 @@ func (s Server) passwordRoutes(mux *http.ServeMux) {
 			return
 		}
 		var in passwordRequest
-		if json.NewDecoder(r.Body).Decode(&in) != nil || s.PasswordAuth.Register(in.Username, in.Password) != nil {
+		if json.NewDecoder(r.Body).Decode(&in) != nil {
+			writeJSON(w, 400, map[string]string{"error": "registration failed"})
+			return
+		}
+		if !s.allowAuth(w, r, "password-register|"+platform.NormalizeIdentityKey(in.Username)) {
+			return
+		}
+		if s.PasswordAuth.Register(in.Username, in.Password) != nil {
 			writeJSON(w, 400, map[string]string{"error": "registration failed"})
 			return
 		}
@@ -155,7 +168,14 @@ func (s Server) passwordRoutes(mux *http.ServeMux) {
 			return
 		}
 		var in passwordRequest
-		if json.NewDecoder(r.Body).Decode(&in) != nil || !s.PasswordAuth.Verify(in.Username, in.Password) || s.Sessions == nil {
+		if json.NewDecoder(r.Body).Decode(&in) != nil {
+			writeJSON(w, 401, map[string]string{"error": "invalid credentials"})
+			return
+		}
+		if !s.allowAuth(w, r, "password-login|"+platform.NormalizeIdentityKey(in.Username)) {
+			return
+		}
+		if !s.PasswordAuth.Verify(in.Username, in.Password) || s.Sessions == nil {
 			writeJSON(w, 401, map[string]string{"error": "invalid credentials"})
 			return
 		}

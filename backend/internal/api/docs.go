@@ -3,6 +3,8 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+
+	"github.com/VBenevides/Glyphflow/backend/internal/platform"
 )
 
 const openAPISpec = `{
@@ -129,6 +131,9 @@ func (s Server) docsLogin(w http.ResponseWriter, r *http.Request) {
 	var in passwordRequest
 	if json.NewDecoder(r.Body).Decode(&in) != nil || s.AuthService == nil {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
+		return
+	}
+	if !s.allowAuth(w, r, "password-login|"+platform.NormalizeIdentityKey(in.Username)) {
 		return
 	}
 	tokens, err := s.AuthService.Login(in.Username, in.Password)

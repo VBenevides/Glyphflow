@@ -6,6 +6,9 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/VBenevides/Glyphflow/backend/internal/platform"
 )
 
 type Claims struct {
@@ -17,23 +20,27 @@ type Claims struct {
 type Authenticator func(*http.Request) (Claims, bool)
 
 type Server struct {
-	Auth         Authenticator
-	Permissions  func(Claims) map[string]bool
-	PasswordAuth *PasswordAuthService
-	AuthService  *AuthService
-	Sessions     *SessionManager
-	OIDC         *OIDCService
-	AuthAdmin    *AuthAdminService
-	Roles        *RoleAdminService
-	CurrentUser  *CurrentUserService
-	Audit        func(Claims, string, string)
-	Ready        func(context.Context) error
-	CSRFOrigin   string
+	Auth            Authenticator
+	Permissions     func(Claims) map[string]bool
+	PasswordAuth    *PasswordAuthService
+	AuthService     *AuthService
+	Sessions        *SessionManager
+	OIDC            *OIDCService
+	AuthAdmin       *AuthAdminService
+	Roles           *RoleAdminService
+	CurrentUser     *CurrentUserService
+	Audit           func(Claims, string, string)
+	Ready           func(context.Context) error
+	CSRFOrigin      string
+	AuthRateLimiter *platform.RateLimiter
 }
 
 func (s Server) Handler() http.Handler {
 	if err := ValidateRouteRegistry(RouteRegistry()); err != nil {
 		panic(err)
+	}
+	if s.AuthRateLimiter == nil {
+		s.AuthRateLimiter = platform.NewRateLimiter(5, time.Minute)
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/docs", swaggerUI)

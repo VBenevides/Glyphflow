@@ -287,6 +287,9 @@ func (s Server) oidcRoutes(mux *http.ServeMux) {
 			writeJSON(w, 405, map[string]string{"error": "method not allowed"})
 			return
 		}
+		if !s.allowAuth(w, r, "oidc-challenge|"+platform.NormalizeIdentityKey(r.URL.Query().Get("provider"))) {
+			return
+		}
 		redirect, err := s.OIDC.Challenge(r.URL.Query().Get("provider"), r.URL.Query().Get("redirect_uri"), time.Now())
 		if err != nil {
 			writeJSON(w, 400, map[string]string{"error": "OIDC challenge failed"})
@@ -297,6 +300,9 @@ func (s Server) oidcRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/auth/oidc/callback", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+			return
+		}
+		if !s.allowAuth(w, r, "oidc-callback") {
 			return
 		}
 		if s.AuthService == nil {
