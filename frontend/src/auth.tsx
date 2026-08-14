@@ -25,6 +25,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<Error | null>(null)
   const [attempt, setAttempt] = useState(0)
   useEffect(() => {
+    api.onSessionExpired = () => setState((current) => ({ ...current, profile: null, permissions: [] }))
+    return () => { api.onSessionExpired = undefined }
+  }, [])
+  useEffect(() => {
     const controller = new AbortController()
     setLoading(true)
     setError(null)

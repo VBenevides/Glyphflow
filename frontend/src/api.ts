@@ -68,6 +68,7 @@ async function readResponse(response: Response): Promise<unknown> {
 
 export class ApiClient {
   private refreshPromise: Promise<boolean> | null = null
+  onSessionExpired?: () => void
 
   constructor(private readonly baseUrl = '') {}
 
@@ -110,6 +111,10 @@ export class ApiClient {
       this.refreshPromise = this.request<unknown>('/api/v1/auth/refresh', { method: 'POST' }, undefined, true)
         .then(() => true)
         .catch(() => false)
+        .then((refreshed) => {
+          if (!refreshed) this.onSessionExpired?.()
+          return refreshed
+        })
         .finally(() => { this.refreshPromise = null })
     }
     return this.refreshPromise
