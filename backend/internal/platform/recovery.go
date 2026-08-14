@@ -20,7 +20,7 @@ func RetryDelay(attempt int, base, max time.Duration) time.Duration {
 }
 func FinalState(state string) bool {
 	switch state {
-	case "completed", "failed", "timed_out", "cancelled", "lost":
+	case "completed", "failed", "timed_out", "cancelled", "lost", "unknown":
 		return true
 	default:
 		return false
@@ -31,14 +31,18 @@ func TransitionAllowed(from, to string) bool {
 		return true
 	}
 	switch from {
-	case "queued":
-		return to == "dispatched" || to == "cancelled"
+	case "queued", "waiting":
+		return to == "dispatched" || to == "cancelled" || to == "failed" || to == "running"
 	case "dispatched":
 		return to == "accepted" || to == "failed" || to == "cancelled"
 	case "accepted":
 		return to == "running" || to == "failed" || to == "cancelled"
-	case "running":
-		return FinalState(to)
+	case "running", "started":
+		return FinalState(to) || to == "retry_wait" || to == "cancelling"
+	case "retry_wait":
+		return to == "waiting" || to == "failed"
+	case "cancelling":
+		return to == "completed" || to == "cancelled" || to == "unknown"
 	default:
 		return false
 	}

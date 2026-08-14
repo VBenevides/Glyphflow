@@ -37,7 +37,7 @@ func TestEnrollmentRedactionAndPaths(t *testing.T) {
 	}
 }
 func TestRecoveryAndTransitions(t *testing.T) {
-	if !TransitionAllowed("running", "completed") || TransitionAllowed("completed", "running") {
+	if !TransitionAllowed("running", "completed") || !TransitionAllowed("running", "unknown") || !TransitionAllowed("cancelling", "cancelled") || TransitionAllowed("completed", "running") {
 		t.Fatal("state transition policy failed")
 	}
 	if RetryDelay(10, time.Second, 5*time.Second) != 5*time.Second {
