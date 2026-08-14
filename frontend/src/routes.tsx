@@ -5,6 +5,7 @@ import { PageHeader } from './components'
 import { ForbiddenPage, LoginRequiredPage, NotFoundPage } from './feedback'
 import { hasPermission, ROUTES } from './permissions'
 import { Shell } from './shell'
+import { TaskDetailPage, TaskInventoryPage } from './task-pages'
 
 function Placeholder({ title }: { title: string }) {
   return <main className="gf-content"><PageHeader title={title} description="This workspace is ready for its data view." /></main>
@@ -19,7 +20,9 @@ function PermissionRoute({ permission, children }: { permission?: string; childr
 export function AppRoutes() {
   return <Shell><Routes>
     <Route path="/" element={<Placeholder title="Overview" />} />
-    {ROUTES.filter((route) => route.path !== '/').map((route) => <Route key={route.path} path={route.path} element={<PermissionRoute permission={route.permission}><Placeholder title={route.label} /></PermissionRoute>} />)}
+    <Route path="/tasks" element={<PermissionRoute permission="tasks.read|tasks.manage"><TaskInventoryPage /></PermissionRoute>} />
+    <Route path="/tasks/:taskId" element={<PermissionRoute permission="tasks.read|tasks.manage"><TaskDetailPage /></PermissionRoute>} />
+    {ROUTES.filter((route) => route.path !== '/' && route.path !== '/tasks').map((route) => <Route key={route.path} path={route.path} element={<PermissionRoute permission={route.permission}><Placeholder title={route.label} /></PermissionRoute>} />)}
     <Route path="/login" element={<Navigate to="/" replace />} />
     <Route path="*" element={<NotFoundPage />} />
   </Routes></Shell>
