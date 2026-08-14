@@ -78,23 +78,55 @@ func (s *LocalStore) FinishOrder(orderID, state, lastError string) error {
 	return err
 }
 func (s *LocalStore) RecoverOrders(previousBootID string) ([]string, error) {
-	rows, err := s.db.Query(`SELECT order_id FROM order_inbox WHERE executor_boot_id=? AND state IN ('CLAIMED','RUNNING')`, previousBootID)
+	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	rows, err := tx.Query(`SELECT order_id FROM order_inbox WHERE executor_boot_id=? AND state IN ('CLAIMED','RUNNING')`, previousBootID)
+	if err != nil {
+		_ = tx.Rollback()
+		return nil, err
+	}
 	var ids []string
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
+			_ = rows.Close()
+			_ = tx.Rollback()
 			return nil, err
 		}
 		ids = append(ids, id)
 	}
-	if err := rows.Err(); err != nil {
+	if err := rows.Close(); err != nil {
+		_ = tx.Rollback()
 		return nil, err
 	}
-	if _, err := s.db.Exec(`UPDATE order_inbox SET state='UNKNOWN', last_error='runner restart' WHERE executor_boot_id=? AND state IN ('CLAIMED','RUNNING')`, previousBootID); err != nil {
+	if err := rows.Err(); err != nil {
+		_ = tx.Rollback()
+		return nil, err
+	}
+	for _, id := range ids {
+		var sequence int64
+		if err := tx.QueryRow(`SELECT COALESCE(MAX(channel_sequence), 0) + 1 FROM event_outbox WHERE order_id=? AND event_channel='state'`, id).Scan(&sequence); err != nil {
+			_ = tx.Rollback()
+			return nil, err
+		}
+		envelope, err := json.Marshal(map[string]string{"order_id": id, "state": "UNKNOWN", "reason": "runner restart"})
+		if err != nil {
+			_ = tx.Rollback()
+			return nil, err
+		}
+		now := time.Now().UTC().Format(time.RFC3339Nano)
+		if _, err := tx.Exec(`INSERT INTO event_outbox (event_id, order_id, event_channel, channel_sequence, event_type, envelope, state, available_at, created_at) VALUES (?, ?, 'state', ?, 'unknown', ?, 'PENDING', ?, ?) ON CONFLICT(event_id) DO NOTHING`, "recovery:"+previousBootID+":"+id, id, sequence, envelope, now, now); err != nil {
+			_ = tx.Rollback()
+			return nil, err
+		}
+	}
+	if _, err := tx.Exec(`UPDATE order_inbox SET state='UNKNOWN', last_error='runner restart' WHERE executor_boot_id=? AND state IN ('CLAIMED','RUNNING')`, previousBootID); err != nil {
+		_ = tx.Rollback()
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return ids, nil

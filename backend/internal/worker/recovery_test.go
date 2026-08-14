@@ -33,4 +33,8 @@ func TestDurableRecoveryMarksSQLiteClaimsUnknown(t *testing.T) {
 	if err != nil || len(ids) != 1 {
 		t.Fatalf("durable recovery: %#v %v", ids, err)
 	}
+	events, err := store.PendingEvents(10)
+	if err != nil || len(events) != 1 || events[0].EventType != "unknown" || events[0].State != "PENDING" {
+		t.Fatalf("durable recovery event: %#v %v", events, err)
+	}
 }
