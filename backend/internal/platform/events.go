@@ -6,10 +6,11 @@ type EventTracker struct {
 	mu       sync.Mutex
 	seen     map[string]struct{}
 	sequence map[string]uint64
+	channels map[string]uint64
 }
 
 func NewEventTracker() *EventTracker {
-	return &EventTracker{seen: make(map[string]struct{}), sequence: make(map[string]uint64)}
+	return &EventTracker{seen: make(map[string]struct{}), sequence: make(map[string]uint64), channels: make(map[string]uint64)}
 }
 
 func (t *EventTracker) Accept(eventID, attemptID string, sequence uint64) (bool, error) {
@@ -26,6 +27,24 @@ func (t *EventTracker) Accept(eventID, attemptID string, sequence uint64) (bool,
 	}
 	t.seen[eventID] = struct{}{}
 	t.sequence[attemptID] = sequence
+	return true, nil
+}
+
+func (t *EventTracker) AcceptChannel(eventID, attemptID, channel string, sequence uint64) (bool, error) {
+	if eventID == "" || attemptID == "" || channel == "" || sequence == 0 {
+		return false, ErrInvalidEvent
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if _, ok := t.seen[eventID]; ok {
+		return false, nil
+	}
+	key := attemptID + "\x00" + channel
+	if previous := t.channels[key]; sequence <= previous {
+		return false, ErrOutOfOrderEvent
+	}
+	t.seen[eventID] = struct{}{}
+	t.channels[key] = sequence
 	return true, nil
 }
 

@@ -19,3 +19,16 @@ func TestEventTrackerDeduplicatesAndOrdersEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestEventTrackerKeepsStateAndLogsIndependent(t *testing.T) {
+	tracker := NewEventTracker()
+	if accepted, err := tracker.AcceptChannel("state-1", "attempt", "state", 1); !accepted || err != nil {
+		t.Fatal(err)
+	}
+	if accepted, err := tracker.AcceptChannel("log-1", "attempt", "log", 1); !accepted || err != nil {
+		t.Fatal(err)
+	}
+	if accepted, err := tracker.AcceptChannel("log-2", "attempt", "log", 1); accepted || err == nil {
+		t.Fatal("duplicate channel sequence accepted")
+	}
+}
