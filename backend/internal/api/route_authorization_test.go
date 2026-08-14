@@ -17,7 +17,11 @@ func TestRouteAuthorizationCoverage(t *testing.T) {
 		}
 		permission := strings.Split(route.Permission, "|")[0]
 		server := Server{AuthAdmin: &AuthAdminService{Password: NewPasswordAuthService(true, false, nil)}, Roles: NewRoleAdminService(), Auth: func(*http.Request) (Claims, bool) { return Claims{Roles: map[string]bool{}}, true }}
-		request := httptest.NewRequest(http.MethodGet, strings.TrimSuffix(route.Pattern, "/"), nil)
+		path := strings.TrimSuffix(route.Pattern, "/")
+		if strings.HasSuffix(route.Pattern, "/") {
+			path += "/test/disable"
+		}
+		request := httptest.NewRequest(http.MethodGet, path, nil)
 		response := httptest.NewRecorder()
 		server.Handler().ServeHTTP(response, request)
 		if response.Code != http.StatusForbidden && response.Code != http.StatusNotImplemented {
