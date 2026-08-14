@@ -34,3 +34,18 @@ func TestAuthorizationStateIsSingleUseUnderConcurrentCallbacks(t *testing.T) {
 		t.Fatalf("expected one callback, got %d", success)
 	}
 }
+
+func TestAuthorizationChallengeBindsCallbackAndPKCEVerifier(t *testing.T) {
+	store := NewAuthorizationStateStore()
+	now := time.Now()
+	state, nonce, err := store.CreateChallenge("provider", "login", "https://app.example/callback", "verifier", now, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ConsumeChallenge(state, nonce, "provider", "login", "https://app.example/callback", "verifier", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ConsumeChallenge(state, nonce, "provider", "login", "https://app.example/callback", "verifier", now); err == nil {
+		t.Fatal("challenge replay accepted")
+	}
+}
