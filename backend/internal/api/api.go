@@ -32,10 +32,11 @@ func BearerAuthenticator(token string) Authenticator {
 }
 
 type Server struct {
-	Auth       Authenticator
-	Audit      func(Claims, string, string)
-	Ready      func(context.Context) error
-	CSRFOrigin string
+	Auth        Authenticator
+	Permissions func(Claims) map[string]bool
+	Audit       func(Claims, string, string)
+	Ready       func(context.Context) error
+	CSRFOrigin  string
 }
 
 func (s Server) Handler() http.Handler {
@@ -104,7 +105,11 @@ func (s Server) require(role string, next http.Handler) http.Handler {
 			writeJSON(w, 401, map[string]string{"error": "authentication required"})
 			return
 		}
-		if !claims.Roles[role] {
+		permissions := claims.Roles
+		if s.Permissions != nil {
+			permissions = s.Permissions(claims)
+		}
+		if !permissions[role] {
 			writeJSON(w, 403, map[string]string{"error": "forbidden"})
 			return
 		}
