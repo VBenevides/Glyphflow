@@ -19,3 +19,17 @@ func TestV1MigrationContainsIdentityAndVersionConstraints(t *testing.T) {
 		}
 	}
 }
+
+func TestRevision3MigrationContainsExecutionIntegrityConstraints(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "migrations", "018_v1_execution_revision3.sql"))
+	if err != nil { t.Fatal(err) }
+	sql := strings.ToLower(string(raw))
+	for _, fragment := range []string{
+		"runner_pools_v1", "runner_sessions_v1_active_idx", "tasks_v1_current_version_fk",
+		"schedule_versions_v1", "runs_v1_schedule_occurrence_idx", "execution_attempts_v1",
+		"resource_leases_v1_active_idx", "dispatch_outbox_v1", "event_inbox_v1",
+		"unique (execution_attempt_id, state_sequence)", "unique (execution_attempt_id, stream, chunk_sequence)",
+	} {
+		if !strings.Contains(sql, strings.ToLower(fragment)) { t.Fatalf("revision 3 migration missing %q", fragment) }
+	}
+}
