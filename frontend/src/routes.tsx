@@ -14,7 +14,7 @@ import { RunnerDetailPage, RunnerInventoryPage } from './runner-pages'
 import { EnrollmentPage } from './enrollment-page'
 import { ResourceDetailPage, ResourceInventoryPage } from './resource-pages'
 import { AuditPage } from './audit-page'
-import { UserManagementPage } from './admin-pages'
+import { RoleManagementPage, UserManagementPage } from './admin-pages'
 
 function Placeholder({ title }: { title: string }) {
   return <main className="gf-content"><PageHeader title={title} description="This workspace is ready for its data view." /></main>
@@ -46,7 +46,8 @@ export function AppRoutes() {
     <Route path="/resources/:resourceId" element={<PermissionRoute permission="resources.read|resources.manage"><ResourceDetailPage /></PermissionRoute>} />
     <Route path="/audit" element={<PermissionRoute permission="audit.read"><AuditPage /></PermissionRoute>} />
     <Route path="/admin/users" element={<PermissionRoute permission="users.read|users.manage"><UserManagementPage /></PermissionRoute>} />
-    {ROUTES.filter((route) => !['/', '/tasks', '/schedules', '/runs', '/runners', '/resources', '/audit', '/admin/users'].includes(route.path)).map((route) => <Route key={route.path} path={route.path} element={<PermissionRoute permission={route.permission}><Placeholder title={route.label} /></PermissionRoute>} />)}
+    <Route path="/admin/roles" element={<PermissionRoute permission="roles.read|roles.manage"><RoleManagementPage /></PermissionRoute>} />
+    {ROUTES.filter((route) => !['/', '/tasks', '/schedules', '/runs', '/runners', '/resources', '/audit', '/admin/users', '/admin/roles'].includes(route.path)).map((route) => <Route key={route.path} path={route.path} element={<PermissionRoute permission={route.permission}><Placeholder title={route.label} /></PermissionRoute>} />)}
     <Route path="/login" element={<Navigate to="/" replace />} />
     <Route path="*" element={<NotFoundPage />} />
   </Routes></Shell>

@@ -161,6 +161,8 @@ a {
 .gf-review-panel { padding: 1rem; background: var(--gf-surface); border: 1px solid var(--gf-border); border-radius: 0.55rem; }
 .gf-review-panel h2 { margin-top: 0; font-size: 1.05rem; }
 .gf-review-panel p { overflow-wrap: anywhere; }
+.gf-permission-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem 1rem; }
+@media (max-width: 640px) { .gf-permission-grid { grid-template-columns: 1fr; } }
 @media (max-width: 720px) { .gf-form-grid { grid-template-columns: 1fr; } }
 @media (max-width: 640px) { .gf-metric-grid, .gf-dashboard-grid { grid-template-columns: 1fr; } }
 .gf-app-shell { display: grid; grid-template-columns: 16rem 1fr; min-height: 100dvh; background: var(--gf-page); }
