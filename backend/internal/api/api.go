@@ -118,7 +118,7 @@ func (s Server) require(role string, next http.Handler) http.Handler {
 		if s.Permissions != nil {
 			permissions = s.Permissions(claims)
 		}
-		if !permissions[role] {
+		if !hasPermission(permissions, role) {
 			writeJSON(w, 403, map[string]string{"error": "forbidden"})
 			return
 		}
@@ -127,6 +127,14 @@ func (s Server) require(role string, next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func hasPermission(permissions map[string]bool, required string) bool {
+	if permissions[required] {
+		return true
+	}
+	aliases := map[string]string{"task.read": "tasks.read", "task.create": "tasks.manage", "run.read": "runs.read", "run.cancel": "runs.cancel", "run.retry": "runs.retry", "runner.read": "runners.read", "event.read": "logs.read"}
+	return permissions[aliases[required]]
 }
 func (s Server) requireMethodRole(role func(*http.Request) string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

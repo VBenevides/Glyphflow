@@ -19,12 +19,19 @@ type RouteDefinition struct {
 var routeDefinitions = []RouteDefinition{
 	{Pattern: "/api/v1/healthz", Access: RoutePublic},
 	{Pattern: "/api/v1/readyz", Access: RoutePublic},
-	{Pattern: "/api/v1/tasks", Access: RoutePermission, Permission: "task.read|task.create"},
-	{Pattern: "/api/v1/tasks/", Access: RoutePermission, Permission: "run.cancel|run.retry"},
-	{Pattern: "/api/v1/runs", Access: RoutePermission, Permission: "run.read"},
-	{Pattern: "/api/v1/events", Access: RoutePermission, Permission: "event.read"},
-	{Pattern: "/api/v1/runners", Access: RoutePermission, Permission: "runner.read"},
+	{Pattern: "/api/v1/auth/login", Access: RoutePublic},
+	{Pattern: "/api/v1/auth/register", Access: RoutePublic},
+	{Pattern: "/api/v1/auth/oidc/providers", Access: RoutePublic},
+	{Pattern: "/api/v1/auth/oidc/login", Access: RoutePublic},
+	{Pattern: "/api/v1/tasks", Access: RoutePermission, Permission: "tasks.read|tasks.manage"},
+	{Pattern: "/api/v1/tasks/", Access: RoutePermission, Permission: "runs.cancel|runs.retry"},
+	{Pattern: "/api/v1/runs", Access: RoutePermission, Permission: "runs.read"},
+	{Pattern: "/api/v1/events", Access: RoutePermission, Permission: "logs.read"},
+	{Pattern: "/api/v1/runners", Access: RoutePermission, Permission: "runners.read"},
 	{Pattern: "/api/v1/audit", Access: RoutePermission, Permission: "audit.read"},
+	{Pattern: "/api/v1/admin/auth/settings", Access: RoutePermission, Permission: "auth.settings.manage"},
+	{Pattern: "/api/v1/admin/auth/sessions/revoke", Access: RoutePermission, Permission: "users.manage"},
+	{Pattern: "/api/v1/admin/roles", Access: RoutePermission, Permission: "roles.manage"},
 }
 
 func ValidateRouteRegistry(definitions []RouteDefinition) error {
