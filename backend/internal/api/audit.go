@@ -1,11 +1,15 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/VBenevides/Glyphflow/backend/internal/store"
 )
 
 type AuditEvent struct {
@@ -86,11 +90,34 @@ func auditDescription(method, path string) string {
 }
 
 type AuditQueryService struct {
-	mu     sync.RWMutex
-	events []AuditEvent
+	mu         sync.RWMutex
+	events     []AuditEvent
+	repository store.AuditRepository
 }
 
 func NewAuditQueryService() *AuditQueryService { return &AuditQueryService{} }
+
+func (s *AuditQueryService) SetRepository(repository store.AuditRepository) {
+	if repository != nil {
+		s.mu.Lock()
+		s.repository = repository
+		s.mu.Unlock()
+	}
+}
+
+func auditEventFromStore(event store.AuditEventRecord) AuditEvent {
+	return AuditEvent{ID: event.ID, Actor: event.ActorID, ActorName: event.ActorName, ActorEmail: event.ActorEmail, Action: event.Method, Description: event.Description, Target: event.Target, Request: event.Endpoint, Result: event.Result, Input: event.RequestInput, Output: event.ResponseOutput, Traceback: event.Traceback, CorrelationID: event.CorrelationID, CreatedAt: event.CreatedAt.UTC().Format(time.RFC3339Nano), Before: toAuditMap(event.BeforeValue), After: toAuditMap(event.AfterValue)}
+}
+
+func toAuditMap(value any) map[string]any {
+	if value == nil {
+		return nil
+	}
+	if result, ok := value.(map[string]any); ok {
+		return result
+	}
+	return map[string]any{"value": value}
+}
 
 func (s *AuditQueryService) Add(event AuditEvent) {
 	if event.ID == "" {
@@ -103,6 +130,22 @@ func (s *AuditQueryService) Add(event AuditEvent) {
 	event.After = redactAuditMap(event.After)
 	event.Input = redactAuditValue(event.Input)
 	event.Output = redactAuditValue(event.Output)
+	s.mu.RLock()
+	repository := s.repository
+	s.mu.RUnlock()
+	if repository != nil {
+		createdAt, _ := time.Parse(time.RFC3339Nano, event.CreatedAt)
+		endpoint := event.Request
+		if endpoint == "" {
+			if input, ok := event.Input.(map[string]any); ok {
+				if value, ok := input["endpoint"].(string); ok {
+					endpoint = value
+				}
+			}
+		}
+		_ = repository.Append(context.Background(), store.AuditEventRecord{ID: event.ID, ActorID: event.Actor, ActorName: event.ActorName, ActorEmail: event.ActorEmail, Method: event.Action, Description: event.Description, Endpoint: endpoint, Target: event.Target, Result: event.Result, RequestInput: event.Input, ResponseOutput: event.Output, BeforeValue: event.Before, AfterValue: event.After, Traceback: event.Traceback, CorrelationID: event.CorrelationID, CreatedAt: createdAt})
+		return
+	}
 	s.mu.Lock()
 	s.events = append(s.events, event)
 	s.mu.Unlock()
@@ -123,9 +166,37 @@ func (s *AuditQueryService) query(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid audit time range"})
 		return
 	}
+	excludeTarget := strings.TrimSpace(r.URL.Query().Get("exclude_target"))
+	s.mu.RLock()
+	repository := s.repository
+	s.mu.RUnlock()
+	if repository != nil {
+		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+		items, total, err := repository.Query(r.Context(), store.AuditFilter{Actor: filters["actor"], Action: filters["action"], Target: filters["target"], Result: filters["result"], CorrelationID: filters["correlationId"], ExcludeTarget: excludeTarget, From: from, To: to, Page: page, Limit: limit})
+		if err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "audit storage unavailable"})
+			return
+		}
+		result := make([]AuditEvent, 0, len(items))
+		for _, item := range items {
+			result = append(result, auditEventFromStore(item))
+		}
+		if page < 1 {
+			page = 1
+		}
+		if limit < 1 || limit > 100 {
+			limit = 50
+		}
+		pages := (total + limit - 1) / limit
+		if pages == 0 {
+			pages = 1
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"items": result, "page": page, "limit": limit, "total": total, "pages": pages})
+		return
+	}
 	s.mu.RLock()
 	items := make([]AuditEvent, 0, len(s.events))
-	excludeTarget := strings.TrimSpace(r.URL.Query().Get("exclude_target"))
 	for _, event := range s.events {
 		created, err := time.Parse(time.RFC3339Nano, event.CreatedAt)
 		if err != nil || (excludeTarget != "" && strings.EqualFold(event.Target, excludeTarget)) || !auditMatches(event, filters, created, from, to) {
