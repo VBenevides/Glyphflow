@@ -22,6 +22,9 @@ type Config struct {
 	Role                        Role
 	DatabaseURL                 string
 	NATSURL                     string
+	NATSCertFile                string
+	NATSKeyFile                 string
+	NATSCAFile                  string
 	AccessTokenSecret           string
 	PasswordPepper              string
 	WebOrigin                   string
@@ -43,6 +46,9 @@ func FromEnv(role Role) (Config, error) {
 		Role:                        role,
 		DatabaseURL:                 os.Getenv("DATABASE_URL"),
 		NATSURL:                     os.Getenv("NATS_URL"),
+		NATSCertFile:                os.Getenv("NATS_CERT_FILE"),
+		NATSKeyFile:                 os.Getenv("NATS_KEY_FILE"),
+		NATSCAFile:                  os.Getenv("NATS_CA_FILE"),
 		AccessTokenSecret:           os.Getenv("ACCESS_TOKEN_SECRET"),
 		PasswordPepper:              os.Getenv("PASSWORD_PEPPER"),
 		WebOrigin:                   os.Getenv("WEB_ORIGIN"),
@@ -96,6 +102,9 @@ func (c Config) Validate() error {
 		}
 		if c.Environment == "production" && c.BootstrapUsername == "" {
 			return errors.New("production requires GLYPHFLOW_BOOTSTRAP_USERNAME")
+		}
+		if c.Environment == "production" && (c.NATSCertFile == "" || c.NATSKeyFile == "" || c.NATSCAFile == "") {
+			return errors.New("production requires NATS client certificate, key, and CA files")
 		}
 		return requireURL("DATABASE_URL", c.DatabaseURL, "postgres", "postgresql")
 	}

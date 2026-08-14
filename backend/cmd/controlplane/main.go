@@ -6,12 +6,17 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/VBenevides/Glyphflow/backend/internal/api"
 	"github.com/VBenevides/Glyphflow/backend/internal/config"
 	"github.com/VBenevides/Glyphflow/backend/internal/platform"
+	"github.com/VBenevides/Glyphflow/backend/internal/queue"
+	"github.com/VBenevides/Glyphflow/backend/internal/store"
 )
 
 func main() {
@@ -42,9 +47,44 @@ func main() {
 			os.Exit(1)
 		}
 	}
+	db, err := pgxpool.New(ctx, cfg.DatabaseURL)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if err := db.Ping(ctx); err != nil {
+		db.Close()
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if err := store.ApplyMigrations(ctx, db, "migrations"); err != nil {
+		db.Close()
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	var jetstream *queue.JetStream
+	if strings.HasPrefix(cfg.NATSURL, "tls://") {
+		jetstream, err = queue.ConnectJetStreamTLS(cfg.NATSURL, queue.TLSConfig{CertificateFile: cfg.NATSCertFile, KeyFile: cfg.NATSKeyFile, CAFile: cfg.NATSCAFile})
+	} else {
+		jetstream, err = queue.ConnectJetStreamPlain(cfg.NATSURL)
+	}
+	if err != nil {
+		db.Close()
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	defer func() { jetstream.Close(); db.Close() }()
 	server := &http.Server{
-		Addr:              ":8080",
-		Handler:           api.Server{AuthService: authService, Auth: authService.Authenticator(), Permissions: authService.Permissions, CSRFOrigin: cfg.WebOrigin}.Handler(),
+		Addr: ":8080",
+		Handler: api.Server{AuthService: authService, Auth: authService.Authenticator(), Permissions: authService.Permissions, CSRFOrigin: cfg.WebOrigin, Ready: func(ctx context.Context) error {
+			if err := db.Ping(ctx); err != nil {
+				return err
+			}
+			if jetstream == nil {
+				return fmt.Errorf("NATS is not connected")
+			}
+			return nil
+		}}.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,

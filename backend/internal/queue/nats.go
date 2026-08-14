@@ -39,6 +39,14 @@ func ConnectJetStream(url string) (*JetStream, error) {
 	return connectJetStream(url)
 }
 
+func ConnectJetStreamPlain(url string) (*JetStream, error) {
+	parsed, err := urlpkg.Parse(url)
+	if err != nil || parsed.Scheme != "nats" {
+		return nil, errors.New("plain NATS requires a nats:// URL")
+	}
+	return connectJetStream(url)
+}
+
 func ConnectJetStreamTLS(url string, tls TLSConfig) (*JetStream, error) {
 	options, err := tls.options()
 	if err != nil {
