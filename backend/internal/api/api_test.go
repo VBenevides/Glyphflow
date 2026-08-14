@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
@@ -45,8 +46,8 @@ func TestSessionAuthenticatorAndCreateRole(t *testing.T) {
 	}
 }
 
-func TestTaskCreationDoesNotAcceptUnstoredRequests(t *testing.T) {
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", nil)
+func TestTaskCreationStoresAndReturnsTask(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", bytes.NewBufferString(`{"name":"Nightly","command":["echo","hi"],"runner_pool":"default","timeout_seconds":30}`))
 	sessions, err := NewSessionManager("01234567890123456789012345678901")
 	if err != nil {
 		t.Fatal(err)
@@ -58,8 +59,8 @@ func TestTaskCreationDoesNotAcceptUnstoredRequests(t *testing.T) {
 	request.Header.Set("Authorization", "Bearer "+token)
 	response := httptest.NewRecorder()
 	(Server{Auth: sessions.Authenticator(), Permissions: func(Claims) map[string]bool { return map[string]bool{"tasks.manage": true} }}).Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusNotImplemented {
-		t.Fatalf("stub task creation returned %d", response.Code)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("task creation returned %d", response.Code)
 	}
 }
 
@@ -67,12 +68,15 @@ func TestManagementRoutesFailClosedUntilBackedByStorage(t *testing.T) {
 	h := (Server{Auth: func(*http.Request) (Claims, bool) {
 		return Claims{Roles: map[string]bool{"run.read": true, "event.read": true, "runner.read": true, "run.cancel": true}}, true
 	}}).Handler()
-	for _, path := range []string{"/api/v1/runs", "/api/v1/events", "/api/v1/runners", "/api/v1/tasks/run-1/cancel"} {
-		r := httptest.NewRequest(http.MethodGet, path, nil)
+	for _, item := range []struct{ method, path string }{{http.MethodGet, "/api/v1/runs"}, {http.MethodGet, "/api/v1/events"}, {http.MethodGet, "/api/v1/runners"}, {http.MethodPost, "/api/v1/tasks/run-1/cancel"}} {
+		r := httptest.NewRequest(item.method, item.path, nil)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, r)
-		if w.Code != http.StatusNotImplemented {
-			t.Fatalf("%s returned %d", path, w.Code)
+		if item.path == "/api/v1/tasks/run-1/cancel" && w.Code != http.StatusNotFound {
+			t.Fatalf("missing task action returned %d", w.Code)
+		}
+		if item.path != "/api/v1/tasks/run-1/cancel" && w.Code != http.StatusNotImplemented {
+			t.Fatalf("%s returned %d", item.path, w.Code)
 		}
 	}
 }
@@ -80,6 +84,13 @@ func TestManagementRoutesFailClosedUntilBackedByStorage(t *testing.T) {
 func TestFrontendResourceAndRunPathsReachClassifiedHandlers(t *testing.T) {
 	permissions := map[string]bool{"task.read": true, "task.manage": true, "tasks.read": true, "tasks.manage": true, "resources.read": true, "resources.manage": true, "runners.read": true, "runners.manage": true, "runs.read": true, "runs.cancel": true, "runs.retry": true, "logs.read": true}
 	h := (Server{Auth: func(*http.Request) (Claims, bool) { return Claims{Roles: permissions}, true }}).Handler()
+	createTask := httptest.NewRecorder()
+	h.ServeHTTP(createTask, httptest.NewRequest(http.MethodPost, "/api/v1/tasks", bytes.NewBufferString(`{"name":"Nightly","command":["echo","hi"],"runner_pool":"default"}`)))
+	createSchedule := httptest.NewRecorder()
+	h.ServeHTTP(createSchedule, httptest.NewRequest(http.MethodPost, "/api/v1/schedules", bytes.NewBufferString(`{"name":"Hourly","task_id":"task-1","schedule_type":"cron","expression":"0 * * * *","timezone":"UTC"}`)))
+	if createTask.Code != http.StatusCreated || createSchedule.Code != http.StatusCreated {
+		t.Fatalf("seed operations: task=%d schedule=%d", createTask.Code, createSchedule.Code)
+	}
 	requests := []struct {
 		method string
 		path   string
@@ -96,9 +107,13 @@ func TestFrontendResourceAndRunPathsReachClassifiedHandlers(t *testing.T) {
 	}
 	for _, item := range requests {
 		response := httptest.NewRecorder()
-		h.ServeHTTP(response, httptest.NewRequest(item.method, item.path, nil))
-		if response.Code == http.StatusNotFound {
-			t.Fatalf("%s %s was not registered", item.method, item.path)
+		body := bytes.NewBufferString(`{"name":"Nightly","command":["echo","hi"],"runner_pool":"default"}`)
+		if item.path == "/api/v1/schedules/preview" {
+			body = bytes.NewBufferString(`{"schedule_type":"cron","expression":"0 * * * *","timezone":"UTC"}`)
+		}
+		h.ServeHTTP(response, httptest.NewRequest(item.method, item.path, body))
+		if response.Code == http.StatusNotFound || response.Code == http.StatusMethodNotAllowed {
+			t.Fatalf("%s %s returned %d", item.method, item.path, response.Code)
 		}
 	}
 }

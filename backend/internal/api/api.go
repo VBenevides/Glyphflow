@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -42,6 +41,7 @@ type Server struct {
 	CSRFOrigin      string
 	AuthRateLimiter *platform.RateLimiter
 	Config          RuntimeConfig
+	Operations      *OperationsService
 }
 
 func (s Server) Handler() http.Handler {
@@ -50,6 +50,9 @@ func (s Server) Handler() http.Handler {
 	}
 	if s.AuthRateLimiter == nil {
 		s.AuthRateLimiter = platform.NewRateLimiter(5, time.Minute)
+	}
+	if s.Operations == nil {
+		s.Operations = NewOperationsService()
 	}
 	mux := newTrackedMux()
 	mux.HandleFunc("/docs", swaggerUI)
@@ -84,17 +87,16 @@ func (s Server) Handler() http.Handler {
 			writeJSON(w, 405, map[string]string{"error": "method not allowed"})
 			return
 		}
-		if r.Method == http.MethodGet {
-			page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-			if page < 1 {
-				page = 1
-			}
-			writeJSON(w, 200, map[string]any{"items": []any{}, "page": page, "limit": 50})
-			return
-		}
-		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "task creation is not implemented"})
+		s.Operations.taskCollection(w, r)
 	})))
-	for path, readPermission := range map[string]string{"/api/v1/schedules": "tasks.read", "/api/v1/resources": "resources.read", "/api/v1/users": "users.read", "/api/v1/roles": "roles.read", "/api/v1/sso": "sso.read", "/api/v1/logs": "logs.read"} {
+	mux.Handle("/api/v1/schedules", s.requireMethodRole(func(r *http.Request) string {
+		if r.Method == http.MethodGet {
+			return "tasks.read"
+		}
+		return "tasks.manage"
+	}, http.HandlerFunc(s.Operations.scheduleCollection)))
+	mux.Handle("/api/v1/schedules/preview", s.require("tasks.manage", http.HandlerFunc(s.Operations.preview)))
+	for path, readPermission := range map[string]string{"/api/v1/resources": "resources.read", "/api/v1/users": "users.read", "/api/v1/roles": "roles.read", "/api/v1/sso": "sso.read", "/api/v1/logs": "logs.read"} {
 		managePermission := map[string]string{"/api/v1/schedules": "tasks.manage", "/api/v1/resources": "resources.manage", "/api/v1/users": "users.manage", "/api/v1/roles": "roles.manage", "/api/v1/sso": "sso.manage", "/api/v1/logs": "logs.read"}[path]
 		mux.Handle(path, s.requireMethodRole(func(r *http.Request) string {
 			if r.Method == http.MethodGet {
@@ -126,16 +128,16 @@ func (s Server) Handler() http.Handler {
 			return "task.read"
 		}
 		return "task.manage"
-	}, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "run action is not implemented"})
+	}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.Operations.taskPath(w, r)
 	})))
 	mux.Handle("/api/v1/schedules/", s.requireMethodRole(func(r *http.Request) string {
 		if r.Method == http.MethodGet {
 			return "tasks.read"
 		}
 		return "tasks.manage"
-	}, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "schedule endpoint is not implemented"})
+	}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.Operations.schedulePath(w, r)
 	})))
 	mux.Handle("/api/v1/resources/", s.requireMethodRole(func(r *http.Request) string {
 		if r.Method == http.MethodGet {
