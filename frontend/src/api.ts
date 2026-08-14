@@ -38,6 +38,8 @@ export type Run = { id: string; taskId?: string; taskName?: string; state: strin
 export type Runner = { id: string; name: string; desiredState?: string; observedState?: string; pool?: string; capacity?: number; activeCount?: number; heartbeatAt?: string }
 export type Resource = { id: string; name: string; enabled?: boolean; holder?: string; expiresAt?: string; fencingToken?: number }
 export type AuditEvent = { id: string; actor?: string; action?: string; target?: string; result?: string; createdAt?: string; correlationId?: string; before?: unknown; after?: unknown }
+export type AuthSession = { id: string; createdAt?: string; expiresAt?: string; lastSeenAt?: string; current?: boolean; userAgent?: string; ipAddress?: string }
+export type UserRecord = { id: string; username: string; email?: string; displayName?: string; status?: string; enabled?: boolean; loginMethods?: string[]; roles?: string[]; roleSources?: string[]; permissions?: string[]; sessions?: AuthSession[] }
 
 const unsafeMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 
