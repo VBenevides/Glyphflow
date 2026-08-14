@@ -1,6 +1,30 @@
 package platform
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
+
+type AmbiguityPolicy string
+
+const (
+	RetryAmbiguous  AmbiguityPolicy = "RETRY"
+	ManualAmbiguous AmbiguityPolicy = "REQUIRE_MANUAL_RECONCILIATION"
+	FailedAmbiguous AmbiguityPolicy = "MARK_FAILED"
+)
+
+func ResolveAmbiguous(policy AmbiguityPolicy) (string, error) {
+	switch policy {
+	case RetryAmbiguous:
+		return "retry_wait", nil
+	case ManualAmbiguous:
+		return "unknown", nil
+	case FailedAmbiguous:
+		return "failed", nil
+	default:
+		return "", fmt.Errorf("unsupported ambiguity policy %q", policy)
+	}
+}
 
 func RetryDelay(attempt int, base, max time.Duration) time.Duration {
 	if attempt < 1 {
