@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider, type UseQueryResult } from '@tanstack/react-query'
 import { useEffect, useState, type ReactNode } from 'react'
 import { EmptyState, ErrorState, LoadingState } from './components'
+import { describeError } from './errors'
 
 export const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 30_000, retry: 1, refetchOnWindowFocus: false } },
@@ -20,7 +21,7 @@ export function QueryState<T>({ query, children, empty = 'Nothing to show yet.' 
     return () => { window.removeEventListener('online', onOnline); window.removeEventListener('offline', onOffline) }
   }, [])
   if (query.isPending) return <LoadingState />
-  if (query.isError && query.data === undefined) return <ErrorState message={query.error instanceof Error ? query.error.message : 'Request failed'} onRetry={() => query.refetch()} />
+  if (query.isError && query.data === undefined) { const error = describeError(query.error); return <ErrorState title={error.title} message={`${error.message}${error.correlationId ? ` (Correlation ID: ${error.correlationId})` : ''}`} onRetry={error.retryable ? () => query.refetch() : undefined} /> }
   if (query.data == null || (Array.isArray(query.data) && query.data.length === 0)) return <EmptyState title="No results">{empty}</EmptyState>
   return <><div className="gf-query-status" aria-live="polite">{query.isFetching ? 'Refreshing…' : !online ? 'Offline; showing last successful data' : ''}</div>{children(query.data)}</>
 }
