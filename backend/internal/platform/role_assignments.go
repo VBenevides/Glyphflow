@@ -36,6 +36,37 @@ func ReconcileSSOAssignments(existing []RoleAssignment, providerID string, group
 	return out
 }
 
+func ExtractSSOGroups(claims map[string]any, paths []string) []string {
+	seen := map[string]bool{}
+	var groups []string
+	for _, path := range paths {
+		var value any = claims
+		for _, part := range strings.Split(path, ".") {
+			object, ok := value.(map[string]any)
+			if !ok {
+				value = nil
+				break
+			}
+			value = object[part]
+		}
+		switch values := value.(type) {
+		case string:
+			if values != "" && !seen[values] {
+				seen[values] = true
+				groups = append(groups, values)
+			}
+		case []any:
+			for _, item := range values {
+				if group, ok := item.(string); ok && group != "" && !seen[group] {
+					seen[group] = true
+					groups = append(groups, group)
+				}
+			}
+		}
+	}
+	return groups
+}
+
 type RoleAssignmentStore struct {
 	mu    sync.Mutex
 	items map[string]RoleAssignment
