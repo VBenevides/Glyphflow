@@ -36,6 +36,48 @@ func ReconcileSSOAssignments(existing []RoleAssignment, providerID string, group
 	return out
 }
 
+type AssignmentChange struct {
+	Action     string
+	Assignment RoleAssignment
+}
+
+func SyncSSORoles(userID, providerID string, existing []RoleAssignment, groups []string, groupRoles map[string]string, audit func(AssignmentChange)) ([]RoleAssignment, []AssignmentChange) {
+	before := map[string]RoleAssignment{}
+	for _, assignment := range existing {
+		if assignment.UserID == "" {
+			assignment.UserID = userID
+		}
+		before[assignment.UserID+"\x00"+assignment.RoleID+"\x00"+assignment.SourceType+"\x00"+assignment.SourceKey] = assignment
+	}
+	next := ReconcileSSOAssignments(existing, providerID, groups, groupRoles)
+	changes := []AssignmentChange{}
+	after := map[string]RoleAssignment{}
+	for _, assignment := range next {
+		if assignment.UserID == "" {
+			assignment.UserID = userID
+		}
+		key := assignment.UserID + "\x00" + assignment.RoleID + "\x00" + assignment.SourceType + "\x00" + assignment.SourceKey
+		after[key] = assignment
+		if _, ok := before[key]; !ok && assignment.SourceType == "sso" && assignment.ProviderID == providerID {
+			change := AssignmentChange{Action: "added", Assignment: assignment}
+			changes = append(changes, change)
+			if audit != nil {
+				audit(change)
+			}
+		}
+	}
+	for key, assignment := range before {
+		if _, ok := after[key]; !ok && assignment.SourceType == "sso" && assignment.ProviderID == providerID {
+			change := AssignmentChange{Action: "removed", Assignment: assignment}
+			changes = append(changes, change)
+			if audit != nil {
+				audit(change)
+			}
+		}
+	}
+	return next, changes
+}
+
 func ExtractSSOGroups(claims map[string]any, paths []string) []string {
 	seen := map[string]bool{}
 	var groups []string
