@@ -120,4 +120,11 @@ a {
 .gf-dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .gf-dialog-header h2 { margin: 0; font-size: 1.2rem; }
 .gf-visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.gf-startup { min-height: 100dvh; display: grid; place-content: center; justify-items: center; gap: 0.75rem; padding: 2rem; text-align: center; }
+.gf-startup h1, .gf-startup p { margin: 0; }
+.gf-startup p { color: var(--gf-muted); }
+.gf-brand-mark { display: grid; place-items: center; width: 3.5rem; height: 3.5rem; color: var(--gf-action-contrast); background: linear-gradient(135deg, var(--gf-action), #8b5cf6); border-radius: 1rem; box-shadow: var(--gf-shadow); font-size: 2rem; font-weight: 800; }
+.gf-brand-name { color: var(--gf-text) !important; font-size: 1.6rem; font-weight: 800; letter-spacing: -0.04em; }
+.gf-startup-spinner { color: var(--gf-action); animation: gf-spin 0.9s linear infinite; }
+.gf-startup[role='alert'] > svg { color: var(--gf-danger); }
 @keyframes gf-spin { to { transform: rotate(360deg); } }
