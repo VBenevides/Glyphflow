@@ -225,10 +225,22 @@ func (s Server) require(role string, next http.Handler) http.Handler {
 			s.Audit(claims, r.Method, r.URL.Path)
 		}
 		if s.AuditQuery != nil {
-			s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, Action: r.Method, Target: r.URL.Path, Result: "success", CorrelationID: r.Header.Get("X-Correlation-ID")})
+			actorName, actorEmail := s.auditActor(claims.UserID)
+			s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Target: r.URL.Path, Result: "success", CorrelationID: r.Header.Get("X-Correlation-ID")})
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (s Server) auditActor(userID string) (string, string) {
+	if s.AuthService == nil {
+		return "", ""
+	}
+	user, ok := s.AuthService.User(userID)
+	if !ok {
+		return "", ""
+	}
+	return user.Username, user.Email
 }
 
 func (s Server) effectivePermissions(claims Claims) map[string]bool {

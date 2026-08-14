@@ -11,6 +11,8 @@ import (
 type AuditEvent struct {
 	ID            string         `json:"id"`
 	Actor         string         `json:"actor"`
+	ActorName     string         `json:"actorName,omitempty"`
+	ActorEmail    string         `json:"actorEmail,omitempty"`
 	Action        string         `json:"action"`
 	Target        string         `json:"target"`
 	Result        string         `json:"result"`

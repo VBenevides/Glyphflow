@@ -41,3 +41,29 @@ func TestAuditQueryFiltersRedactsAndPaginates(t *testing.T) {
 		t.Fatalf("audit-read event missing without exclusion: %s", response.Body.String())
 	}
 }
+
+func TestAuditEventsIncludeUserActorDisplayData(t *testing.T) {
+	auth, err := NewAuthService("01234567890123456789012345678901", true, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.AddRole("user", "users.read", "audit.read"); err != nil {
+		t.Fatal(err)
+	}
+	auth.SetDefaultRole("user")
+	user, err := auth.Register("actor@example.com", "correct horse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	audit := NewAuditQueryService()
+	server := Server{AuthService: auth, Auth: func(*http.Request) (Claims, bool) { return Claims{UserID: user.ID}, true }, Permissions: auth.Permissions, AuditQuery: audit}
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/users", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || len(audit.events) != 1 {
+		t.Fatalf("user list audit: %d %d", response.Code, len(audit.events))
+	}
+	if audit.events[0].ActorName != user.Username || audit.events[0].ActorEmail != user.Email {
+		t.Fatalf("actor display data: %#v", audit.events[0])
+	}
+}
