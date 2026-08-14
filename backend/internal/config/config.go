@@ -114,6 +114,9 @@ func (c Config) Validate() error {
 	if c.MaxOutputBytes <= 0 || c.MaxOutputBytes > c.MaxMessageBytes {
 		return errors.New("MAX_OUTPUT_BYTES must be greater than zero and no larger than MAX_MESSAGE_BYTES")
 	}
+	if c.Environment == "production" && (c.NATSCertFile == "" || c.NATSKeyFile == "" || c.NATSCAFile == "") {
+		return errors.New("production requires NATS client certificate, key, and CA files")
+	}
 	return nil
 }
 
