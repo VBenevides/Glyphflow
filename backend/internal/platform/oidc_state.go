@@ -27,41 +27,6 @@ type authorizationState struct {
 	Used     bool
 }
 
-type AuthorizationStateSnapshot struct {
-	Provider string    `json:"provider"`
-	Purpose  string    `json:"purpose"`
-	Nonce    string    `json:"nonce"`
-	Callback string    `json:"callback"`
-	Verifier []byte    `json:"verifier"`
-	Expires  time.Time `json:"expires"`
-	Used     bool      `json:"used"`
-}
-
-type AuthorizationStoreSnapshot struct {
-	Key    []byte                                `json:"key"`
-	States map[string]AuthorizationStateSnapshot `json:"states"`
-}
-
-func (s *AuthorizationStateStore) Snapshot() AuthorizationStoreSnapshot {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	states := make(map[string]AuthorizationStateSnapshot, len(s.states))
-	for key, state := range s.states {
-		states[key] = AuthorizationStateSnapshot{Provider: state.Provider, Purpose: state.Purpose, Nonce: state.Nonce, Callback: state.Callback, Verifier: append([]byte(nil), state.Verifier...), Expires: state.Expires, Used: state.Used}
-	}
-	return AuthorizationStoreSnapshot{Key: append([]byte(nil), s.key...), States: states}
-}
-
-func (s *AuthorizationStateStore) Restore(snapshot AuthorizationStoreSnapshot) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.key = append([]byte(nil), snapshot.Key...)
-	s.states = make(map[string]authorizationState, len(snapshot.States))
-	for key, state := range snapshot.States {
-		s.states[key] = authorizationState{Provider: state.Provider, Purpose: state.Purpose, Nonce: state.Nonce, Callback: state.Callback, Verifier: append([]byte(nil), state.Verifier...), Expires: state.Expires, Used: state.Used}
-	}
-}
-
 func NewAuthorizationStateStore() *AuthorizationStateStore {
 	key := make([]byte, 32)
 	_, _ = rand.Read(key)

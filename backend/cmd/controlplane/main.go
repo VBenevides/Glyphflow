@@ -43,8 +43,7 @@ func main() {
 		os.Exit(1)
 	}
 	configStore := store.NewConfigStore(db)
-	persistence := api.NewPersistence(configStore)
-	if err := persistence.InitializeEnvironment(map[string]any{
+	for name, value := range map[string]any{
 		"DATABASE_URL":                 cfg.DatabaseURL,
 		"NATS_URL":                     cfg.NATSURL,
 		"WEB_ORIGIN":                   cfg.WebOrigin,
@@ -54,10 +53,12 @@ func main() {
 		"ENABLE_PASSWORD_LOGIN":        cfg.PasswordLoginEnabled,
 		"ENABLE_PASSWORD_REGISTRATION": cfg.PasswordRegistrationEnabled,
 		"DEFAULT_ROLE_ID":              cfg.DefaultRoleID,
-	}); err != nil {
-		db.Close()
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+	} {
+		if err := configStore.SetIfAbsent(ctx, name, value); err != nil {
+			db.Close()
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	}
 	if len(cfg.SystemAdminEmails) == 0 {
 		var storedSystemAdminEmails []string
@@ -146,17 +147,12 @@ func main() {
 	infrastructure.SetResourceRepository(store.NewResourceRepository(db))
 	audit := api.NewAuditQueryService()
 	audit.SetRepository(store.NewAuditRepository(db))
-	application := api.Server{AuthService: authService, AuthAdmin: &api.AuthAdminService{Auth: authService, OIDC: oidcService, Sessions: authService.SessionManager()}, Sessions: authService.SessionManager(), OIDC: oidcService, Roles: roles, Auth: authService.Authenticator(), Permissions: authService.Permissions, CSRFOrigin: cfg.WebOrigin, Operations: operations, Runs: runs, Infrastructure: infrastructure, AuditQuery: audit, Persistence: persistence, Ready: func(ctx context.Context) error {
+	application := api.Server{AuthService: authService, AuthAdmin: &api.AuthAdminService{Auth: authService, OIDC: oidcService, Sessions: authService.SessionManager()}, Sessions: authService.SessionManager(), OIDC: oidcService, Roles: roles, Auth: authService.Authenticator(), Permissions: authService.Permissions, CSRFOrigin: cfg.WebOrigin, Operations: operations, Runs: runs, Infrastructure: infrastructure, AuditQuery: audit, Ready: func(ctx context.Context) error {
 		if err := db.Ping(ctx); err != nil {
 			return err
 		}
 		return nil
 	}}
-	if err := persistence.Restore(application); err != nil {
-		db.Close()
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
 	if err := authService.SetSystemAdminEmails(cfg.SystemAdminEmails); err != nil {
 		db.Close()
 		fmt.Fprintln(os.Stderr, err)
@@ -168,11 +164,6 @@ func main() {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
-	}
-	if err := persistence.Save(application); err != nil {
-		db.Close()
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
 	}
 	var jetstream *queue.JetStream
 	if strings.HasPrefix(cfg.NATSURL, "tls://") {
@@ -207,9 +198,6 @@ func main() {
 	}
 	go func() {
 		<-ctx.Done()
-		if err := persistence.Save(application); err != nil {
-			fmt.Fprintln(os.Stderr, "persist application state during shutdown:", err)
-		}
 		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = server.Shutdown(shutdown)

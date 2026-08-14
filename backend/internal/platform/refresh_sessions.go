@@ -20,39 +20,6 @@ type refreshSession struct {
 	ExpiresAt time.Time
 }
 
-type RefreshSessionSnapshot struct {
-	UserID    string    `json:"userId"`
-	TokenHash string    `json:"tokenHash"`
-	ExpiresAt time.Time `json:"expiresAt"`
-}
-
-func (m *RefreshSessionManager) Snapshot() (map[string]RefreshSessionSnapshot, map[string]bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	sessions := make(map[string]RefreshSessionSnapshot, len(m.sessions))
-	for id, session := range m.sessions {
-		sessions[id] = RefreshSessionSnapshot{UserID: session.UserID, TokenHash: session.TokenHash, ExpiresAt: session.ExpiresAt}
-	}
-	disabled := make(map[string]bool, len(m.disabled))
-	for userID, value := range m.disabled {
-		disabled[userID] = value
-	}
-	return sessions, disabled
-}
-
-func (m *RefreshSessionManager) Restore(sessions map[string]RefreshSessionSnapshot, disabled map[string]bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.sessions = make(map[string]refreshSession, len(sessions))
-	for id, session := range sessions {
-		m.sessions[id] = refreshSession{UserID: session.UserID, TokenHash: session.TokenHash, ExpiresAt: session.ExpiresAt}
-	}
-	m.disabled = make(map[string]bool, len(disabled))
-	for userID, value := range disabled {
-		m.disabled[userID] = value
-	}
-}
-
 func NewRefreshSessionManager() *RefreshSessionManager {
 	return &RefreshSessionManager{sessions: make(map[string]refreshSession), disabled: make(map[string]bool)}
 }

@@ -46,7 +46,6 @@ type Server struct {
 	Runs            *RunService
 	Infrastructure  *InfrastructureService
 	AuditQuery      *AuditQueryService
-	Persistence     *Persistence
 }
 
 func (s Server) Handler() http.Handler {
@@ -203,9 +202,6 @@ func (s Server) Handler() http.Handler {
 	var handler http.Handler = mux
 	if s.CSRFOrigin != "" {
 		handler = s.withCSRF(handler, s.CSRFOrigin)
-	}
-	if s.Persistence != nil {
-		handler = s.Persistence.Wrap(handler, s)
 	}
 	return s.noStore(s.withCorrelation(handler))
 }
