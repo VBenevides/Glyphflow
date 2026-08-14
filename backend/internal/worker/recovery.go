@@ -1,6 +1,9 @@
 package worker
 
-import "sync"
+import (
+	"errors"
+	"sync"
+)
 
 type OrderRecovery struct {
 	mu     sync.Mutex
@@ -29,4 +32,11 @@ func (r *OrderRecovery) Recover(previousBootID string) []string {
 		}
 	}
 	return unknown
+}
+
+func RecoverDurable(store *LocalStore, previousBootID string) ([]string, error) {
+	if store == nil || previousBootID == "" {
+		return nil, errors.New("durable recovery inputs are required")
+	}
+	return store.RecoverOrders(previousBootID)
 }
