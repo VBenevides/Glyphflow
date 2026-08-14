@@ -235,11 +235,13 @@ func (s Server) require(role string, next http.Handler) http.Handler {
 }
 
 func hasPermission(permissions map[string]bool, required string) bool {
-	if permissions[required] {
-		return true
-	}
 	aliases := map[string]string{"task.read": "tasks.read", "task.create": "tasks.manage", "run.read": "runs.read", "run.cancel": "runs.cancel", "run.retry": "runs.retry", "runner.read": "runners.read", "event.read": "logs.read"}
-	return permissions[aliases[required]]
+	for _, candidate := range strings.Split(required, "|") {
+		if permissions[candidate] || permissions[aliases[candidate]] {
+			return true
+		}
+	}
+	return false
 }
 func (s Server) requireMethodRole(role func(*http.Request) string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

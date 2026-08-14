@@ -116,7 +116,7 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 	})))
 	mux.Handle("/api/v1/users", s.requireMethodRole(func(r *http.Request) string {
 		if r.Method == http.MethodGet {
-			return "users.read"
+			return "users.read|users.manage"
 		}
 		return "users.manage"
 	}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

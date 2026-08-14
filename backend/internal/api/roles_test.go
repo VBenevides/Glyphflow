@@ -36,3 +36,37 @@ func TestCustomRoleEndpointCreatesRoleWithPermissions(t *testing.T) {
 		t.Fatal("system role deleted")
 	}
 }
+
+func TestRoleAndUserListsAllowReadOrManagePermission(t *testing.T) {
+	roles := NewRoleAdminService()
+	if err := roles.Seed("viewer", []string{"users.read"}); err != nil {
+		t.Fatal(err)
+	}
+	auth, err := NewAuthService("01234567890123456789012345678901", true, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.AddRole("user"); err != nil {
+		t.Fatal(err)
+	}
+	auth.SetDefaultRole("user")
+	if _, err := auth.Register("user@example.com", "correct horse"); err != nil {
+		t.Fatal(err)
+	}
+
+	server := Server{
+		Roles:     roles,
+		AuthAdmin: &AuthAdminService{Auth: auth},
+		Auth: func(*http.Request) (Claims, bool) {
+			return Claims{Roles: map[string]bool{"roles.read": true, "users.manage": true}}, true
+		},
+	}
+	for _, path := range []string{"/api/v1/admin/roles", "/api/v1/users"} {
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		recorder := httptest.NewRecorder()
+		server.Handler().ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("read %s returned %d", path, recorder.Code)
+		}
+	}
+}

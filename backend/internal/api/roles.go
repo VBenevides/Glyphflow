@@ -159,7 +159,12 @@ func (s Server) roleRoutes(mux routeRegistrar) {
 	if s.Roles == nil {
 		return
 	}
-	mux.Handle("/api/v1/admin/roles", s.require("roles.manage", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/api/v1/admin/roles", s.requireMethodRole(func(r *http.Request) string {
+		if r.Method == http.MethodGet {
+			return "roles.read|roles.manage"
+		}
+		return "roles.manage"
+	}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			writeJSON(w, 200, s.Roles.List())
 			return
