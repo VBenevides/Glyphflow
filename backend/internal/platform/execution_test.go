@@ -16,3 +16,22 @@ func TestExecutionDigestAndLogBound(t *testing.T) {
 		t.Fatalf("log bound failed: %q %v %v", chunk, truncated, err)
 	}
 }
+
+func TestLogAccumulatorBoundsTotalOutput(t *testing.T) {
+	accumulator, err := NewLogAccumulator(5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, truncated := accumulator.Append([]byte("abc")); truncated || string(got) != "abc" {
+		t.Fatal("first chunk was truncated")
+	}
+	if got, truncated := accumulator.Append([]byte("def")); !truncated || string(got) != "de" {
+		t.Fatalf("total bound failed: %q %v", got, truncated)
+	}
+	if got, truncated := accumulator.Append([]byte("x")); !truncated || len(got) != 0 {
+		t.Fatal("post-limit output accepted")
+	}
+	if data, truncated := accumulator.Bytes(); string(data) != "abcde" || !truncated {
+		t.Fatalf("stored output: %q %v", data, truncated)
+	}
+}

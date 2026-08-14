@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"sync"
 )
 
 type ExecutionSpec struct {
@@ -14,6 +15,43 @@ type ExecutionSpec struct {
 	Timeout     uint32
 	SecretRefs  []string
 	MaxOutput   uint64
+}
+
+type LogAccumulator struct {
+	mu         sync.Mutex
+	max, total int
+	truncated  bool
+	data       []byte
+}
+
+func NewLogAccumulator(max int) (*LogAccumulator, error) {
+	if max <= 0 {
+		return nil, errors.New("log output limit must be positive")
+	}
+	return &LogAccumulator{max: max}, nil
+}
+func (a *LogAccumulator) Append(chunk []byte) (accepted []byte, truncated bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	remaining := a.max - a.total
+	if remaining <= 0 {
+		a.truncated = true
+		return nil, true
+	}
+	if len(chunk) > remaining {
+		chunk = chunk[:remaining]
+		a.truncated = true
+		truncated = true
+	}
+	accepted = append([]byte(nil), chunk...)
+	a.data = append(a.data, chunk...)
+	a.total += len(chunk)
+	return accepted, truncated
+}
+func (a *LogAccumulator) Bytes() ([]byte, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return append([]byte(nil), a.data...), a.truncated
 }
 
 func ExecutionDigest(spec ExecutionSpec) (string, error) {
