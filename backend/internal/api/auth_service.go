@@ -56,6 +56,12 @@ func (s *AuthService) PasswordLoginEnabled() bool {
 	return s.passwordEnabled
 }
 
+func (s *AuthService) RegistrationEnabled() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.registrationEnabled
+}
+
 func (s *AuthService) EnsureBootstrap(username, password, provider, subject string) (AuthUser, error) {
 	key := platform.NormalizeIdentityKey(username)
 	if key == "" {

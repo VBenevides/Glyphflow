@@ -26,6 +26,12 @@ func (s *PasswordAuthService) Enabled() bool {
 	defer s.mu.Unlock()
 	return s.enabled
 }
+
+func (s *PasswordAuthService) RegistrationEnabled() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.registration && s.enabled
+}
 func (s *PasswordAuthService) Register(username, password string) error {
 	if !s.enabled || !s.registration {
 		return errors.New("password registration is disabled")

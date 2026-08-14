@@ -19,6 +19,14 @@ type Claims struct {
 }
 type Authenticator func(*http.Request) (Claims, bool)
 
+type RuntimeConfig struct {
+	Brand         string `json:"brand"`
+	PasswordLogin bool   `json:"passwordLogin"`
+	Registration  bool   `json:"registration"`
+	OIDC          bool   `json:"oidc"`
+	CSRFCookie    string `json:"csrfCookie"`
+}
+
 type Server struct {
 	Auth            Authenticator
 	Permissions     func(Claims) map[string]bool
@@ -33,6 +41,7 @@ type Server struct {
 	Ready           func(context.Context) error
 	CSRFOrigin      string
 	AuthRateLimiter *platform.RateLimiter
+	Config          RuntimeConfig
 }
 
 func (s Server) Handler() http.Handler {
@@ -46,6 +55,7 @@ func (s Server) Handler() http.Handler {
 	mux.HandleFunc("/docs", swaggerUI)
 	mux.HandleFunc("/docs/login", s.docsLogin)
 	mux.HandleFunc("/openapi.json", openAPI)
+	mux.HandleFunc("/api/v1/config", s.runtimeConfig)
 	if s.CurrentUser == nil && s.AuthService != nil {
 		s.CurrentUser = &CurrentUserService{Profile: s.AuthService.Profile, Sessions: s.AuthService.sessions}
 	}
