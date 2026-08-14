@@ -36,6 +36,14 @@ type SessionInfo struct {
 	ID        string    `json:"id"`
 	UserID    string    `json:"userId"`
 	ExpiresAt time.Time `json:"expiresAt"`
+	Current   bool      `json:"current,omitempty"`
+}
+
+func (m *SessionManager) Owns(userID, sessionID string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	session, ok := m.sessions[sessionID]
+	return ok && session.UserID == userID
 }
 
 func NewSessionManager(secret string) (*SessionManager, error) {

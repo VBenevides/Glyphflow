@@ -59,6 +59,8 @@ var routeDefinitions = []RouteDefinition{
 	{Pattern: "/api/v1/auth/oidc/login", Access: RoutePublic},
 	{Pattern: "/api/v1/auth/oidc/callback", Access: RoutePublic},
 	{Pattern: "/api/v1/me", Access: RouteAuthenticated},
+	{Pattern: "/api/v1/me/password", Access: RouteAuthenticated},
+	{Pattern: "/api/v1/me/identities/", Access: RouteAuthenticated},
 	{Pattern: "/api/v1/me/sessions/revoke", Access: RouteAuthenticated},
 	{Pattern: "/api/v1/tasks", Access: RoutePermission, Permission: "tasks.read|tasks.manage"},
 	{Pattern: "/api/v1/schedules", Access: RoutePermission, Permission: "tasks.read|tasks.manage"},

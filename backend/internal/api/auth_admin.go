@@ -21,11 +21,15 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 		return
 	}
 	mux.Handle("/api/v1/admin/auth/settings", s.require("auth.settings.manage", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || s.AuthAdmin.Password == nil {
+		if r.Method != http.MethodPost || (s.AuthAdmin.Password == nil && s.AuthAdmin.Auth == nil) {
 			writeJSON(w, 405, map[string]string{"error": "method not allowed"})
 			return
 		}
-		var in struct{ Enabled bool }
+		var in struct {
+			Enabled      bool   `json:"enabled"`
+			Registration bool   `json:"registration"`
+			DefaultRole  string `json:"default_role"`
+		}
 		if json.NewDecoder(r.Body).Decode(&in) != nil {
 			writeJSON(w, 400, map[string]string{"error": "invalid settings"})
 			return
@@ -38,15 +42,19 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "a login method must remain enabled"})
 			return
 		}
-		s.AuthAdmin.Password.mu.Lock()
-		s.AuthAdmin.Password.enabled = in.Enabled
-		s.AuthAdmin.Password.mu.Unlock()
-		if s.AuthAdmin.Auth != nil {
-			s.AuthAdmin.Auth.mu.Lock()
-			s.AuthAdmin.Auth.passwordEnabled = in.Enabled
-			s.AuthAdmin.Auth.mu.Unlock()
+		if s.AuthAdmin.Password != nil {
+			s.AuthAdmin.Password.mu.Lock()
+			s.AuthAdmin.Password.enabled = in.Enabled
+			s.AuthAdmin.Password.registration = in.Registration
+			s.AuthAdmin.Password.mu.Unlock()
 		}
-		writeJSON(w, 200, map[string]bool{"password_login_enabled": in.Enabled})
+		if s.AuthAdmin.Auth != nil {
+			if err := s.AuthAdmin.Auth.UpdateAuthSettings(in.Enabled, in.Registration, in.DefaultRole); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid authentication settings"})
+				return
+			}
+		}
+		writeJSON(w, 200, map[string]any{"password_login_enabled": in.Enabled, "registration_enabled": in.Registration, "default_role": in.DefaultRole})
 	})))
 	mux.Handle("/api/v1/admin/auth/sessions/revoke", s.require("users.manage", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || s.AuthAdmin.Sessions == nil {
@@ -105,5 +113,35 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 			return
 		}
 		writeJSON(w, 204, nil)
+	})))
+	mux.Handle("/api/v1/users", s.requireMethodRole(func(r *http.Request) string {
+		if r.Method == http.MethodGet {
+			return "users.read"
+		}
+		return "users.manage"
+	}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.AuthAdmin.Auth == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "user administration unavailable"})
+			return
+		}
+		if r.Method == http.MethodGet {
+			writePage(w, r, s.AuthAdmin.Auth.Users())
+			return
+		}
+		if r.Method != http.MethodPost {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			return
+		}
+		var input passwordRequest
+		if json.NewDecoder(r.Body).Decode(&input) != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "user creation failed"})
+			return
+		}
+		user, err := s.AuthAdmin.Auth.Register(input.Username, input.Password)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "user creation failed"})
+			return
+		}
+		writeJSON(w, http.StatusCreated, user)
 	})))
 }

@@ -62,6 +62,9 @@ func (s Server) Handler() http.Handler {
 	if s.Infrastructure == nil {
 		s.Infrastructure = NewInfrastructureService()
 	}
+	if s.AuthAdmin == nil && s.AuthService != nil {
+		s.AuthAdmin = &AuthAdminService{Auth: s.AuthService, Sessions: s.AuthService.sessions, OIDC: s.OIDC}
+	}
 	mux := newTrackedMux()
 	mux.HandleFunc("/docs", swaggerUI)
 	mux.HandleFunc("/docs/login", s.docsLogin)
@@ -116,7 +119,7 @@ func (s Server) Handler() http.Handler {
 		}
 		return "runners.manage"
 	}, http.HandlerFunc(s.Infrastructure.runnerCollection)))
-	for path, readPermission := range map[string]string{"/api/v1/users": "users.read", "/api/v1/roles": "roles.read", "/api/v1/sso": "sso.read", "/api/v1/logs": "logs.read"} {
+	for path, readPermission := range map[string]string{"/api/v1/roles": "roles.read", "/api/v1/sso": "sso.read", "/api/v1/logs": "logs.read"} {
 		managePermission := map[string]string{"/api/v1/schedules": "tasks.manage", "/api/v1/resources": "resources.manage", "/api/v1/users": "users.manage", "/api/v1/roles": "roles.manage", "/api/v1/sso": "sso.manage", "/api/v1/logs": "logs.read"}[path]
 		mux.Handle(path, s.requireMethodRole(func(r *http.Request) string {
 			if r.Method == http.MethodGet {

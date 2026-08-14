@@ -1,6 +1,10 @@
 package api
 
-import "net/http"
+import (
+	"encoding/json"
+	"net/http"
+	"strings"
+)
 
 type CurrentUserService struct {
 	Profile  func(Claims) map[string]any
@@ -21,7 +25,47 @@ func (s Server) currentUserRoutes(mux routeRegistrar) {
 			writeJSON(w, 200, s.CurrentUser.Profile(claims))
 			return
 		}
+		if r.Method == http.MethodPut && s.AuthService != nil {
+			var input struct {
+				DisplayName string `json:"display_name"`
+			}
+			if json.NewDecoder(r.Body).Decode(&input) != nil || s.AuthService.UpdateProfile(claims.UserID, input.DisplayName) != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "profile update failed"})
+				return
+			}
+			writeJSON(w, http.StatusOK, s.AuthService.Profile(claims))
+			return
+		}
 		writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+	})))
+	mux.Handle("/api/v1/me/password", s.requireAuthenticated(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || s.AuthService == nil {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			return
+		}
+		claims, _ := s.authenticator()(r)
+		var input struct {
+			CurrentPassword string `json:"current_password"`
+			NewPassword     string `json:"new_password"`
+		}
+		if json.NewDecoder(r.Body).Decode(&input) != nil || s.AuthService.ChangePassword(claims.UserID, input.CurrentPassword, input.NewPassword) != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password change failed"})
+			return
+		}
+		writeJSON(w, http.StatusNoContent, nil)
+	})))
+	mux.Handle("/api/v1/me/identities/", s.requireAuthenticated(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete || s.AuthService == nil {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			return
+		}
+		claims, _ := s.authenticator()(r)
+		id := strings.TrimPrefix(r.URL.Path, "/api/v1/me/identities/")
+		if id == "" || s.AuthService.UnlinkOIDC(claims.UserID, id) != nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "identity not found"})
+			return
+		}
+		writeJSON(w, http.StatusNoContent, nil)
 	})))
 	mux.Handle("/api/v1/me/sessions/revoke", s.requireAuthenticated(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -33,7 +77,7 @@ func (s Server) currentUserRoutes(mux routeRegistrar) {
 		if sessionID == "" {
 			sessionID = claims.SessionID
 		}
-		if sessionID != claims.SessionID {
+		if s.CurrentUser.Sessions == nil || !s.CurrentUser.Sessions.Owns(claims.UserID, sessionID) {
 			writeJSON(w, 403, map[string]string{"error": "session ownership required"})
 			return
 		}

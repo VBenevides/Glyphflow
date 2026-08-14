@@ -2,6 +2,7 @@ package api
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"net/http"
@@ -14,8 +15,8 @@ import (
 )
 
 type AuthUser struct {
-	ID, Username, Email string
-	Enabled             bool
+	ID, Username, Email, DisplayName string
+	Enabled                          bool
 }
 type AuthTokens struct {
 	AccessToken  string `json:"access_token"`
@@ -65,6 +66,22 @@ func (s *AuthService) RegistrationEnabled() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.registrationEnabled
+}
+
+func (s *AuthService) SessionManager() *SessionManager { return s.sessions }
+
+func (s *AuthService) UpdateAuthSettings(passwordEnabled, registrationEnabled bool, defaultRole string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if defaultRole != "" {
+		if _, ok := s.rolePermissions[defaultRole]; !ok {
+			return errors.New("default role not found")
+		}
+		s.defaultRole = defaultRole
+	}
+	s.passwordEnabled = passwordEnabled
+	s.registrationEnabled = registrationEnabled
+	return nil
 }
 
 func (s *AuthService) EnsureBootstrap(username, password, provider, subject string) (AuthUser, error) {
@@ -288,6 +305,102 @@ func (s *AuthService) LinkOIDC(userID, provider, subject string) error {
 	return nil
 }
 
+func (s *AuthService) UnlinkOIDC(userID, identityID string) error {
+	keyBytes, err := base64.RawURLEncoding.DecodeString(identityID)
+	if err != nil {
+		return errors.New("identity not found")
+	}
+	key := string(keyBytes)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.oidcIdentities[key] != userID {
+		return errors.New("identity not found")
+	}
+	delete(s.oidcIdentities, key)
+	return nil
+}
+
+func (s *AuthService) UpdateProfile(userID, displayName string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	user, ok := s.users[userID]
+	if !ok {
+		return errors.New("user not found")
+	}
+	user.DisplayName = strings.TrimSpace(displayName)
+	s.users[userID] = user
+	return nil
+}
+
+func (s *AuthService) ChangePassword(userID, currentPassword, newPassword string) error {
+	if err := platform.ValidatePassword(newPassword); err != nil {
+		return err
+	}
+	s.mu.RLock()
+	user, exists := s.users[userID]
+	hash := s.passwords[userID]
+	s.mu.RUnlock()
+	if !exists || !user.Enabled || hash == "" {
+		return errors.New("password change unavailable")
+	}
+	valid, err := s.hasher.Verify(hash, currentPassword)
+	if err != nil || !valid {
+		return errors.New("current password is invalid")
+	}
+	updated, err := s.hasher.Hash(newPassword)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.passwords[userID] = updated
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *AuthService) Identities(userID string) []map[string]any {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	identities := []map[string]any{}
+	for key, owner := range s.oidcIdentities {
+		if owner != userID {
+			continue
+		}
+		parts := strings.SplitN(key, "\x00", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		identities = append(identities, map[string]any{"id": base64.RawURLEncoding.EncodeToString([]byte(key)), "provider": parts[0], "subject": parts[1]})
+	}
+	sort.Slice(identities, func(i, j int) bool { return identities[i]["id"].(string) < identities[j]["id"].(string) })
+	return identities
+}
+
+func (s *AuthService) Users() []map[string]any {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	users := make([]map[string]any, 0, len(s.users))
+	for id, user := range s.users {
+		roles := make([]string, 0, len(s.roles[id]))
+		for role := range s.roles[id] {
+			roles = append(roles, role)
+		}
+		sort.Strings(roles)
+		methods := []string{}
+		if s.passwords[id] != "" {
+			methods = append(methods, "password")
+		}
+		for key, owner := range s.oidcIdentities {
+			if owner == id {
+				methods = append(methods, strings.SplitN(key, "\x00", 2)[0])
+			}
+		}
+		sort.Strings(methods)
+		users = append(users, map[string]any{"id": user.ID, "username": user.Username, "email": user.Email, "displayName": user.DisplayName, "enabled": user.Enabled, "status": map[bool]string{true: "active", false: "disabled"}[user.Enabled], "roles": roles, "loginMethods": methods, "sessions": s.sessions.List(id)})
+	}
+	sort.Slice(users, func(i, j int) bool { return users[i]["username"].(string) < users[j]["username"].(string) })
+	return users
+}
+
 func (s *AuthService) issueTokens(userID string) (AuthTokens, error) {
 	sessionID, refreshToken, err := s.refresh.Issue(userID, s.refreshLifetime)
 	if err != nil {
@@ -406,7 +519,11 @@ func (s *AuthService) Profile(claims Claims) map[string]any {
 		permissionKeys = append(permissionKeys, permission)
 	}
 	sort.Strings(permissionKeys)
-	return map[string]any{"id": user.ID, "username": user.Username, "email": user.Email, "roles": roles, "permissions": permissionKeys, "sessions": s.sessions.List(claims.UserID)}
+	sessions := s.sessions.List(claims.UserID)
+	for index := range sessions {
+		sessions[index].Current = sessions[index].ID == claims.SessionID
+	}
+	return map[string]any{"id": user.ID, "username": user.Username, "email": user.Email, "displayName": user.DisplayName, "roles": roles, "permissions": permissionKeys, "sessions": sessions, "identities": s.Identities(claims.UserID)}
 }
 
 func randomID() (string, error) {

@@ -47,6 +47,16 @@ func main() {
 			os.Exit(1)
 		}
 	}
+	oidcService := api.NewOIDCService()
+	roles := api.NewRoleAdminService()
+	if err := roles.Seed("admin", platform.PermissionCatalog); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if err := roles.Seed("user", nil); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	db, err := pgxpool.New(ctx, cfg.DatabaseURL)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -76,7 +86,7 @@ func main() {
 	defer func() { jetstream.Close(); db.Close() }()
 	server := &http.Server{
 		Addr: ":8080",
-		Handler: api.Server{AuthService: authService, Auth: authService.Authenticator(), Permissions: authService.Permissions, CSRFOrigin: cfg.WebOrigin, Ready: func(ctx context.Context) error {
+		Handler: api.Server{AuthService: authService, AuthAdmin: &api.AuthAdminService{Auth: authService, OIDC: oidcService, Sessions: authService.SessionManager()}, OIDC: oidcService, Roles: roles, Auth: authService.Authenticator(), Permissions: authService.Permissions, CSRFOrigin: cfg.WebOrigin, Ready: func(ctx context.Context) error {
 			if err := db.Ping(ctx); err != nil {
 				return err
 			}
