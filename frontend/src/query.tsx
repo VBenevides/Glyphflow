@@ -4,7 +4,7 @@ import { Button, EmptyState, ErrorState, LoadingState } from './components'
 import { describeError } from './errors'
 
 export const queryClient = new QueryClient({
-  defaultOptions: { queries: { staleTime: 30_000, retry: 1, refetchOnWindowFocus: true, refetchIntervalInBackground: false } },
+  defaultOptions: { queries: { staleTime: 30_000, retry: 1, refetchOnMount: 'always', refetchOnWindowFocus: true, refetchIntervalInBackground: false } },
 })
 
 export function QueryProvider({ children }: { children: ReactNode }) {

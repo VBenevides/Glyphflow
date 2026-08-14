@@ -116,3 +116,27 @@ func TestAuditEventsIncludeUserActorDisplayData(t *testing.T) {
 		t.Fatalf("actor display data: %#v", audit.events[0])
 	}
 }
+
+func TestAuditDescriptionsCoverAPIRequests(t *testing.T) {
+	cases := []struct {
+		method, path, want string
+	}{
+		{http.MethodPost, "/api/v1/admin/auth/sessions/revoke", "Revoke user session"},
+		{http.MethodGet, "/api/v1/schedules/schedule-1", "View schedule"},
+		{http.MethodPost, "/api/v1/tasks/task-1/versions", "Publish task version"},
+		{http.MethodPost, "/api/v1/resources/resource-1/lease", "Acquire resource lease"},
+		{http.MethodPost, "/api/v1/runners/runner-1/drain", "Drain runner"},
+		{http.MethodGet, "/api/v1/runs/run-1/logs/download", "Download run logs"},
+		{http.MethodGet, "/api/v1/unknown", "GET /api/v1/unknown"},
+	}
+	for _, test := range cases {
+		if got := auditDescription(test.method, test.path); got != test.want {
+			t.Errorf("auditDescription(%q, %q) = %q, want %q", test.method, test.path, got, test.want)
+		}
+	}
+	audit := NewAuditQueryService()
+	audit.Add(AuditEvent{Action: http.MethodPost, Input: map[string]any{"endpoint": "/api/v1/runners/enrollments"}})
+	if audit.events[0].Description != "Create runner enrollment" {
+		t.Fatalf("description inferred from request input: %q", audit.events[0].Description)
+	}
+}

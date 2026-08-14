@@ -35,6 +35,8 @@ func auditDescription(method, path string) string {
 	switch {
 	case path == "/api/v1/admin/auth/settings":
 		return "Update authentication settings"
+	case path == "/api/v1/admin/auth/sessions/revoke":
+		return "Revoke user session"
 	case path == "/api/v1/admin/auth/providers":
 		if method == http.MethodGet {
 			return "List SSO providers"
@@ -52,6 +54,20 @@ func auditDescription(method, path string) string {
 			return "Delete role"
 		}
 		return "Update role"
+	case path == "/api/v1/roles":
+		if method == http.MethodGet {
+			return "List roles"
+		}
+		return "Manage roles"
+	case path == "/api/v1/sso":
+		if method == http.MethodGet {
+			return "View SSO configuration"
+		}
+		return "Update SSO configuration"
+	case path == "/api/v1/logs":
+		return "List logs"
+	case path == "/api/v1/events":
+		return "List events"
 	case path == "/api/v1/users":
 		if method == http.MethodGet {
 			return "List users"
@@ -80,12 +96,94 @@ func auditDescription(method, path string) string {
 			return "List schedules"
 		}
 		return "Create schedule"
+	case path == "/api/v1/schedules/preview":
+		return "Preview schedule occurrences"
+	case strings.HasPrefix(path, "/api/v1/schedules/"):
+		if method == http.MethodGet {
+			return "View schedule"
+		}
+		return "Update schedule"
+	case strings.HasPrefix(path, "/api/v1/tasks/"):
+		if strings.HasSuffix(path, "/versions") {
+			return "Publish task version"
+		}
+		if strings.HasSuffix(path, "/cancel") {
+			return "Cancel task run"
+		}
+		if strings.HasSuffix(path, "/retry") {
+			return "Retry task run"
+		}
+		if method == http.MethodGet {
+			return "View task"
+		}
+		return "Update task"
+	case path == "/api/v1/resources":
+		if method == http.MethodGet {
+			return "List resources"
+		}
+		return "Create resource"
+	case strings.HasPrefix(path, "/api/v1/resources/"):
+		if strings.HasSuffix(path, "/lease") {
+			if method == http.MethodPost {
+				return "Acquire resource lease"
+			}
+			return "Release resource lease"
+		}
+		if method == http.MethodGet {
+			return "View resource"
+		}
+		if method == http.MethodDelete {
+			return "Delete resource"
+		}
+		return "Update resource"
+	case path == "/api/v1/runners":
+		return "List runners"
+	case strings.HasPrefix(path, "/api/v1/runners/"):
+		if strings.HasSuffix(path, "/enrollments") {
+			return "Create runner enrollment"
+		}
+		for action, description := range map[string]string{"enable": "Enable runner", "disable": "Disable runner", "drain": "Drain runner", "reset": "Reset runner", "revoke": "Revoke runner"} {
+			if strings.HasSuffix(path, "/"+action) {
+				return description
+			}
+		}
+		if method == http.MethodGet {
+			return "View runner"
+		}
+		return "Update runner"
+	case path == "/api/v1/runs":
+		return "List runs"
 	case path == "/api/v1/runs/execute":
-		return "Execute task"
+		return "Start task run"
+	case path == "/api/v1/runs/retry":
+		return "Retry run"
+	case path == "/api/v1/runs/cancel":
+		return "Cancel run"
 	case strings.HasPrefix(path, "/api/v1/runs/"):
+		if strings.HasSuffix(path, "/logs/download") {
+			return "Download run logs"
+		}
+		if strings.HasSuffix(path, "/logs") {
+			return "Stream run logs"
+		}
+		if strings.HasSuffix(path, "/events") {
+			return "List run events"
+		}
+		if strings.HasSuffix(path, "/cancel") {
+			return "Cancel run"
+		}
+		if strings.HasSuffix(path, "/retry") {
+			return "Retry run"
+		}
+		if strings.HasSuffix(path, "/reconcile") {
+			return "Reconcile run"
+		}
+		if method == http.MethodGet {
+			return "View run"
+		}
 		return "Manage run"
 	default:
-		return method + " " + path
+		return strings.TrimSpace(method + " " + path)
 	}
 }
 
@@ -106,7 +204,15 @@ func (s *AuditQueryService) SetRepository(repository store.AuditRepository) {
 }
 
 func auditEventFromStore(event store.AuditEventRecord) AuditEvent {
-	return AuditEvent{ID: event.ID, Actor: event.ActorID, ActorName: event.ActorName, ActorEmail: event.ActorEmail, Action: event.Method, Description: event.Description, Target: event.Target, Request: event.Endpoint, Result: event.Result, Input: event.RequestInput, Output: event.ResponseOutput, Traceback: event.Traceback, CorrelationID: event.CorrelationID, CreatedAt: event.CreatedAt.UTC().Format(time.RFC3339Nano), Before: toAuditMap(event.BeforeValue), After: toAuditMap(event.AfterValue)}
+	description := event.Description
+	if description == "" {
+		endpoint := event.Endpoint
+		if endpoint == "" {
+			endpoint = event.Target
+		}
+		description = auditDescription(event.Method, endpoint)
+	}
+	return AuditEvent{ID: event.ID, Actor: event.ActorID, ActorName: event.ActorName, ActorEmail: event.ActorEmail, Action: event.Method, Description: description, Target: event.Target, Request: event.Endpoint, Result: event.Result, Input: event.RequestInput, Output: event.ResponseOutput, Traceback: event.Traceback, CorrelationID: event.CorrelationID, CreatedAt: event.CreatedAt.UTC().Format(time.RFC3339Nano), Before: toAuditMap(event.BeforeValue), After: toAuditMap(event.AfterValue)}
 }
 
 func toAuditMap(value any) map[string]any {
@@ -126,6 +232,20 @@ func (s *AuditQueryService) Add(event AuditEvent) {
 	if event.CreatedAt == "" {
 		event.CreatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	}
+	endpoint := event.Request
+	if endpoint == "" {
+		if input, ok := event.Input.(map[string]any); ok {
+			if value, ok := input["endpoint"].(string); ok {
+				endpoint = value
+			}
+		}
+	}
+	if endpoint == "" {
+		endpoint = event.Target
+	}
+	if event.Description == "" {
+		event.Description = auditDescription(event.Action, endpoint)
+	}
 	event.Before = redactAuditMap(event.Before)
 	event.After = redactAuditMap(event.After)
 	event.Input = redactAuditValue(event.Input)
@@ -135,14 +255,6 @@ func (s *AuditQueryService) Add(event AuditEvent) {
 	s.mu.RUnlock()
 	if repository != nil {
 		createdAt, _ := time.Parse(time.RFC3339Nano, event.CreatedAt)
-		endpoint := event.Request
-		if endpoint == "" {
-			if input, ok := event.Input.(map[string]any); ok {
-				if value, ok := input["endpoint"].(string); ok {
-					endpoint = value
-				}
-			}
-		}
 		_ = repository.Append(context.Background(), store.AuditEventRecord{ID: event.ID, ActorID: event.Actor, ActorName: event.ActorName, ActorEmail: event.ActorEmail, Method: event.Action, Description: event.Description, Endpoint: endpoint, Target: event.Target, Result: event.Result, RequestInput: event.Input, ResponseOutput: event.Output, BeforeValue: event.Before, AfterValue: event.After, Traceback: event.Traceback, CorrelationID: event.CorrelationID, CreatedAt: createdAt})
 		return
 	}
