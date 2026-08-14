@@ -7,7 +7,7 @@ type CurrentUserService struct {
 	Sessions *SessionManager
 }
 
-func (s Server) currentUserRoutes(mux *http.ServeMux) {
+func (s Server) currentUserRoutes(mux routeRegistrar) {
 	if s.CurrentUser == nil {
 		return
 	}

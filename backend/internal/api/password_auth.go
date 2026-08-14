@@ -65,7 +65,7 @@ func (s *PasswordAuthService) Verify(username, password string) bool {
 
 type passwordRequest struct{ Username, Password string }
 
-func (s Server) passwordRoutes(mux *http.ServeMux) {
+func (s Server) passwordRoutes(mux routeRegistrar) {
 	if s.AuthService != nil {
 		mux.HandleFunc("/api/v1/auth/register", func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost {

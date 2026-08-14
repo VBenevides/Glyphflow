@@ -42,7 +42,7 @@ func (s Server) Handler() http.Handler {
 	if s.AuthRateLimiter == nil {
 		s.AuthRateLimiter = platform.NewRateLimiter(5, time.Minute)
 	}
-	mux := http.NewServeMux()
+	mux := newTrackedMux()
 	mux.HandleFunc("/docs", swaggerUI)
 	mux.HandleFunc("/docs/login", s.docsLogin)
 	mux.HandleFunc("/openapi.json", openAPI)
@@ -113,6 +113,9 @@ func (s Server) Handler() http.Handler {
 	}, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "run action is not implemented"})
 	})))
+	if err := ValidateBuiltRoutes(mux.patterns, RouteRegistry()); err != nil {
+		panic(err)
+	}
 	var handler http.Handler = mux
 	if s.CSRFOrigin != "" {
 		handler = s.withCSRF(handler, s.CSRFOrigin)

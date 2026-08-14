@@ -16,7 +16,7 @@ type AuthAdminService struct {
 	Auth     *AuthService
 }
 
-func (s Server) authAdminRoutes(mux *http.ServeMux) {
+func (s Server) authAdminRoutes(mux routeRegistrar) {
 	if s.AuthAdmin == nil {
 		return
 	}

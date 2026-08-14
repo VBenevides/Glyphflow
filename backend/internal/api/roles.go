@@ -155,7 +155,7 @@ func uniqueStrings(values []string) []string {
 	}
 	return out
 }
-func (s Server) roleRoutes(mux *http.ServeMux) {
+func (s Server) roleRoutes(mux routeRegistrar) {
 	if s.Roles == nil {
 		return
 	}

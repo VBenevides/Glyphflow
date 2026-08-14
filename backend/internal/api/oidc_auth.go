@@ -287,7 +287,7 @@ func secureURL(value string) (string, error) {
 	return parsed.String(), nil
 }
 
-func (s Server) oidcRoutes(mux *http.ServeMux) {
+func (s Server) oidcRoutes(mux routeRegistrar) {
 	if s.OIDC == nil {
 		return
 	}
