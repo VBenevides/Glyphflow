@@ -55,7 +55,7 @@ export function LoginPage() {
     }
   }
   return <AuthFrame title="Sign in"><form className="gf-form" onSubmit={submit}>
-    {config.passwordLogin && <><label htmlFor="email">Email</label><Input id="email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /><label htmlFor="password">Password</label><Input id="password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /><Button type="submit" busy={busy}>Sign in</Button></>}
+    {config.passwordLogin && <><label htmlFor="email">Email</label><Input id="email" type="text" inputMode="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /><label htmlFor="password">Password</label><Input id="password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /><Button type="submit" busy={busy}>Sign in</Button></>}
     {!config.passwordLogin && <p className="gf-muted">Password sign-in is disabled.</p>}
     {!methods.length && <p className="gf-form-error" role="alert">No sign-in methods are configured. Contact an administrator.</p>}
     {error && <p className="gf-form-error" role="alert">{error}</p>}
@@ -77,7 +77,7 @@ export function RegistrationPage() {
     event.preventDefault(); setBusy(true); setError('')
     try { await api.post('/api/v1/auth/register', { email, password }); await api.post('/api/v1/auth/login', { email, password }); await restore(); navigate(redirect, { replace: true }) } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to register') } finally { setBusy(false) }
   }
-  return <AuthFrame title="Create account"><form className="gf-form" onSubmit={submit}><label htmlFor="register-email">Email</label><Input id="register-email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /><label htmlFor="register-password">Password</label><Input id="register-password" type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={12} required />{error && <p className="gf-form-error" role="alert">{error}</p>}<Button type="submit" busy={busy}>Register</Button><Button type="button" variant="ghost" onClick={() => navigate('/login')}>Back to sign in</Button></form></AuthFrame>
+  return <AuthFrame title="Create account"><form className="gf-form" onSubmit={submit}><label htmlFor="register-email">Email</label><Input id="register-email" type="text" inputMode="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /><label htmlFor="register-password">Password</label><Input id="register-password" type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={12} required />{error && <p className="gf-form-error" role="alert">{error}</p>}<Button type="submit" busy={busy}>Register</Button><Button type="button" variant="ghost" onClick={() => navigate('/login')}>Back to sign in</Button></form></AuthFrame>
 }
 
 export function OidcCallbackPage() {

@@ -89,7 +89,7 @@ const swaggerHTML = `<!doctype html>
     <section style="max-width: 1460px; margin: 16px auto; padding: 16px; border: 1px solid #ddd; border-radius: 4px;">
       <form id="login-form">
         <strong>Authorize with email and password</strong>
-        <input id="email" name="email" type="email" autocomplete="email" placeholder="Email" required>
+        <input id="email" name="email" type="text" inputmode="email" autocomplete="email" placeholder="Email" required>
         <input id="password" name="password" type="password" autocomplete="current-password" placeholder="Password" required>
         <button type="submit">Authorize</button>
         <span id="login-status" role="status"></span>
