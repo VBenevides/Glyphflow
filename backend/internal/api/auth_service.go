@@ -32,6 +32,7 @@ type AuthService struct {
 	users                                store.UserRepository
 	oidcIdentities                       map[string]string
 	roles                                store.RoleRepository
+	config                               *store.ConfigStore
 	passwordEnabled, registrationEnabled bool
 	defaultRoleID                        string
 	sessions                             *SessionManager
@@ -65,6 +66,12 @@ func (s *AuthService) SetRoleRepository(repository store.RoleRepository) {
 	}
 	s.mu.Lock()
 	s.roles = repository
+	s.mu.Unlock()
+}
+
+func (s *AuthService) SetConfigStore(config *store.ConfigStore) {
+	s.mu.Lock()
+	s.config = config
 	s.mu.Unlock()
 }
 
@@ -167,6 +174,7 @@ func (s *AuthService) RegistrationEnabled() bool {
 func (s *AuthService) SessionManager() *SessionManager { return s.sessions }
 
 func (s *AuthService) UpdateAuthSettings(passwordEnabled, registrationEnabled bool, defaultRole string) error {
+	defaultRoleID := defaultRole
 	if defaultRole != "" {
 		definition, ok, err := s.roles.FindByID(context.Background(), defaultRole)
 		if err != nil {
@@ -181,12 +189,23 @@ func (s *AuthService) UpdateAuthSettings(passwordEnabled, registrationEnabled bo
 		if !ok {
 			return errors.New("default role not found")
 		}
-		defaultRole = definition.ID
+		defaultRoleID = definition.ID
+	}
+	s.mu.RLock()
+	if defaultRoleID == "" {
+		defaultRoleID = s.defaultRoleID
+	}
+	config := s.config
+	s.mu.RUnlock()
+	if config != nil {
+		if err := config.SetAuthenticationSettings(context.Background(), passwordEnabled, registrationEnabled, defaultRoleID); err != nil {
+			return err
+		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if defaultRole != "" {
-		s.defaultRoleID = defaultRole
+	if defaultRoleID != "" {
+		s.defaultRoleID = defaultRoleID
 	}
 	s.passwordEnabled = passwordEnabled
 	s.registrationEnabled = registrationEnabled

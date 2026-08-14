@@ -63,7 +63,7 @@ func (s *ConfigStore) Set(ctx context.Context, name string, value any) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.pool.Exec(ctx, `INSERT INTO config (name, value) VALUES ($1, $2::jsonb) ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value`, name, raw)
+	_, err = s.pool.Exec(ctx, `INSERT INTO config (name, value) VALUES ($1, $2::jsonb) ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, name, raw)
 	return err
 }
 
@@ -77,4 +77,39 @@ func (s *ConfigStore) SetIfAbsent(ctx context.Context, name string, value any) e
 	}
 	_, err = s.pool.Exec(ctx, `INSERT INTO config (name, value) VALUES ($1, $2::jsonb) ON CONFLICT (name) DO NOTHING`, name, raw)
 	return err
+}
+
+func (s *ConfigStore) SetAuthenticationSettings(ctx context.Context, passwordLogin, registration bool, defaultRoleID string) error {
+	if err := validateConfigName("ENABLE_PASSWORD_LOGIN"); err != nil {
+		return err
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var exists bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM roles WHERE id = $1)`, defaultRoleID).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return errors.New("default role not found")
+	}
+	for _, setting := range []struct {
+		name  string
+		value any
+	}{
+		{"ENABLE_PASSWORD_LOGIN", passwordLogin},
+		{"ENABLE_PASSWORD_REGISTRATION", registration},
+		{"DEFAULT_ROLE_ID", defaultRoleID},
+	} {
+		raw, err := json.Marshal(setting.value)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO config (name, value) VALUES ($1, $2::jsonb) ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, setting.name, raw); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
 }

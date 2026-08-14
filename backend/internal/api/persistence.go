@@ -4,7 +4,6 @@ import (
 	"context"
 	"log"
 	"net/http"
-	"sort"
 	"strings"
 	"sync"
 
@@ -161,31 +160,6 @@ func (p *Persistence) Restore(s Server) error {
 func (p *Persistence) Save(s Server) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if s.AuthService != nil {
-		s.AuthService.mu.RLock()
-		passwordEnabled := s.AuthService.passwordEnabled
-		registrationEnabled := s.AuthService.registrationEnabled
-		defaultRole := s.AuthService.defaultRole
-		systemAdminEmails := s.AuthService.systemAdminEmails
-		s.AuthService.mu.RUnlock()
-		if err := p.config.Set(context.Background(), "ENABLE_PASSWORD_LOGIN", passwordEnabled); err != nil {
-			return err
-		}
-		if err := p.config.Set(context.Background(), "ENABLE_PASSWORD_REGISTRATION", registrationEnabled); err != nil {
-			return err
-		}
-		if err := p.config.Set(context.Background(), "DEFAULT_ROLE_ID", defaultRole); err != nil {
-			return err
-		}
-		systemAdmins := make([]string, 0, len(systemAdminEmails))
-		for email := range systemAdminEmails {
-			systemAdmins = append(systemAdmins, email)
-		}
-		sort.Strings(systemAdmins)
-		if err := p.config.Set(context.Background(), "GLYPHFLOW_SYSTEM_ADMINS", systemAdmins); err != nil {
-			return err
-		}
-	}
 	if s.Sessions != nil {
 		s.Sessions.mu.RLock()
 		state := sessionState{Sessions: s.Sessions.sessions}
