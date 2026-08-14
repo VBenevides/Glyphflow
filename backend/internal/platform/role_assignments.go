@@ -7,12 +7,33 @@ import (
 )
 
 type RoleAssignment struct {
-	UserID       string
-	RoleID       string
-	SourceType   string
-	SourceKey    string
-	ProviderID   string
-	ExternalID   string
+	UserID     string
+	RoleID     string
+	SourceType string
+	SourceKey  string
+	ProviderID string
+	ExternalID string
+}
+
+// ReconcileSSOAssignments changes only assignments sourced from one provider.
+func ReconcileSSOAssignments(existing []RoleAssignment, providerID string, groups []string, groupRoles map[string]string) []RoleAssignment {
+	seen := make(map[string]bool)
+	out := make([]RoleAssignment, 0, len(existing)+len(groups))
+	for _, assignment := range existing {
+		if assignment.SourceType == "sso" && assignment.ProviderID == providerID {
+			continue
+		}
+		out = append(out, assignment)
+	}
+	for _, group := range groups {
+		role, ok := groupRoles[group]
+		if !ok || seen[group+"\x00"+role] {
+			continue
+		}
+		seen[group+"\x00"+role] = true
+		out = append(out, RoleAssignment{RoleID: role, SourceType: "sso", SourceKey: group, ProviderID: providerID, ExternalID: group})
+	}
+	return out
 }
 
 type RoleAssignmentStore struct {
