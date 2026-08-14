@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/VBenevides/Glyphflow/backend/internal/platform"
+	"github.com/VBenevides/Glyphflow/backend/internal/store"
 )
 
 type AuthUser struct {
@@ -27,9 +29,7 @@ type AuthTokens struct {
 type AuthService struct {
 	mu                                   sync.RWMutex
 	hasher                               platform.PasswordHasher
-	users                                map[string]AuthUser
-	byEmail                              map[string]string
-	passwords                            map[string]string
+	users                                store.UserRepository
 	oidcIdentities                       map[string]string
 	roles                                map[string]map[string]bool
 	rolePermissions                      map[string]map[string]bool
@@ -48,7 +48,30 @@ func NewAuthService(accessSecret string, passwordEnabled, registrationEnabled bo
 	if err != nil {
 		return nil, err
 	}
-	return &AuthService{hasher: platform.DefaultPasswordHasher(pepper), users: map[string]AuthUser{}, byEmail: map[string]string{}, passwords: map[string]string{}, oidcIdentities: map[string]string{}, roles: map[string]map[string]bool{}, rolePermissions: map[string]map[string]bool{}, passwordEnabled: passwordEnabled, registrationEnabled: registrationEnabled, sessions: sessions, refresh: platform.NewRefreshSessionManager(), accessLifetime: 15 * time.Minute, refreshLifetime: 30 * time.Hour * 24, adminGuard: platform.NewAdministratorGuard(), systemAdminEmails: map[string]bool{}}, nil
+	return &AuthService{hasher: platform.DefaultPasswordHasher(pepper), users: newMemoryUserRepository(), oidcIdentities: map[string]string{}, roles: map[string]map[string]bool{}, rolePermissions: map[string]map[string]bool{}, passwordEnabled: passwordEnabled, registrationEnabled: registrationEnabled, sessions: sessions, refresh: platform.NewRefreshSessionManager(), accessLifetime: 15 * time.Minute, refreshLifetime: 30 * time.Hour * 24, adminGuard: platform.NewAdministratorGuard(), systemAdminEmails: map[string]bool{}}, nil
+}
+
+func (s *AuthService) SetUserRepository(repository store.UserRepository) {
+	if repository == nil {
+		return
+	}
+	s.mu.Lock()
+	s.users = repository
+	s.mu.Unlock()
+}
+
+func toAuthUser(user store.UserRecord) AuthUser {
+	return AuthUser{ID: user.ID, Username: user.Username, Email: user.Email, DisplayName: user.DisplayName, Enabled: user.Enabled}
+}
+
+func (s *AuthService) userByID(id string) (AuthUser, bool, error) {
+	user, ok, err := s.users.FindByID(context.Background(), id)
+	return toAuthUser(user), ok, err
+}
+
+func (s *AuthService) userByEmail(email string) (AuthUser, bool, error) {
+	user, ok, err := s.users.FindByEmail(context.Background(), email)
+	return toAuthUser(user), ok, err
 }
 
 func (s *AuthService) SetSystemAdminEmails(emails []string) error {
@@ -60,18 +83,22 @@ func (s *AuthService) SetSystemAdminEmails(emails []string) error {
 		}
 		configured[email] = true
 	}
+	users, err := s.users.List(context.Background())
+	if err != nil {
+		return err
+	}
 	s.mu.Lock()
 	s.systemAdminEmails = configured
 	var administrators []string
-	for id, user := range s.users {
-		if !configured[user.Email] {
+	for _, record := range users {
+		if !configured[record.Email] {
 			continue
 		}
-		if s.roles[id] == nil {
-			s.roles[id] = map[string]bool{}
+		if s.roles[record.ID] == nil {
+			s.roles[record.ID] = map[string]bool{}
 		}
-		s.roles[id]["admin"] = true
-		administrators = append(administrators, id)
+		s.roles[record.ID]["admin"] = true
+		administrators = append(administrators, record.ID)
 	}
 	s.mu.Unlock()
 	for _, id := range administrators {
@@ -125,15 +152,15 @@ func (s *AuthService) EnsureBootstrap(username, password, provider, subject stri
 	if err != nil || password == "" {
 		return AuthUser{}, errors.New("bootstrap email and password are required")
 	}
-	s.mu.RLock()
-	existingID := s.byEmail[key]
-	s.mu.RUnlock()
-	if existingID != "" {
-		if err := s.Grant(existingID, "admin"); err != nil {
+	existing, found, findErr := s.userByEmail(key)
+	if findErr != nil {
+		return AuthUser{}, findErr
+	}
+	if found {
+		if err := s.Grant(existing.ID, "admin"); err != nil {
 			return AuthUser{}, err
 		}
-		user, _ := s.User(existingID)
-		return user, nil
+		return existing, nil
 	}
 	user, err := s.register(key, password, false)
 	if err != nil {
@@ -165,11 +192,12 @@ func (s *AuthService) AddRole(role string, permissions ...string) error {
 	return nil
 }
 func (s *AuthService) Grant(userID, role string) error {
-	s.mu.Lock()
-	if _, ok := s.users[userID]; !ok {
-		s.mu.Unlock()
+	if _, ok, err := s.userByID(userID); err != nil {
+		return err
+	} else if !ok {
 		return errors.New("user not found")
 	}
+	s.mu.Lock()
 	if _, ok := s.rolePermissions[role]; !ok {
 		s.mu.Unlock()
 		return errors.New("role not found")
@@ -202,12 +230,14 @@ func (s *AuthService) register(email, password string, requireRegistration bool)
 	}
 	s.mu.RLock()
 	role := s.defaultRole
-	_, exists := s.byEmail[key]
+	systemAdmin := s.systemAdminEmails[key]
 	s.mu.RUnlock()
 	if role == "" {
 		return AuthUser{}, errors.New("default role is not configured")
 	}
-	if exists {
+	if _, exists, err := s.userByEmail(key); err != nil {
+		return AuthUser{}, err
+	} else if exists {
 		return AuthUser{}, errors.New("registration failed")
 	}
 	hash, err := s.hasher.Hash(password)
@@ -219,14 +249,11 @@ func (s *AuthService) register(email, password string, requireRegistration bool)
 		return AuthUser{}, err
 	}
 	user := AuthUser{ID: id, Username: key, Email: key, Enabled: true}
-	s.mu.Lock()
-	if _, exists = s.byEmail[key]; exists {
-		s.mu.Unlock()
+	if err := s.users.Create(context.Background(), store.UserRecord{ID: user.ID, Username: user.Username, Email: user.Email, Enabled: user.Enabled}, hash); err != nil {
 		return AuthUser{}, errors.New("registration failed")
 	}
-	s.users[id], s.byEmail[key], s.passwords[id] = user, id, hash
+	s.mu.Lock()
 	s.roles[id] = map[string]bool{role: true}
-	systemAdmin := s.systemAdminEmails[key]
 	if systemAdmin {
 		s.roles[id]["admin"] = true
 	}
@@ -246,15 +273,17 @@ func (s *AuthService) Login(email, password string) (AuthTokens, error) {
 	if err != nil {
 		return AuthTokens{}, errors.New("invalid credentials")
 	}
+	user, ok, findErr := s.userByEmail(key)
+	if findErr != nil {
+		return AuthTokens{}, errors.New("invalid credentials")
+	}
+	hash, hasHash, _ := s.users.PasswordHash(context.Background(), user.ID)
 	s.mu.RLock()
-	userID := s.byEmail[key]
-	hash := s.passwords[userID]
-	user, ok := s.users[userID]
 	enabled := s.passwordEnabled
 	audit := s.audit
 	s.mu.RUnlock()
 	valid := false
-	if enabled && ok && user.Enabled && hash != "" {
+	if enabled && ok && user.Enabled && hasHash {
 		valid, _ = s.hasher.Verify(hash, password)
 	}
 	if !valid {
@@ -280,29 +309,41 @@ func (s *AuthService) LoginOIDC(provider, subject, username, email string, autoP
 		return AuthTokens{}, errors.New("OIDC identity is incomplete")
 	}
 	key := provider + "\x00" + subject
-	s.mu.Lock()
+	s.mu.RLock()
 	userID := s.oidcIdentities[key]
+	defaultRole := s.defaultRole
+	systemAdmin := s.systemAdminEmails[email]
+	audit := s.audit
+	s.mu.RUnlock()
 	if userID == "" && autoProvision {
-		if s.defaultRole == "" {
-			s.mu.Unlock()
+		if defaultRole == "" {
 			return AuthTokens{}, errors.New("default role is not configured")
 		}
-		if _, exists := s.byEmail[email]; exists {
-			s.mu.Unlock()
+		if _, exists, err := s.userByEmail(email); err != nil {
+			return AuthTokens{}, err
+		} else if exists {
 			return AuthTokens{}, errors.New("OIDC email is already registered")
 		}
-		userID, _ = randomID()
-		s.users[userID] = AuthUser{ID: userID, Username: email, Email: email, Enabled: true}
-		s.byEmail[email], s.roles[userID] = userID, map[string]bool{s.defaultRole: true}
-		if s.systemAdminEmails[email] {
+		var err error
+		userID, err = randomID()
+		if err != nil {
+			return AuthTokens{}, err
+		}
+		if err := s.users.Create(context.Background(), store.UserRecord{ID: userID, Username: email, Email: email, Enabled: true}, ""); err != nil {
+			return AuthTokens{}, err
+		}
+		s.mu.Lock()
+		s.roles[userID] = map[string]bool{defaultRole: true}
+		if systemAdmin {
 			s.roles[userID]["admin"] = true
 		}
 		s.oidcIdentities[key] = userID
+		s.mu.Unlock()
 	}
-	user, exists := s.users[userID]
-	systemAdmin := exists && s.systemAdminEmails[user.Email]
-	audit := s.audit
-	s.mu.Unlock()
+	user, exists, err := s.userByID(userID)
+	if err != nil {
+		return AuthTokens{}, err
+	}
 	if !exists || !user.Enabled {
 		return AuthTokens{}, errors.New("OIDC identity is not linked")
 	}
@@ -325,11 +366,13 @@ func (s *AuthService) LinkOIDC(userID, provider, subject string) error {
 		return errors.New("OIDC link is incomplete")
 	}
 	key := provider + "\x00" + subject
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, ok := s.users[userID]; !ok {
+	if _, ok, err := s.userByID(userID); err != nil {
+		return err
+	} else if !ok {
 		return errors.New("user not found")
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if existing := s.oidcIdentities[key]; existing != "" && existing != userID {
 		return errors.New("OIDC identity already linked")
 	}
@@ -353,27 +396,30 @@ func (s *AuthService) UnlinkOIDC(userID, identityID string) error {
 }
 
 func (s *AuthService) UpdateProfile(userID, displayName string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	user, ok := s.users[userID]
-	if !ok {
+	if _, ok, err := s.userByID(userID); err != nil {
+		return err
+	} else if !ok {
 		return errors.New("user not found")
 	}
-	user.DisplayName = strings.TrimSpace(displayName)
-	s.users[userID] = user
-	return nil
+	return s.users.UpdateDisplayName(context.Background(), userID, strings.TrimSpace(displayName))
 }
 
 func (s *AuthService) ChangePassword(userID, currentPassword, newPassword string) error {
 	if err := platform.ValidatePassword(newPassword); err != nil {
 		return err
 	}
+	user, exists, findErr := s.userByID(userID)
+	if findErr != nil {
+		return findErr
+	}
+	hash, hasHash, hashErr := s.users.PasswordHash(context.Background(), userID)
+	if hashErr != nil {
+		return hashErr
+	}
 	s.mu.RLock()
-	user, exists := s.users[userID]
-	hash := s.passwords[userID]
 	enabled := s.passwordEnabled
 	s.mu.RUnlock()
-	if !enabled || !exists || !user.Enabled || hash == "" {
+	if !enabled || !exists || !user.Enabled || !hasHash {
 		return errors.New("password change unavailable")
 	}
 	valid, err := s.hasher.Verify(hash, currentPassword)
@@ -384,10 +430,7 @@ func (s *AuthService) ChangePassword(userID, currentPassword, newPassword string
 	if err != nil {
 		return err
 	}
-	s.mu.Lock()
-	s.passwords[userID] = updated
-	s.mu.Unlock()
-	return nil
+	return s.users.SetPasswordHash(context.Background(), userID, updated)
 }
 
 func (s *AuthService) Identities(userID string) []map[string]any {
@@ -409,27 +452,32 @@ func (s *AuthService) Identities(userID string) []map[string]any {
 }
 
 func (s *AuthService) Users() []map[string]any {
+	records, err := s.users.List(context.Background())
+	if err != nil {
+		return []map[string]any{}
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	users := make([]map[string]any, 0, len(s.users))
-	for id, user := range s.users {
-		userRoles := s.rolesForUserLocked(id)
+	users := make([]map[string]any, 0, len(records))
+	for _, record := range records {
+		user := toAuthUser(record)
+		userRoles := s.rolesForUserLocked(user.ID)
 		roles := make([]string, 0, len(userRoles))
 		for role := range userRoles {
 			roles = append(roles, role)
 		}
 		sort.Strings(roles)
 		methods := []string{}
-		if s.passwords[id] != "" {
+		if hash, hasHash, _ := s.users.PasswordHash(context.Background(), user.ID); hasHash && hash != "" {
 			methods = append(methods, "password")
 		}
 		for key, owner := range s.oidcIdentities {
-			if owner == id {
+			if owner == user.ID {
 				methods = append(methods, strings.SplitN(key, "\x00", 2)[0])
 			}
 		}
 		sort.Strings(methods)
-		users = append(users, map[string]any{"id": user.ID, "username": user.Username, "email": user.Email, "displayName": user.DisplayName, "enabled": user.Enabled, "systemAdmin": s.systemAdminEmails[user.Email], "status": map[bool]string{true: "active", false: "disabled"}[user.Enabled], "roles": roles, "loginMethods": methods, "sessions": s.sessions.List(id)})
+		users = append(users, map[string]any{"id": user.ID, "username": user.Username, "email": user.Email, "displayName": user.DisplayName, "enabled": user.Enabled, "systemAdmin": s.systemAdminEmails[user.Email], "status": map[bool]string{true: "active", false: "disabled"}[user.Enabled], "roles": roles, "loginMethods": methods, "sessions": s.sessions.List(user.ID)})
 	}
 	sort.Slice(users, func(i, j int) bool { return users[i]["username"].(string) < users[j]["username"].(string) })
 	return users
@@ -482,8 +530,14 @@ func (s *AuthService) LogoutAll(userID string) {
 	s.sessions.RevokeUser(userID)
 }
 func (s *AuthService) DisableUser(userID string) error {
+	user, ok, err := s.userByID(userID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.New("user not found")
+	}
 	s.mu.RLock()
-	user, ok := s.users[userID]
 	isAdmin := s.roles[userID]["admin"]
 	systemAdmin := s.systemAdminEmails[user.Email]
 	s.mu.RUnlock()
@@ -494,10 +548,9 @@ func (s *AuthService) DisableUser(userID string) error {
 		return platform.ErrSystemAdministrator
 	}
 	disable := func() error {
-		s.mu.Lock()
-		user.Enabled = false
-		s.users[userID] = user
-		s.mu.Unlock()
+		if err := s.users.SetEnabled(context.Background(), userID, false); err != nil {
+			return err
+		}
 		s.LogoutAll(userID)
 		return nil
 	}
@@ -508,8 +561,11 @@ func (s *AuthService) DisableUser(userID string) error {
 }
 
 func (s *AuthService) Revoke(userID, role string) error {
+	user, ok, err := s.userByID(userID)
+	if err != nil {
+		return err
+	}
 	s.mu.RLock()
-	user, ok := s.users[userID]
 	assigned := s.roles[userID][role]
 	systemAdmin := ok && s.systemAdminEmails[user.Email]
 	s.mu.RUnlock()
@@ -526,10 +582,6 @@ func (s *AuthService) Revoke(userID, role string) error {
 		return s.adminGuard.Remove(userID, func() error {
 			s.mu.Lock()
 			defer s.mu.Unlock()
-			user, ok := s.users[userID]
-			if !ok {
-				return errors.New("user not found")
-			}
 			if s.systemAdminEmails[user.Email] {
 				return platform.ErrSystemAdministrator
 			}
@@ -562,9 +614,7 @@ func (s *AuthService) Authenticator() Authenticator {
 		if !ok {
 			return Claims{}, false
 		}
-		s.mu.RLock()
-		user, exists := s.users[claims.UserID]
-		s.mu.RUnlock()
+		user, exists, _ := s.userByID(claims.UserID)
 		if !exists || !user.Enabled {
 			return Claims{}, false
 		}
@@ -572,15 +622,13 @@ func (s *AuthService) Authenticator() Authenticator {
 	}
 }
 func (s *AuthService) User(userID string) (AuthUser, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	user, ok := s.users[userID]
+	user, ok, _ := s.userByID(userID)
 	return user, ok
 }
 
 func (s *AuthService) Profile(claims Claims) map[string]any {
+	user, _, _ := s.userByID(claims.UserID)
 	s.mu.RLock()
-	user := s.users[claims.UserID]
 	systemAdmin := s.systemAdminEmails[user.Email]
 	roles := []string{}
 	roleSources := []string{}
@@ -611,10 +659,10 @@ func (s *AuthService) Profile(claims Claims) map[string]any {
 		sessions[index].Current = sessions[index].ID == claims.SessionID
 	}
 	methods := []string{}
-	s.mu.RLock()
-	if s.passwords[claims.UserID] != "" {
+	if hash, hasHash, _ := s.users.PasswordHash(context.Background(), claims.UserID); hasHash && hash != "" {
 		methods = append(methods, "password")
 	}
+	s.mu.RLock()
 	for key, owner := range s.oidcIdentities {
 		if owner == claims.UserID {
 			methods = append(methods, strings.SplitN(key, "\x00", 2)[0])
@@ -626,9 +674,7 @@ func (s *AuthService) Profile(claims Claims) map[string]any {
 }
 
 func (s *AuthService) UserProfile(userID string) (map[string]any, bool) {
-	s.mu.RLock()
-	_, ok := s.users[userID]
-	s.mu.RUnlock()
+	_, ok, _ := s.userByID(userID)
 	if !ok {
 		return nil, false
 	}
@@ -639,9 +685,6 @@ func (s *AuthService) rolesForUserLocked(userID string) map[string]bool {
 	roles := map[string]bool{}
 	for role := range s.roles[userID] {
 		roles[role] = true
-	}
-	if user := s.users[userID]; s.systemAdminEmails[user.Email] {
-		roles["admin"] = true
 	}
 	return roles
 }

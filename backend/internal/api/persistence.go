@@ -33,19 +33,6 @@ func NewPersistence(config *store.ConfigStore) *Persistence {
 	return &Persistence{config: config}
 }
 
-type authState struct {
-	Users               map[string]AuthUser        `json:"users"`
-	ByEmail             map[string]string          `json:"byEmail"`
-	Passwords           map[string]string          `json:"passwords"`
-	OIDCIdentities      map[string]string          `json:"oidcIdentities"`
-	Roles               map[string]map[string]bool `json:"roles"`
-	RolePermissions     map[string]map[string]bool `json:"rolePermissions"`
-	PasswordEnabled     bool                       `json:"passwordEnabled"`
-	RegistrationEnabled bool                       `json:"registrationEnabled"`
-	DefaultRole         string                     `json:"defaultRole"`
-	SystemAdminEmails   map[string]bool            `json:"systemAdminEmails"`
-}
-
 type sessionState struct {
 	Sessions map[string]accessTokenPayload `json:"sessions"`
 }
@@ -83,31 +70,6 @@ type runsState struct {
 func (p *Persistence) Restore(s Server) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if s.AuthService != nil {
-		var state authState
-		if err := p.load(stateAuth, &state); err != nil {
-			return err
-		}
-		if state.Users != nil {
-			s.AuthService.mu.Lock()
-			s.AuthService.users = state.Users
-			s.AuthService.byEmail = state.ByEmail
-			s.AuthService.passwords = state.Passwords
-			s.AuthService.oidcIdentities = state.OIDCIdentities
-			s.AuthService.roles = state.Roles
-			s.AuthService.rolePermissions = state.RolePermissions
-			s.AuthService.passwordEnabled = state.PasswordEnabled
-			s.AuthService.registrationEnabled = state.RegistrationEnabled
-			s.AuthService.defaultRole = state.DefaultRole
-			s.AuthService.systemAdminEmails = state.SystemAdminEmails
-			s.AuthService.mu.Unlock()
-			for userID, roles := range state.Roles {
-				if roles["admin"] {
-					s.AuthService.adminGuard.Add(userID)
-				}
-			}
-		}
-	}
 	if s.Sessions != nil {
 		var state sessionState
 		if err := p.load(stateSessions, &state); err != nil {
@@ -212,22 +174,22 @@ func (p *Persistence) Save(s Server) error {
 	defer p.mu.Unlock()
 	if s.AuthService != nil {
 		s.AuthService.mu.RLock()
-		state := authState{Users: s.AuthService.users, ByEmail: s.AuthService.byEmail, Passwords: s.AuthService.passwords, OIDCIdentities: s.AuthService.oidcIdentities, Roles: s.AuthService.roles, RolePermissions: s.AuthService.rolePermissions, PasswordEnabled: s.AuthService.passwordEnabled, RegistrationEnabled: s.AuthService.registrationEnabled, DefaultRole: s.AuthService.defaultRole, SystemAdminEmails: s.AuthService.systemAdminEmails}
+		passwordEnabled := s.AuthService.passwordEnabled
+		registrationEnabled := s.AuthService.registrationEnabled
+		defaultRole := s.AuthService.defaultRole
+		systemAdminEmails := s.AuthService.systemAdminEmails
 		s.AuthService.mu.RUnlock()
-		if err := p.save(stateAuth, state); err != nil {
+		if err := p.config.Set(context.Background(), "ENABLE_PASSWORD_LOGIN", passwordEnabled); err != nil {
 			return err
 		}
-		if err := p.config.Set(context.Background(), "ENABLE_PASSWORD_LOGIN", state.PasswordEnabled); err != nil {
+		if err := p.config.Set(context.Background(), "ENABLE_PASSWORD_REGISTRATION", registrationEnabled); err != nil {
 			return err
 		}
-		if err := p.config.Set(context.Background(), "ENABLE_PASSWORD_REGISTRATION", state.RegistrationEnabled); err != nil {
+		if err := p.config.Set(context.Background(), "DEFAULT_ROLE_ID", defaultRole); err != nil {
 			return err
 		}
-		if err := p.config.Set(context.Background(), "DEFAULT_ROLE_ID", state.DefaultRole); err != nil {
-			return err
-		}
-		systemAdmins := make([]string, 0, len(state.SystemAdminEmails))
-		for email := range state.SystemAdminEmails {
+		systemAdmins := make([]string, 0, len(systemAdminEmails))
+		for email := range systemAdminEmails {
 			systemAdmins = append(systemAdmins, email)
 		}
 		sort.Strings(systemAdmins)

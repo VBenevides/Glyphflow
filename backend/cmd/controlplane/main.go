@@ -105,6 +105,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	authService.SetUserRepository(store.NewUserRepository(db))
 	authService.SetDefaultRole(cfg.DefaultRole)
 	oidcService := api.NewOIDCService()
 	roles := api.NewRoleAdminService()
