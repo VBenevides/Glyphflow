@@ -44,6 +44,14 @@ PostgreSQL is the source of truth. NATS JetStream delivers orders and worker eve
 
 The frontend communicates only with the Go API. Workers do not communicate with the frontend or PostgreSQL.
 
+## Authentication environment
+
+The bootstrap administrator is created only when both `GLYPHFLOW_BOOTSTRAP_USERNAME` (an email address) and `GLYPHFLOW_BOOTSTRAP_PASSWORD` are set. If either is missing, no bootstrap administrator is created.
+
+`GLYPHFLOW_SYSTEM_ADMINS` accepts unique administrator emails separated by spaces, commas, or semicolons. Matching users receive the immutable `admin` role and cannot be disabled or demoted.
+
+`./dev_run.sh` defaults to `admin@example_domain.com` with password `admin-password-123` and includes that email in `GLYPHFLOW_SYSTEM_ADMINS`.
+
 ## Components
 
 | Component | Technology | Responsibility |

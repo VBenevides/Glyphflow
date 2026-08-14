@@ -2,7 +2,7 @@ package api
 
 import "testing"
 
-func TestEnsureBootstrapSupportsPasswordDisabledSSO(t *testing.T) {
+func TestEnsureBootstrapRequiresCredentials(t *testing.T) {
 	auth, err := NewAuthService("01234567890123456789012345678901", false, false, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -14,7 +14,10 @@ func TestEnsureBootstrapSupportsPasswordDisabledSSO(t *testing.T) {
 		t.Fatal(err)
 	}
 	auth.SetDefaultRole("user")
-	user, err := auth.EnsureBootstrap("Admin", "", "corp", "subject")
+	if _, err := auth.EnsureBootstrap("admin@example.com", "", "corp", "subject"); err == nil {
+		t.Fatal("bootstrap without password accepted")
+	}
+	user, err := auth.EnsureBootstrap("Admin@example.com", "correct horse", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,10 +41,10 @@ func TestEnsureBootstrapEnforcesPasswordPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	auth.SetDefaultRole("user")
-	if _, err := auth.EnsureBootstrap("admin", "short", "", ""); err == nil {
+	if _, err := auth.EnsureBootstrap("admin@example.com", "short", "", ""); err == nil {
 		t.Fatal("short bootstrap password accepted")
 	}
-	if _, err := auth.EnsureBootstrap("admin", "correct horse", "", ""); err != nil {
+	if _, err := auth.EnsureBootstrap("admin@example.com", "correct horse", "", ""); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -32,8 +32,9 @@ mkdir -p "${DATA_DIR:-$project_root/.dev-data}"
   WEB_ORIGIN="${WEB_ORIGIN:-http://${FRONTEND_HOST:-127.0.0.1}:5173}" \
   DATA_DIR="${DATA_DIR:-$project_root/.dev-data}" \
   MAX_MESSAGE_BYTES="${MAX_MESSAGE_BYTES:-1048576}" \
-  GLYPHFLOW_BOOTSTRAP_USERNAME="${GLYPHFLOW_BOOTSTRAP_USERNAME:-admin}" \
+  GLYPHFLOW_BOOTSTRAP_USERNAME="${GLYPHFLOW_BOOTSTRAP_USERNAME:-admin@example_domain.com}" \
   GLYPHFLOW_BOOTSTRAP_PASSWORD="${GLYPHFLOW_BOOTSTRAP_PASSWORD:-admin-password-123}" \
+  GLYPHFLOW_SYSTEM_ADMINS="${GLYPHFLOW_SYSTEM_ADMINS:-admin@example_domain.com}" \
   go run ./cmd/controlplane
 ) &
 backend_pid=$!

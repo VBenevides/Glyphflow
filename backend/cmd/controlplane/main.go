@@ -40,9 +40,13 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	if err := authService.SetSystemAdminEmails(cfg.SystemAdminEmails); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	authService.SetDefaultRole("user")
-	if cfg.BootstrapUsername != "" {
-		if _, err := authService.EnsureBootstrap(cfg.BootstrapUsername, cfg.BootstrapPassword, cfg.BootstrapOIDCProvider, cfg.BootstrapOIDCSubject); err != nil {
+	if cfg.BootstrapUsername != "" && cfg.BootstrapPassword != "" {
+		if _, err := authService.EnsureBootstrap(cfg.BootstrapUsername, cfg.BootstrapPassword, "", ""); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}

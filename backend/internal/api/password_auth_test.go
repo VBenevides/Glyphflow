@@ -16,13 +16,13 @@ func TestPasswordEndpointsRegisterAndLogin(t *testing.T) {
 		t.Fatal(err)
 	}
 	server := Server{PasswordAuth: NewPasswordAuthService(true, true, nil), Sessions: sessions}
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewBufferString(`{"username":"user","password":"correct horse"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewBufferString(`{"email":"user@example.com","password":"correct horse"}`))
 	w := httptest.NewRecorder()
 	server.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("register: %d", w.Code)
 	}
-	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"username":"user","password":"correct horse"}`))
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"email":"user@example.com","password":"correct horse"}`))
 	w = httptest.NewRecorder()
 	server.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -36,16 +36,16 @@ func TestAuthenticationEndpointsRateLimitByIdentityAndSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	server := Server{PasswordAuth: NewPasswordAuthService(true, true, nil), Sessions: sessions, AuthRateLimiter: platform.NewRateLimiter(1, time.Minute)}
-	login := func(username string) *httptest.ResponseRecorder {
-		request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"username":"`+username+`","password":"wrong"}`))
+	login := func(email string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"email":"`+email+`","password":"wrong"}`))
 		recorder := httptest.NewRecorder()
 		server.Handler().ServeHTTP(recorder, request)
 		return recorder
 	}
-	if login("user").Code != http.StatusUnauthorized || login("user").Code != http.StatusTooManyRequests {
+	if login("user@example.com").Code != http.StatusUnauthorized || login("user@example.com").Code != http.StatusTooManyRequests {
 		t.Fatal("password attempts were not rate limited")
 	}
-	if login("other-user").Code != http.StatusUnauthorized {
+	if login("other@example.com").Code != http.StatusUnauthorized {
 		t.Fatal("password rate limit leaked between usernames")
 	}
 

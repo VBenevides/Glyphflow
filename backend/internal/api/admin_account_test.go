@@ -17,7 +17,7 @@ func TestAdministrationAndAccountRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 	auth.SetDefaultRole("user")
-	user, err := auth.Register("alice", "correct horse")
+	user, err := auth.Register("alice@example.com", "correct horse")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestAdministrationAndAccountRoutes(t *testing.T) {
 	if response.Code != http.StatusNoContent {
 		t.Fatalf("password update: %d", response.Code)
 	}
-	if _, err := auth.Login("alice", "new correct horse"); err != nil {
+	if _, err := auth.Login("alice@example.com", "new correct horse"); err != nil {
 		t.Fatal("new password was not applied")
 	}
 

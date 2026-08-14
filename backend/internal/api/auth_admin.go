@@ -137,7 +137,7 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "user creation failed"})
 			return
 		}
-		user, err := s.AuthAdmin.Auth.Register(input.Username, input.Password)
+		user, err := s.AuthAdmin.Auth.Register(input.Email, input.Password)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "user creation failed"})
 			return

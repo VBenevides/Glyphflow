@@ -32,12 +32,13 @@ func (s *PasswordAuthService) RegistrationEnabled() bool {
 	defer s.mu.Unlock()
 	return s.registration && s.enabled
 }
-func (s *PasswordAuthService) Register(username, password string) error {
+func (s *PasswordAuthService) Register(email, password string) error {
 	if !s.enabled || !s.registration {
 		return errors.New("password registration is disabled")
 	}
-	if username == "" || password == "" {
-		return errors.New("username and password are required")
+	email, err := platform.NormalizeEmail(email)
+	if err != nil || password == "" {
+		return errors.New("email and password are required")
 	}
 	if err := platform.ValidatePassword(password); err != nil {
 		return err
@@ -48,19 +49,23 @@ func (s *PasswordAuthService) Register(username, password string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	key := platform.NormalizeIdentityKey(username)
+	key := email
 	if _, ok := s.users[key]; ok {
 		return errors.New("user already exists")
 	}
 	s.users[key] = hash
 	return nil
 }
-func (s *PasswordAuthService) Verify(username, password string) bool {
+func (s *PasswordAuthService) Verify(email, password string) bool {
 	if !s.enabled {
 		return false
 	}
+	email, err := platform.NormalizeEmail(email)
+	if err != nil {
+		return false
+	}
 	s.mu.Lock()
-	hash := s.users[platform.NormalizeIdentityKey(username)]
+	hash := s.users[email]
 	s.mu.Unlock()
 	if hash == "" {
 		return false
@@ -69,7 +74,10 @@ func (s *PasswordAuthService) Verify(username, password string) bool {
 	return err == nil && ok
 }
 
-type passwordRequest struct{ Username, Password string }
+type passwordRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
 
 func (s Server) passwordRoutes(mux routeRegistrar) {
 	if s.AuthService != nil {
@@ -83,15 +91,15 @@ func (s Server) passwordRoutes(mux routeRegistrar) {
 				writeJSON(w, 400, map[string]string{"error": "registration failed"})
 				return
 			}
-			if !s.allowAuth(w, r, "password-register|"+platform.NormalizeIdentityKey(in.Username)) {
+			if !s.allowAuth(w, r, "password-register|"+platform.NormalizeIdentityKey(in.Email)) {
 				return
 			}
-			user, err := s.AuthService.Register(in.Username, in.Password)
+			user, err := s.AuthService.Register(in.Email, in.Password)
 			if err != nil {
 				writeJSON(w, 400, map[string]string{"error": "registration failed"})
 				return
 			}
-			writeJSON(w, 201, map[string]string{"id": user.ID, "username": user.Username})
+			writeJSON(w, 201, map[string]string{"id": user.ID, "email": user.Email})
 		})
 		mux.HandleFunc("/api/v1/auth/login", func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost {
@@ -103,10 +111,10 @@ func (s Server) passwordRoutes(mux routeRegistrar) {
 				writeJSON(w, 401, map[string]string{"error": "invalid credentials"})
 				return
 			}
-			if !s.allowAuth(w, r, "password-login|"+platform.NormalizeIdentityKey(in.Username)) {
+			if !s.allowAuth(w, r, "password-login|"+platform.NormalizeIdentityKey(in.Email)) {
 				return
 			}
-			tokens, err := s.AuthService.Login(in.Username, in.Password)
+			tokens, err := s.AuthService.Login(in.Email, in.Password)
 			if err != nil {
 				writeJSON(w, 401, map[string]string{"error": "invalid credentials"})
 				return
@@ -183,10 +191,10 @@ func (s Server) passwordRoutes(mux routeRegistrar) {
 			writeJSON(w, 400, map[string]string{"error": "registration failed"})
 			return
 		}
-		if !s.allowAuth(w, r, "password-register|"+platform.NormalizeIdentityKey(in.Username)) {
+		if !s.allowAuth(w, r, "password-register|"+platform.NormalizeIdentityKey(in.Email)) {
 			return
 		}
-		if s.PasswordAuth.Register(in.Username, in.Password) != nil {
+		if s.PasswordAuth.Register(in.Email, in.Password) != nil {
 			writeJSON(w, 400, map[string]string{"error": "registration failed"})
 			return
 		}
@@ -202,14 +210,19 @@ func (s Server) passwordRoutes(mux routeRegistrar) {
 			writeJSON(w, 401, map[string]string{"error": "invalid credentials"})
 			return
 		}
-		if !s.allowAuth(w, r, "password-login|"+platform.NormalizeIdentityKey(in.Username)) {
+		if !s.allowAuth(w, r, "password-login|"+platform.NormalizeIdentityKey(in.Email)) {
 			return
 		}
-		if !s.PasswordAuth.Verify(in.Username, in.Password) || s.Sessions == nil {
+		if !s.PasswordAuth.Verify(in.Email, in.Password) || s.Sessions == nil {
 			writeJSON(w, 401, map[string]string{"error": "invalid credentials"})
 			return
 		}
-		token, _, err := s.Sessions.Issue(platform.NormalizeIdentityKey(in.Username), time.Hour)
+		email, err := platform.NormalizeEmail(in.Email)
+		if err != nil {
+			writeJSON(w, 401, map[string]string{"error": "invalid credentials"})
+			return
+		}
+		token, _, err := s.Sessions.Issue(email, time.Hour)
 		if err != nil {
 			writeJSON(w, 500, map[string]string{"error": "login failed"})
 			return

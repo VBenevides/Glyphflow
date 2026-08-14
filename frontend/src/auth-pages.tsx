@@ -29,7 +29,7 @@ export function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const redirect = safeReturnPath(new URLSearchParams(location.search).get('redirect'))
-  const [username, setUsername] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -45,7 +45,7 @@ export function LoginPage() {
     setBusy(true)
     setError('')
     try {
-      await api.post('/api/v1/auth/login', { username, password })
+      await api.post('/api/v1/auth/login', { email, password })
       await restore()
       navigate(redirect, { replace: true })
     } catch (cause) {
@@ -55,7 +55,7 @@ export function LoginPage() {
     }
   }
   return <AuthFrame title="Sign in"><form className="gf-form" onSubmit={submit}>
-    {config.passwordLogin && <><label htmlFor="username">Username</label><Input id="username" autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} required /><label htmlFor="password">Password</label><Input id="password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /><Button type="submit" busy={busy}>Sign in</Button></>}
+    {config.passwordLogin && <><label htmlFor="email">Email</label><Input id="email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /><label htmlFor="password">Password</label><Input id="password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /><Button type="submit" busy={busy}>Sign in</Button></>}
     {!config.passwordLogin && <p className="gf-muted">Password sign-in is disabled.</p>}
     {!methods.length && <p className="gf-form-error" role="alert">No sign-in methods are configured. Contact an administrator.</p>}
     {error && <p className="gf-form-error" role="alert">{error}</p>}
@@ -68,16 +68,16 @@ export function RegistrationPage() {
   const { config, restore } = useAuth()
   const navigate = useNavigate()
   const redirect = safeReturnPath(new URLSearchParams(useLocation().search).get('redirect'))
-  const [username, setUsername] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   if (!config.passwordLogin || !config.registration) return <AuthFrame title="Registration unavailable"><p className="gf-muted">Registration is disabled.</p><Button onClick={() => navigate('/login')}>Back to sign in</Button></AuthFrame>
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setBusy(true); setError('')
-    try { await api.post('/api/v1/auth/register', { username, password }); await api.post('/api/v1/auth/login', { username, password }); await restore(); navigate(redirect, { replace: true }) } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to register') } finally { setBusy(false) }
+    try { await api.post('/api/v1/auth/register', { email, password }); await api.post('/api/v1/auth/login', { email, password }); await restore(); navigate(redirect, { replace: true }) } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to register') } finally { setBusy(false) }
   }
-  return <AuthFrame title="Create account"><form className="gf-form" onSubmit={submit}><label htmlFor="register-username">Username</label><Input id="register-username" autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} required /><label htmlFor="register-password">Password</label><Input id="register-password" type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={12} required />{error && <p className="gf-form-error" role="alert">{error}</p>}<Button type="submit" busy={busy}>Register</Button><Button type="button" variant="ghost" onClick={() => navigate('/login')}>Back to sign in</Button></form></AuthFrame>
+  return <AuthFrame title="Create account"><form className="gf-form" onSubmit={submit}><label htmlFor="register-email">Email</label><Input id="register-email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /><label htmlFor="register-password">Password</label><Input id="register-password" type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={12} required />{error && <p className="gf-form-error" role="alert">{error}</p>}<Button type="submit" busy={busy}>Register</Button><Button type="button" variant="ghost" onClick={() => navigate('/login')}>Back to sign in</Button></form></AuthFrame>
 }
 
 export function OidcCallbackPage() {

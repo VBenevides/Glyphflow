@@ -16,7 +16,7 @@ describe('frontend workflows', () => {
     }))
     const client = new ApiClient('https://console.example')
     const session = await bootstrapSession(client)
-    await client.post('/api/v1/auth/login', { username: 'ada', password: 'correct horse battery staple' })
+    await client.post('/api/v1/auth/login', { email: 'ada@example.com', password: 'correct horse battery staple' })
     await client.post('/api/v1/auth/logout')
     expect(session.profile?.username).toBe('ada')
     expect(safeReturnPath('/runs?page=2#latest')).toBe('/runs?page=2#latest')

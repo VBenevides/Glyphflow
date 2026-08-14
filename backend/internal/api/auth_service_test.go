@@ -22,7 +22,7 @@ func TestAuthServiceRegistrationLoginRefreshReplayAndPermissionRevocation(t *tes
 	auth.SetDefaultRole("user")
 	server := Server{AuthService: auth}
 	h := server.Handler()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewBufferString(`{"username":"Alice","password":"correct horse"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewBufferString(`{"email":"Alice@example.com","password":"correct horse"}`))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusCreated {
@@ -32,7 +32,7 @@ func TestAuthServiceRegistrationLoginRefreshReplayAndPermissionRevocation(t *tes
 	if err := json.Unmarshal(w.Body.Bytes(), &registered); err != nil || registered.ID == "" {
 		t.Fatalf("registration response: %s", w.Body.String())
 	}
-	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"username":"alice","password":"correct horse"}`))
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"email":"alice@example.com","password":"correct horse"}`))
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -74,14 +74,14 @@ func TestAuthServiceProtectsLastAdministrator(t *testing.T) {
 		t.Fatal(err)
 	}
 	auth.SetDefaultRole("user")
-	first, err := auth.EnsureBootstrap("first", "correct horse", "", "")
+	first, err := auth.EnsureBootstrap("first@example.com", "correct horse", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := auth.DisableUser(first.ID); !errors.Is(err, platform.ErrLastAdministrator) {
 		t.Fatalf("last administrator disable returned %v", err)
 	}
-	second, err := auth.EnsureBootstrap("second", "", "corp", "subject")
+	second, err := auth.EnsureBootstrap("second@example.com", "correct horse 2", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,5 +90,41 @@ func TestAuthServiceProtectsLastAdministrator(t *testing.T) {
 	}
 	if err := auth.DisableUser(first.ID); err != nil {
 		t.Fatalf("administrator disable with a replacement returned %v", err)
+	}
+}
+
+func TestSystemAdminEmailsGrantImmutableAdministrators(t *testing.T) {
+	auth, err := NewAuthService("01234567890123456789012345678901", true, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.AddRole("user"); err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.AddRole("admin", "users.manage"); err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.SetSystemAdminEmails([]string{"Admin@Example.com", "second@example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	auth.SetDefaultRole("user")
+	admin, err := auth.Register("admin@example.com", "correct horse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !auth.Permissions(Claims{UserID: admin.ID})["users.manage"] {
+		t.Fatal("system admin was not granted admin permissions")
+	}
+	if err := auth.Revoke(admin.ID, "admin"); !errors.Is(err, platform.ErrSystemAdministrator) {
+		t.Fatalf("system admin role revoke returned %v", err)
+	}
+	if err := auth.DisableUser(admin.ID); !errors.Is(err, platform.ErrSystemAdministrator) {
+		t.Fatalf("system admin disable returned %v", err)
+	}
+	if _, err := auth.Register("ADMIN@example.com", "another correct horse"); err == nil {
+		t.Fatal("duplicate email accepted")
+	}
+	if _, err := auth.Register("not-an-email", "another correct horse"); err == nil {
+		t.Fatal("invalid email accepted")
 	}
 }

@@ -31,8 +31,8 @@ func TestCurrentUserUsesAuthServiceProfile(t *testing.T) {
 		t.Fatal(err)
 	}
 	auth.SetDefaultRole("user")
-	user, _ := auth.Register("u", "correct horse")
-	tokens, _ := auth.Login("u", "correct horse")
+	user, _ := auth.Register("u@example.com", "correct horse")
+	tokens, _ := auth.Login("u@example.com", "correct horse")
 	server := Server{AuthService: auth}
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
 	req.Header.Set("Authorization", "Bearer "+tokens.AccessToken)

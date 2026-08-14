@@ -30,7 +30,7 @@ export function UserManagementPage() {
       const data = asPage(raw)
       if (!data.items.length) return <EmptyState title="No users">Create or provision a user before managing access.</EmptyState>
       return <><DataTable caption="Users" rows={data.items} columns={[
-        { key: 'username', label: 'User', render: (user) => <span><strong>{user.displayName ?? user.username}</strong><br /><small>{user.username}{user.email ? ` · ${user.email}` : ''}</small></span> },
+        { key: 'email', label: 'User', render: (user) => <span><strong>{user.displayName ?? user.email ?? user.username}</strong><br /><small>{user.email ?? user.username}</small></span> },
         { key: 'status', label: 'Status', render: (user) => <StatusPill status={user.status ?? (user.enabled === false ? 'disabled' : 'active')} /> },
         { key: 'loginMethods', label: 'Login methods', render: (user) => user.loginMethods?.join(', ') || '—' },
         { key: 'roles', label: 'Roles', render: (user) => user.roles?.join(', ') || '—' },

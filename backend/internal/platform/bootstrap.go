@@ -13,8 +13,8 @@ type BootstrapInput struct {
 }
 
 func BootstrapAdministrator(input BootstrapInput) (RoleAssignment, error) {
-	if NormalizeIdentityKey(input.Username) == "" || input.Role == "" {
-		return RoleAssignment{}, errors.New("bootstrap username and role are required")
+	if _, err := NormalizeEmail(input.Username); err != nil || input.Role == "" {
+		return RoleAssignment{}, errors.New("bootstrap email and role are required")
 	}
 	if !input.PasswordUser && !input.SSOUser {
 		return RoleAssignment{}, errors.New("bootstrap user has no login method")
@@ -22,4 +22,7 @@ func BootstrapAdministrator(input BootstrapInput) (RoleAssignment, error) {
 	return RoleAssignment{UserID: NormalizeIdentityKey(input.Username), RoleID: input.Role, SourceType: "system", SourceKey: "bootstrap"}, nil
 }
 
-func BootstrapUsername() string { return NormalizeIdentityKey(os.Getenv("GLYFLOW_BOOTSTRAP_USERNAME")) }
+func BootstrapUsername() string {
+	email, _ := NormalizeEmail(os.Getenv("GLYPHFLOW_BOOTSTRAP_USERNAME"))
+	return email
+}

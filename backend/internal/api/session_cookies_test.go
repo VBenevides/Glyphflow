@@ -16,12 +16,12 @@ func TestCookieSessionLoginRefreshAndLogout(t *testing.T) {
 		t.Fatal(err)
 	}
 	auth.SetDefaultRole("user")
-	if _, err := auth.Register("user", "correct horse"); err != nil {
+	if _, err := auth.Register("user@example.com", "correct horse"); err != nil {
 		t.Fatal(err)
 	}
 	handler := (Server{AuthService: auth}).Handler()
 	login := httptest.NewRecorder()
-	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"username":"user","password":"correct horse"}`)))
+	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"email":"user@example.com","password":"correct horse"}`)))
 	if login.Code != http.StatusOK {
 		t.Fatalf("login status = %d", login.Code)
 	}
@@ -83,13 +83,13 @@ func TestDisabledUserCannotUseExistingCookieSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	auth.SetDefaultRole("user")
-	user, err := auth.Register("user", "correct horse")
+	user, err := auth.Register("user@example.com", "correct horse")
 	if err != nil {
 		t.Fatal(err)
 	}
 	handler := (Server{AuthService: auth}).Handler()
 	login := httptest.NewRecorder()
-	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"username":"user","password":"correct horse"}`)))
+	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"email":"user@example.com","password":"correct horse"}`)))
 	if login.Code != http.StatusOK {
 		t.Fatalf("login status = %d", login.Code)
 	}

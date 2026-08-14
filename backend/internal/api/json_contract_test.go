@@ -15,7 +15,7 @@ func TestFrontendAuthenticationJSONContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	auth.SetDefaultRole("user")
-	user, err := auth.Register("user", "correct horse")
+	user, err := auth.Register("user@example.com", "correct horse")
 	if err != nil {
 		t.Fatal(err)
 	}

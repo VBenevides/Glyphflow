@@ -14,7 +14,7 @@ const openAPISpec = `{
   "components": {
     "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "Glyphflow access token"}},
     "schemas": {
-      "Credentials": {"type": "object", "required": ["username", "password"], "properties": {"username": {"type": "string"}, "password": {"type": "string", "format": "password"}}},
+      "Credentials": {"type": "object", "required": ["email", "password"], "properties": {"email": {"type": "string", "format": "email"}, "password": {"type": "string", "format": "password"}}},
       "RefreshRequest": {"type": "object", "required": ["session_id", "refresh_token"], "properties": {"session_id": {"type": "string"}, "refresh_token": {"type": "string"}}},
       "SessionRequest": {"type": "object", "required": ["session_id"], "properties": {"session_id": {"type": "string"}}},
       "TokenResponse": {"type": "object", "required": ["access_token", "refresh_token", "session_id"], "properties": {"access_token": {"type": "string"}, "refresh_token": {"type": "string"}, "session_id": {"type": "string"}}},
@@ -25,8 +25,8 @@ const openAPISpec = `{
     "/api/v1/healthz": {"get": {"tags": ["Health"], "summary": "Health check", "responses": {"200": {"description": "Healthy"}}}},
     "/api/v1/readyz": {"get": {"tags": ["Health"], "summary": "Readiness check", "responses": {"200": {"description": "Ready"}, "503": {"description": "Not ready"}}}},
     "/api/v1/config": {"get": {"tags": ["Health"], "summary": "Get public runtime configuration", "responses": {"200": {"description": "Runtime configuration"}}}},
-    "/api/v1/auth/register": {"post": {"tags": ["Authentication"], "summary": "Register with a username and password", "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Credentials"}}}}, "responses": {"201": {"description": "Created"}, "400": {"description": "Registration failed"}}}},
-    "/api/v1/auth/login": {"post": {"tags": ["Authentication"], "summary": "Login with a username and password", "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Credentials"}}}}, "responses": {"200": {"description": "Tokens", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TokenResponse"}}}}, "401": {"description": "Invalid credentials"}}}},
+    "/api/v1/auth/register": {"post": {"tags": ["Authentication"], "summary": "Register with an email and password", "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Credentials"}}}}, "responses": {"201": {"description": "Created"}, "400": {"description": "Registration failed"}}}},
+    "/api/v1/auth/login": {"post": {"tags": ["Authentication"], "summary": "Login with an email and password", "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Credentials"}}}}, "responses": {"200": {"description": "Tokens", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TokenResponse"}}}}, "401": {"description": "Invalid credentials"}}}},
     "/api/v1/auth/refresh": {"post": {"tags": ["Authentication"], "summary": "Rotate the refresh token", "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RefreshRequest"}}}}, "responses": {"200": {"description": "Tokens", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TokenResponse"}}}}, "401": {"description": "Invalid refresh token"}}}},
     "/api/v1/auth/logout": {"post": {"tags": ["Authentication"], "summary": "Logout a session", "requestBody": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/SessionRequest"}}}}, "responses": {"204": {"description": "Logged out"}}}},
     "/api/v1/auth/logout-all": {"post": {"tags": ["Authentication"], "summary": "Logout all sessions", "security": [{"bearerAuth": []}], "responses": {"204": {"description": "Logged out"}}}},
@@ -88,8 +88,8 @@ const swaggerHTML = `<!doctype html>
   <main>
     <section style="max-width: 1460px; margin: 16px auto; padding: 16px; border: 1px solid #ddd; border-radius: 4px;">
       <form id="login-form">
-        <strong>Authorize with username and password</strong>
-        <input id="username" name="username" autocomplete="username" placeholder="Username" required>
+        <strong>Authorize with email and password</strong>
+        <input id="email" name="email" type="email" autocomplete="email" placeholder="Email" required>
         <input id="password" name="password" type="password" autocomplete="current-password" placeholder="Password" required>
         <button type="submit">Authorize</button>
         <span id="login-status" role="status"></span>
@@ -108,7 +108,7 @@ const swaggerHTML = `<!doctype html>
       const status = document.getElementById('login-status');
       status.textContent = 'Signing in…';
       try {
-        const response = await fetch('/docs/login', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({username: document.getElementById('username').value, password: document.getElementById('password').value})});
+        const response = await fetch('/docs/login', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({email: document.getElementById('email').value, password: document.getElementById('password').value})});
         const body = await response.json();
         if (!response.ok) throw new Error(body.error || 'Login failed');
         const token = body.access_token || body.AccessToken;
@@ -151,10 +151,10 @@ func (s Server) docsLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
 		return
 	}
-	if !s.allowAuth(w, r, "password-login|"+platform.NormalizeIdentityKey(in.Username)) {
+	if !s.allowAuth(w, r, "password-login|"+platform.NormalizeIdentityKey(in.Email)) {
 		return
 	}
-	tokens, err := s.AuthService.Login(in.Username, in.Password)
+	tokens, err := s.AuthService.Login(in.Email, in.Password)
 	if err != nil {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
 		return

@@ -6,8 +6,9 @@ import (
 )
 
 var (
-	ErrLastAdministrator = errors.New("cannot remove or disable the last active administrator")
-	ErrSystemRole        = errors.New("system roles cannot be changed")
+	ErrLastAdministrator   = errors.New("cannot remove or disable the last active administrator")
+	ErrSystemAdministrator = errors.New("system administrator cannot be changed")
+	ErrSystemRole          = errors.New("system roles cannot be changed")
 )
 
 // AdministratorGuard serializes destructive administrator changes. The

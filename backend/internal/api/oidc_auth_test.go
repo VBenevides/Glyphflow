@@ -130,7 +130,7 @@ func TestOIDCCallbackExchangesCodeAndIgnoresQueryClaims(t *testing.T) {
 		t.Fatal("callback did not issue an active session")
 	}
 	user, ok := auth.User(claims.UserID)
-	if !ok || user.Username != "verified-user" {
+	if !ok || user.Email != "verified@example.com" {
 		t.Fatalf("user = %#v, exists = %t", user, ok)
 	}
 	replay := httptest.NewRecorder()

@@ -43,12 +43,12 @@ func TestBrowserContractSmoke(t *testing.T) {
 	}
 	response.Body.Close()
 
-	response = post("/api/v1/auth/register", `{"username":"smoke","password":"correct horse"}`)
+	response = post("/api/v1/auth/register", `{"email":"smoke@example.com","password":"correct horse"}`)
 	if response.StatusCode != http.StatusCreated {
 		t.Fatalf("register: %d", response.StatusCode)
 	}
 	response.Body.Close()
-	response = post("/api/v1/auth/login", `{"username":"smoke","password":"correct horse"}`)
+	response = post("/api/v1/auth/login", `{"email":"smoke@example.com","password":"correct horse"}`)
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("login: %d", response.StatusCode)
 	}

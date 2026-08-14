@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/VBenevides/Glyphflow/backend/internal/platform"
 )
 
 type Role string
@@ -34,6 +36,7 @@ type Config struct {
 	BootstrapPassword           string
 	BootstrapOIDCProvider       string
 	BootstrapOIDCSubject        string
+	SystemAdminEmails           []string
 	Environment                 string
 	DataDir                     string
 	RunnerID                    string
@@ -42,6 +45,10 @@ type Config struct {
 }
 
 func FromEnv(role Role) (Config, error) {
+	systemAdminEmails, err := platform.ParseEmailList(os.Getenv("GLYPHFLOW_SYSTEM_ADMINS"))
+	if err != nil {
+		return Config{}, fmt.Errorf("GLYPHFLOW_SYSTEM_ADMINS: %w", err)
+	}
 	config := Config{
 		Role:                        role,
 		DatabaseURL:                 os.Getenv("DATABASE_URL"),
@@ -58,11 +65,11 @@ func FromEnv(role Role) (Config, error) {
 		BootstrapPassword:           os.Getenv("GLYPHFLOW_BOOTSTRAP_PASSWORD"),
 		BootstrapOIDCProvider:       strings.TrimSpace(os.Getenv("GLYPHFLOW_BOOTSTRAP_OIDC_PROVIDER")),
 		BootstrapOIDCSubject:        strings.TrimSpace(os.Getenv("GLYPHFLOW_BOOTSTRAP_OIDC_SUBJECT")),
+		SystemAdminEmails:           systemAdminEmails,
 		Environment:                 strings.ToLower(strings.TrimSpace(os.Getenv("ENVIRONMENT"))),
 		DataDir:                     os.Getenv("DATA_DIR"),
 		RunnerID:                    os.Getenv("RUNNER_ID"),
 	}
-	var err error
 	if config.MaxMessageBytes, err = envInt("MAX_MESSAGE_BYTES"); err != nil {
 		return Config{}, err
 	}
@@ -80,6 +87,11 @@ func FromEnv(role Role) (Config, error) {
 func (c Config) Validate() error {
 	if c.Role != ControlPlane && c.Role != Worker {
 		return fmt.Errorf("role must be %q or %q", ControlPlane, Worker)
+	}
+	for _, email := range c.SystemAdminEmails {
+		if _, err := platform.NormalizeEmail(email); err != nil {
+			return fmt.Errorf("system admin email: %w", err)
+		}
 	}
 	if err := requireURL("NATS_URL", c.NATSURL, "nats", "tls"); err != nil {
 		return err
@@ -99,9 +111,6 @@ func (c Config) Validate() error {
 		}
 		if err := requireURL("WEB_ORIGIN", c.WebOrigin, "http", "https"); err != nil {
 			return err
-		}
-		if c.Environment == "production" && c.BootstrapUsername == "" {
-			return errors.New("production requires GLYPHFLOW_BOOTSTRAP_USERNAME")
 		}
 		if c.Environment == "production" && (c.NATSCertFile == "" || c.NATSKeyFile == "" || c.NATSCAFile == "") {
 			return errors.New("production requires NATS client certificate, key, and CA files")
