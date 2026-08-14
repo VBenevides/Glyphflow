@@ -105,8 +105,8 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 		}
 		path := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/v1/admin/auth/users/"), "/disable")
 		if err := s.AuthAdmin.Auth.DisableUser(path); err != nil {
-			if errors.Is(err, platform.ErrLastAdministrator) {
-				writeJSON(w, http.StatusConflict, map[string]string{"error": "cannot disable the last administrator"})
+			if errors.Is(err, platform.ErrLastAdministrator) || errors.Is(err, platform.ErrSystemAdministrator) {
+				writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 				return
 			}
 			writeJSON(w, 404, map[string]string{"error": "user not found"})

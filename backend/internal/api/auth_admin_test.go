@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -63,6 +64,48 @@ func TestAuthenticationAdministrationManagesSSOAndUsers(t *testing.T) {
 	}
 	if got, _ := auth.User(user.ID); got.Enabled {
 		t.Fatal("disabled user remains enabled")
+	}
+}
+
+func TestAuthenticationAdministrationReportsImmutableSystemAdmin(t *testing.T) {
+	auth, err := NewAuthService("01234567890123456789012345678901", true, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.AddRole("user"); err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.AddRole("admin"); err != nil {
+		t.Fatal(err)
+	}
+	auth.SetDefaultRole("user")
+	if err := auth.SetSystemAdminEmails([]string{"admin@example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	user, err := auth.EnsureBootstrap("admin@example.com", "correct horse", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	server := Server{AuthAdmin: &AuthAdminService{Auth: auth}, Auth: func(*http.Request) (Claims, bool) {
+		return Claims{Roles: map[string]bool{"users.manage": true}}, true
+	}}
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/auth/users/"+user.ID+"/disable", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("immutable system admin returned %d", recorder.Code)
+	}
+	var body map[string]string
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["error"] == "user not found" || body["error"] == "" {
+		t.Fatalf("unexpected immutable admin error: %q", body["error"])
+	}
+	users := auth.Users()
+	if len(users) != 1 || users[0]["systemAdmin"] != true {
+		t.Fatalf("system admin flag missing: %#v", users)
 	}
 }
 
