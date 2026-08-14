@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -18,6 +19,27 @@ func TestCurrentUserReturnsProfileAndOwnSessionRevocation(t *testing.T) {
 	server.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("profile: %d", w.Code)
+	}
+}
+
+func TestCurrentUserUsesAuthServiceProfile(t *testing.T) {
+	auth, err := NewAuthService("01234567890123456789012345678901", true, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.AddRole("user", "tasks.read"); err != nil {
+		t.Fatal(err)
+	}
+	auth.SetDefaultRole("user")
+	user, _ := auth.Register("u", "password")
+	tokens, _ := auth.Login("u", "password")
+	server := Server{AuthService: auth}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
+	req.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	w := httptest.NewRecorder()
+	server.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte(user.ID)) || !bytes.Contains(w.Body.Bytes(), []byte("tasks.read")) {
+		t.Fatalf("profile response: %d %s", w.Code, w.Body.String())
 	}
 }
 

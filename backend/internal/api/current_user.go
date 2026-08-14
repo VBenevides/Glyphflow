@@ -12,7 +12,7 @@ func (s Server) currentUserRoutes(mux *http.ServeMux) {
 		return
 	}
 	mux.Handle("/api/v1/me", s.requireAuthenticated(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		claims, _ := s.Auth(r)
+		claims, _ := s.authenticator()(r)
 		if r.Method == http.MethodGet {
 			if s.CurrentUser.Profile == nil {
 				writeJSON(w, 200, claims)
@@ -28,7 +28,7 @@ func (s Server) currentUserRoutes(mux *http.ServeMux) {
 			writeJSON(w, 405, map[string]string{"error": "method not allowed"})
 			return
 		}
-		claims, _ := s.Auth(r)
+		claims, _ := s.authenticator()(r)
 		sessionID := r.URL.Query().Get("session_id")
 		if sessionID == "" {
 			sessionID = claims.SessionID
@@ -45,14 +45,25 @@ func (s Server) currentUserRoutes(mux *http.ServeMux) {
 }
 func (s Server) requireAuthenticated(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.Auth == nil {
+		auth := s.authenticator()
+		if auth == nil {
 			writeJSON(w, 401, map[string]string{"error": "authentication required"})
 			return
 		}
-		if _, ok := s.Auth(r); !ok {
+		if _, ok := auth(r); !ok {
 			writeJSON(w, 401, map[string]string{"error": "authentication required"})
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (s Server) authenticator() Authenticator {
+	if s.Auth != nil {
+		return s.Auth
+	}
+	if s.AuthService != nil {
+		return s.AuthService.Authenticator()
+	}
+	return nil
 }

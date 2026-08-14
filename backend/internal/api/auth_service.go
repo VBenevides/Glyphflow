@@ -307,6 +307,21 @@ func (s *AuthService) User(userID string) (AuthUser, bool) {
 	return user, ok
 }
 
+func (s *AuthService) Profile(claims Claims) map[string]any {
+	s.mu.RLock()
+	user := s.users[claims.UserID]
+	roles := []string{}
+	permissions := map[string]bool{}
+	for role := range s.roles[claims.UserID] {
+		roles = append(roles, role)
+		for permission := range s.rolePermissions[role] {
+			permissions[permission] = true
+		}
+	}
+	s.mu.RUnlock()
+	return map[string]any{"id": user.ID, "username": user.Username, "email": user.Email, "roles": roles, "permissions": permissions, "sessions": s.sessions.List(claims.UserID)}
+}
+
 func randomID() (string, error) {
 	raw := make([]byte, 16)
 	if _, err := rand.Read(raw); err != nil {

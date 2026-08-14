@@ -26,6 +26,11 @@ type SessionManager struct {
 	secret   []byte
 	sessions map[string]accessTokenPayload
 }
+type SessionInfo struct {
+	ID        string
+	UserID    string
+	ExpiresAt time.Time
+}
 
 func NewSessionManager(secret string) (*SessionManager, error) {
 	if len([]byte(secret)) < 32 {
@@ -79,6 +84,18 @@ func (m *SessionManager) RevokeUser(userID string) {
 			delete(m.sessions, id)
 		}
 	}
+}
+
+func (m *SessionManager) List(userID string) []SessionInfo {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := []SessionInfo{}
+	for id, session := range m.sessions {
+		if session.UserID == userID {
+			out = append(out, SessionInfo{ID: id, UserID: userID, ExpiresAt: time.Unix(session.ExpiresAt, 0)})
+		}
+	}
+	return out
 }
 
 func (m *SessionManager) Revoke(sessionID string) {

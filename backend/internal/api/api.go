@@ -35,6 +35,7 @@ type Server struct {
 	Auth         Authenticator
 	Permissions  func(Claims) map[string]bool
 	PasswordAuth *PasswordAuthService
+	AuthService  *AuthService
 	Sessions     *SessionManager
 	OIDC         *OIDCService
 	AuthAdmin    *AuthAdminService
@@ -50,6 +51,9 @@ func (s Server) Handler() http.Handler {
 		panic(err)
 	}
 	mux := http.NewServeMux()
+	if s.CurrentUser == nil && s.AuthService != nil {
+		s.CurrentUser = &CurrentUserService{Profile: s.AuthService.Profile, Sessions: s.AuthService.sessions}
+	}
 	s.passwordRoutes(mux)
 	s.oidcRoutes(mux)
 	s.authAdminRoutes(mux)
