@@ -46,6 +46,15 @@ func (g *AdministratorGuard) Remove(id string, mutate func() error) error {
 	return nil
 }
 
+func (g *AdministratorGuard) Add(id string) {
+	if id == "" {
+		return
+	}
+	g.mu.Lock()
+	g.active[id] = true
+	g.mu.Unlock()
+}
+
 func ValidateRoleMutation(systemRole bool) error {
 	if systemRole {
 		return ErrSystemRole

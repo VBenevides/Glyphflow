@@ -9,7 +9,11 @@ import (
 
 func TestAuthenticationAdministrationRequiresPermission(t *testing.T) {
 	password := NewPasswordAuthService(true, false, nil)
-	admin := &AuthAdminService{Password: password}
+	oidc := NewOIDCService()
+	if err := oidc.AddProvider(OIDCProvider{Key: "corp", Issuer: "https://issuer.example", Callback: "https://app.example/callback", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	admin := &AuthAdminService{Password: password, OIDC: oidc}
 	server := Server{AuthAdmin: admin, Auth: func(*http.Request) (Claims, bool) {
 		return Claims{Roles: map[string]bool{"auth.settings.manage": true}}, true
 	}}
@@ -59,5 +63,34 @@ func TestAuthenticationAdministrationManagesSSOAndUsers(t *testing.T) {
 	}
 	if got, _ := auth.User(user.ID); got.Enabled {
 		t.Fatal("disabled user remains enabled")
+	}
+}
+
+func TestAuthenticationAdministrationPreventsLastLoginMethodRemoval(t *testing.T) {
+	password := NewPasswordAuthService(true, false, nil)
+	admin := &AuthAdminService{Password: password}
+	server := Server{AuthAdmin: admin, Auth: func(*http.Request) (Claims, bool) {
+		return Claims{Roles: map[string]bool{"auth.settings.manage": true}}, true
+	}}
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/auth/settings", bytes.NewBufferString(`{"enabled":false}`))
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("last password method removal returned %d", recorder.Code)
+	}
+
+	oidc := NewOIDCService()
+	if err := oidc.AddProvider(OIDCProvider{Key: "corp", Issuer: "https://issuer.example", Callback: "https://app.example/callback", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	admin = &AuthAdminService{Password: NewPasswordAuthService(false, false, nil), OIDC: oidc}
+	server = Server{AuthAdmin: admin, Auth: func(*http.Request) (Claims, bool) {
+		return Claims{Roles: map[string]bool{"sso.manage": true}}, true
+	}}
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/auth/providers", bytes.NewBufferString(`{"key":"corp","issuer":"https://issuer.example","callback":"https://app.example/callback","enabled":false}`))
+	recorder = httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("last SSO method removal returned %d", recorder.Code)
 	}
 }

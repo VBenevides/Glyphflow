@@ -20,6 +20,12 @@ type PasswordAuthService struct {
 func NewPasswordAuthService(enabled, registration bool, pepper []byte) *PasswordAuthService {
 	return &PasswordAuthService{hasher: platform.DefaultPasswordHasher(pepper), users: map[string]string{}, enabled: enabled, registration: registration}
 }
+
+func (s *PasswordAuthService) Enabled() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.enabled
+}
 func (s *PasswordAuthService) Register(username, password string) error {
 	if !s.enabled || !s.registration {
 		return errors.New("password registration is disabled")

@@ -72,6 +72,22 @@ func (s *OIDCService) Providers() []OIDCProvider {
 	}
 	return out
 }
+
+func (s *OIDCService) Provider(key string) (OIDCProvider, bool) {
+	return s.provider(key)
+}
+
+func (s *OIDCService) EnabledCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	count := 0
+	for _, provider := range s.providers {
+		if provider.Enabled {
+			count++
+		}
+	}
+	return count
+}
 func (s *OIDCService) Challenge(key, redirect string, now time.Time) (string, error) {
 	challenge, err := s.ChallengeWithPKCE(key, redirect, now)
 	if err != nil {

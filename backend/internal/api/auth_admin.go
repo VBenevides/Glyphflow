@@ -2,8 +2,11 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
+
+	"github.com/VBenevides/Glyphflow/backend/internal/platform"
 )
 
 type AuthAdminService struct {
@@ -25,6 +28,14 @@ func (s Server) authAdminRoutes(mux *http.ServeMux) {
 		var in struct{ Enabled bool }
 		if json.NewDecoder(r.Body).Decode(&in) != nil {
 			writeJSON(w, 400, map[string]string{"error": "invalid settings"})
+			return
+		}
+		enabledSSO := 0
+		if s.AuthAdmin.OIDC != nil {
+			enabledSSO = s.AuthAdmin.OIDC.EnabledCount()
+		}
+		if !in.Enabled && !platform.HasLoginMethod(false, enabledSSO) {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "a login method must remain enabled"})
 			return
 		}
 		s.AuthAdmin.Password.mu.Lock()
@@ -55,7 +66,22 @@ func (s Server) authAdminRoutes(mux *http.ServeMux) {
 			writeJSON(w, 200, s.AuthAdmin.OIDC.Providers())
 		case http.MethodPost:
 			var provider OIDCProvider
-			if json.NewDecoder(r.Body).Decode(&provider) != nil || s.AuthAdmin.OIDC.AddProvider(provider) != nil {
+			if json.NewDecoder(r.Body).Decode(&provider) != nil {
+				writeJSON(w, 400, map[string]string{"error": "provider update failed"})
+				return
+			}
+			previous, existed := s.AuthAdmin.OIDC.Provider(provider.Key)
+			passwordEnabled := false
+			if s.AuthAdmin.Password != nil {
+				passwordEnabled = s.AuthAdmin.Password.Enabled()
+			} else if s.AuthAdmin.Auth != nil {
+				passwordEnabled = s.AuthAdmin.Auth.PasswordLoginEnabled()
+			}
+			if existed && previous.Enabled && !provider.Enabled && !passwordEnabled && s.AuthAdmin.OIDC.EnabledCount() == 1 {
+				writeJSON(w, http.StatusConflict, map[string]string{"error": "a login method must remain enabled"})
+				return
+			}
+			if s.AuthAdmin.OIDC.AddProvider(provider) != nil {
 				writeJSON(w, 400, map[string]string{"error": "provider update failed"})
 				return
 			}
@@ -71,6 +97,10 @@ func (s Server) authAdminRoutes(mux *http.ServeMux) {
 		}
 		path := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/v1/admin/auth/users/"), "/disable")
 		if err := s.AuthAdmin.Auth.DisableUser(path); err != nil {
+			if errors.Is(err, platform.ErrLastAdministrator) {
+				writeJSON(w, http.StatusConflict, map[string]string{"error": "cannot disable the last administrator"})
+				return
+			}
 			writeJSON(w, 404, map[string]string{"error": "user not found"})
 			return
 		}

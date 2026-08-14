@@ -33,6 +33,7 @@ type AuthService struct {
 	refresh                              *platform.RefreshSessionManager
 	accessLifetime, refreshLifetime      time.Duration
 	audit                                func(string, string, string)
+	adminGuard                           *platform.AdministratorGuard
 }
 
 func NewAuthService(accessSecret string, passwordEnabled, registrationEnabled bool, pepper []byte) (*AuthService, error) {
@@ -40,13 +41,19 @@ func NewAuthService(accessSecret string, passwordEnabled, registrationEnabled bo
 	if err != nil {
 		return nil, err
 	}
-	return &AuthService{hasher: platform.DefaultPasswordHasher(pepper), users: map[string]AuthUser{}, byUsername: map[string]string{}, passwords: map[string]string{}, oidcIdentities: map[string]string{}, roles: map[string]map[string]bool{}, rolePermissions: map[string]map[string]bool{}, passwordEnabled: passwordEnabled, registrationEnabled: registrationEnabled, sessions: sessions, refresh: platform.NewRefreshSessionManager(), accessLifetime: 15 * time.Minute, refreshLifetime: 30 * 24 * time.Hour}, nil
+	return &AuthService{hasher: platform.DefaultPasswordHasher(pepper), users: map[string]AuthUser{}, byUsername: map[string]string{}, passwords: map[string]string{}, oidcIdentities: map[string]string{}, roles: map[string]map[string]bool{}, rolePermissions: map[string]map[string]bool{}, passwordEnabled: passwordEnabled, registrationEnabled: registrationEnabled, sessions: sessions, refresh: platform.NewRefreshSessionManager(), accessLifetime: 15 * time.Minute, refreshLifetime: 30 * time.Hour * 24, adminGuard: platform.NewAdministratorGuard()}, nil
 }
 
 func (s *AuthService) SetDefaultRole(role string) {
 	s.mu.Lock()
 	s.defaultRole = strings.TrimSpace(role)
 	s.mu.Unlock()
+}
+
+func (s *AuthService) PasswordLoginEnabled() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.passwordEnabled
 }
 
 func (s *AuthService) EnsureBootstrap(username, password, provider, subject string) (AuthUser, error) {
@@ -118,17 +125,22 @@ func (s *AuthService) AddRole(role string, permissions ...string) error {
 }
 func (s *AuthService) Grant(userID, role string) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if _, ok := s.users[userID]; !ok {
+		s.mu.Unlock()
 		return errors.New("user not found")
 	}
 	if _, ok := s.rolePermissions[role]; !ok {
+		s.mu.Unlock()
 		return errors.New("role not found")
 	}
 	if s.roles[userID] == nil {
 		s.roles[userID] = map[string]bool{}
 	}
 	s.roles[userID][role] = true
+	s.mu.Unlock()
+	if role == "admin" {
+		s.adminGuard.Add(userID)
+	}
 	return nil
 }
 
@@ -312,18 +324,25 @@ func (s *AuthService) LogoutAll(userID string) {
 	s.sessions.RevokeUser(userID)
 }
 func (s *AuthService) DisableUser(userID string) error {
-	s.mu.Lock()
+	s.mu.RLock()
 	user, ok := s.users[userID]
-	if ok {
-		user.Enabled = false
-		s.users[userID] = user
-	}
-	s.mu.Unlock()
+	isAdmin := s.roles[userID]["admin"]
+	s.mu.RUnlock()
 	if !ok {
 		return errors.New("user not found")
 	}
-	s.LogoutAll(userID)
-	return nil
+	disable := func() error {
+		s.mu.Lock()
+		user.Enabled = false
+		s.users[userID] = user
+		s.mu.Unlock()
+		s.LogoutAll(userID)
+		return nil
+	}
+	if isAdmin {
+		return s.adminGuard.Remove(userID, disable)
+	}
+	return disable()
 }
 func (s *AuthService) Permissions(claims Claims) map[string]bool {
 	s.mu.RLock()
