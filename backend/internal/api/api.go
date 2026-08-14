@@ -39,6 +39,7 @@ type Server struct {
 	OIDC         *OIDCService
 	AuthAdmin    *AuthAdminService
 	Roles        *RoleAdminService
+	CurrentUser  *CurrentUserService
 	Audit        func(Claims, string, string)
 	Ready        func(context.Context) error
 	CSRFOrigin   string
@@ -53,6 +54,7 @@ func (s Server) Handler() http.Handler {
 	s.oidcRoutes(mux)
 	s.authAdminRoutes(mux)
 	s.roleRoutes(mux)
+	s.currentUserRoutes(mux)
 	mux.HandleFunc("/api/v1/healthz", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "ok"}) })
 	mux.HandleFunc("/api/v1/readyz", func(w http.ResponseWriter, r *http.Request) {
 		if s.Ready != nil {
