@@ -137,7 +137,7 @@ a {
 .gf-provider-list { display: grid; gap: 0.5rem; margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--gf-border); }
 .gf-provider-list .gf-state { min-height: 4rem; padding: 0.75rem; }
 .gf-auth-hint { display: inline-flex; align-items: center; gap: 0.4rem; color: var(--gf-muted); }
-.gf-query-status { min-height: 1.25rem; margin-bottom: 0.5rem; color: var(--gf-muted); font-size: 0.82rem; }
+.gf-query-status { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; min-height: 2.5rem; margin-bottom: 0.5rem; color: var(--gf-muted); font-size: 0.82rem; }
 .gf-field-error { color: var(--gf-danger); }
 .gf-filter-bar { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem; }
 .gf-filter-bar label { display: grid; gap: 0.3rem; min-width: 12rem; color: var(--gf-muted); font-size: 0.85rem; font-weight: 650; }
