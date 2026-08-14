@@ -10,6 +10,7 @@ import { TaskEditorPage } from './task-editor'
 import { ScheduleEditorPage, ScheduleInventoryPage } from './schedule-pages'
 import { DashboardPage } from './dashboard'
 import { ManualRunPage, RunDetailPage, RunInventoryPage } from './run-pages'
+import { RunnerDetailPage, RunnerInventoryPage } from './runner-pages'
 
 function Placeholder({ title }: { title: string }) {
   return <main className="gf-content"><PageHeader title={title} description="This workspace is ready for its data view." /></main>
@@ -34,7 +35,9 @@ export function AppRoutes() {
     <Route path="/runs" element={<PermissionRoute permission="runs.read"><RunInventoryPage /></PermissionRoute>} />
     <Route path="/runs/execute" element={<PermissionRoute permission="runs.execute"><ManualRunPage /></PermissionRoute>} />
     <Route path="/runs/:runId" element={<PermissionRoute permission="runs.read"><RunDetailPage /></PermissionRoute>} />
-    {ROUTES.filter((route) => !['/', '/tasks', '/schedules', '/runs'].includes(route.path)).map((route) => <Route key={route.path} path={route.path} element={<PermissionRoute permission={route.permission}><Placeholder title={route.label} /></PermissionRoute>} />)}
+    <Route path="/runners" element={<PermissionRoute permission="runners.read"><RunnerInventoryPage /></PermissionRoute>} />
+    <Route path="/runners/:runnerId" element={<PermissionRoute permission="runners.read"><RunnerDetailPage /></PermissionRoute>} />
+    {ROUTES.filter((route) => !['/', '/tasks', '/schedules', '/runs', '/runners'].includes(route.path)).map((route) => <Route key={route.path} path={route.path} element={<PermissionRoute permission={route.permission}><Placeholder title={route.label} /></PermissionRoute>} />)}
     <Route path="/login" element={<Navigate to="/" replace />} />
     <Route path="*" element={<NotFoundPage />} />
   </Routes></Shell>
