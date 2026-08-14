@@ -2,8 +2,10 @@ package api
 
 import (
 	"bytes"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -49,6 +51,43 @@ func TestAuditDetailsRedactInputAndOutput(t *testing.T) {
 	input := event.Input.(map[string]any)
 	if input["password"] != "[REDACTED]" || input["nested"].([]any)[0].(map[string]any)["token"] != "[REDACTED]" || event.Output.(map[string]any)["status"] != "ok" || event.Traceback != "trace" {
 		t.Fatalf("audit details were not preserved safely: %#v", event)
+	}
+}
+
+func TestAuditFailureStoresErrorAndTraceback(t *testing.T) {
+	audit := NewAuditQueryService()
+	server := Server{Auth: func(*http.Request) (Claims, bool) { return Claims{UserID: "user-1"}, true }, Permissions: func(Claims) map[string]bool { return map[string]bool{"runners.manage": true} }, AuditQuery: audit}
+	handler := server.require("runners.manage", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		recordRequestError(r, errors.New("database enrollment constraint failed"))
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "enrollment failed"})
+	}))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/runners/enrollments", nil))
+	if response.Code != http.StatusConflict || len(audit.events) != 1 {
+		t.Fatalf("audit failure: status=%d events=%d", response.Code, len(audit.events))
+	}
+	event := audit.events[0]
+	output := event.Output.(map[string]any)
+	if output["error"] != "database enrollment constraint failed" || !strings.Contains(event.Traceback, "database enrollment constraint failed") || !strings.Contains(event.Traceback, "recordRequestError") {
+		t.Fatalf("audit error details missing: %#v", event)
+	}
+}
+
+func TestAuditFailureCapturesResponseError(t *testing.T) {
+	audit := NewAuditQueryService()
+	server := Server{Auth: func(*http.Request) (Claims, bool) { return Claims{UserID: "user-1"}, true }, Permissions: func(Claims) map[string]bool { return map[string]bool{"runners.manage": true} }, AuditQuery: audit}
+	handler := server.require("runners.manage", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "runner enrollment conflict"})
+	}))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/runners/enrollments", nil))
+	if len(audit.events) != 1 {
+		t.Fatalf("audit events = %d", len(audit.events))
+	}
+	event := audit.events[0]
+	output := event.Output.(map[string]any)
+	if output["error"] != "runner enrollment conflict" || !strings.Contains(event.Traceback, "runner enrollment conflict") {
+		t.Fatalf("response error missing from audit: %#v", event)
 	}
 }
 

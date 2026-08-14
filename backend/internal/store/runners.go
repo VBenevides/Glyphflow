@@ -107,7 +107,7 @@ func (s *RunnerStore) CreateEnrollment(ctx context.Context, runner RunnerRecord,
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `INSERT INTO runners (id, pool_id, name, desired_state, observed_state, capacity, capabilities) VALUES ($1, (SELECT id FROM runner_pools WHERE name = $2), $3, 'STARTING', 'OFFLINE', $4, $5::jsonb) ON CONFLICT (id) DO NOTHING`, runner.ID, runner.Pool, runner.Name, maxRunnerCapacity(runner.Capacity), artifact); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO runners (id, pool_id, name, desired_state, observed_state, capacity, capabilities) VALUES ($1, (SELECT id FROM runner_pools WHERE name = $2), $3, 'ENABLED', 'PENDING', $4, $5::jsonb) ON CONFLICT (id) DO NOTHING`, runner.ID, runner.Pool, runner.Name, maxRunnerCapacity(runner.Capacity), artifact); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO runner_enrollments (id, runner_id, token_hash, expires_at, requester, target, artifact) VALUES ($1, $2, decode($3, 'hex'), $4, $5, $6, $7::jsonb)`, enrollment.ID, runner.ID, enrollment.TokenHash, enrollment.ExpiresAt, enrollment.Requester, enrollment.Target, artifact); err != nil {

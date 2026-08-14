@@ -20,6 +20,25 @@ func TestAuthAndPagination(t *testing.T) {
 	}
 }
 
+func TestCorrelationIDIsGeneratedAndAudited(t *testing.T) {
+	audit := NewAuditQueryService()
+	h := (Server{Auth: func(*http.Request) (Claims, bool) { return Claims{UserID: "user-1"}, true }, Permissions: func(Claims) map[string]bool { return map[string]bool{"task.read": true} }, AuditQuery: audit}).Handler()
+	response := httptest.NewRecorder()
+	h.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/tasks", nil))
+	correlationID := response.Header().Get("X-Correlation-ID")
+	if correlationID == "" || len(audit.events) != 1 || audit.events[0].CorrelationID != correlationID {
+		t.Fatalf("correlation ID was not shared with audit: header=%q events=%#v", correlationID, audit.events)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/healthz", nil)
+	request.Header.Set("X-Correlation-ID", "client-correlation")
+	response = httptest.NewRecorder()
+	h.ServeHTTP(response, request)
+	if response.Header().Get("X-Correlation-ID") != "client-correlation" {
+		t.Fatalf("provided correlation ID was not preserved: %q", response.Header().Get("X-Correlation-ID"))
+	}
+}
+
 func TestSessionAuthenticatorAndCreateRole(t *testing.T) {
 	sessions, err := NewSessionManager("01234567890123456789012345678901")
 	if err != nil {

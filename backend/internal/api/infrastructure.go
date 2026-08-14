@@ -160,7 +160,7 @@ func (s *InfrastructureService) runnerPath(w http.ResponseWriter, r *http.Reques
 		repository := s.runnerRepository
 		s.mu.RUnlock()
 		if repository != nil {
-			states := map[string]string{"enable": "ENABLED", "disable": "DISABLED", "drain": "DRAINING", "reset": "STARTING", "revoke": "REVOKED"}
+			states := map[string]string{"enable": "ENABLED", "disable": "DISABLED", "drain": "DRAINING", "reset": "ENABLED", "revoke": "REVOKED"}
 			state, valid := states[parts[4]]
 			if !valid {
 				writeJSON(w, http.StatusNotFound, map[string]string{"error": "runner action not found"})
@@ -178,7 +178,7 @@ func (s *InfrastructureService) runnerPath(w http.ResponseWriter, r *http.Reques
 		}
 		s.mu.Lock()
 		item, ok := s.runners[parts[3]]
-		states := map[string]string{"enable": "ENABLED", "disable": "DISABLED", "drain": "DRAINING", "reset": "STARTING", "revoke": "REVOKED"}
+		states := map[string]string{"enable": "ENABLED", "disable": "DISABLED", "drain": "DRAINING", "reset": "ENABLED", "revoke": "REVOKED"}
 		state, valid := states[parts[4]]
 		if ok && valid {
 			item.DesiredState = state
@@ -212,6 +212,7 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 	}
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
+		recordRequestError(r, err)
 		writeJSON(w, 500, map[string]string{"error": "enrollment failed"})
 		return
 	}
@@ -221,7 +222,12 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 	repository := s.runnerRepository
 	s.mu.RUnlock()
 	if repository != nil {
-		if err := repository.CreateEnrollment(r.Context(), store.RunnerRecord{ID: input.RunnerID, Name: input.RunnerID, Pool: "default", Capacity: 1, Platform: input.Platform, Architecture: input.Architecture}, store.RunnerEnrollmentRecord{ID: "enrollment-" + input.RunnerID + "-" + platform.HashToken(token), RunnerID: input.RunnerID, TokenHash: platform.HashToken(token), ExpiresAt: expiry, Target: input.RunnerID, Artifact: map[string]any{"platform": input.Platform, "architecture": input.Architecture}}); err != nil {
+		requester := "system"
+		if claims, ok := r.Context().Value(requestClaimsContextKey{}).(Claims); ok && claims.UserID != "" {
+			requester = claims.UserID
+		}
+		if err := repository.CreateEnrollment(r.Context(), store.RunnerRecord{ID: input.RunnerID, Name: input.RunnerID, Pool: "default", Capacity: 1, Platform: input.Platform, Architecture: input.Architecture}, store.RunnerEnrollmentRecord{ID: "enrollment-" + input.RunnerID + "-" + platform.HashToken(token), RunnerID: input.RunnerID, TokenHash: platform.HashToken(token), ExpiresAt: expiry, Requester: requester, Target: input.RunnerID, Artifact: map[string]any{"platform": input.Platform, "architecture": input.Architecture}}); err != nil {
+			recordRequestError(r, err)
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "enrollment failed"})
 			return
 		}
@@ -232,7 +238,7 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	s.enrollments[token] = &enrollment{Token: token, RunnerID: input.RunnerID, Expires: expiry}
 	if _, ok := s.runners[input.RunnerID]; !ok {
-		s.runners[input.RunnerID] = RunnerRecord{ID: input.RunnerID, Name: input.RunnerID, DesiredState: "STARTING", ObservedState: "PENDING", Pool: "default", Capacity: 1, Platform: input.Platform, Architecture: input.Architecture}
+		s.runners[input.RunnerID] = RunnerRecord{ID: input.RunnerID, Name: input.RunnerID, DesiredState: "ENABLED", ObservedState: "PENDING", Pool: "default", Capacity: 1, Platform: input.Platform, Architecture: input.Architecture}
 	}
 	s.mu.Unlock()
 	w.Header().Set("Cache-Control", "no-store")

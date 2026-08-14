@@ -16,16 +16,34 @@ func canonicalMigrationSQL(t *testing.T) string {
 	return strings.ToLower(string(raw))
 }
 
-func TestCanonicalMigrationIsTheOnlyMigration(t *testing.T) {
+func TestMigrationsHaveCanonicalBaseline(t *testing.T) {
 	migrations, err := LoadMigrations(filepath.Join("..", "..", "migrations"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(migrations) != 1 || migrations[0].Version != 1 || migrations[0].Name != "canonical" {
-		t.Fatalf("migrations = %#v, want only 001_canonical.sql", migrations)
+	if len(migrations) < 1 || migrations[0].Version != 1 || migrations[0].Name != "canonical" {
+		t.Fatalf("migrations = %#v, want 001_canonical.sql as the baseline", migrations)
 	}
-	if strings.Contains(migrations[0].SQL, "_v1") || strings.Contains(migrations[0].SQL, "_v2") || strings.Contains(migrations[0].SQL, "_vx") {
-		t.Fatal("canonical migration contains a version-suffixed identifier")
+	for _, migration := range migrations {
+		if strings.Contains(migration.SQL, "_v1") || strings.Contains(migration.SQL, "_v2") || strings.Contains(migration.SQL, "_vx") {
+			t.Fatalf("migration %d contains a version-suffixed identifier", migration.Version)
+		}
+	}
+}
+
+func TestRunnerPendingStateMigration(t *testing.T) {
+	migrations, err := LoadMigrations(filepath.Join("..", "..", "migrations"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(migrations) < 2 || migrations[1].Version != 2 || migrations[1].Name != "runner_pending_state" {
+		t.Fatalf("migrations = %#v, want runner pending state migration", migrations)
+	}
+	sql := strings.ToLower(migrations[1].SQL)
+	for _, fragment := range []string{"drop constraint", "runners_observed_state_check", "'pending'", "set default 'pending'"} {
+		if !strings.Contains(sql, fragment) {
+			t.Errorf("pending state migration does not contain %q", fragment)
+		}
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -16,7 +17,28 @@ type Claims struct {
 	SessionID string
 	Roles     map[string]bool
 }
+type requestClaimsContextKey struct{}
+type requestAuditContextKey struct{}
 type Authenticator func(*http.Request) (Claims, bool)
+
+type requestAuditDetails struct {
+	Error     string
+	Traceback string
+}
+
+const auditErrorBodyLimit = 4 << 10
+
+func recordRequestError(r *http.Request, err error) {
+	if err == nil {
+		return
+	}
+	details, ok := r.Context().Value(requestAuditContextKey{}).(*requestAuditDetails)
+	if !ok {
+		return
+	}
+	details.Error = err.Error()
+	details.Traceback = string(debug.Stack())
+}
 
 type RuntimeConfig struct {
 	Brand         string `json:"brand"`
@@ -222,19 +244,33 @@ func (s Server) require(role string, next http.Handler) http.Handler {
 			writeJSON(w, 403, map[string]string{"error": "forbidden"})
 			return
 		}
+		auditDetails := &requestAuditDetails{}
+		ctx := context.WithValue(r.Context(), requestClaimsContextKey{}, claims)
+		ctx = context.WithValue(ctx, requestAuditContextKey{}, auditDetails)
+		r = r.WithContext(ctx)
 		if s.Audit != nil {
 			s.Audit(claims, r.Method, r.URL.Path)
 		}
 		recorder := &auditResponseWriter{ResponseWriter: w}
 		next.ServeHTTP(recorder, r)
 		if s.AuditQuery != nil {
+			if recorder.status >= http.StatusBadRequest && auditDetails.Error == "" {
+				auditDetails.Error = auditResponseError(recorder.body, recorder.status)
+				auditDetails.Traceback = string(debug.Stack())
+			}
 			actorName, actorEmail := s.auditActor(claims.UserID)
 			result := "success"
 			if recorder.status >= http.StatusBadRequest {
 				result = "failure"
 			}
 			if !(r.Method == http.MethodPost && r.URL.Path == "/api/v1/admin/auth/settings" && result == "success") {
-				s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: result, CorrelationID: r.Header.Get("X-Correlation-ID"), Input: map[string]any{"method": r.Method, "endpoint": r.URL.Path}, Output: map[string]any{"status": recorder.status}})
+				output := map[string]any{"status": recorder.status}
+				traceback := ""
+				if auditDetails.Error != "" {
+					output["error"] = auditDetails.Error
+					traceback = auditDetails.Error + "\n" + auditDetails.Traceback
+				}
+				s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: result, CorrelationID: r.Header.Get("X-Correlation-ID"), Input: map[string]any{"method": r.Method, "endpoint": r.URL.Path}, Output: output, Traceback: traceback})
 			}
 		}
 	})
@@ -243,6 +279,26 @@ func (s Server) require(role string, next http.Handler) http.Handler {
 type auditResponseWriter struct {
 	http.ResponseWriter
 	status int
+	body   []byte
+}
+
+func auditResponseError(body []byte, status int) string {
+	var payload struct {
+		Error   string `json:"error"`
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(body, &payload) == nil {
+		if strings.TrimSpace(payload.Error) != "" {
+			return payload.Error
+		}
+		if strings.TrimSpace(payload.Message) != "" {
+			return payload.Message
+		}
+	}
+	if value := strings.TrimSpace(string(body)); value != "" && len(value) <= auditErrorBodyLimit {
+		return value
+	}
+	return http.StatusText(status)
 }
 
 func (w *auditResponseWriter) WriteHeader(status int) {
@@ -251,6 +307,13 @@ func (w *auditResponseWriter) WriteHeader(status int) {
 }
 
 func (w *auditResponseWriter) Write(value []byte) (int, error) {
+	if len(w.body) < auditErrorBodyLimit {
+		limit := auditErrorBodyLimit - len(w.body)
+		if len(value) < limit {
+			limit = len(value)
+		}
+		w.body = append(w.body, value[:limit]...)
+	}
 	if w.status == 0 {
 		w.WriteHeader(http.StatusOK)
 	}
@@ -297,8 +360,18 @@ func (s Server) requireMethodRole(role func(*http.Request) string, next http.Han
 }
 func (s Server) withCorrelation(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Correlation-ID", r.Header.Get("X-Correlation-ID"))
-		next.ServeHTTP(w, r)
+		correlationID := strings.TrimSpace(r.Header.Get("X-Correlation-ID"))
+		if correlationID == "" {
+			if generated, err := randomID(); err == nil {
+				correlationID = generated
+			} else {
+				correlationID = time.Now().UTC().Format("20060102T150405.000000000Z")
+			}
+		}
+		request := r.Clone(r.Context())
+		request.Header.Set("X-Correlation-ID", correlationID)
+		w.Header().Set("X-Correlation-ID", correlationID)
+		next.ServeHTTP(w, request)
 	})
 }
 func (s Server) noStore(next http.Handler) http.Handler {
