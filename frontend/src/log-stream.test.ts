@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { logStreamUrl } from './run-logs'
 import { mergeChunks } from './log-stream'
 
 describe('log stream sequencing', () => {
@@ -8,5 +9,6 @@ describe('log stream sequencing', () => {
     expect(merged.duplicates).toBe(1)
     expect(merged.gap).toBe(true)
     expect(merged.lastSequence).toBe(4)
+    expect(logStreamUrl('run/1', 'stdout', merged.lastSequence)).toBe('/api/v1/runs/run%2F1/logs?stream=stdout&after=4')
   })
 })
