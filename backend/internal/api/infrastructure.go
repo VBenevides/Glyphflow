@@ -44,12 +44,13 @@ type enrollment struct {
 	Used     bool
 }
 type InfrastructureService struct {
-	mu               sync.RWMutex
-	runners          map[string]RunnerRecord
-	resources        map[string]ResourceRecord
-	enrollments      map[string]*enrollment
-	next             int
-	runnerRepository store.RunnerRepository
+	mu                 sync.RWMutex
+	runners            map[string]RunnerRecord
+	resources          map[string]ResourceRecord
+	enrollments        map[string]*enrollment
+	next               int
+	runnerRepository   store.RunnerRepository
+	resourceRepository store.ResourceRepository
 }
 
 func NewInfrastructureService() *InfrastructureService {
@@ -64,12 +65,28 @@ func (s *InfrastructureService) SetRunnerRepository(repository store.RunnerRepos
 	}
 }
 
+func (s *InfrastructureService) SetResourceRepository(repository store.ResourceRepository) {
+	if repository != nil {
+		s.mu.Lock()
+		s.resourceRepository = repository
+		s.mu.Unlock()
+	}
+}
+
 func runnerRecordFromStore(runner store.RunnerRecord) RunnerRecord {
 	heartbeat := ""
 	if runner.HeartbeatAt != nil {
 		heartbeat = runner.HeartbeatAt.UTC().Format(time.RFC3339)
 	}
 	return RunnerRecord{ID: runner.ID, Name: runner.Name, DesiredState: runner.DesiredState, ObservedState: runner.ObservedState, Pool: runner.Pool, Capacity: runner.Capacity, ActiveCount: runner.ActiveCount, HeartbeatAt: heartbeat, Platform: runner.Platform, Architecture: runner.Architecture}
+}
+
+func resourceRecordFromStore(resource store.ResourceRecord) ResourceRecord {
+	expiresAt := ""
+	if resource.ExpiresAt != nil {
+		expiresAt = resource.ExpiresAt.UTC().Format(time.RFC3339)
+	}
+	return ResourceRecord{ID: resource.ID, Name: resource.Name, Enabled: resource.Enabled, Holder: resource.Holder, ExpiresAt: expiresAt, FencingToken: resource.FencingToken}
 }
 
 func (s *InfrastructureService) runnerCollection(w http.ResponseWriter, r *http.Request) {
@@ -227,6 +244,22 @@ func (s *InfrastructureService) resourceCollection(w http.ResponseWriter, r *htt
 		return
 	}
 	s.mu.RLock()
+	repository := s.resourceRepository
+	s.mu.RUnlock()
+	if repository != nil {
+		items, err := repository.List(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "resource storage unavailable"})
+			return
+		}
+		result := make([]ResourceRecord, 0, len(items))
+		for _, item := range items {
+			result = append(result, resourceRecordFromStore(item))
+		}
+		writePage(w, r, result)
+		return
+	}
+	s.mu.RLock()
 	items := make([]ResourceRecord, 0, len(s.resources))
 	for _, item := range s.resources {
 		items = append(items, item)
@@ -238,6 +271,9 @@ func (s *InfrastructureService) resourceCollection(w http.ResponseWriter, r *htt
 func (s *InfrastructureService) resourcePath(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	if len(parts) == 5 && parts[4] == "lease" {
+		s.mu.RLock()
+		repository := s.resourceRepository
+		s.mu.RUnlock()
 		if r.Method == http.MethodPost {
 			var input struct {
 				Holder     string `json:"holder"`
@@ -249,6 +285,15 @@ func (s *InfrastructureService) resourcePath(w http.ResponseWriter, r *http.Requ
 			}
 			if input.TTLSeconds == 0 {
 				input.TTLSeconds = 30
+			}
+			if repository != nil {
+				item, err := repository.Acquire(r.Context(), parts[3], input.Holder, time.Duration(input.TTLSeconds)*time.Second, time.Now().UTC())
+				if err != nil {
+					writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+					return
+				}
+				writeJSON(w, http.StatusCreated, resourceRecordFromStore(item))
+				return
 			}
 			item, err := s.AcquireLease(parts[3], input.Holder, time.Duration(input.TTLSeconds)*time.Second)
 			if err != nil {
@@ -271,6 +316,14 @@ func (s *InfrastructureService) resourcePath(w http.ResponseWriter, r *http.Requ
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "holder is required"})
 				return
 			}
+			if repository != nil {
+				if err := repository.Release(r.Context(), parts[3], input.Holder, input.FencingToken); err != nil {
+					writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+					return
+				}
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
 			if err := s.ReleaseLease(parts[3], input.Holder, input.FencingToken); err != nil {
 				writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 				return
@@ -284,6 +337,32 @@ func (s *InfrastructureService) resourcePath(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	id := parts[3]
+	s.mu.RLock()
+	repository := s.resourceRepository
+	s.mu.RUnlock()
+	if repository != nil {
+		item, found, err := repository.Find(r.Context(), id)
+		if err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "resource storage unavailable"})
+			return
+		}
+		if !found {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "resource not found"})
+			return
+		}
+		if r.Method == http.MethodGet {
+			writeJSON(w, http.StatusOK, resourceRecordFromStore(item))
+		} else if r.Method == http.MethodDelete {
+			if err := repository.Delete(r.Context(), id); err != nil {
+				writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		} else {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		}
+		return
+	}
 	s.mu.Lock()
 	item, ok := s.resources[id]
 	if ok && r.Method == http.MethodDelete {

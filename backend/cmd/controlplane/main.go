@@ -143,6 +143,7 @@ func main() {
 	}
 	infrastructure := api.NewInfrastructureService()
 	infrastructure.SetRunnerRepository(runnerRepository)
+	infrastructure.SetResourceRepository(store.NewResourceRepository(db))
 	application := api.Server{AuthService: authService, AuthAdmin: &api.AuthAdminService{Auth: authService, OIDC: oidcService, Sessions: authService.SessionManager()}, Sessions: authService.SessionManager(), OIDC: oidcService, Roles: roles, Auth: authService.Authenticator(), Permissions: authService.Permissions, CSRFOrigin: cfg.WebOrigin, Operations: operations, Runs: runs, Infrastructure: infrastructure, AuditQuery: api.NewAuditQueryService(), Persistence: persistence, Ready: func(ctx context.Context) error {
 		if err := db.Ping(ctx); err != nil {
 			return err
