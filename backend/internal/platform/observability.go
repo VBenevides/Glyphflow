@@ -94,9 +94,18 @@ func (a *AuditLog) AddSecurity(record SecurityAuditRecord) {
 }
 
 type Metrics struct {
-	OrdersPublished  atomic.Uint64
-	EventsAccepted   atomic.Uint64
-	SignatureRejects atomic.Uint64
+	OrdersPublished   atomic.Uint64
+	EventsAccepted    atomic.Uint64
+	SignatureRejects  atomic.Uint64
+	SchedulerLag      atomic.Uint64
+	DispatchLag       atomic.Uint64
+	ActiveLeases      atomic.Uint64
+	UnknownAttempts   atomic.Uint64
+	InboxDuplicates   atomic.Uint64
+	OutboxRetries     atomic.Uint64
+	LoginFailures     atomic.Uint64
+	RefreshReplays    atomic.Uint64
+	PermissionDenials atomic.Uint64
 }
 
 func (m *Metrics) Snapshot() map[string]uint64 {
@@ -104,6 +113,8 @@ func (m *Metrics) Snapshot() map[string]uint64 {
 		"orders_published":  m.OrdersPublished.Load(),
 		"events_accepted":   m.EventsAccepted.Load(),
 		"signature_rejects": m.SignatureRejects.Load(),
+		"scheduler_lag":     m.SchedulerLag.Load(), "dispatch_lag": m.DispatchLag.Load(), "active_leases": m.ActiveLeases.Load(), "unknown_attempts": m.UnknownAttempts.Load(),
+		"inbox_duplicates": m.InboxDuplicates.Load(), "outbox_retries": m.OutboxRetries.Load(), "login_failures": m.LoginFailures.Load(), "refresh_replays": m.RefreshReplays.Load(), "permission_denials": m.PermissionDenials.Load(),
 	}
 }
 
