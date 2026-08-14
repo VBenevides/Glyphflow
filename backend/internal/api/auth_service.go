@@ -32,6 +32,7 @@ type AuthService struct {
 	dummyPasswordHash                    string
 	users                                store.UserRepository
 	oidcIdentities                       map[string]string
+	ssoRepository                        store.SSORepository
 	roles                                store.RoleRepository
 	config                               *store.ConfigStore
 	passwordEnabled, registrationEnabled bool
@@ -90,6 +91,15 @@ func (s *AuthService) SetSessionRepository(repository store.SessionRepository) {
 	s.sessionRepository = repository
 	s.mu.Unlock()
 	s.sessions.SetRepository(repository)
+}
+
+func (s *AuthService) SetSSORepository(repository store.SSORepository) {
+	if repository == nil {
+		return
+	}
+	s.mu.Lock()
+	s.ssoRepository = repository
+	s.mu.Unlock()
 }
 
 func toAuthUser(user store.UserRecord) AuthUser {
@@ -434,6 +444,14 @@ func (s *AuthService) Login(email, password string) (AuthTokens, error) {
 }
 
 func (s *AuthService) LoginOIDC(provider, subject, username, email string, autoProvision bool) (AuthTokens, error) {
+	return s.loginOIDC(provider, subject, username, email, autoProvision, nil)
+}
+
+func (s *AuthService) LoginOIDCWithGroups(provider, subject, username, email string, autoProvision bool, groups []string) (AuthTokens, error) {
+	return s.loginOIDC(provider, subject, username, email, autoProvision, groups)
+}
+
+func (s *AuthService) loginOIDC(provider, subject, username, email string, autoProvision bool, groups []string) (AuthTokens, error) {
 	provider, subject = platform.NormalizeIdentityKey(provider), strings.TrimSpace(subject)
 	email, emailErr := platform.NormalizeEmail(email)
 	if provider == "" || subject == "" || emailErr != nil {
@@ -442,10 +460,20 @@ func (s *AuthService) LoginOIDC(provider, subject, username, email string, autoP
 	key := provider + "\x00" + subject
 	s.mu.RLock()
 	userID := s.oidcIdentities[key]
+	ssoRepository := s.ssoRepository
 	defaultRoleID := s.defaultRoleID
 	systemAdmin := s.systemAdminEmails[email]
 	audit := s.audit
 	s.mu.RUnlock()
+	if ssoRepository != nil {
+		identity, found, err := ssoRepository.FindIdentity(context.Background(), provider, subject)
+		if err != nil {
+			return AuthTokens{}, err
+		}
+		if found {
+			userID = identity.UserID
+		}
+	}
 	if userID == "" && autoProvision {
 		if defaultRoleID == "" {
 			return AuthTokens{}, errors.New("default role is not configured")
@@ -460,28 +488,46 @@ func (s *AuthService) LoginOIDC(provider, subject, username, email string, autoP
 		if err != nil {
 			return AuthTokens{}, err
 		}
-		if err := s.users.Create(context.Background(), store.UserRecord{ID: userID, Username: email, Email: email, Enabled: true}, ""); err != nil {
-			return AuthTokens{}, err
-		}
 		roleDefinition, found, err := s.roles.FindByID(context.Background(), defaultRoleID)
 		if err != nil || !found {
 			return AuthTokens{}, errors.New("default role is not configured")
 		}
-		if err := s.roles.Assign(context.Background(), userID, roleDefinition.ID, "default", roleDefinition.ID); err != nil {
-			return AuthTokens{}, err
-		}
+		adminRoleID := ""
 		if systemAdmin {
 			adminRole, found, err := s.roles.FindByName(context.Background(), "admin")
 			if err != nil || !found {
 				return AuthTokens{}, errors.New("admin role is not configured")
 			}
-			if err := s.roles.Assign(context.Background(), userID, adminRole.ID, "system-admin", userID); err != nil {
+			adminRoleID = adminRole.ID
+		}
+		userRecord := store.UserRecord{ID: userID, Username: email, Email: email, Enabled: true}
+		identity := store.SSOIdentityRecord{ID: "identity-" + userID + "-" + provider, UserID: userID, ProviderID: provider, Subject: subject}
+		if provisioner, ok := ssoRepository.(store.OIDCProvisioner); ok {
+			if err := provisioner.ProvisionOIDC(context.Background(), userRecord, roleDefinition.ID, adminRoleID, identity); err != nil {
 				return AuthTokens{}, err
 			}
+		} else {
+			if err := s.users.Create(context.Background(), userRecord, ""); err != nil {
+				return AuthTokens{}, err
+			}
+			if err := s.roles.Assign(context.Background(), userID, roleDefinition.ID, "default", roleDefinition.ID); err != nil {
+				return AuthTokens{}, err
+			}
+			if adminRoleID != "" {
+				if err := s.roles.Assign(context.Background(), userID, adminRoleID, "system-admin", userID); err != nil {
+					return AuthTokens{}, err
+				}
+			}
+			if ssoRepository != nil {
+				if err := ssoRepository.CreateIdentity(context.Background(), identity); err != nil {
+					return AuthTokens{}, err
+				}
+			} else {
+				s.mu.Lock()
+				s.oidcIdentities[key] = userID
+				s.mu.Unlock()
+			}
 		}
-		s.mu.Lock()
-		s.oidcIdentities[key] = userID
-		s.mu.Unlock()
 	}
 	user, exists, err := s.userByID(userID)
 	if err != nil {
@@ -492,6 +538,25 @@ func (s *AuthService) LoginOIDC(provider, subject, username, email string, autoP
 	}
 	if systemAdmin {
 		s.adminGuard.Add(user.ID)
+	}
+	if ssoRepository != nil {
+		mappings, err := ssoRepository.ListGroupRoleMappings(context.Background(), provider)
+		if err != nil {
+			return AuthTokens{}, err
+		}
+		groupSet := map[string]bool{}
+		for _, group := range groups {
+			groupSet[group] = true
+		}
+		assignments := make([]store.RoleAssignmentRecord, 0, len(mappings))
+		for _, mapping := range mappings {
+			if groupSet[mapping.GroupName] {
+				assignments = append(assignments, store.RoleAssignmentRecord{RoleID: mapping.RoleID, SourceKey: mapping.GroupName})
+			}
+		}
+		if err := s.roles.ReplaceSSOAssignments(context.Background(), user.ID, provider, assignments); err != nil {
+			return AuthTokens{}, err
+		}
 	}
 	tokens, err := s.issueTokens(user.ID)
 	if err != nil {
@@ -508,11 +573,27 @@ func (s *AuthService) LinkOIDC(userID, provider, subject string) error {
 	if userID == "" || provider == "" || subject == "" {
 		return errors.New("OIDC link is incomplete")
 	}
-	key := provider + "\x00" + subject
 	if _, ok, err := s.userByID(userID); err != nil {
 		return err
 	} else if !ok {
 		return errors.New("user not found")
+	}
+	key := provider + "\x00" + subject
+	s.mu.RLock()
+	ssoRepository := s.ssoRepository
+	s.mu.RUnlock()
+	if ssoRepository != nil {
+		identity, found, err := ssoRepository.FindIdentity(context.Background(), provider, subject)
+		if err != nil {
+			return err
+		}
+		if found && identity.UserID != userID {
+			return errors.New("OIDC identity already linked")
+		}
+		if found {
+			return nil
+		}
+		return ssoRepository.CreateIdentity(context.Background(), store.SSOIdentityRecord{ID: "identity-" + userID + "-" + provider + "-" + subject, UserID: userID, ProviderID: provider, Subject: subject})
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -529,6 +610,16 @@ func (s *AuthService) UnlinkOIDC(userID, identityID string) error {
 		return errors.New("identity not found")
 	}
 	key := string(keyBytes)
+	parts := strings.SplitN(key, "\x00", 2)
+	s.mu.RLock()
+	ssoRepository := s.ssoRepository
+	s.mu.RUnlock()
+	if ssoRepository != nil {
+		if len(parts) != 2 {
+			return errors.New("identity not found")
+		}
+		return ssoRepository.DeleteIdentity(context.Background(), userID, parts[0], parts[1])
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.oidcIdentities[key] != userID {
@@ -578,6 +669,21 @@ func (s *AuthService) ChangePassword(userID, currentPassword, newPassword string
 
 func (s *AuthService) Identities(userID string) []map[string]any {
 	s.mu.RLock()
+	ssoRepository := s.ssoRepository
+	s.mu.RUnlock()
+	if ssoRepository != nil {
+		records, err := ssoRepository.ListIdentities(context.Background(), userID)
+		if err != nil {
+			return []map[string]any{}
+		}
+		identities := make([]map[string]any, 0, len(records))
+		for _, record := range records {
+			key := record.ProviderID + "\x00" + record.Subject
+			identities = append(identities, map[string]any{"id": base64.RawURLEncoding.EncodeToString([]byte(key)), "provider": record.ProviderID, "subject": record.Subject})
+		}
+		return identities
+	}
+	s.mu.RLock()
 	defer s.mu.RUnlock()
 	identities := []map[string]any{}
 	for key, owner := range s.oidcIdentities {
@@ -592,6 +698,41 @@ func (s *AuthService) Identities(userID string) []map[string]any {
 	}
 	sort.Slice(identities, func(i, j int) bool { return identities[i]["id"].(string) < identities[j]["id"].(string) })
 	return identities
+}
+
+func (s *AuthService) identityProviderNames(userID string) []string {
+	s.mu.RLock()
+	ssoRepository := s.ssoRepository
+	s.mu.RUnlock()
+	seen := map[string]bool{}
+	providers := []string{}
+	if ssoRepository != nil {
+		records, err := ssoRepository.ListIdentities(context.Background(), userID)
+		if err != nil {
+			return providers
+		}
+		for _, record := range records {
+			if !seen[record.ProviderID] {
+				seen[record.ProviderID] = true
+				providers = append(providers, record.ProviderID)
+			}
+		}
+	} else {
+		s.mu.RLock()
+		for key, owner := range s.oidcIdentities {
+			if owner != userID {
+				continue
+			}
+			parts := strings.SplitN(key, "\x00", 2)
+			if len(parts) == 2 && !seen[parts[0]] {
+				seen[parts[0]] = true
+				providers = append(providers, parts[0])
+			}
+		}
+		s.mu.RUnlock()
+	}
+	sort.Strings(providers)
+	return providers
 }
 
 func (s *AuthService) Users() []map[string]any {
@@ -615,13 +756,9 @@ func (s *AuthService) Users() []map[string]any {
 		if hash, hasHash, _ := s.users.PasswordHash(context.Background(), user.ID); hasHash && hash != "" {
 			methods = append(methods, "password")
 		}
+		methods = append(methods, s.identityProviderNames(user.ID)...)
 		s.mu.RLock()
 		systemAdmin := s.systemAdminEmails[user.Email] || hasSystemAdminAssignment(userRoles, assignments)
-		for key, owner := range s.oidcIdentities {
-			if owner == user.ID {
-				methods = append(methods, strings.SplitN(key, "\x00", 2)[0])
-			}
-		}
 		s.mu.RUnlock()
 		sort.Strings(methods)
 		users = append(users, map[string]any{"id": user.ID, "username": user.Username, "email": user.Email, "displayName": user.DisplayName, "enabled": user.Enabled, "systemAdmin": systemAdmin, "status": map[bool]string{true: "active", false: "disabled"}[user.Enabled], "roles": roles, "loginMethods": methods, "sessions": s.sessions.List(user.ID)})
@@ -894,13 +1031,7 @@ func (s *AuthService) Profile(claims Claims) map[string]any {
 	if hash, hasHash, _ := s.users.PasswordHash(context.Background(), claims.UserID); hasHash && hash != "" {
 		methods = append(methods, "password")
 	}
-	s.mu.RLock()
-	for key, owner := range s.oidcIdentities {
-		if owner == claims.UserID {
-			methods = append(methods, strings.SplitN(key, "\x00", 2)[0])
-		}
-	}
-	s.mu.RUnlock()
+	methods = append(methods, s.identityProviderNames(claims.UserID)...)
 	sort.Strings(methods)
 	return map[string]any{"id": user.ID, "username": user.Username, "email": user.Email, "displayName": user.DisplayName, "enabled": user.Enabled, "systemAdmin": systemAdmin, "status": map[bool]string{true: "active", false: "disabled"}[user.Enabled], "roles": roles, "roleSources": roleSources, "permissions": permissionKeys, "loginMethods": methods, "sessions": sessions, "identities": s.Identities(claims.UserID)}
 }

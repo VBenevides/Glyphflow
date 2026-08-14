@@ -25,6 +25,7 @@ type OIDCClaims struct {
 	Expires  time.Time
 	Username string
 	Email    string
+	Groups   []string
 }
 
 func ValidateOIDCClaims(claims OIDCClaims, issuer, audience, nonce string, now time.Time) error {
@@ -83,6 +84,7 @@ func VerifyOIDCIDToken(token, jwks, issuer, audience, nonce string, now time.Tim
 		Expires  json.Number     `json:"exp"`
 		Username string          `json:"preferred_username"`
 		Email    string          `json:"email"`
+		Groups   []string        `json:"groups"`
 	}
 	decoder := json.NewDecoder(strings.NewReader(string(payloadBytes)))
 	decoder.UseNumber()
@@ -103,7 +105,7 @@ func VerifyOIDCIDToken(token, jwks, issuer, audience, nonce string, now time.Tim
 	if err != nil || expires <= float64(now.Unix()) {
 		return OIDCClaims{}, errors.New("OIDC token has expired")
 	}
-	claims := OIDCClaims{Issuer: payload.Issuer, Subject: payload.Subject, Audience: audiences, Nonce: payload.Nonce, Expires: time.Unix(int64(expires), 0), Username: payload.Username, Email: payload.Email}
+	claims := OIDCClaims{Issuer: payload.Issuer, Subject: payload.Subject, Audience: audiences, Nonce: payload.Nonce, Expires: time.Unix(int64(expires), 0), Username: payload.Username, Email: payload.Email, Groups: append([]string(nil), payload.Groups...)}
 	if err := ValidateOIDCClaims(claims, issuer, audience, nonce, now); err != nil {
 		return OIDCClaims{}, err
 	}

@@ -102,6 +102,7 @@ func main() {
 	authService.SetRoleRepository(roleRepository)
 	authService.SetConfigStore(configStore)
 	authService.SetSessionRepository(store.NewSessionRepository(db))
+	authService.SetSSORepository(store.NewOIDCProviderRepository(db))
 	if err := authService.AddRole("admin", platform.PermissionCatalog...); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -116,6 +117,7 @@ func main() {
 		os.Exit(1)
 	}
 	oidcService := api.NewOIDCService()
+	oidcService.SetDefaultCallback(strings.TrimRight(cfg.WebOrigin, "/") + "/api/v1/auth/oidc/callback")
 	oidcService.SetRepository(store.NewOIDCProviderRepository(db))
 	oidcService.SetStateRepository(store.NewOIDCAuthorizationStateRepository(db), []byte(cfg.AccessTokenSecret))
 	roles := api.NewRoleAdminService()

@@ -22,25 +22,30 @@ import (
 )
 
 type OIDCProvider struct {
-	Key             string   `json:"key"`
-	Issuer          string   `json:"issuer"`
-	ClientID        string   `json:"clientId,omitempty"`
-	Callback        string   `json:"callback"`
-	AuthURL         string   `json:"authUrl,omitempty"`
-	Audience        string   `json:"audience,omitempty"`
-	SecretReference string   `json:"secretReference,omitempty"`
-	Enabled         bool     `json:"enabled"`
-	AutoProvision   bool     `json:"autoProvision,omitempty"`
-	Callbacks       []string `json:"callbacks,omitempty"`
+	Key                string            `json:"key"`
+	Name               string            `json:"name,omitempty"`
+	Issuer             string            `json:"issuer"`
+	ClientID           string            `json:"clientId,omitempty"`
+	LegacyClientID     string            `json:"client_id,omitempty"`
+	Callback           string            `json:"callback"`
+	AuthURL            string            `json:"authUrl,omitempty"`
+	Audience           string            `json:"audience,omitempty"`
+	SecretReference    string            `json:"secretReference,omitempty"`
+	Enabled            bool              `json:"enabled"`
+	AutoProvision      bool              `json:"autoProvision,omitempty"`
+	Callbacks          []string          `json:"callbacks,omitempty"`
+	GroupMapping       map[string]string `json:"groupMapping,omitempty"`
+	LegacyGroupMapping map[string]string `json:"group_mapping,omitempty"`
 }
 type OIDCService struct {
-	mu         sync.RWMutex
-	providers  map[string]OIDCProvider
-	repository store.OIDCProviderRepository
-	states     *platform.AuthorizationStateStore
-	stateRepo  store.OIDCAuthorizationStateRepository
-	stateKey   []byte
-	httpClient *http.Client
+	mu              sync.RWMutex
+	providers       map[string]OIDCProvider
+	repository      store.OIDCProviderRepository
+	states          *platform.AuthorizationStateStore
+	stateRepo       store.OIDCAuthorizationStateRepository
+	stateKey        []byte
+	defaultCallback string
+	httpClient      *http.Client
 }
 
 func NewOIDCService() *OIDCService {
@@ -73,6 +78,12 @@ func (s *OIDCService) SetStateRepository(repository store.OIDCAuthorizationState
 	s.mu.Lock()
 	s.stateRepo = repository
 	s.stateKey = digest[:]
+	s.mu.Unlock()
+}
+
+func (s *OIDCService) SetDefaultCallback(callback string) {
+	s.mu.Lock()
+	s.defaultCallback = strings.TrimSpace(callback)
 	s.mu.Unlock()
 }
 
@@ -150,7 +161,7 @@ func providerRecord(provider OIDCProvider) store.OIDCProviderRecord {
 	if len(callbacks) == 0 {
 		callbacks = []string{provider.Callback}
 	}
-	return store.OIDCProviderRecord{ID: provider.Key, Name: provider.Key, Issuer: provider.Issuer, ClientID: provider.ClientID, SecretReference: provider.SecretReference, CallbackURLs: callbacks, AuthEndpointOverride: provider.AuthURL, Audience: provider.Audience, Enabled: provider.Enabled, AutoProvision: provider.AutoProvision}
+	return store.OIDCProviderRecord{ID: provider.Key, Name: provider.Name, Issuer: provider.Issuer, ClientID: provider.ClientID, SecretReference: provider.SecretReference, CallbackURLs: callbacks, AuthEndpointOverride: provider.AuthURL, Audience: provider.Audience, Enabled: provider.Enabled, AutoProvision: provider.AutoProvision}
 }
 
 func providerFromRecord(record store.OIDCProviderRecord) OIDCProvider {
@@ -159,10 +170,24 @@ func providerFromRecord(record store.OIDCProviderRecord) OIDCProvider {
 	if len(callbacks) > 0 {
 		callback = callbacks[0]
 	}
-	return OIDCProvider{Key: record.ID, Issuer: record.Issuer, ClientID: record.ClientID, SecretReference: record.SecretReference, Callback: callback, AuthURL: record.AuthEndpointOverride, Audience: record.Audience, Enabled: record.Enabled, AutoProvision: record.AutoProvision, Callbacks: callbacks}
+	return OIDCProvider{Key: record.ID, Name: record.Name, Issuer: record.Issuer, ClientID: record.ClientID, SecretReference: record.SecretReference, Callback: callback, AuthURL: record.AuthEndpointOverride, Audience: record.Audience, Enabled: record.Enabled, AutoProvision: record.AutoProvision, Callbacks: callbacks}
 }
 
 func (s *OIDCService) AddProvider(provider OIDCProvider) error {
+	if provider.ClientID == "" {
+		provider.ClientID = provider.LegacyClientID
+	}
+	if provider.Name == "" {
+		provider.Name = provider.Key
+	}
+	if provider.Callback == "" {
+		s.mu.RLock()
+		provider.Callback = s.defaultCallback
+		s.mu.RUnlock()
+	}
+	if len(provider.GroupMapping) == 0 {
+		provider.GroupMapping = provider.LegacyGroupMapping
+	}
 	if provider.Key == "" || provider.Issuer == "" || provider.Callback == "" {
 		return errors.New("OIDC provider is incomplete")
 	}
@@ -182,7 +207,20 @@ func (s *OIDCService) AddProvider(provider OIDCProvider) error {
 	repository := s.repository
 	s.mu.RUnlock()
 	if repository != nil {
-		return repository.Upsert(context.Background(), providerRecord(provider))
+		if err := repository.Upsert(context.Background(), providerRecord(provider)); err != nil {
+			return err
+		}
+		mappings := make([]store.SSOGroupRoleMappingRecord, 0, len(provider.GroupMapping))
+		for group, roleID := range provider.GroupMapping {
+			if strings.TrimSpace(group) == "" || strings.TrimSpace(roleID) == "" {
+				continue
+			}
+			mappings = append(mappings, store.SSOGroupRoleMappingRecord{ProviderID: provider.Key, GroupName: strings.TrimSpace(group), RoleID: strings.TrimSpace(roleID)})
+		}
+		if err := repository.ReplaceGroupRoleMappings(context.Background(), provider.Key, mappings); err != nil {
+			return err
+		}
+		return nil
 	}
 	s.mu.Lock()
 	s.providers[provider.Key] = provider
@@ -201,7 +239,14 @@ func (s *OIDCService) Providers() []OIDCProvider {
 		out := []OIDCProvider{}
 		for _, provider := range providers {
 			if provider.Enabled {
-				out = append(out, providerFromRecord(provider))
+				converted := providerFromRecord(provider)
+				if mappings, err := repository.ListGroupRoleMappings(context.Background(), provider.ID); err == nil {
+					converted.GroupMapping = map[string]string{}
+					for _, mapping := range mappings {
+						converted.GroupMapping[mapping.GroupName] = mapping.RoleID
+					}
+				}
+				out = append(out, converted)
 			}
 		}
 		return out
@@ -527,7 +572,7 @@ func (s Server) oidcRoutes(mux routeRegistrar) {
 			writeJSON(w, 401, map[string]string{"error": "OIDC callback failed"})
 			return
 		}
-		tokens, err := s.AuthService.LoginOIDC(provider.Key, claims.Subject, claims.Username, claims.Email, provider.AutoProvision)
+		tokens, err := s.AuthService.LoginOIDCWithGroups(provider.Key, claims.Subject, claims.Username, claims.Email, provider.AutoProvision, claims.Groups)
 		if err != nil {
 			writeJSON(w, 401, map[string]string{"error": "OIDC login failed"})
 			return

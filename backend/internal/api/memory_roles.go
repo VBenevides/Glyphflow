@@ -185,6 +185,30 @@ func (s *memoryRoleRepository) ReplaceSourceAssignments(_ context.Context, roleI
 	return nil
 }
 
+func (s *memoryRoleRepository) ReplaceSSOAssignments(_ context.Context, userID, providerID string, assignments []store.RoleAssignmentRecord) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for key, assignment := range s.assignments[userID] {
+		if assignment.SourceType == "sso" && strings.HasPrefix(assignment.SourceKey, store.SSOAssignmentKey(providerID, "")) {
+			delete(s.assignments[userID], key)
+		}
+	}
+	for _, assignment := range assignments {
+		if assignment.RoleID == "" || assignment.SourceKey == "" {
+			continue
+		}
+		if _, ok := s.roles[assignment.RoleID]; !ok {
+			return errors.New("role not found")
+		}
+		if s.assignments[userID] == nil {
+			s.assignments[userID] = map[string]store.RoleAssignmentRecord{}
+		}
+		key := assignment.RoleID + "\x00sso\x00" + store.SSOAssignmentKey(providerID, assignment.SourceKey)
+		s.assignments[userID][key] = store.RoleAssignmentRecord{UserID: userID, RoleID: assignment.RoleID, SourceType: "sso", SourceKey: store.SSOAssignmentKey(providerID, assignment.SourceKey)}
+	}
+	return nil
+}
+
 func (s *memoryRoleRepository) UserRoles(_ context.Context, userID string) ([]store.RoleRecord, []store.RoleAssignmentRecord, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

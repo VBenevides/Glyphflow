@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"strings"
 
@@ -30,6 +31,7 @@ type RoleRepository interface {
 	Delete(context.Context, string) error
 	Assign(context.Context, string, string, string, string) error
 	ReplaceSourceAssignments(context.Context, string, string, []string) error
+	ReplaceSSOAssignments(context.Context, string, string, []RoleAssignmentRecord) error
 	Unassign(context.Context, string, string) error
 	UnassignSource(context.Context, string, string, string) error
 	UserRoles(context.Context, string) ([]RoleRecord, []RoleAssignmentRecord, error)
@@ -39,6 +41,14 @@ type RoleRepository interface {
 type RoleStore struct{ pool *pgxpool.Pool }
 
 func NewRoleRepository(pool *pgxpool.Pool) *RoleStore { return &RoleStore{pool: pool} }
+
+func SSOAssignmentKey(providerID, groupName string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(providerID)) + "." + base64.RawURLEncoding.EncodeToString([]byte(groupName))
+}
+
+func ssoAssignmentPrefix(providerID string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(providerID)) + "."
+}
 
 func (s *RoleStore) Ensure(ctx context.Context, id, name, description string, system bool, permissions []string) error {
 	tx, err := s.pool.Begin(ctx)
@@ -232,6 +242,29 @@ func (s *RoleStore) ReplaceSourceAssignments(ctx context.Context, roleID, source
 	}
 	for _, userID := range uniqueNonEmpty(userIDs) {
 		if _, err := tx.Exec(ctx, `INSERT INTO role_assignments (user_id, role_id, source_type, source_key) VALUES ($1, $2, $3, $1)`, userID, roleID, sourceType); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *RoleStore) ReplaceSSOAssignments(ctx context.Context, userID, providerID string, assignments []RoleAssignmentRecord) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `DELETE FROM role_assignments WHERE user_id = $1 AND source_type = 'sso' AND source_key LIKE $2`, userID, ssoAssignmentPrefix(providerID)+"%"); err != nil {
+		return err
+	}
+	seen := map[string]bool{}
+	for _, assignment := range assignments {
+		key := assignment.RoleID + "\x00" + assignment.SourceKey
+		if assignment.RoleID == "" || assignment.SourceKey == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		if _, err := tx.Exec(ctx, `INSERT INTO role_assignments (user_id, role_id, source_type, source_key) VALUES ($1, $2, 'sso', $3) ON CONFLICT DO NOTHING`, userID, assignment.RoleID, SSOAssignmentKey(providerID, assignment.SourceKey)); err != nil {
 			return err
 		}
 	}
