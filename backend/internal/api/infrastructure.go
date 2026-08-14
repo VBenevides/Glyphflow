@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -10,6 +11,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/VBenevides/Glyphflow/backend/internal/platform"
+	"github.com/VBenevides/Glyphflow/backend/internal/store"
 )
 
 type RunnerRecord struct {
@@ -40,20 +44,54 @@ type enrollment struct {
 	Used     bool
 }
 type InfrastructureService struct {
-	mu          sync.RWMutex
-	runners     map[string]RunnerRecord
-	resources   map[string]ResourceRecord
-	enrollments map[string]*enrollment
-	next        int
+	mu               sync.RWMutex
+	runners          map[string]RunnerRecord
+	resources        map[string]ResourceRecord
+	enrollments      map[string]*enrollment
+	next             int
+	runnerRepository store.RunnerRepository
 }
 
 func NewInfrastructureService() *InfrastructureService {
 	return &InfrastructureService{runners: map[string]RunnerRecord{}, resources: map[string]ResourceRecord{}, enrollments: map[string]*enrollment{}}
 }
 
+func (s *InfrastructureService) SetRunnerRepository(repository store.RunnerRepository) {
+	if repository != nil {
+		s.mu.Lock()
+		s.runnerRepository = repository
+		s.mu.Unlock()
+	}
+}
+
+func runnerRecordFromStore(runner store.RunnerRecord) RunnerRecord {
+	heartbeat := ""
+	if runner.HeartbeatAt != nil {
+		heartbeat = runner.HeartbeatAt.UTC().Format(time.RFC3339)
+	}
+	return RunnerRecord{ID: runner.ID, Name: runner.Name, DesiredState: runner.DesiredState, ObservedState: runner.ObservedState, Pool: runner.Pool, Capacity: runner.Capacity, ActiveCount: runner.ActiveCount, HeartbeatAt: heartbeat, Platform: runner.Platform, Architecture: runner.Architecture}
+}
+
 func (s *InfrastructureService) runnerCollection(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	s.mu.RLock()
+	repository := s.runnerRepository
+	s.mu.RUnlock()
+	if repository != nil {
+		items, err := repository.List(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "runner storage unavailable"})
+			return
+		}
+		result := make([]RunnerRecord, 0, len(items))
+		for _, item := range items {
+			result = append(result, runnerRecordFromStore(item))
+		}
+		sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+		writePage(w, r, result)
 		return
 	}
 	s.mu.RLock()
@@ -77,6 +115,20 @@ func (s *InfrastructureService) runnerPath(w http.ResponseWriter, r *http.Reques
 	}
 	if len(parts) == 4 && r.Method == http.MethodGet {
 		s.mu.RLock()
+		repository := s.runnerRepository
+		s.mu.RUnlock()
+		if repository != nil {
+			item, found, err := repository.Find(r.Context(), parts[3])
+			if err != nil {
+				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "runner storage unavailable"})
+			} else if !found {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "runner not found"})
+			} else {
+				writeJSON(w, http.StatusOK, runnerRecordFromStore(item))
+			}
+			return
+		}
+		s.mu.RLock()
 		item, ok := s.runners[parts[3]]
 		s.mu.RUnlock()
 		if !ok {
@@ -87,6 +139,26 @@ func (s *InfrastructureService) runnerPath(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if len(parts) == 5 && r.Method == http.MethodPost {
+		s.mu.RLock()
+		repository := s.runnerRepository
+		s.mu.RUnlock()
+		if repository != nil {
+			states := map[string]string{"enable": "ENABLED", "disable": "DISABLED", "drain": "DRAINING", "reset": "STARTING", "revoke": "REVOKED"}
+			state, valid := states[parts[4]]
+			if !valid {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "runner action not found"})
+				return
+			}
+			item, found, err := repository.SetDesiredState(r.Context(), parts[3], state)
+			if err != nil {
+				writeJSON(w, http.StatusConflict, map[string]string{"error": "runner state update failed"})
+			} else if !found {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "runner not found"})
+			} else {
+				writeJSON(w, http.StatusOK, runnerRecordFromStore(item))
+			}
+			return
+		}
 		s.mu.Lock()
 		item, ok := s.runners[parts[3]]
 		states := map[string]string{"enable": "ENABLED", "disable": "DISABLED", "drain": "DRAINING", "reset": "STARTING", "revoke": "REVOKED"}
@@ -128,6 +200,18 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 	}
 	token := base64.RawURLEncoding.EncodeToString(raw)
 	expiry := time.Now().Add(15 * time.Minute)
+	s.mu.RLock()
+	repository := s.runnerRepository
+	s.mu.RUnlock()
+	if repository != nil {
+		if err := repository.CreateEnrollment(r.Context(), store.RunnerRecord{ID: input.RunnerID, Name: input.RunnerID, Pool: "default", Capacity: 1, Platform: input.Platform, Architecture: input.Architecture}, store.RunnerEnrollmentRecord{ID: "enrollment-" + input.RunnerID + "-" + platform.HashToken(token), RunnerID: input.RunnerID, TokenHash: platform.HashToken(token), ExpiresAt: expiry, Target: input.RunnerID, Artifact: map[string]any{"platform": input.Platform, "architecture": input.Architecture}}); err != nil {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "enrollment failed"})
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, http.StatusCreated, map[string]string{"artifact": token, "expires_at": expiry.UTC().Format(time.RFC3339), "filename": input.RunnerID + "-enrollment.bin"})
+		return
+	}
 	s.mu.Lock()
 	s.enrollments[token] = &enrollment{Token: token, RunnerID: input.RunnerID, Expires: expiry}
 	if _, ok := s.runners[input.RunnerID]; !ok {
@@ -236,6 +320,13 @@ var (
 
 // ConsumeEnrollment atomically validates and consumes a runner enrollment artifact.
 func (s *InfrastructureService) ConsumeEnrollment(token string, now time.Time) (RunnerRecord, error) {
+	s.mu.RLock()
+	repository := s.runnerRepository
+	s.mu.RUnlock()
+	if repository != nil {
+		runner, err := repository.ConsumeEnrollment(context.Background(), platform.HashToken(token), now)
+		return runnerRecordFromStore(runner), err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	item, ok := s.enrollments[token]

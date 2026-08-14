@@ -135,7 +135,15 @@ func main() {
 	operations.SetScheduleRepository(store.NewScheduleRepository(db))
 	runs := api.NewRunService()
 	runs.SetRepository(store.NewRunRepository(db))
-	application := api.Server{AuthService: authService, AuthAdmin: &api.AuthAdminService{Auth: authService, OIDC: oidcService, Sessions: authService.SessionManager()}, Sessions: authService.SessionManager(), OIDC: oidcService, Roles: roles, Auth: authService.Authenticator(), Permissions: authService.Permissions, CSRFOrigin: cfg.WebOrigin, Operations: operations, Runs: runs, Infrastructure: api.NewInfrastructureService(), AuditQuery: api.NewAuditQueryService(), Persistence: persistence, Ready: func(ctx context.Context) error {
+	runnerRepository := store.NewRunnerRepository(db)
+	if err := runnerRepository.EnsurePool(ctx, "default", "default"); err != nil {
+		db.Close()
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	infrastructure := api.NewInfrastructureService()
+	infrastructure.SetRunnerRepository(runnerRepository)
+	application := api.Server{AuthService: authService, AuthAdmin: &api.AuthAdminService{Auth: authService, OIDC: oidcService, Sessions: authService.SessionManager()}, Sessions: authService.SessionManager(), OIDC: oidcService, Roles: roles, Auth: authService.Authenticator(), Permissions: authService.Permissions, CSRFOrigin: cfg.WebOrigin, Operations: operations, Runs: runs, Infrastructure: infrastructure, AuditQuery: api.NewAuditQueryService(), Persistence: persistence, Ready: func(ctx context.Context) error {
 		if err := db.Ping(ctx); err != nil {
 			return err
 		}
