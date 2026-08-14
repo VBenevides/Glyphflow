@@ -66,19 +66,19 @@ func TestTaskCreationStoresAndReturnsTask(t *testing.T) {
 
 func TestManagementRoutesFailClosedUntilBackedByStorage(t *testing.T) {
 	h := (Server{Auth: func(*http.Request) (Claims, bool) {
-		return Claims{Roles: map[string]bool{"run.read": true, "event.read": true, "runner.read": true, "run.cancel": true}}, true
+		return Claims{Roles: map[string]bool{"run.read": true, "event.read": true, "runner.read": true, "runners.read": true, "run.cancel": true}}, true
 	}}).Handler()
 	for _, item := range []struct{ method, path string }{{http.MethodGet, "/api/v1/runs"}, {http.MethodGet, "/api/v1/events"}, {http.MethodGet, "/api/v1/runners"}, {http.MethodPost, "/api/v1/tasks/run-1/cancel"}} {
 		r := httptest.NewRequest(item.method, item.path, nil)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, r)
-		if item.path == "/api/v1/runs" && w.Code != http.StatusOK {
+		if (item.path == "/api/v1/runs" || item.path == "/api/v1/runners") && w.Code != http.StatusOK {
 			t.Fatalf("run listing returned %d", w.Code)
 		}
 		if item.path == "/api/v1/tasks/run-1/cancel" && w.Code != http.StatusNotFound {
 			t.Fatalf("missing task action returned %d", w.Code)
 		}
-		if item.path != "/api/v1/tasks/run-1/cancel" && item.path != "/api/v1/runs" && w.Code != http.StatusNotImplemented {
+		if item.path != "/api/v1/tasks/run-1/cancel" && item.path != "/api/v1/runs" && item.path != "/api/v1/runners" && w.Code != http.StatusNotImplemented {
 			t.Fatalf("%s returned %d", item.path, w.Code)
 		}
 	}
@@ -86,7 +86,9 @@ func TestManagementRoutesFailClosedUntilBackedByStorage(t *testing.T) {
 
 func TestFrontendResourceAndRunPathsReachClassifiedHandlers(t *testing.T) {
 	permissions := map[string]bool{"task.read": true, "task.manage": true, "tasks.read": true, "tasks.manage": true, "resources.read": true, "resources.manage": true, "runners.read": true, "runners.manage": true, "runs.read": true, "runs.execute": true, "runs.cancel": true, "runs.retry": true, "logs.read": true}
-	h := (Server{Auth: func(*http.Request) (Claims, bool) { return Claims{Roles: permissions}, true }}).Handler()
+	infrastructure := NewInfrastructureService()
+	infrastructure.resources["resource-1"] = ResourceRecord{ID: "resource-1", Name: "resource-1", Enabled: true}
+	h := (Server{Auth: func(*http.Request) (Claims, bool) { return Claims{Roles: permissions}, true }, Infrastructure: infrastructure}).Handler()
 	createTask := httptest.NewRecorder()
 	h.ServeHTTP(createTask, httptest.NewRequest(http.MethodPost, "/api/v1/tasks", bytes.NewBufferString(`{"name":"Nightly","command":["echo","hi"],"runner_pool":"default"}`)))
 	createSchedule := httptest.NewRecorder()

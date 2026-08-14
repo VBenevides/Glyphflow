@@ -43,6 +43,7 @@ type Server struct {
 	Config          RuntimeConfig
 	Operations      *OperationsService
 	Runs            *RunService
+	Infrastructure  *InfrastructureService
 }
 
 func (s Server) Handler() http.Handler {
@@ -57,6 +58,9 @@ func (s Server) Handler() http.Handler {
 	}
 	if s.Runs == nil {
 		s.Runs = NewRunService()
+	}
+	if s.Infrastructure == nil {
+		s.Infrastructure = NewInfrastructureService()
 	}
 	mux := newTrackedMux()
 	mux.HandleFunc("/docs", swaggerUI)
@@ -100,7 +104,19 @@ func (s Server) Handler() http.Handler {
 		return "tasks.manage"
 	}, http.HandlerFunc(s.Operations.scheduleCollection)))
 	mux.Handle("/api/v1/schedules/preview", s.require("tasks.manage", http.HandlerFunc(s.Operations.preview)))
-	for path, readPermission := range map[string]string{"/api/v1/resources": "resources.read", "/api/v1/users": "users.read", "/api/v1/roles": "roles.read", "/api/v1/sso": "sso.read", "/api/v1/logs": "logs.read"} {
+	mux.Handle("/api/v1/resources", s.requireMethodRole(func(r *http.Request) string {
+		if r.Method == http.MethodGet {
+			return "resources.read"
+		}
+		return "resources.manage"
+	}, http.HandlerFunc(s.Infrastructure.resourceCollection)))
+	mux.Handle("/api/v1/runners", s.requireMethodRole(func(r *http.Request) string {
+		if r.Method == http.MethodGet {
+			return "runners.read"
+		}
+		return "runners.manage"
+	}, http.HandlerFunc(s.Infrastructure.runnerCollection)))
+	for path, readPermission := range map[string]string{"/api/v1/users": "users.read", "/api/v1/roles": "roles.read", "/api/v1/sso": "sso.read", "/api/v1/logs": "logs.read"} {
 		managePermission := map[string]string{"/api/v1/schedules": "tasks.manage", "/api/v1/resources": "resources.manage", "/api/v1/users": "users.manage", "/api/v1/roles": "roles.manage", "/api/v1/sso": "sso.manage", "/api/v1/logs": "logs.read"}[path]
 		mux.Handle(path, s.requireMethodRole(func(r *http.Request) string {
 			if r.Method == http.MethodGet {
@@ -112,7 +128,7 @@ func (s Server) Handler() http.Handler {
 		})))
 	}
 	mux.Handle("/api/v1/runs", s.require("run.read", http.HandlerFunc(s.Runs.collection)))
-	for path, role := range map[string]string{"/api/v1/events": "event.read", "/api/v1/runners": "runner.read", "/api/v1/audit": "audit.read"} {
+	for path, role := range map[string]string{"/api/v1/events": "event.read", "/api/v1/audit": "audit.read"} {
 		mux.Handle(path, s.require(role, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "endpoint is not implemented"})
 		})))
@@ -150,17 +166,13 @@ func (s Server) Handler() http.Handler {
 			return "resources.read"
 		}
 		return "resources.manage"
-	}, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "resource endpoint is not implemented"})
-	})))
+	}, http.HandlerFunc(s.Infrastructure.resourcePath)))
 	mux.Handle("/api/v1/runners/", s.requireMethodRole(func(r *http.Request) string {
 		if r.Method == http.MethodGet {
 			return "runners.read"
 		}
 		return "runners.manage"
-	}, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "runner endpoint is not implemented"})
-	})))
+	}, http.HandlerFunc(s.Infrastructure.runnerPath)))
 	mux.Handle("/api/v1/runs/", s.requireMethodRole(func(r *http.Request) string {
 		if strings.Contains(r.URL.Path, "/logs") || strings.HasSuffix(r.URL.Path, "/events") {
 			return "logs.read"
