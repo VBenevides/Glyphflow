@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/VBenevides/Glyphflow/backend/internal/platform"
 )
 
 func TestCustomRoleEndpointCreatesRoleWithPermissions(t *testing.T) {
@@ -17,5 +19,20 @@ func TestCustomRoleEndpointCreatesRoleWithPermissions(t *testing.T) {
 	}
 	if err := server.Roles.Assign("u", "operator"); err != nil {
 		t.Fatal(err)
+	}
+	if got := server.Roles.Effective("u"); !got["tasks.read"] {
+		t.Fatal("effective permission missing")
+	}
+	if err := server.Roles.ReplacePermissions("operator", []string{"runs.read"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := server.Roles.ReplacePermissions("operator", []string{"not-a-permission"}); err == nil {
+		t.Fatal("unknown permission accepted")
+	}
+	if err := server.Roles.Seed("admin", platform.PermissionCatalog); err != nil {
+		t.Fatal(err)
+	}
+	if err := server.Roles.Delete("admin"); err == nil {
+		t.Fatal("system role deleted")
 	}
 }
