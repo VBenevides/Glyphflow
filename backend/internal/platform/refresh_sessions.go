@@ -64,6 +64,23 @@ func (m *RefreshSessionManager) Revoke(sessionID string) {
 	m.mu.Unlock()
 }
 
+func (m *RefreshSessionManager) UserID(sessionID string) (string, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	session, ok := m.sessions[sessionID]
+	return session.UserID, ok
+}
+
+func (m *RefreshSessionManager) RevokeUser(userID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for id, session := range m.sessions {
+		if session.UserID == userID {
+			delete(m.sessions, id)
+		}
+	}
+}
+
 func (m *RefreshSessionManager) DisableUser(userID string) {
 	m.mu.Lock()
 	m.disabled[userID] = true

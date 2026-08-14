@@ -57,6 +57,83 @@ func (s *PasswordAuthService) Verify(username, password string) bool {
 type passwordRequest struct{ Username, Password string }
 
 func (s Server) passwordRoutes(mux *http.ServeMux) {
+	if s.AuthService != nil {
+		mux.HandleFunc("/api/v1/auth/register", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+				return
+			}
+			var in passwordRequest
+			if json.NewDecoder(r.Body).Decode(&in) != nil {
+				writeJSON(w, 400, map[string]string{"error": "registration failed"})
+				return
+			}
+			user, err := s.AuthService.Register(in.Username, in.Password)
+			if err != nil {
+				writeJSON(w, 400, map[string]string{"error": "registration failed"})
+				return
+			}
+			writeJSON(w, 201, map[string]string{"id": user.ID, "username": user.Username})
+		})
+		mux.HandleFunc("/api/v1/auth/login", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+				return
+			}
+			var in passwordRequest
+			if json.NewDecoder(r.Body).Decode(&in) != nil {
+				writeJSON(w, 401, map[string]string{"error": "invalid credentials"})
+				return
+			}
+			tokens, err := s.AuthService.Login(in.Username, in.Password)
+			if err != nil {
+				writeJSON(w, 401, map[string]string{"error": "invalid credentials"})
+				return
+			}
+			writeJSON(w, 200, tokens)
+		})
+		mux.HandleFunc("/api/v1/auth/refresh", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+				return
+			}
+			var in struct{ SessionID, RefreshToken string }
+			if json.NewDecoder(r.Body).Decode(&in) != nil {
+				writeJSON(w, 401, map[string]string{"error": "invalid refresh"})
+				return
+			}
+			tokens, err := s.AuthService.Refresh(in.SessionID, in.RefreshToken)
+			if err != nil {
+				writeJSON(w, 401, map[string]string{"error": "invalid refresh"})
+				return
+			}
+			writeJSON(w, 200, tokens)
+		})
+		mux.HandleFunc("/api/v1/auth/logout", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+				return
+			}
+			var in struct{ SessionID string }
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			s.AuthService.Logout(in.SessionID)
+			writeJSON(w, 204, nil)
+		})
+		mux.HandleFunc("/api/v1/auth/logout-all", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+				return
+			}
+			claims, ok := s.AuthService.Authenticator()(r)
+			if !ok {
+				writeJSON(w, 401, map[string]string{"error": "authentication required"})
+				return
+			}
+			s.AuthService.LogoutAll(claims.UserID)
+			writeJSON(w, 204, nil)
+		})
+		return
+	}
 	if s.PasswordAuth == nil {
 		return
 	}

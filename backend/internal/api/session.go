@@ -56,6 +56,31 @@ func (m *SessionManager) Issue(userID string, lifetime time.Duration) (string, C
 	return token, Claims{Subject: userID, UserID: userID, SessionID: payload.SessionID}, nil
 }
 
+func (m *SessionManager) IssueForSession(userID, sessionID string, lifetime time.Duration) (string, Claims, error) {
+	if strings.TrimSpace(userID) == "" || strings.TrimSpace(sessionID) == "" || lifetime <= 0 {
+		return "", Claims{}, errors.New("user ID, session ID, and positive lifetime are required")
+	}
+	payload := accessTokenPayload{UserID: userID, SessionID: sessionID, ExpiresAt: time.Now().Add(lifetime).Unix()}
+	token, err := m.sign(payload)
+	if err != nil {
+		return "", Claims{}, err
+	}
+	m.mu.Lock()
+	m.sessions[sessionID] = payload
+	m.mu.Unlock()
+	return token, Claims{Subject: userID, UserID: userID, SessionID: sessionID}, nil
+}
+
+func (m *SessionManager) RevokeUser(userID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for id, session := range m.sessions {
+		if session.UserID == userID {
+			delete(m.sessions, id)
+		}
+	}
+}
+
 func (m *SessionManager) Revoke(sessionID string) {
 	m.mu.Lock()
 	delete(m.sessions, sessionID)
