@@ -8,6 +8,7 @@ import { Shell } from './shell'
 import { TaskDetailPage, TaskInventoryPage } from './task-pages'
 import { TaskEditorPage } from './task-editor'
 import { ScheduleEditorPage, ScheduleInventoryPage } from './schedule-pages'
+import { DashboardPage } from './dashboard'
 
 function Placeholder({ title }: { title: string }) {
   return <main className="gf-content"><PageHeader title={title} description="This workspace is ready for its data view." /></main>
@@ -21,7 +22,7 @@ function PermissionRoute({ permission, children }: { permission?: string; childr
 
 export function AppRoutes() {
   return <Shell><Routes>
-    <Route path="/" element={<Placeholder title="Overview" />} />
+    <Route path="/" element={<DashboardPage />} />
     <Route path="/tasks" element={<PermissionRoute permission="tasks.read|tasks.manage"><TaskInventoryPage /></PermissionRoute>} />
     <Route path="/tasks/:taskId" element={<PermissionRoute permission="tasks.read|tasks.manage"><TaskDetailPage /></PermissionRoute>} />
     <Route path="/tasks/new" element={<PermissionRoute permission="tasks.manage"><TaskEditorPage /></PermissionRoute>} />
