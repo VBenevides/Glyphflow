@@ -13,3 +13,13 @@ func TestCancellationIsAttemptSpecific(t *testing.T) {
 		t.Fatal("old cancellation affected new attempt")
 	}
 }
+
+func TestCancellationCompletionWinsRace(t *testing.T) {
+	c := Cancellation{RunID: "r", AttemptID: "a", SessionID: "s", LeaseToken: "l", Fencing: 1}
+	if state, err := ApplyCancellation(c, c, "running", true); err != nil || state != "completed" {
+		t.Fatalf("completion race: %s %v", state, err)
+	}
+	if state, err := ApplyCancellation(c, c, "running", false); err != nil || state != "cancelling" {
+		t.Fatalf("cancel transition: %s %v", state, err)
+	}
+}

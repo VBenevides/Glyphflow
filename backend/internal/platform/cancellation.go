@@ -19,3 +19,22 @@ func ValidateCancellation(c Cancellation, active Cancellation) error {
 	}
 	return nil
 }
+
+func ApplyCancellation(c Cancellation, active Cancellation, currentState string, processCompleted bool) (string, error) {
+	if err := ValidateCancellation(c, active); err != nil {
+		return "", err
+	}
+	if processCompleted || currentState == "completed" || currentState == "succeeded" {
+		return "completed", nil
+	}
+	switch currentState {
+	case "waiting", "queued", "dispatched", "accepted":
+		return "cancelled", nil
+	case "running", "started":
+		return "cancelling", nil
+	case "cancelling":
+		return "cancelled", nil
+	default:
+		return "", errors.New("attempt is not cancellable")
+	}
+}
