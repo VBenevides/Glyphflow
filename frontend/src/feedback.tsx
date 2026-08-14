@@ -1,8 +1,9 @@
 import { AlertTriangle, LoaderCircle, SearchX, ShieldX } from 'lucide-react'
 import { Button } from './components'
+import glyphflowIcon from '../../assets/glyphflow.png'
 
 export function BrandMark() {
-  return <div className="gf-brand-mark" aria-hidden="true"><span>G</span></div>
+  return <div className="gf-brand-mark" aria-hidden="true"><img src={glyphflowIcon} alt="" /></div>
 }
 
 export function StartupPage({ status = 'Starting control plane…' }: { status?: string }) {
