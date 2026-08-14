@@ -2,8 +2,12 @@ package api
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -34,6 +38,8 @@ type OIDCService struct {
 	providers  map[string]OIDCProvider
 	repository store.OIDCProviderRepository
 	states     *platform.AuthorizationStateStore
+	stateRepo  store.OIDCAuthorizationStateRepository
+	stateKey   []byte
 	httpClient *http.Client
 }
 
@@ -57,6 +63,86 @@ func (s *OIDCService) SetRepository(repository store.OIDCProviderRepository) {
 	s.mu.Lock()
 	s.repository = repository
 	s.mu.Unlock()
+}
+
+func (s *OIDCService) SetStateRepository(repository store.OIDCAuthorizationStateRepository, applicationSecret []byte) {
+	if repository == nil || len(applicationSecret) == 0 {
+		return
+	}
+	digest := sha256.Sum256(append([]byte("glyphflow oidc state key\x00"), applicationSecret...))
+	s.mu.Lock()
+	s.stateRepo = repository
+	s.stateKey = digest[:]
+	s.mu.Unlock()
+}
+
+func authorizationValueHash(value string) string {
+	digest := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(digest[:])
+}
+
+func encryptAuthorizationValue(key []byte, value string) ([]byte, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, err
+	}
+	return gcm.Seal(nonce, nonce, []byte(value), nil), nil
+}
+
+func decryptAuthorizationValue(key, encrypted []byte) (string, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil || len(encrypted) < gcm.NonceSize() {
+		return "", errors.New("invalid verifier ciphertext")
+	}
+	plain, err := gcm.Open(nil, encrypted[:gcm.NonceSize()], encrypted[gcm.NonceSize():], nil)
+	if err != nil {
+		return "", err
+	}
+	return string(plain), nil
+}
+
+func (s *OIDCService) createPersistentChallenge(provider, purpose, callback, verifier string, now time.Time, lifetime time.Duration) (string, string, error) {
+	stateBytes, nonceBytes := make([]byte, 24), make([]byte, 16)
+	if _, err := rand.Read(stateBytes); err != nil {
+		return "", "", err
+	}
+	if _, err := rand.Read(nonceBytes); err != nil {
+		return "", "", err
+	}
+	state, nonce := hex.EncodeToString(stateBytes), hex.EncodeToString(nonceBytes)
+	s.mu.RLock()
+	repository, key := s.stateRepo, append([]byte(nil), s.stateKey...)
+	s.mu.RUnlock()
+	encrypted, err := encryptAuthorizationValue(key, verifier)
+	if err != nil {
+		return "", "", err
+	}
+	if err := repository.DeleteExpired(context.Background(), now); err != nil {
+		return "", "", err
+	}
+	if err := repository.Create(context.Background(), store.OIDCAuthorizationStateRecord{ID: "oidc-state-" + authorizationValueHash(state), ProviderID: provider, StateHash: authorizationValueHash(state), NonceHash: authorizationValueHash(nonce), EncryptedPKCEVerifier: encrypted, Purpose: purpose, Callback: callback, ExpiresAt: now.Add(lifetime)}); err != nil {
+		return "", "", err
+	}
+	return state, nonce, nil
+}
+
+func (s *OIDCService) consumePersistentState(state, nonce, provider, purpose, callback string, now time.Time) (store.OIDCAuthorizationStateRecord, error) {
+	s.mu.RLock()
+	repository := s.stateRepo
+	s.mu.RUnlock()
+	return repository.Consume(context.Background(), authorizationValueHash(state), authorizationValueHash(nonce), provider, purpose, callback, now)
 }
 
 func providerRecord(provider OIDCProvider) store.OIDCProviderRecord {
@@ -164,9 +250,7 @@ func (s *OIDCService) Challenge(key, redirect string, now time.Time) (string, er
 type OIDCChallenge struct{ URL, State, Nonce, Verifier string }
 
 func (s *OIDCService) ChallengeWithPKCE(key, redirect string, now time.Time) (OIDCChallenge, error) {
-	s.mu.RLock()
-	p, ok := s.providers[key]
-	s.mu.RUnlock()
+	p, ok := s.provider(key)
 	if !ok || !p.Enabled {
 		return OIDCChallenge{}, errors.New("OIDC provider is unavailable")
 	}
@@ -188,7 +272,16 @@ func (s *OIDCService) ChallengeWithPKCE(key, redirect string, now time.Time) (OI
 		return OIDCChallenge{}, err
 	}
 	verifier := base64.RawURLEncoding.EncodeToString(verifierBytes)
-	state, nonce, err := s.states.CreateChallenge(key, "login", redirect, verifier, now, 10*time.Minute)
+	s.mu.RLock()
+	persistent := s.stateRepo != nil
+	s.mu.RUnlock()
+	var state, nonce string
+	var err error
+	if persistent {
+		state, nonce, err = s.createPersistentChallenge(key, "login", redirect, verifier, now, 10*time.Minute)
+	} else {
+		state, nonce, err = s.states.CreateChallenge(key, "login", redirect, verifier, now, 10*time.Minute)
+	}
 	if err != nil {
 		return OIDCChallenge{}, err
 	}
@@ -212,11 +305,30 @@ func (s *OIDCService) ChallengeWithPKCE(key, redirect string, now time.Time) (OI
 	return OIDCChallenge{URL: u.String(), State: state, Nonce: nonce, Verifier: verifier}, nil
 }
 func (s *OIDCService) Complete(key, state, nonce string, now time.Time) error {
+	s.mu.RLock()
+	persistent := s.stateRepo != nil
+	s.mu.RUnlock()
+	if persistent {
+		_, err := s.consumePersistentState(state, nonce, key, "login", "", now)
+		return err
+	}
 	return s.states.Consume(state, nonce, key, "login", now)
 }
 
 func (s *OIDCService) CompleteChallenge(key, state, nonce, callback, verifier string, now time.Time, claims platform.OIDCClaims) error {
-	if err := s.states.ConsumeChallenge(state, nonce, key, "login", callback, verifier, now); err != nil {
+	s.mu.RLock()
+	persistent, stateKey := s.stateRepo != nil, append([]byte(nil), s.stateKey...)
+	s.mu.RUnlock()
+	if persistent {
+		stateRecord, err := s.consumePersistentState(state, nonce, key, "login", callback, now)
+		if err != nil {
+			return err
+		}
+		plain, err := decryptAuthorizationValue(stateKey, stateRecord.EncryptedPKCEVerifier)
+		if err != nil || plain != verifier {
+			return errors.New("PKCE verifier is invalid")
+		}
+	} else if err := s.states.ConsumeChallenge(state, nonce, key, "login", callback, verifier, now); err != nil {
 		return err
 	}
 	s.mu.RLock()
@@ -232,9 +344,26 @@ func (s *OIDCService) CompleteAuthorizationCode(state, nonce, code string, now t
 	if code == "" {
 		return OIDCProvider{}, platform.OIDCClaims{}, errors.New("OIDC authorization code is required")
 	}
-	key, callback, verifier, err := s.states.ReadChallenge(state, nonce, "login", now)
-	if err != nil {
-		return OIDCProvider{}, platform.OIDCClaims{}, err
+	s.mu.RLock()
+	persistent, stateKey := s.stateRepo != nil, append([]byte(nil), s.stateKey...)
+	s.mu.RUnlock()
+	var key, callback, verifier string
+	if persistent {
+		stateRecord, err := s.consumePersistentState(state, nonce, "", "login", "", now)
+		if err != nil {
+			return OIDCProvider{}, platform.OIDCClaims{}, err
+		}
+		key, callback = stateRecord.ProviderID, stateRecord.Callback
+		verifier, err = decryptAuthorizationValue(stateKey, stateRecord.EncryptedPKCEVerifier)
+		if err != nil {
+			return OIDCProvider{}, platform.OIDCClaims{}, errors.New("PKCE verifier is invalid")
+		}
+	} else {
+		var err error
+		key, callback, verifier, err = s.states.ReadChallenge(state, nonce, "login", now)
+		if err != nil {
+			return OIDCProvider{}, platform.OIDCClaims{}, err
+		}
 	}
 	provider, ok := s.provider(key)
 	if !ok || !provider.Enabled {
@@ -260,8 +389,10 @@ func (s *OIDCService) CompleteAuthorizationCode(state, nonce, code string, now t
 	if err != nil {
 		return OIDCProvider{}, platform.OIDCClaims{}, err
 	}
-	if err := s.states.ConsumeChallenge(state, nonce, key, "login", callback, verifier, now); err != nil {
-		return OIDCProvider{}, platform.OIDCClaims{}, err
+	if !persistent {
+		if err := s.states.ConsumeChallenge(state, nonce, key, "login", callback, verifier, now); err != nil {
+			return OIDCProvider{}, platform.OIDCClaims{}, err
+		}
 	}
 	return provider, claims, nil
 }

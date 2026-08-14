@@ -117,6 +117,7 @@ func main() {
 	}
 	oidcService := api.NewOIDCService()
 	oidcService.SetRepository(store.NewOIDCProviderRepository(db))
+	oidcService.SetStateRepository(store.NewOIDCAuthorizationStateRepository(db), []byte(cfg.AccessTokenSecret))
 	roles := api.NewRoleAdminService()
 	roles.SetRepository(roleRepository)
 	if err := roles.Seed("admin", platform.PermissionCatalog); err != nil {

@@ -1,22 +1,56 @@
 package api
 
 import (
+	"context"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/VBenevides/Glyphflow/backend/internal/platform"
+	"github.com/VBenevides/Glyphflow/backend/internal/store"
 )
+
+type testOIDCStateRepository struct {
+	mu     sync.Mutex
+	states map[string]store.OIDCAuthorizationStateRecord
+}
+
+func (r *testOIDCStateRepository) Create(_ context.Context, state store.OIDCAuthorizationStateRecord) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.states == nil {
+		r.states = map[string]store.OIDCAuthorizationStateRecord{}
+	}
+	r.states[state.StateHash] = state
+	return nil
+}
+
+func (r *testOIDCStateRepository) Consume(_ context.Context, stateHash, nonceHash, providerID, purpose, callback string, now time.Time) (store.OIDCAuthorizationStateRecord, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	state, ok := r.states[stateHash]
+	if !ok || state.ConsumedAt != nil || state.NonceHash != nonceHash || (providerID != "" && state.ProviderID != providerID) || state.Purpose != purpose || (callback != "" && state.Callback != callback) || !now.Before(state.ExpiresAt) {
+		return store.OIDCAuthorizationStateRecord{}, errors.New("authorization state is invalid")
+	}
+	consumed := now
+	state.ConsumedAt = &consumed
+	r.states[stateHash] = state
+	return state, nil
+}
+
+func (r *testOIDCStateRepository) DeleteExpired(_ context.Context, _ time.Time) error { return nil }
 
 func TestOIDCProviderChallengeIsSingleUse(t *testing.T) {
 	s := NewOIDCService()
@@ -50,6 +84,29 @@ func TestOIDCProviderExposesOnlySecretReference(t *testing.T) {
 	encoded, _ := json.Marshal(providers[0])
 	if strings.Contains(string(encoded), "client-secret") {
 		t.Fatal("provider response exposed a client secret")
+	}
+}
+
+func TestOIDCPersistentAuthorizationStateIsHashedEncryptedAndSingleUse(t *testing.T) {
+	stateRepository := &testOIDCStateRepository{}
+	s := NewOIDCService()
+	s.SetStateRepository(stateRepository, []byte("external-application-secret"))
+	if err := s.AddProvider(OIDCProvider{Key: "corp", Issuer: "https://id.example", ClientID: "client", Callback: "https://app.example/callback", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	challenge, err := s.ChallengeWithPKCE("corp", "https://app.example/callback", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := stateRepository.states[authorizationValueHash(challenge.State)]
+	if state.StateHash == challenge.State || state.NonceHash == challenge.Nonce || strings.Contains(string(state.EncryptedPKCEVerifier), challenge.Verifier) {
+		t.Fatal("authorization state stored a plaintext value")
+	}
+	if err := s.Complete("corp", challenge.State, challenge.Nonce, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Complete("corp", challenge.State, challenge.Nonce, time.Now()); err == nil {
+		t.Fatal("authorization state replay accepted")
 	}
 }
 
