@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type FormEvent } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from './auth'
@@ -7,6 +7,8 @@ import { Button, DataTable, EmptyState, Input, PageHeader, Pagination, StatusPil
 import { QueryState } from './query'
 import { hasPermission } from './permissions'
 import { LiveLogPanel } from './run-logs'
+import { DangerousAction } from './actions'
+import { queryClient } from './query'
 
 export function runQuery(filters: { task: string; runner: string; state: string; trigger: string; from: string; to: string }, page: number) {
   return { task: filters.task || undefined, runner: filters.runner || undefined, state: filters.state || undefined, trigger: filters.trigger || undefined, from: filters.from || undefined, to: filters.to || undefined, page }
@@ -14,6 +16,11 @@ export function runQuery(filters: { task: string; runner: string; state: string;
 
 export function runStatusLabel(state: string) {
   return ['UNKNOWN', 'FAILED', 'TIMED_OUT'].includes(state.toUpperCase()) ? state.toUpperCase() : state
+}
+
+export function eligibleRunActions(state: string) {
+  const normalized = state.toUpperCase()
+  return { cancel: ['WAITING', 'RUNNING', 'RETRY_WAIT', 'CANCELLING'].includes(normalized), retry: ['FAILED', 'TIMED_OUT'].includes(normalized), reconcile: normalized === 'UNKNOWN' }
 }
 
 export function RunInventoryPage() {
@@ -26,5 +33,17 @@ export function RunInventoryPage() {
 
 export function RunDetailPage() {
   const { runId = '' } = useParams(); const { permissions } = useAuth(); const query = useQuery({ queryKey: ['run', runId], queryFn: ({ signal }) => api.get<Run>(`/api/v1/runs/${encodeURIComponent(runId)}`, undefined, signal), enabled: Boolean(runId) }); const canCancel = hasPermission(permissions, 'runs.cancel'); const canRetry = hasPermission(permissions, 'runs.retry')
-  return <main className="gf-content"><QueryState query={query}>{(run) => <><PageHeader title={`Run ${run.id}`} description={`Task ${run.taskName ?? run.taskId ?? '—'} · ${run.trigger ?? '—'}`} /><section className="gf-metric-grid"><div className="gf-metric"><span>State</span><strong><StatusPill status={runStatusLabel(run.state)} /></strong></div><div className="gf-metric"><span>Attempt</span><strong>{run.attempt ?? '—'}</strong></div><div className="gf-metric"><span>Runner</span><strong>{run.runner ?? '—'}</strong></div></section><section className="gf-card-panel"><h2>Immutable references</h2><div className="gf-related-links"><Link to={`/tasks/${run.taskId ?? ''}`}>Task version</Link><Link to={`/schedules?run=${encodeURIComponent(run.id)}`}>Schedule version</Link><Link to={`/audit?target=${encodeURIComponent(run.id)}`}>Audit events</Link></div></section><section className="gf-card-panel"><h2>Actions</h2><div className="gf-dialog-actions">{canCancel && <Button variant="danger" disabled={!['WAITING', 'RUNNING', 'RETRY_WAIT', 'CANCELLING'].includes(run.state)}>Cancel</Button>}{canRetry && <Button variant="secondary" disabled={!['FAILED', 'TIMED_OUT', 'UNKNOWN'].includes(run.state)}>Retry</Button>}</div></section><section className="gf-card-panel"><h2>Attempts, events, and leases</h2><p className="gf-muted">Immutable task/schedule links and attempt-specific runner, session, state-event, and lease details are retained by the API.</p></section><LiveLogPanel runId={run.id} stream="stdout" /><LiveLogPanel runId={run.id} stream="stderr" /></>}</QueryState></main>
+  return <main className="gf-content"><QueryState query={query}>{(run) => <><PageHeader title={`Run ${run.id}`} description={`Task ${run.taskName ?? run.taskId ?? '—'} · ${run.trigger ?? '—'}`} /><section className="gf-metric-grid"><div className="gf-metric"><span>State</span><strong><StatusPill status={runStatusLabel(run.state)} /></strong></div><div className="gf-metric"><span>Attempt</span><strong>{run.attempt ?? '—'}</strong></div><div className="gf-metric"><span>Runner</span><strong>{run.runner ?? '—'}</strong></div></section><section className="gf-card-panel"><h2>Immutable references</h2><div className="gf-related-links"><Link to={`/tasks/${run.taskId ?? ''}`}>Task version</Link><Link to={`/schedules?run=${encodeURIComponent(run.id)}`}>Schedule version</Link><Link to={`/audit?target=${encodeURIComponent(run.id)}`}>Audit events</Link></div></section><RunActionPanel run={run} canCancel={canCancel} canRetry={canRetry} /><section className="gf-card-panel"><h2>Attempts, events, and leases</h2><p className="gf-muted">Immutable task/schedule links and attempt-specific runner, session, state-event, and lease details are retained by the API.</p></section><LiveLogPanel runId={run.id} stream="stdout" /><LiveLogPanel runId={run.id} stream="stderr" /></>}</QueryState></main>
+}
+
+function RunActionPanel({ run, canCancel, canRetry }: { run: Run; canCancel: boolean; canRetry: boolean }) {
+  const actions = eligibleRunActions(run.state)
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ['run', run.id] })
+  return <section className="gf-card-panel"><h2>Actions</h2><div className="gf-dialog-actions">{canCancel && actions.cancel && <DangerousAction label="Cancel" reasonRequired onConfirm={(reason) => api.post(`/api/v1/runs/${encodeURIComponent(run.id)}/cancel`, { reason }).then(refresh)} onConflict={refresh} />}{canRetry && actions.retry && <DangerousAction label="Retry" variant="secondary" reasonRequired onConfirm={(reason) => api.post(`/api/v1/runs/${encodeURIComponent(run.id)}/retry`, { reason }).then(refresh)} onConflict={refresh} />}{canRetry && actions.reconcile && <DangerousAction label="Reconcile unknown" variant="secondary" reasonRequired warning="This can cause an external command to run again. Confirm the side effect is understood." onConfirm={(reason) => api.post(`/api/v1/runs/${encodeURIComponent(run.id)}/reconcile`, { reason }).then(refresh)} onConflict={refresh} />}</div></section>
+}
+
+export function ManualRunPage() {
+  const navigate = useNavigate(); const [taskId, setTaskId] = useState(''); const [reason, setReason] = useState(''); const [error, setError] = useState(''); const [busy, setBusy] = useState(false)
+  const submit = async (event: FormEvent) => { event.preventDefault(); if (!taskId.trim()) { setError('Task ID is required.'); return }; setBusy(true); setError(''); try { const result = await api.post<{ id?: string }>('/api/v1/runs/execute', { task_id: taskId.trim(), reason: reason.trim() || undefined }); navigate(result.id ? `/runs/${result.id}` : '/runs') } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to start run') } finally { setBusy(false) } }
+  return <main className="gf-content"><PageHeader title="Start manual run" description="Manual execution uses the active immutable task version." /><form className="gf-editor-form" onSubmit={submit}><label>Task ID<Input value={taskId} onChange={(event) => setTaskId(event.target.value)} required /></label><label>Reason (optional)<Input value={reason} onChange={(event) => setReason(event.target.value)} /></label>{error && <p className="gf-form-error" role="alert">{error}</p>}<div className="gf-dialog-actions"><Button type="button" variant="secondary" onClick={() => navigate('/runs')}>Cancel</Button><Button type="submit" busy={busy}>Start run</Button></div></form></main>
 }
