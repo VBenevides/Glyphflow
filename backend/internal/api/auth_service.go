@@ -24,6 +24,7 @@ type AuthService struct {
 	users                                map[string]AuthUser
 	byUsername                           map[string]string
 	passwords                            map[string]string
+	oidcIdentities                       map[string]string
 	roles                                map[string]map[string]bool
 	rolePermissions                      map[string]map[string]bool
 	passwordEnabled, registrationEnabled bool
@@ -39,7 +40,7 @@ func NewAuthService(accessSecret string, passwordEnabled, registrationEnabled bo
 	if err != nil {
 		return nil, err
 	}
-	return &AuthService{hasher: platform.DefaultPasswordHasher(pepper), users: map[string]AuthUser{}, byUsername: map[string]string{}, passwords: map[string]string{}, roles: map[string]map[string]bool{}, rolePermissions: map[string]map[string]bool{}, passwordEnabled: passwordEnabled, registrationEnabled: registrationEnabled, sessions: sessions, refresh: platform.NewRefreshSessionManager(), accessLifetime: 15 * time.Minute, refreshLifetime: 30 * 24 * time.Hour}, nil
+	return &AuthService{hasher: platform.DefaultPasswordHasher(pepper), users: map[string]AuthUser{}, byUsername: map[string]string{}, passwords: map[string]string{}, oidcIdentities: map[string]string{}, roles: map[string]map[string]bool{}, rolePermissions: map[string]map[string]bool{}, passwordEnabled: passwordEnabled, registrationEnabled: registrationEnabled, sessions: sessions, refresh: platform.NewRefreshSessionManager(), accessLifetime: 15 * time.Minute, refreshLifetime: 30 * 24 * time.Hour}, nil
 }
 
 func (s *AuthService) SetDefaultRole(role string) {
@@ -144,18 +145,91 @@ func (s *AuthService) Login(username, password string) (AuthTokens, error) {
 		}
 		return AuthTokens{}, errors.New("invalid credentials")
 	}
-	sessionID, refreshToken, err := s.refresh.Issue(user.ID, s.refreshLifetime)
-	if err != nil {
-		return AuthTokens{}, err
-	}
-	accessToken, _, err := s.sessions.IssueForSession(user.ID, sessionID, s.accessLifetime)
+	tokens, err := s.issueTokens(user.ID)
 	if err != nil {
 		return AuthTokens{}, err
 	}
 	if audit != nil {
-		audit(user.ID, "auth.login", sessionID)
+		audit(user.ID, "auth.login", tokens.SessionID)
+	}
+	return tokens, nil
+}
+
+func (s *AuthService) LoginOIDC(provider, subject, username, email string, autoProvision bool) (AuthTokens, error) {
+	provider, subject = platform.NormalizeIdentityKey(provider), strings.TrimSpace(subject)
+	if provider == "" || subject == "" {
+		return AuthTokens{}, errors.New("OIDC identity is incomplete")
+	}
+	key := provider + "\x00" + subject
+	s.mu.Lock()
+	userID := s.oidcIdentities[key]
+	if userID == "" && autoProvision {
+		if s.defaultRole == "" {
+			s.mu.Unlock()
+			return AuthTokens{}, errors.New("default role is not configured")
+		}
+		base := platform.NormalizeIdentityKey(username)
+		if base == "" {
+			base = provider + "-" + subject
+		}
+		if _, exists := s.byUsername[base]; exists {
+			base = base + "-" + subject[:minInt(8, len(subject))]
+		}
+		userID, _ = randomID()
+		s.users[userID] = AuthUser{ID: userID, Username: base, Email: email, Enabled: true}
+		s.byUsername[base], s.roles[userID] = userID, map[string]bool{s.defaultRole: true}
+		s.oidcIdentities[key] = userID
+	}
+	user, exists := s.users[userID]
+	audit := s.audit
+	s.mu.Unlock()
+	if !exists || !user.Enabled {
+		return AuthTokens{}, errors.New("OIDC identity is not linked")
+	}
+	tokens, err := s.issueTokens(user.ID)
+	if err != nil {
+		return AuthTokens{}, err
+	}
+	if audit != nil {
+		audit(user.ID, "auth.oidc.login", provider)
+	}
+	return tokens, nil
+}
+
+func (s *AuthService) LinkOIDC(userID, provider, subject string) error {
+	provider, subject = platform.NormalizeIdentityKey(provider), strings.TrimSpace(subject)
+	if userID == "" || provider == "" || subject == "" {
+		return errors.New("OIDC link is incomplete")
+	}
+	key := provider + "\x00" + subject
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.users[userID]; !ok {
+		return errors.New("user not found")
+	}
+	if existing := s.oidcIdentities[key]; existing != "" && existing != userID {
+		return errors.New("OIDC identity already linked")
+	}
+	s.oidcIdentities[key] = userID
+	return nil
+}
+
+func (s *AuthService) issueTokens(userID string) (AuthTokens, error) {
+	sessionID, refreshToken, err := s.refresh.Issue(userID, s.refreshLifetime)
+	if err != nil {
+		return AuthTokens{}, err
+	}
+	accessToken, _, err := s.sessions.IssueForSession(userID, sessionID, s.accessLifetime)
+	if err != nil {
+		return AuthTokens{}, err
 	}
 	return AuthTokens{AccessToken: accessToken, RefreshToken: refreshToken, SessionID: sessionID}, nil
+}
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func (s *AuthService) Refresh(sessionID, refreshToken string) (AuthTokens, error) {
