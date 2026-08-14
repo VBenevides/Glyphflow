@@ -21,8 +21,41 @@ func (r *VersionRegistry) Activate(parent, version string) error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	for _, existing := range r.versions[parent] {
+		if existing == version {
+			r.current[parent] = version
+			return nil
+		}
+	}
 	r.versions[parent] = append(r.versions[parent], version)
 	r.current[parent] = version
+	return nil
+}
+
+func (r *VersionRegistry) ActivateMany(activations map[string]string) error {
+	if len(activations) == 0 {
+		return errors.New("activations are required")
+	}
+	for parent, version := range activations {
+		if parent == "" || version == "" {
+			return errors.New("parent and version are required")
+		}
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for parent, version := range activations {
+		found := false
+		for _, existing := range r.versions[parent] {
+			if existing == version {
+				found = true
+				break
+			}
+		}
+		if !found {
+			r.versions[parent] = append(r.versions[parent], version)
+		}
+		r.current[parent] = version
+	}
 	return nil
 }
 

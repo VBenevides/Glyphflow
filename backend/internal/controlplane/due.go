@@ -6,9 +6,10 @@ import (
 )
 
 type DueSchedule struct {
-	ID       string
-	NextFire time.Time
-	Interval time.Duration
+	ID           string
+	NextFire     time.Time
+	Interval     time.Duration
+	OccurrenceAt time.Time
 }
 
 type DueScheduleQueue struct {
@@ -21,6 +22,9 @@ func NewDueScheduleQueue() *DueScheduleQueue {
 }
 
 func (q *DueScheduleQueue) Add(schedule DueSchedule) {
+	if schedule.ID == "" || schedule.Interval <= 0 {
+		return
+	}
 	q.mu.Lock()
 	q.items[schedule.ID] = schedule
 	q.mu.Unlock()
@@ -31,10 +35,13 @@ func (q *DueScheduleQueue) Claim(now time.Time) (DueSchedule, bool) {
 	defer q.mu.Unlock()
 	for id, schedule := range q.items {
 		if !schedule.NextFire.After(now) {
+			claimed := schedule
+			claimed.OccurrenceAt = schedule.NextFire
 			for !schedule.NextFire.After(now) {
 				schedule.NextFire = schedule.NextFire.Add(schedule.Interval)
 			}
 			q.items[id] = schedule
+			schedule.OccurrenceAt = claimed.OccurrenceAt
 			return schedule, true
 		}
 	}
