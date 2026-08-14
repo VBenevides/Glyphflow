@@ -74,6 +74,37 @@ func TestSessionCookiesUseSecureFlagForHTTPSOrigin(t *testing.T) {
 	}
 }
 
+func TestDisabledUserCannotUseExistingCookieSession(t *testing.T) {
+	auth, err := NewAuthService("01234567890123456789012345678901", true, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.AddRole("user"); err != nil {
+		t.Fatal(err)
+	}
+	auth.SetDefaultRole("user")
+	user, err := auth.Register("user", "correct horse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := (Server{AuthService: auth}).Handler()
+	login := httptest.NewRecorder()
+	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"username":"user","password":"correct horse"}`)))
+	if login.Code != http.StatusOK {
+		t.Fatalf("login status = %d", login.Code)
+	}
+	if err := auth.DisableUser(user.ID); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
+	addCookies(request, login.Result().Cookies())
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("disabled user session returned %d", response.Code)
+	}
+}
+
 func hasCookie(cookies []*http.Cookie, name string) bool {
 	for _, cookie := range cookies {
 		if cookie.Name == name && cookie.Value != "" && cookie.HttpOnly {
