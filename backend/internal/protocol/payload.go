@@ -16,41 +16,50 @@ type ResourceLimits struct {
 }
 
 type OrderPayload struct {
-	Version        uint8             `json:"version"`
-	OrderID        string            `json:"order_id"`
-	RunID          string            `json:"run_id"`
-	TaskID         string            `json:"task_id"`
-	Attempt        uint32            `json:"attempt"`
-	LeaseToken     string            `json:"lease_token"`
-	RunnerID       string            `json:"runner_id"`
-	IssuedAt       time.Time         `json:"issued_at"`
-	NotBefore      time.Time         `json:"not_before"`
-	ExpiresAt      time.Time         `json:"expires_at"`
-	Type           OrderType         `json:"type"`
-	Command        []string          `json:"command"`
-	WorkingDir     string            `json:"working_dir"`
-	SecretRefs     []string          `json:"secret_refs,omitempty"`
-	TimeoutSeconds uint32            `json:"timeout_seconds"`
-	Limits         ResourceLimits    `json:"limits"`
-	Resources      map[string]string `json:"resources,omitempty"`
+	Version             uint8             `json:"version"`
+	OrderID             string            `json:"order_id"`
+	RunID               string            `json:"run_id"`
+	TaskID              string            `json:"task_id"`
+	Attempt             uint32            `json:"attempt"`
+	LeaseToken          string            `json:"lease_token"`
+	RunnerID            string            `json:"runner_id"`
+	IssuedAt            time.Time         `json:"issued_at"`
+	NotBefore           time.Time         `json:"not_before"`
+	ExpiresAt           time.Time         `json:"expires_at"`
+	Type                OrderType         `json:"type"`
+	Command             []string          `json:"command"`
+	WorkingDir          string            `json:"working_dir"`
+	SecretRefs          []string          `json:"secret_refs,omitempty"`
+	TimeoutSeconds      uint32            `json:"timeout_seconds"`
+	Limits              ResourceLimits    `json:"limits"`
+	Resources           map[string]string `json:"resources,omitempty"`
+	Issuer              string            `json:"issuer,omitempty"`
+	Recipient           string            `json:"recipient,omitempty"`
+	RunnerSessionID     string            `json:"runner_session_id,omitempty"`
+	FencingToken        uint64            `json:"fencing_token,omitempty"`
+	LeaseNotAfter       time.Time         `json:"lease_not_after,omitempty"`
+	ExecutionSpecDigest string            `json:"execution_spec_digest,omitempty"`
 }
 
 type EventPayload struct {
-	Version      uint8            `json:"version"`
-	EventID      string           `json:"event_id"`
-	OrderID      string           `json:"order_id"`
-	RunID        string           `json:"run_id"`
-	TaskID       string           `json:"task_id"`
-	Attempt      uint32           `json:"attempt"`
-	LeaseToken   string           `json:"lease_token"`
-	RunnerID     string           `json:"runner_id"`
-	Sequence     uint64           `json:"sequence"`
-	ObservedAt   time.Time        `json:"observed_at"`
-	Type         EventType        `json:"type"`
-	Result       string           `json:"result,omitempty"`
-	Metrics      map[string]int64 `json:"metrics,omitempty"`
-	OutputDigest string           `json:"output_digest,omitempty"`
-	Error        string           `json:"error,omitempty"`
+	Version         uint8            `json:"version"`
+	EventID         string           `json:"event_id"`
+	OrderID         string           `json:"order_id"`
+	RunID           string           `json:"run_id"`
+	TaskID          string           `json:"task_id"`
+	Attempt         uint32           `json:"attempt"`
+	LeaseToken      string           `json:"lease_token"`
+	RunnerID        string           `json:"runner_id"`
+	Sequence        uint64           `json:"sequence"`
+	ObservedAt      time.Time        `json:"observed_at"`
+	Type            EventType        `json:"type"`
+	Result          string           `json:"result,omitempty"`
+	Metrics         map[string]int64 `json:"metrics,omitempty"`
+	OutputDigest    string           `json:"output_digest,omitempty"`
+	Error           string           `json:"error,omitempty"`
+	RunnerSessionID string           `json:"runner_session_id,omitempty"`
+	FencingToken    uint64           `json:"fencing_token,omitempty"`
+	EventChannel    string           `json:"event_channel,omitempty"`
 }
 
 func DecodeOrderPayload(raw []byte) (OrderPayload, error) {

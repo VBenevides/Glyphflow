@@ -70,6 +70,29 @@ func (p OrderPayload) ValidateIdentity(runnerID, runID string, attempt uint32, l
 	return validateIdentity(p.RunnerID, p.RunID, p.Attempt, p.LeaseToken, runnerID, runID, attempt, leaseToken)
 }
 
+type FreshnessContext struct {
+	RunnerID, SessionID, RunID, Recipient, LeaseToken, ExecutionSpecDigest string
+	Attempt                                                                uint32
+	FencingToken                                                           uint64
+	LeaseNotAfter                                                          time.Time
+}
+
+func (p OrderPayload) ValidateFreshness(ctx FreshnessContext, now time.Time) error {
+	if ctx.RunnerID == "" || ctx.SessionID == "" || ctx.Recipient == "" || ctx.LeaseToken == "" || ctx.ExecutionSpecDigest == "" || ctx.Attempt == 0 || ctx.FencingToken == 0 || ctx.LeaseNotAfter.IsZero() {
+		return errors.New("freshness context is incomplete")
+	}
+	if err := p.ValidateIdentity(ctx.RunnerID, ctx.RunID, ctx.Attempt, ctx.LeaseToken); err != nil {
+		return err
+	}
+	if p.RunnerSessionID != ctx.SessionID || p.Recipient != ctx.Recipient || p.ExecutionSpecDigest != ctx.ExecutionSpecDigest || p.FencingToken != ctx.FencingToken || !p.LeaseNotAfter.Equal(ctx.LeaseNotAfter) {
+		return errors.New("order freshness fields do not match")
+	}
+	if now.After(p.LeaseNotAfter) {
+		return errors.New("lease has expired")
+	}
+	return nil
+}
+
 func (p EventPayload) ValidateIdentity(runnerID, runID string, attempt uint32, leaseToken string) error {
 	return validateIdentity(p.RunnerID, p.RunID, p.Attempt, p.LeaseToken, runnerID, runID, attempt, leaseToken)
 }
