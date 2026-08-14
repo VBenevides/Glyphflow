@@ -42,6 +42,7 @@ type Server struct {
 	AuthRateLimiter *platform.RateLimiter
 	Config          RuntimeConfig
 	Operations      *OperationsService
+	Runs            *RunService
 }
 
 func (s Server) Handler() http.Handler {
@@ -53,6 +54,9 @@ func (s Server) Handler() http.Handler {
 	}
 	if s.Operations == nil {
 		s.Operations = NewOperationsService()
+	}
+	if s.Runs == nil {
+		s.Runs = NewRunService()
 	}
 	mux := newTrackedMux()
 	mux.HandleFunc("/docs", swaggerUI)
@@ -107,12 +111,14 @@ func (s Server) Handler() http.Handler {
 			writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "endpoint is not implemented"})
 		})))
 	}
-	for path, role := range map[string]string{"/api/v1/runs": "run.read", "/api/v1/events": "event.read", "/api/v1/runners": "runner.read", "/api/v1/audit": "audit.read"} {
+	mux.Handle("/api/v1/runs", s.require("run.read", http.HandlerFunc(s.Runs.collection)))
+	for path, role := range map[string]string{"/api/v1/events": "event.read", "/api/v1/runners": "runner.read", "/api/v1/audit": "audit.read"} {
 		mux.Handle(path, s.require(role, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "endpoint is not implemented"})
 		})))
 	}
-	for path, permission := range map[string]string{"/api/v1/runs/execute": "runs.execute", "/api/v1/runs/retry": "runs.retry", "/api/v1/runs/cancel": "runs.cancel"} {
+	mux.Handle("/api/v1/runs/execute", s.require("runs.execute", http.HandlerFunc(s.Runs.execute)))
+	for path, permission := range map[string]string{"/api/v1/runs/retry": "runs.retry", "/api/v1/runs/cancel": "runs.cancel"} {
 		mux.Handle(path, s.require(permission, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "run action is not implemented"})
 		})))
@@ -166,8 +172,8 @@ func (s Server) Handler() http.Handler {
 			return "runs.retry"
 		}
 		return "runs.read"
-	}, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "run endpoint is not implemented"})
+	}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.Runs.path(w, r)
 	})))
 	if err := ValidateBuiltRoutes(mux.patterns, RouteRegistry()); err != nil {
 		panic(err)

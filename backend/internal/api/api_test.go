@@ -72,17 +72,20 @@ func TestManagementRoutesFailClosedUntilBackedByStorage(t *testing.T) {
 		r := httptest.NewRequest(item.method, item.path, nil)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, r)
+		if item.path == "/api/v1/runs" && w.Code != http.StatusOK {
+			t.Fatalf("run listing returned %d", w.Code)
+		}
 		if item.path == "/api/v1/tasks/run-1/cancel" && w.Code != http.StatusNotFound {
 			t.Fatalf("missing task action returned %d", w.Code)
 		}
-		if item.path != "/api/v1/tasks/run-1/cancel" && w.Code != http.StatusNotImplemented {
+		if item.path != "/api/v1/tasks/run-1/cancel" && item.path != "/api/v1/runs" && w.Code != http.StatusNotImplemented {
 			t.Fatalf("%s returned %d", item.path, w.Code)
 		}
 	}
 }
 
 func TestFrontendResourceAndRunPathsReachClassifiedHandlers(t *testing.T) {
-	permissions := map[string]bool{"task.read": true, "task.manage": true, "tasks.read": true, "tasks.manage": true, "resources.read": true, "resources.manage": true, "runners.read": true, "runners.manage": true, "runs.read": true, "runs.cancel": true, "runs.retry": true, "logs.read": true}
+	permissions := map[string]bool{"task.read": true, "task.manage": true, "tasks.read": true, "tasks.manage": true, "resources.read": true, "resources.manage": true, "runners.read": true, "runners.manage": true, "runs.read": true, "runs.execute": true, "runs.cancel": true, "runs.retry": true, "logs.read": true}
 	h := (Server{Auth: func(*http.Request) (Claims, bool) { return Claims{Roles: permissions}, true }}).Handler()
 	createTask := httptest.NewRecorder()
 	h.ServeHTTP(createTask, httptest.NewRequest(http.MethodPost, "/api/v1/tasks", bytes.NewBufferString(`{"name":"Nightly","command":["echo","hi"],"runner_pool":"default"}`)))
@@ -90,6 +93,11 @@ func TestFrontendResourceAndRunPathsReachClassifiedHandlers(t *testing.T) {
 	h.ServeHTTP(createSchedule, httptest.NewRequest(http.MethodPost, "/api/v1/schedules", bytes.NewBufferString(`{"name":"Hourly","task_id":"task-1","schedule_type":"cron","expression":"0 * * * *","timezone":"UTC"}`)))
 	if createTask.Code != http.StatusCreated || createSchedule.Code != http.StatusCreated {
 		t.Fatalf("seed operations: task=%d schedule=%d", createTask.Code, createSchedule.Code)
+	}
+	createRun := httptest.NewRecorder()
+	h.ServeHTTP(createRun, httptest.NewRequest(http.MethodPost, "/api/v1/runs/execute", bytes.NewBufferString(`{"task_id":"task-1"}`)))
+	if createRun.Code != http.StatusCreated {
+		t.Fatalf("seed run: %d", createRun.Code)
 	}
 	requests := []struct {
 		method string
