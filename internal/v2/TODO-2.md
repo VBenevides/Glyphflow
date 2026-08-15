@@ -24,6 +24,8 @@ This file is an implementation handoff. Complete the work in order. Do not check
   - Result: passed `go test ./...`, `go test -race ./cmd/worker ./internal/worker ./internal/queue`, `go test -race -tags workerui ./cmd/worker`, `go vet ./...`, `bash -n backend/build_runner_binaries.sh`, and `git diff --check`.
   - Build result: `backend/build_runner_binaries.sh` produced Linux/Windows desktop and headless artifacts; desktop builds use the pinned Wails v3 dependency with the `workerui` tag and embedded assets.
   - Manual screenshot comparison and native tray interaction checks remain environment-dependent and are intentionally left unchecked in Phase 9.
+- [x] Runner pool deletion conflict fix — commit `6855786` (`fix(controlplane): Explain runner pool delete conflicts`)
+  - Result: backend and frontend regression tests pass; referenced pools now return a safe `runner pool is still in use` message, while stale-data refresh remains limited to actions that request it.
 
 ## Non-negotiable constraints
 
@@ -174,7 +176,7 @@ Edit `frontend/src/shell.tsx` and its CSS. Preserve permission filtering, route 
 
 - [x] Use a 248 px expanded sidebar and a 64 px collapsed sidebar.
 - [x] Make the sidebar use theme tokens. Light mode must use the light sidebar shown in `overview.png`; it must no longer be permanently navy.
-- [ ] Brand row:
+- [x] Brand row:
   - [x] reuse `BrandMark`;
   - [x] show `Glyphflow`;
   - [x] show `SCHEDULER CONSOLE` in small uppercase tracked text;
@@ -416,11 +418,11 @@ Exit condition: the model is fully testable without a window and cannot grow wit
 
 ### 7.1 Framework decision
 
-- [ ] Use Wails v3 for the desktop-only `workerui` build. This choice is specific to the requirement: its official APIs provide a cross-platform system tray, hidden windows, cancellable close hooks, and window-minimize events.
+- [x] Use Wails v3 for the desktop-only `workerui` build. This choice is specific to the requirement: its official APIs provide a cross-platform system tray, hidden windows, cancellable close hooks, and window-minimize events.
 - [x] Pin the Go module to the tested Wails v3 prerelease `v3.0.0-alpha2.112`; the release script uses the Go toolchain directly with the `workerui` tag because the Wails CLI requires generated platform task files that this repository does not contain.
-- [ ] Record the pin in `backend/go.mod`/`backend/go.sum` and build documentation.
-- [ ] Keep all Wails imports behind the `workerui` build tag so headless builds remain free of native GUI requirements.
-- [ ] Relevant official references:
+- [x] Record the pin in `backend/go.mod`/`backend/go.sum` and build documentation.
+- [x] Keep all Wails imports behind the `workerui` build tag so headless builds remain free of native GUI requirements.
+- [x] Relevant official references:
   - <https://v3.wails.io/features/menus/systray/>
   - <https://v3.wails.io/reference/window/>
   - <https://v3.wails.io/reference/events/>
@@ -429,20 +431,20 @@ Exit condition: the model is fully testable without a window and cannot grow wit
 
 ### 7.2 Desktop entry point
 
-- [ ] Add `backend/cmd/worker/main_desktop.go` with `//go:build workerui`.
-- [ ] Embed the worker GUI assets and a tray icon from directories beneath `backend/cmd/worker`; Go embed patterns cannot use `..`.
-- [ ] Copy `assets/glyphflow.png` into the worker desktop asset directory for the tray/window icon. Do not use the AI Platform logo.
-- [ ] Create one Wails application, one normal resizable window, and one system tray icon.
-- [ ] Window properties:
-  - title: `Glyphflow Worker`;
-  - initial width: about 860 px;
-  - initial height: about 560 px;
-  - minimum width: 640 px;
-  - minimum height: 420 px;
-  - starts with `Hidden: true`;
-  - uses a background color matching the page token to avoid a white flash;
-  - standard native frame; do not build a custom title bar.
-- [ ] Configure Wails so the application does not quit merely because its last window is hidden or closed on Windows/Linux.
+- [x] Add `backend/cmd/worker/main_desktop.go` with `//go:build workerui`.
+- [x] Embed the worker GUI assets and a tray icon from directories beneath `backend/cmd/worker`; Go embed patterns cannot use `..`.
+- [x] Copy `assets/glyphflow.png` into the worker desktop asset directory for the tray/window icon. Do not use the AI Platform logo.
+- [x] Create one Wails application, one normal resizable window, and one system tray icon.
+- [x] Window properties:
+  - [x] title: `Glyphflow Worker`;
+  - [x] initial width: about 860 px;
+  - [x] initial height: about 560 px;
+  - [x] minimum width: 640 px;
+  - [x] minimum height: 420 px;
+  - [x] starts with `Hidden: true`;
+  - [x] uses a background color matching the page token to avoid a white flash;
+  - [x] standard native frame; do not build a custom title bar.
+- [x] Configure Wails so the application does not quit merely because its last window is hidden or closed on Windows/Linux.
 
 ### 7.3 Exact tray/window state machine
 
@@ -477,29 +479,29 @@ Tray menu Exit
   -> quit Wails
 ```
 
-- [ ] Tray tooltip/label is `Glyphflow Worker`.
-- [ ] Tray menu contains exactly:
-  - **Open**;
-  - separator;
-  - **Exit**.
-- [ ] A left click on the tray icon opens the window. It does not exit the application.
-- [ ] Register a cancellable `WindowClosing` hook. Unless explicit Exit is already in progress, hide the window and cancel the close event.
-- [ ] Listen for `WindowMinimise`; restore and hide the window so it leaves the taskbar.
-- [ ] The Open action always calls restore, show, and focus in that order.
-- [ ] Keep a `sync.Once` or equivalent one-shot guard around explicit shutdown so double-clicking Exit cannot close resources twice.
-- [ ] Start the shared worker in a goroutine. Never run the worker loop on the GUI event thread.
-- [ ] If worker startup fails, keep the tray application alive and write the failure to stderr so the user can open the window and read it. Exit remains available.
+- [x] Tray tooltip/label is `Glyphflow Worker`.
+- [x] Tray menu contains exactly:
+  - [x] **Open**;
+  - [x] separator;
+  - [x] **Exit**.
+- [x] A left click on the tray icon opens the window. It does not exit the application.
+- [x] Register a cancellable `WindowClosing` hook. Unless explicit Exit is already in progress, hide the window and cancel the close event.
+- [x] Listen for `WindowMinimise`; restore and hide the window so it leaves the taskbar.
+- [x] The Open action always calls restore, show, and focus in that order.
+- [x] Keep a `sync.Once` or equivalent one-shot guard around explicit shutdown so double-clicking Exit cannot close resources twice.
+- [x] Start the shared worker in a goroutine. Never run the worker loop on the GUI event thread.
+- [x] If worker startup fails, keep the tray application alive and write the failure to stderr so the user can open the window and read it. Exit remains available.
 
 ### 7.4 Asset/API delivery without another frontend toolchain
 
-- [ ] Use a tiny embedded vanilla HTML/CSS/JavaScript UI under `backend/cmd/worker/ui`.
-- [ ] Do not create a second React project and do not add npm dependencies for this three-field window.
-- [ ] Serve embedded assets with the Wails asset handler.
-- [ ] Expose only a same-origin read-only `/api/snapshot?after=<sequence>` handler to the embedded page.
-- [ ] Validate `after` as a non-negative integer. Invalid values return HTTP 400.
-- [ ] Return JSON with `Content-Type: application/json` and `Cache-Control: no-store`.
-- [ ] Do not bind mutation methods to JavaScript.
-- [ ] The snapshot handler is internal to the WebView asset server. Do not open a public TCP listener.
+- [x] Use a tiny embedded vanilla HTML/CSS/JavaScript UI under `backend/cmd/worker/ui`.
+- [x] Do not create a second React project and do not add npm dependencies for this three-field window.
+- [x] Serve embedded assets with the Wails asset handler.
+- [x] Expose only a same-origin read-only `/api/snapshot?after=<sequence>` handler to the embedded page.
+- [x] Validate `after` as a non-negative integer. Invalid values return HTTP 400.
+- [x] Return JSON with `Content-Type: application/json` and `Cache-Control: no-store`.
+- [x] Do not bind mutation methods to JavaScript.
+- [x] The snapshot handler is internal to the WebView asset server. Do not open a public TCP listener.
 
 ### 7.5 Worker window appearance
 
@@ -522,30 +524,30 @@ The final window should look like this:
 +------------------------------------------------------------------+
 ```
 
-- [ ] Reuse the AI Platform light-theme values translated for the main frontend: pale lilac page, white/transparent cards, purple active control, muted labels, thin borders, and `0.75rem` radius.
-- [ ] Use system fonts. Do not load fonts from the network.
-- [ ] Top area contains the Glyphflow icon, `Glyphflow Worker`, and muted text `Runs in the system tray`.
-- [ ] Status area contains exactly two read-only cards:
-  - **NATS JetStream endpoint** with the redacted URL;
-  - **Parallel executions** with the live integer capacity.
-- [ ] Terminal header contains the label **Logs** and two accessible filter buttons:
-  - **All**: stdout and stderr in sequence order;
-  - **Stderr**: only entries whose stream is `stderr`.
-- [ ] The active filter uses purple and has `aria-pressed="true"` or correct tab semantics.
-- [ ] Terminal behavior:
-  - read-only `<pre>` or equivalent text container;
-  - monospace font;
-  - selectable text;
-  - vertical scrolling;
-  - wraps very long lines rather than widening the window;
-  - stderr lines use an accessible red/pink tone;
-  - polling appends text with `textContent`, never HTML;
-  - automatically follows new logs only when the user is already near the bottom;
-  - if the user scrolls upward, new logs do not pull them away;
-  - changing filters recomputes from the retained browser-side entries and preserves sequence order.
-- [ ] Poll snapshots every 500–1,000 ms. Stop polling while the document is hidden and refresh immediately when it becomes visible.
-- [ ] Keep at most the same 5,000 entries in browser memory. If the server returns `reset`, replace browser history with the returned retained entries.
-- [ ] At narrow window widths, stack the two status cards. The terminal must still remain usable at the minimum window size.
+- [x] Reuse the AI Platform light-theme values translated for the main frontend: pale lilac page, white/transparent cards, purple active control, muted labels, thin borders, and `0.75rem` radius.
+- [x] Use system fonts. Do not load fonts from the network.
+- [x] Top area contains the Glyphflow icon, `Glyphflow Worker`, and muted text `Runs in the system tray`.
+- [x] Status area contains exactly two read-only cards:
+  - [x] **NATS JetStream endpoint** with the redacted URL;
+  - [x] **Parallel executions** with the live integer capacity.
+- [x] Terminal header contains the label **Logs** and two accessible filter buttons:
+  - [x] **All**: stdout and stderr in sequence order;
+  - [x] **Stderr**: only entries whose stream is `stderr`.
+- [x] The active filter uses purple and has `aria-pressed="true"` or correct tab semantics.
+- [x] Terminal behavior:
+  - [x] read-only `<pre>` or equivalent text container;
+  - [x] monospace font;
+  - [x] selectable text;
+  - [x] vertical scrolling;
+  - [x] wraps very long lines rather than widening the window;
+  - [x] stderr lines use an accessible red/pink tone;
+  - [x] polling appends text with `textContent`, never HTML;
+  - [x] automatically follows new logs only when the user is already near the bottom;
+  - [x] if the user scrolls upward, new logs do not pull them away;
+  - [x] changing filters recomputes from the retained browser-side entries and preserves sequence order.
+- [x] Poll snapshots every 500–1,000 ms. Stop polling while the document is hidden and refresh immediately when it becomes visible.
+- [x] Keep at most the same 5,000 entries in browser memory. If the server returns `reset`, replace browser history with the returned retained entries.
+- [x] At narrow window widths, stack the two status cards. The terminal must still remain usable at the minimum window size.
 
 Exit condition: the worker starts in the tray, Open restores it, close/minimize return it to the tray, and the UI displays live safe status/log data while work continues.
 
@@ -554,21 +556,21 @@ Exit condition: the worker starts in the tray, Open restores it, close/minimize 
 ## Phase 8 — Update builds without breaking enrollment
 
 - [x] Update `backend/build_runner_binaries.sh` to build desktop artifacts with the pinned Wails v3 dependency and the `workerui` tag.
-- [ ] Keep exact outputs:
-  - `runner-binaries/glyphflow-runner-linux-amd64`;
-  - `runner-binaries/glyphflow-runner-windows-amd64.exe`.
-- [ ] Do not change `backend/internal/api/infrastructure.go` artifact lookup or download naming.
-- [ ] Add clearly named headless artifacts for server use without replacing the desktop outputs:
-  - `runner-binaries/glyphflow-runner-linux-amd64-headless`;
-  - `runner-binaries/glyphflow-runner-windows-amd64-headless.exe`.
-- [ ] Headless artifacts use the default `!workerui` entry point and the current plain Go build flow.
+- [x] Keep exact outputs:
+  - [x] `runner-binaries/glyphflow-runner-linux-amd64`;
+  - [x] `runner-binaries/glyphflow-runner-windows-amd64.exe`.
+- [x] Do not change `backend/internal/api/infrastructure.go` artifact lookup or download naming.
+- [x] Add clearly named headless artifacts for server use without replacing the desktop outputs:
+  - [x] `runner-binaries/glyphflow-runner-linux-amd64-headless`;
+  - [x] `runner-binaries/glyphflow-runner-windows-amd64-headless.exe`.
+- [x] Headless artifacts use the default `!workerui` entry point and the current plain Go build flow.
 - [x] Desktop artifacts use the Wails runtime through a direct `go build -tags workerui`; preserve `-trimpath` and stripped release behavior in the script.
-- [ ] Document required developer/runtime dependencies:
-  - Windows 10/11: WebView2 runtime;
-  - Linux: supported GTK/WebKit runtime and an active desktop session;
-  - headless Linux: use the headless artifact, with no GUI dependency.
-- [ ] Update `README.md` only where worker start/stop or build instructions become inaccurate.
-- [ ] Update release checks so both the headless and desktop command variants compile.
+- [x] Document required developer/runtime dependencies:
+  - [x] Windows 10/11: WebView2 runtime;
+  - [x] Linux: supported GTK/WebKit runtime and an active desktop session;
+  - [x] headless Linux: use the headless artifact, with no GUI dependency.
+- [x] Update `README.md` only where worker start/stop or build instructions become inaccurate.
+- [x] Update release checks so both the headless and desktop command variants compile.
 - [ ] If Linux uses the Wails legacy GTK3 tag for the repository's supported distro, encode that tag in the build command rather than requiring developers to remember it.
 
 Exit condition: enrollment tests still find the same desktop artifact names, and operators still have an explicit headless artifact for VMs/services.
@@ -579,24 +581,24 @@ Exit condition: enrollment tests still find the same desktop artifact names, and
 
 ### 9.1 Automated checks
 
-- [ ] Frontend:
-  - `cd frontend && npm test`
-  - `cd frontend && npm run typecheck`
-  - `cd frontend && npm run lint`
-  - `cd frontend && npm run build`
-- [ ] Worker/core:
-  - `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./cmd/worker ./internal/worker ./internal/config ./internal/queue`
-  - `cd backend && GOCACHE=/tmp/glyphflow-gocache go test -race ./cmd/worker ./internal/worker ./internal/queue`
-  - `cd backend && GOCACHE=/tmp/glyphflow-gocache go vet ./...`
-- [ ] Full backend regression:
-  - `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./...`
-- [ ] Desktop compile:
-  - build Windows AMD64 desktop worker;
-  - build Linux AMD64 desktop worker on a supported Wails builder;
-  - build both headless artifacts;
-  - run `backend/build_runner_binaries.sh` and verify the four expected files exist and are non-empty.
-- [ ] Run the existing infrastructure artifact test to prove enrollment names did not drift:
-  - `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./internal/api -run Runner`
+- [x] Frontend:
+  - [x] `cd frontend && npm test` (30 files, 58 tests)
+  - [x] `cd frontend && npm run typecheck`
+  - [x] `cd frontend && npm run lint`
+  - [x] `cd frontend && npm run build`
+- [x] Worker/core:
+  - [x] `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./cmd/worker ./internal/worker ./internal/config ./internal/queue`
+  - [x] `cd backend && GOCACHE=/tmp/glyphflow-gocache go test -race ./cmd/worker ./internal/worker ./internal/queue`
+  - [x] `cd backend && GOCACHE=/tmp/glyphflow-gocache go vet ./...`
+- [x] Full backend regression:
+  - [x] `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./...`
+- [x] Desktop compile:
+  - [x] build Windows AMD64 desktop worker;
+  - [x] build Linux AMD64 desktop worker on a supported Wails builder;
+  - [x] build both headless artifacts;
+  - [x] run `backend/build_runner_binaries.sh` and verify the four expected files exist and are non-empty.
+- [x] Run the existing infrastructure artifact test to prove enrollment names did not drift:
+  - [x] `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./internal/api -run Runner`
 
 ### 9.2 Frontend manual matrix
 
@@ -659,10 +661,10 @@ Perform on Windows and on one supported Linux desktop. A compile-only check is n
 
 ### 9.4 Final cleanup
 
-- [ ] Run `git diff --check`.
-- [ ] Review `git diff --stat`; remove copied reference code, dependencies, or abstractions that are not required by the final behavior.
-- [ ] Ensure no generated `dist`, Wails cache, temporary build directory, credential, database, or log file is committed unless it is an intentional embedded worker UI asset.
-- [ ] Ensure all new dependencies are pinned and represented in lock/checksum files.
+- [x] Run `git diff --check`.
+- [x] Review `git diff --stat`; remove copied reference code, dependencies, or abstractions that are not required by the final behavior.
+- [x] Ensure no generated `dist`, Wails cache, temporary build directory, credential, database, or log file is committed unless it is an intentional embedded worker UI asset.
+- [x] Ensure all new dependencies are pinned and represented in lock/checksum files.
 - [ ] Check the two parent boxes at the top only after every relevant acceptance item passes.
 
 ## Definition of done
