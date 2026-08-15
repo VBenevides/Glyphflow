@@ -49,6 +49,9 @@ All items below have runnable test evidence.
 - [x] **High: Repair worker restart recovery**
   - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test -race ./internal/worker` — PASS.
   - Commit: `1d25561`.
+- [x] **High: Restore runner heartbeat enrollment after local-store recovery**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test -race ./...` and `GOCACHE=/tmp/glyphflow-gocache go vet ./...` — PASS; legacy, mismatched, and expired local signing keys re-enroll before heartbeats, and publish failures are logged.
+  - Commit: `4e695d6` (`fix(worker): Restore runner heartbeat enrollment`).
 - [x] **High: Enforce legal state-event order**
   - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test -race ./internal/store ./internal/controlplane` — PASS.
   - Commit: `1d25561`.
