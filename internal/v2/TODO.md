@@ -115,6 +115,9 @@ All items below have runnable test evidence.
 - [x] **Medium: Configure runner capacity with a default of ten**
   - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test -race ./...` and `GOCACHE=/tmp/glyphflow-gocache go vet ./...`; `cd frontend && npm test -- --run && npm run typecheck && npm run lint && npm run build` — PASS; new runners default to 10, explicit capacities accept 1 or any larger integer, and omitted re-enrollment values preserve existing capacity.
   - Commit: `7df5734` (`feat(controlplane): Configure runner capacity`).
+- [x] **High: Run runner tasks concurrently**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test -race ./...` and `GOCACHE=/tmp/glyphflow-gocache go vet ./...`; `cd frontend && npm test -- --run && npm run typecheck && npm run lint && npm run build` — PASS; delivered orders run in separate goroutines with independent stdout/stderr streaming, long tasks renew JetStream delivery, and control-plane capacity/resource admission remains authoritative.
+  - Commit: `95f0cd5` (`feat(worker): Run tasks concurrently`).
 - [x] **Medium: Add dead-letter inspection and audited retry**
   - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./internal/queue ./internal/controlplane ./internal/api` — PASS; bounded NATS dead-letter publication, redelivery, and audited retry paths pass.
   - Commit: `1d25561`.
