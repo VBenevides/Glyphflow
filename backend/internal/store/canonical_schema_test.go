@@ -47,6 +47,22 @@ func TestRunnerPendingStateMigration(t *testing.T) {
 	}
 }
 
+func TestRunnerCapacityDefaultMigration(t *testing.T) {
+	migrations, err := LoadMigrations(filepath.Join("..", "..", "migrations"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var capacityMigration Migration
+	for _, migration := range migrations {
+		if migration.Name == "runner_capacity_default" {
+			capacityMigration = migration
+		}
+	}
+	if capacityMigration.Version != 10 || !strings.Contains(strings.ToLower(capacityMigration.SQL), "alter table runners alter column capacity set default 10") {
+		t.Fatalf("runner capacity migration = %#v", capacityMigration)
+	}
+}
+
 func TestGlobalVariableMigration(t *testing.T) {
 	migrations, err := LoadMigrations(filepath.Join("..", "..", "migrations"))
 	if err != nil {

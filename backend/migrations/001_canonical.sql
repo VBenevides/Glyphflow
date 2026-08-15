@@ -149,7 +149,7 @@ CREATE TABLE runners (
     hostname text NOT NULL DEFAULT '',
     desired_state text NOT NULL DEFAULT 'ENABLED' CHECK (desired_state IN ('ENABLED', 'DRAINING', 'DISABLED')),
     observed_state text NOT NULL DEFAULT 'OFFLINE' CHECK (observed_state IN ('ONLINE', 'OFFLINE', 'REVOKED')),
-    capacity integer NOT NULL DEFAULT 10 CHECK (capacity > 0),
+    capacity integer NOT NULL DEFAULT 1 CHECK (capacity > 0),
     active_count integer NOT NULL DEFAULT 0 CHECK (active_count >= 0),
     capabilities jsonb NOT NULL DEFAULT '{}'::jsonb,
     last_seen_at timestamptz,
