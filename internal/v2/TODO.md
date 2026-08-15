@@ -106,6 +106,9 @@ All items below have runnable test evidence.
 - [x] **High: Add restart acceptance coverage**
   - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test -tags=integration ./internal/integration` — PASS; external PostgreSQL/TLS NATS execution is skipped without its variables.
   - Commit: `1d25561`.
+- [x] **Low: Print the embedded backend version at startup**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test -race ./...` and `GOCACHE=/tmp/glyphflow-gocache go vet ./...` — PASS; `backend/VERSION` is embedded and printed by control plane and worker startup.
+  - Commit: `7fd4db2` (`feat(controlplane): Print embedded backend version`).
 - [x] **Medium: Add global environment variables**
   - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./internal/platform ./internal/api ./internal/store` and `cd frontend && npm test` — PASS.
   - Commit: `1268611` (`feat(controlplane): Add global environment variables`) and `1d25561`.
