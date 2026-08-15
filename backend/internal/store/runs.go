@@ -436,37 +436,44 @@ func (s *RunStore) ReconcileStaleCancellations(ctx context.Context, cutoff time.
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
-	reportedAt := time.Now().UTC()
+	type staleCancellation struct {
+		attemptID, runID, runnerID string
+		lastSequence               int64
+	}
+	candidates := make([]staleCancellation, 0, 100)
 	for rows.Next() {
-		var attemptID, runID, runnerID string
-		var lastSequence int64
-		if err := rows.Scan(&attemptID, &runID, &runnerID, &lastSequence); err != nil {
+		var candidate staleCancellation
+		if err := rows.Scan(&candidate.attemptID, &candidate.runID, &candidate.runnerID, &candidate.lastSequence); err != nil {
 			return err
 		}
-		sequence := lastSequence + 1
+		candidates = append(candidates, candidate)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
+	reportedAt := time.Now().UTC()
+	for _, candidate := range candidates {
+		sequence := candidate.lastSequence + 1
 		if sequence < 3 {
 			sequence = 3
 		}
 		payload := []byte(`{"result":"","error":"cancellation could not be confirmed before timeout"}`)
-		if _, err := tx.Exec(ctx, `INSERT INTO run_events (event_id, execution_attempt_id, state_sequence, event_kind, reported_at, payload) VALUES ($1, $2, $3, 'unknown', $4, $5::jsonb)`, "cancellation-timeout:"+attemptID, attemptID, sequence, reportedAt, payload); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO run_events (event_id, execution_attempt_id, state_sequence, event_kind, reported_at, payload) VALUES ($1, $2, $3, 'unknown', $4, $5::jsonb)`, "cancellation-timeout:"+candidate.attemptID, candidate.attemptID, sequence, reportedAt, payload); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `UPDATE execution_attempts SET state = 'UNKNOWN', finished_at = COALESCE(finished_at, $2), termination_reason = 'cancellation could not be confirmed', last_applied_state_sequence = $3, state_version = state_version + 1, updated_at = now() WHERE id = $1`, attemptID, reportedAt, sequence); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE execution_attempts SET state = 'UNKNOWN', finished_at = COALESCE(finished_at, $2), termination_reason = 'cancellation could not be confirmed', last_applied_state_sequence = $3, state_version = state_version + 1, updated_at = now() WHERE id = $1`, candidate.attemptID, reportedAt, sequence); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `UPDATE runs SET state = 'UNKNOWN', retry_not_before = NULL, state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state = 'CANCELLING'`, runID); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE runs SET state = 'UNKNOWN', retry_not_before = NULL, state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state = 'CANCELLING'`, candidate.runID); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `UPDATE runners SET active_count = GREATEST(active_count - 1, 0), updated_at = now() WHERE id = $1 AND active_count > 0`, runnerID); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE runners SET active_count = GREATEST(active_count - 1, 0), updated_at = now() WHERE id = $1 AND active_count > 0`, candidate.runnerID); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `UPDATE resource_leases SET state = 'RELEASED', released_at = now() WHERE execution_attempt_id = $1 AND state = 'ACTIVE'`, attemptID); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE resource_leases SET state = 'RELEASED', released_at = now() WHERE execution_attempt_id = $1 AND state = 'ACTIVE'`, candidate.attemptID); err != nil {
 			return err
 		}
-	}
-	if err := rows.Err(); err != nil {
-		return err
 	}
 	return tx.Commit(ctx)
 }
