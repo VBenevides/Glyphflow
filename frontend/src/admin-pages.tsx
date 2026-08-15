@@ -88,13 +88,13 @@ export function RoleManagementPage() {
   const remove = async (role: RoleDefinition) => { await api.delete(`/api/v1/admin/roles/${encodeURIComponent(role.id)}`); await query.refetch() }
   return <main className="gf-content"><PageHeader title="Roles and permissions" description="Seeded roles are immutable. Custom roles select from the application permission catalog." action={manage && <Button onClick={() => setEditing(null)}>Create role</Button>} />
     {editing !== undefined && <section className="gf-card-panel"><h2>{editing ? `Edit ${editing.name}` : 'New custom role'}</h2><RoleEditor role={editing ?? undefined} onDone={refresh} /></section>}
-    <QueryState query={query} empty="No roles are configured.">{(roles) => roles.length ? <DataTable caption="Roles" rows={roles} columns={[
+    <QueryState query={query} empty="No roles are configured.">{(roles) => roles.length ? <div className="gf-role-table"><DataTable caption="Roles" rows={roles} columns={[
       { key: 'name', label: 'Role', render: (role) => <strong>{role.name}</strong> },
       { key: 'system', label: 'Source', render: (role) => <StatusPill status={role.system ? 'system' : 'custom'} /> },
       { key: 'permissions', label: 'Permissions', render: (role) => <InlinePills values={role.permissions} /> },
-      { key: 'assignedUsers', label: 'Affected users', render: (role) => Array.isArray(role.assignedUsers) ? role.assignedUsers.length : role.assignedUsers ?? 0 },
-      { key: 'actions', label: 'Actions', render: (role) => manage && !role.system && <div className="gf-dialog-actions"><Button variant="secondary" onClick={() => setEditing(role)}>Edit</Button><DangerousAction label="Delete" warning={`Review ${Array.isArray(role.assignedUsers) ? role.assignedUsers.length : role.assignedUsers ?? 0} affected users before deleting this role.`} onConfirm={() => remove(role)} /></div> },
-    ]} /> : <EmptyState title="No roles">Seed or create a role before assigning access.</EmptyState>}</QueryState>
+      { key: 'assignedUsers', label: 'Affected users', render: (role) => role.assignedUsers ?? 0 },
+      { key: 'actions', label: 'Actions', render: (role) => manage && !role.system && <div className="gf-dialog-actions"><Button variant="secondary" onClick={() => setEditing(role)}>Edit</Button><DangerousAction label="Delete" warning={`Review ${role.assignedUsers ?? 0} affected users before deleting this role.`} onConfirm={() => remove(role)} /></div> },
+    ]} /></div> : <EmptyState title="No roles">Seed or create a role before assigning access.</EmptyState>}</QueryState>
   </main>
 }
 

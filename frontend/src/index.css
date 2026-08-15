@@ -324,6 +324,9 @@ body { background-image: none; }
 .gf-permission-grid label { display: inline-flex; align-items: center; gap: 0.35rem; min-width: 0; padding: 0.35rem 0.5rem; color: var(--gf-muted); background: var(--gf-surface); border: 1px solid var(--gf-border); border-radius: 0.4rem; font-size: 0.8rem; overflow-wrap: anywhere; }
 .gf-pill-list { display: flex; flex-wrap: wrap; gap: 0.3rem; }
 .gf-inline-pill { display: inline-flex; padding: 0.2rem 0.45rem; color: var(--gf-muted); background: var(--gf-surface); border: 1px solid var(--gf-border); border-radius: 0.35rem; font-size: 0.75rem; }
+.gf-role-table .gf-table th:nth-child(1), .gf-role-table .gf-table td:nth-child(1) { min-width: 8rem; }
+.gf-role-table .gf-table th:nth-child(2), .gf-role-table .gf-table td:nth-child(2) { min-width: 7rem; }
+.gf-role-table .gf-table th:nth-child(3), .gf-role-table .gf-table td:nth-child(3) { max-width: 34rem; }
 .gf-dialog { box-shadow: var(--gf-shadow); }
 .gf-dialog-actions { flex-wrap: wrap; }
 .gf-theme-choices { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.4rem; margin: 1rem 0; padding: 0.25rem; background: var(--gf-surface); border: 1px solid var(--gf-border); border-radius: 0.55rem; }
