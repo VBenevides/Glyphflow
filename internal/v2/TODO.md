@@ -34,6 +34,9 @@ All items below have runnable test evidence.
 
 ## Bugs
 
+- [x] **High: Keep waiting runs dispatchable with JSON environment values**
+  - Test: `GOCACHE=/tmp/glyphflow-gocache DATABASE_URL=<PostgreSQL URL> go test ./internal/store -run TestRunRepositoryClaimsWaitingRunWithStoredEnvironment -count=1` — PASS; numeric JSON environment values are normalized and the run claims to `RUNNING`.
+  - Commit: `b791d94`.
 - [x] **Critical: Implement real cancellation**
   - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test -race ./internal/api ./internal/worker ./internal/store` — PASS; cancellation is durable, signed, attempt-specific, and completion-race safe.
   - Commit: `1d25561`.
