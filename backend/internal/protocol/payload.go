@@ -56,6 +56,7 @@ type EventPayload struct {
 	Result          string           `json:"result,omitempty"`
 	Metrics         map[string]int64 `json:"metrics,omitempty"`
 	OutputDigest    string           `json:"output_digest,omitempty"`
+	ExitCode        *int             `json:"exit_code,omitempty"`
 	Error           string           `json:"error,omitempty"`
 	RunnerSessionID string           `json:"runner_session_id,omitempty"`
 	FencingToken    uint64           `json:"fencing_token,omitempty"`

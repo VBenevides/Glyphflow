@@ -21,25 +21,31 @@ type Executor struct {
 }
 
 func (e Executor) Run(ctx context.Context, args []string, dir string) ([]byte, error) {
-	return e.RunStreaming(ctx, args, dir, 0, nil)
+	output, _, err := e.RunStreamingWithExitCode(ctx, args, dir, 0, nil)
+	return output, err
 }
 
 func (e Executor) RunStreaming(ctx context.Context, args []string, dir string, flushInterval time.Duration, onChunk func(string, []byte) error) ([]byte, error) {
+	output, _, err := e.RunStreamingWithExitCode(ctx, args, dir, flushInterval, onChunk)
+	return output, err
+}
+
+func (e Executor) RunStreamingWithExitCode(ctx context.Context, args []string, dir string, flushInterval time.Duration, onChunk func(string, []byte) error) ([]byte, *int, error) {
 	if len(args) == 0 {
-		return nil, &ValidationError{"command is required"}
+		return nil, nil, &ValidationError{"command is required"}
 	}
 	if _, ok := ctx.Deadline(); !ok {
-		return nil, &ValidationError{"execution deadline is required"}
+		return nil, nil, &ValidationError{"execution deadline is required"}
 	}
 	if e.MaxOutputBytes <= 0 {
-		return nil, &ValidationError{"maximum output bytes must be greater than zero"}
+		return nil, nil, &ValidationError{"maximum output bytes must be greater than zero"}
 	}
 	if len(e.AllowedCommands) > 0 && !e.AllowedCommands[args[0]] {
-		return nil, &ValidationError{"executable is not allowed"}
+		return nil, nil, &ValidationError{"executable is not allowed"}
 	}
 	clean, err := filepath.Abs(dir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	allowed := false
 	for _, root := range e.Roots {
@@ -49,7 +55,7 @@ func (e Executor) RunStreaming(ctx context.Context, args []string, dir string, f
 		}
 	}
 	if !allowed {
-		return nil, &ValidationError{"working directory is outside configured roots"}
+		return nil, nil, &ValidationError{"working directory is outside configured roots"}
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -61,7 +67,7 @@ func (e Executor) RunStreaming(ctx context.Context, args []string, dir string, f
 	cmd.Stdout = executorStreamWriter{stream: "stdout", chunks: chunks, stopped: stopped}
 	cmd.Stderr = executorStreamWriter{stream: "stderr", chunks: chunks, stopped: stopped}
 	if err := cmd.Start(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	wait := make(chan error, 1)
 	go func() { wait <- cmd.Wait() }()
@@ -124,6 +130,11 @@ func (e Executor) RunStreaming(ctx context.Context, args []string, dir string, f
 		case <-tick:
 			flushAll()
 		case err := <-wait:
+			var exitCode *int
+			if cmd.ProcessState != nil {
+				code := cmd.ProcessState.ExitCode()
+				exitCode = &code
+			}
 			for {
 				select {
 				case chunk := <-chunks:
@@ -131,12 +142,12 @@ func (e Executor) RunStreaming(ctx context.Context, args []string, dir string, f
 				default:
 					flushAll()
 					if callbackErr != nil {
-						return output.Bytes(), callbackErr
+						return output.Bytes(), exitCode, callbackErr
 					}
 					if output.exceeded {
-						return output.Bytes(), ErrOutputLimit
+						return output.Bytes(), exitCode, ErrOutputLimit
 					}
-					return output.Bytes(), err
+					return output.Bytes(), exitCode, err
 				}
 			}
 		}

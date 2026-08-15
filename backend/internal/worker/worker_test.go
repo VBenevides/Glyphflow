@@ -67,3 +67,16 @@ func TestExecutorStreamsOutputBeforeProcessExit(t *testing.T) {
 		t.Fatalf("streamed chunks = %v", chunks)
 	}
 }
+
+func TestExecutorReturnsNonZeroExitCodeAsFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sh is not a Windows command")
+	}
+	executor := Executor{Roots: []string{"/tmp"}, AllowedCommands: map[string]bool{"sh": true}, MaxOutputBytes: 1024}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, exitCode, err := executor.RunStreamingWithExitCode(ctx, []string{"sh", "-c", "exit 7"}, "/tmp", 0, nil)
+	if err == nil || exitCode == nil || *exitCode != 7 {
+		t.Fatalf("exit code = %v, err = %v", exitCode, err)
+	}
+}

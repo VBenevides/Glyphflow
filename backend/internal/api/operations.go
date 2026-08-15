@@ -15,14 +15,15 @@ import (
 )
 
 type TaskRecord struct {
-	ID             string   `json:"id"`
-	Name           string   `json:"name"`
-	Enabled        bool     `json:"enabled"`
-	ActiveVersion  int      `json:"activeVersion"`
-	Pool           string   `json:"pool"`
-	PinnedRunner   string   `json:"pinnedRunner,omitempty"`
-	Command        []string `json:"command,omitempty"`
-	TimeoutSeconds int      `json:"timeoutSeconds"`
+	ID             string     `json:"id"`
+	Name           string     `json:"name"`
+	Enabled        bool       `json:"enabled"`
+	ActiveVersion  int        `json:"activeVersion"`
+	Pool           string     `json:"pool"`
+	PinnedRunner   string     `json:"pinnedRunner,omitempty"`
+	Command        []string   `json:"command,omitempty"`
+	TimeoutSeconds int        `json:"timeoutSeconds"`
+	LatestRun      *RunRecord `json:"latestRun,omitempty"`
 }
 
 type ScheduleRecord struct {
@@ -72,7 +73,12 @@ func (o *OperationsService) SetScheduleRepository(repository store.ScheduleRepos
 }
 
 func taskRecordFromStore(task store.TaskRecord) TaskRecord {
-	return TaskRecord{ID: task.ID, Name: task.Name, Enabled: task.Enabled, ActiveVersion: task.ActiveVersion, Pool: task.RunnerPoolID, PinnedRunner: task.PinnedRunnerID, Command: append([]string(nil), task.Command...), TimeoutSeconds: task.TimeoutSeconds}
+	var latestRun *RunRecord
+	if task.LatestRun != nil {
+		mapped := runRecordFromStore(*task.LatestRun)
+		latestRun = &mapped
+	}
+	return TaskRecord{ID: task.ID, Name: task.Name, Enabled: task.Enabled, ActiveVersion: task.ActiveVersion, Pool: task.RunnerPoolID, PinnedRunner: task.PinnedRunnerID, Command: append([]string(nil), task.Command...), TimeoutSeconds: task.TimeoutSeconds, LatestRun: latestRun}
 }
 
 type taskInput struct {

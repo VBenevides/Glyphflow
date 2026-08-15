@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"errors"
+	"fmt"
 	"strconv"
 	"time"
 
@@ -53,20 +54,21 @@ func (r OrderRuntime) Handle(ctx context.Context, message queue.Message) error {
 	if err := r.Store.ClaimOrder(payload.OrderID, r.ExecutorBootID, r.ProcessID); err != nil {
 		return nil
 	}
-	if err := r.publishEvent(ctx, payload, protocol.EventAccepted, 1, "", ""); err != nil {
+	if err := r.publishEvent(ctx, payload, protocol.EventAccepted, 1, "", "", nil); err != nil {
 		return err
 	}
 	if err := r.Store.MarkProcessStarted(payload.OrderID); err != nil {
 		return err
 	}
-	if err := r.publishEvent(ctx, payload, protocol.EventStarted, 2, "", ""); err != nil {
+	fmt.Printf("%s - Started Run %q\n", time.Now().UTC().Format("2006-01-02 15:04 MST"), payload.RunID)
+	if err := r.publishEvent(ctx, payload, protocol.EventStarted, 2, "", "", nil); err != nil {
 		return err
 	}
 	executionContext, cancel := context.WithTimeout(ctx, time.Duration(payload.TimeoutSeconds)*time.Second)
 	defer cancel()
 	logSequences := map[string]uint64{"stdout": 0, "stderr": 0}
 	streamed := false
-	output, runErr := r.Executor.RunStreaming(executionContext, payload.Command, payload.WorkingDir, logFlushInterval, func(stream string, chunk []byte) error {
+	output, exitCode, runErr := r.Executor.RunStreamingWithExitCode(executionContext, payload.Command, payload.WorkingDir, logFlushInterval, func(stream string, chunk []byte) error {
 		if stream != "stdout" && stream != "stderr" {
 			return errors.New("executor returned an invalid output stream")
 		}
@@ -76,7 +78,7 @@ func (r OrderRuntime) Handle(ctx context.Context, message queue.Message) error {
 				size = maxEventLogChunkBytes
 			}
 			logSequences[stream]++
-			if err := r.persistEvent(payload, protocol.EventLogChunk, logSequences[stream], string(chunk[:size]), "", stream); err != nil {
+			if err := r.persistEvent(payload, protocol.EventLogChunk, logSequences[stream], string(chunk[:size]), "", nil, stream); err != nil {
 				return err
 			}
 			_ = PublishPendingEvents(ctx, r.Store, r.Publisher, r.RunnerID)
@@ -85,6 +87,18 @@ func (r OrderRuntime) Handle(ctx context.Context, message queue.Message) error {
 		}
 		return nil
 	})
+	if exitCode != nil && *exitCode != 0 && runErr == nil {
+		runErr = fmt.Errorf("process exited with code %d", *exitCode)
+	}
+	if exitCode == nil && runErr != nil {
+		genericError := 1
+		exitCode = &genericError
+	}
+	finishedCode := -1
+	if exitCode != nil {
+		finishedCode = *exitCode
+	}
+	fmt.Printf("%s - Finished Run %q - %d\n", time.Now().UTC().Format("2006-01-02 15:04 MST"), payload.RunID, finishedCode)
 	eventType := protocol.EventCompleted
 	if runErr != nil {
 		eventType = protocol.EventFailed
@@ -97,7 +111,7 @@ func (r OrderRuntime) Handle(ctx context.Context, message queue.Message) error {
 	if !streamed {
 		terminalOutput = string(output)
 	}
-	if err := r.publishEvent(ctx, payload, eventType, 3, terminalOutput, errorText); err != nil {
+	if err := r.publishEvent(ctx, payload, eventType, 3, terminalOutput, errorText, exitCode); err != nil {
 		return err
 	}
 	state := "COMPLETED"
@@ -107,8 +121,8 @@ func (r OrderRuntime) Handle(ctx context.Context, message queue.Message) error {
 	return r.Store.FinishOrder(payload.OrderID, state, errorText)
 }
 
-func (r OrderRuntime) publishEvent(ctx context.Context, order protocol.OrderPayload, eventType protocol.EventType, sequence uint64, result, eventError string) error {
-	if err := r.persistEvent(order, eventType, sequence, result, eventError, "state"); err != nil {
+func (r OrderRuntime) publishEvent(ctx context.Context, order protocol.OrderPayload, eventType protocol.EventType, sequence uint64, result, eventError string, exitCode *int) error {
+	if err := r.persistEvent(order, eventType, sequence, result, eventError, exitCode, "state"); err != nil {
 		return err
 	}
 	// The event is durable locally; the background publisher retries transient broker failures.
@@ -116,12 +130,12 @@ func (r OrderRuntime) publishEvent(ctx context.Context, order protocol.OrderPayl
 	return nil
 }
 
-func (r OrderRuntime) persistEvent(order protocol.OrderPayload, eventType protocol.EventType, sequence uint64, result, eventError, eventChannel string) error {
+func (r OrderRuntime) persistEvent(order protocol.OrderPayload, eventType protocol.EventType, sequence uint64, result, eventError string, exitCode *int, eventChannel string) error {
 	eventID := order.OrderID + ":" + string(eventType)
 	if eventType == protocol.EventLogChunk {
 		eventID = order.OrderID + ":" + eventChannel + ":" + strconv.FormatUint(sequence, 10)
 	}
-	event := protocol.EventPayload{Version: protocol.ProtocolVersion, EventID: eventID, OrderID: order.OrderID, RunID: order.RunID, TaskID: order.TaskID, Attempt: order.Attempt, LeaseToken: order.LeaseToken, RunnerID: order.RunnerID, Sequence: sequence, ObservedAt: time.Now().UTC(), Type: eventType, Result: result, Error: eventError, RunnerSessionID: order.RunnerSessionID, FencingToken: order.FencingToken, EventChannel: eventChannel}
+	event := protocol.EventPayload{Version: protocol.ProtocolVersion, EventID: eventID, OrderID: order.OrderID, RunID: order.RunID, TaskID: order.TaskID, Attempt: order.Attempt, LeaseToken: order.LeaseToken, RunnerID: order.RunnerID, Sequence: sequence, ObservedAt: time.Now().UTC(), Type: eventType, Result: result, Error: eventError, ExitCode: exitCode, RunnerSessionID: order.RunnerSessionID, FencingToken: order.FencingToken, EventChannel: eventChannel}
 	payload, err := protocol.EncodeEventPayload(event)
 	if err != nil {
 		return err

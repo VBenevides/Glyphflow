@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -83,6 +84,31 @@ func TestAuditFailureStoresErrorAndTraceback(t *testing.T) {
 	output := event.Output.(map[string]any)
 	if output["error"] != "database enrollment constraint failed" || !strings.Contains(event.Traceback, "database enrollment constraint failed") || !strings.Contains(event.Traceback, "recordRequestError") {
 		t.Fatalf("audit error details missing: %#v", event)
+	}
+}
+
+func TestAuditCapturesEndpointMethodAndBody(t *testing.T) {
+	audit := NewAuditQueryService()
+	server := Server{Auth: func(*http.Request) (Claims, bool) { return Claims{UserID: "user-1"}, true }, Permissions: func(Claims) map[string]bool { return map[string]bool{"runners.manage": true} }, AuditQuery: audit}
+	handler := server.require("runners.manage", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		writeJSON(w, http.StatusOK, body)
+	}))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/tasks", bytes.NewBufferString(`{"name":"Task","token":"secret"}`)))
+	if len(audit.events) != 1 {
+		t.Fatalf("audit events = %d", len(audit.events))
+	}
+	input, ok := audit.events[0].Input.(map[string]any)
+	if !ok || input["endpoint"] != "/api/v1/tasks" || input["method"] != http.MethodPost {
+		t.Fatalf("audit input metadata = %#v", audit.events[0].Input)
+	}
+	body, ok := input["body"].(map[string]any)
+	if !ok || body["name"] != "Task" || body["token"] != "[REDACTED]" {
+		t.Fatalf("audit input body = %#v", input["body"])
 	}
 }
 

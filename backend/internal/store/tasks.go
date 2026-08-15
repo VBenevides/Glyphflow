@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -39,6 +40,7 @@ type TaskRecord struct {
 	MaxOutputBytes                                           int64
 	WorkingDirectory, ExecutionSpecDigest                    string
 	Command                                                  []string
+	LatestRun                                                *RunRecord
 }
 
 type TaskRepository interface {
@@ -78,18 +80,25 @@ func (s *TaskStore) Find(ctx context.Context, id string) (TaskRecord, bool, erro
 	return item, err == nil, err
 }
 
-const taskQuery = `SELECT t.id, COALESCE(t.current_version_id, ''), t.name, t.enabled, COALESCE(v.version, 0), COALESCE(v.runner_pool_id, ''), COALESCE(v.pinned_runner_id, ''), COALESCE(v.command, '[]'::jsonb), COALESCE(v.timeout_seconds, 0), COALESCE(v.max_output_bytes, 0), COALESCE(v.working_directory, '.'), COALESCE(v.execution_spec_digest, '') FROM tasks t LEFT JOIN task_versions v ON v.id = t.current_version_id`
+const taskQuery = `SELECT t.id, COALESCE(t.current_version_id, ''), t.name, t.enabled, COALESCE(v.version, 0), COALESCE(v.runner_pool_id, ''), COALESCE(v.pinned_runner_id, ''), COALESCE(v.command, '[]'::jsonb), COALESCE(v.timeout_seconds, 0), COALESCE(v.max_output_bytes, 0), COALESCE(v.working_directory, '.'), COALESCE(v.execution_spec_digest, ''), COALESCE(latest_run.id, ''), COALESCE(latest_run.task_id, ''), COALESCE(latest_run.task_name, ''), COALESCE(latest_run.state, ''), COALESCE(latest_run.attempt, 0), latest_run.exit_code, COALESCE(latest_run.exit_code_meaning, ''), COALESCE(latest_run.runner, ''), COALESCE(latest_run.trigger_type, ''), COALESCE(latest_run.scheduled_for, 'epoch'::timestamptz) FROM tasks t LEFT JOIN task_versions v ON v.id = t.current_version_id LEFT JOIN LATERAL (SELECT r.id, r.task_id, t_run.name AS task_name, r.state, r.trigger_type, r.scheduled_for, COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = r.id), 1) AS attempt, latest_attempt.runner_id AS runner, latest_attempt.exit_code, COALESCE(ec.meaning, '') AS exit_code_meaning FROM runs r JOIN tasks t_run ON t_run.id = r.task_id LEFT JOIN LATERAL (SELECT runner_id, exit_code FROM execution_attempts WHERE run_id = r.id ORDER BY attempt_number DESC LIMIT 1) latest_attempt ON true LEFT JOIN exit_code ec ON ec.code = latest_attempt.exit_code WHERE r.task_id = t.id ORDER BY r.created_at DESC, r.id DESC LIMIT 1) latest_run ON true`
 
 type rowScanner interface{ Scan(...any) error }
 
 func scanTask(row rowScanner, _ ...string) (TaskRecord, error) {
 	var item TaskRecord
 	var command []byte
-	if err := row.Scan(&item.ID, &item.CurrentVersionID, &item.Name, &item.Enabled, &item.ActiveVersion, &item.RunnerPoolID, &item.PinnedRunnerID, &command, &item.TimeoutSeconds, &item.MaxOutputBytes, &item.WorkingDirectory, &item.ExecutionSpecDigest); err != nil {
+	var latestRunID, latestTaskID, latestTaskName, latestState, latestMeaning, latestRunner, latestTrigger string
+	var latestAttempt int
+	var latestExitCode *int
+	var latestScheduledFor time.Time
+	if err := row.Scan(&item.ID, &item.CurrentVersionID, &item.Name, &item.Enabled, &item.ActiveVersion, &item.RunnerPoolID, &item.PinnedRunnerID, &command, &item.TimeoutSeconds, &item.MaxOutputBytes, &item.WorkingDirectory, &item.ExecutionSpecDigest, &latestRunID, &latestTaskID, &latestTaskName, &latestState, &latestAttempt, &latestExitCode, &latestMeaning, &latestRunner, &latestTrigger, &latestScheduledFor); err != nil {
 		return TaskRecord{}, err
 	}
 	if err := json.Unmarshal(command, &item.Command); err != nil {
 		return TaskRecord{}, err
+	}
+	if latestRunID != "" {
+		item.LatestRun = &RunRecord{ID: latestRunID, TaskID: latestTaskID, TaskName: latestTaskName, State: latestState, Attempt: latestAttempt, ExitCode: latestExitCode, ExitCodeMeaning: latestMeaning, Runner: latestRunner, TriggerType: latestTrigger, ScheduledFor: latestScheduledFor}
 	}
 	return item, nil
 }

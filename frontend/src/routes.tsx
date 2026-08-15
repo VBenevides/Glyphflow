@@ -15,7 +15,7 @@ import { RunnerPoolsPage } from './runner-pools-page'
 import { EnrollmentPage } from './enrollment-page'
 import { ResourceDetailPage, ResourceInventoryPage } from './resource-pages'
 import { AuditPage } from './audit-page'
-import { AuthenticationSettingsPage, RoleManagementPage, SsoSettingsPage, UserManagementPage } from './admin-pages'
+import { AuthenticationSettingsPage, ExecutionStatusPage, RoleManagementPage, SsoSettingsPage, UserManagementPage } from './admin-pages'
 import { AccountPage } from './account-pages'
 import { UserDetailsPage } from './user-details-page'
 import { useParams } from 'react-router-dom'
@@ -63,11 +63,12 @@ export function AppRoutes() {
     <Route path="/admin/roles" element={<PermissionRoute permission="roles.read|roles.manage"><RoleManagementPage /></PermissionRoute>} />
     <Route path="/admin/sso" element={<PermissionRoute permission="sso.read|sso.manage"><SsoSettingsPage /></PermissionRoute>} />
     <Route path="/admin/auth" element={<PermissionRoute permission="auth.settings.manage"><AuthenticationSettingsPage /></PermissionRoute>} />
+    <Route path="/admin/execution-status" element={<PermissionRoute permission="auth.settings.manage"><ExecutionStatusPage /></PermissionRoute>} />
     <Route path="/account" element={<AccountPage />} />
     <Route path="/account/password" element={<AccountPage />} />
     <Route path="/account/identities" element={<AccountPage />} />
     <Route path="/account/sessions" element={<AccountPage />} />
-    {ROUTES.filter((route) => !['/', '/tasks', '/schedules', '/runs', '/runners', '/runners/pools', '/resources', '/audit', '/admin/users', '/admin/roles', '/admin/sso', '/admin/auth'].includes(route.path)).map((route) => <Route key={route.path} path={route.path} element={<PermissionRoute permission={route.permission}><Placeholder title={route.label} /></PermissionRoute>} />)}
+    {ROUTES.filter((route) => !['/', '/tasks', '/schedules', '/runs', '/runners', '/runners/pools', '/resources', '/audit', '/admin/users', '/admin/roles', '/admin/sso', '/admin/auth', '/admin/execution-status'].includes(route.path)).map((route) => <Route key={route.path} path={route.path} element={<PermissionRoute permission={route.permission}><Placeholder title={route.label} /></PermissionRoute>} />)}
     <Route path="/login" element={<Navigate to="/" replace />} />
     <Route path="*" element={<NotFoundPage />} />
   </Routes></Shell>

@@ -47,6 +47,14 @@ func TestResourceRepositoryFencesTransactionalLeases(t *testing.T) {
 	if err := NewRunRepository(pool).CreateAttempt(ctx, ExecutionAttemptDefinition{ID: attemptID, RunID: runID, RunnerID: runnerID, RunnerSessionID: sessionID, AttemptNumber: 1, LeaseToken: "attempt-lease-" + suffix, FencingToken: 1, LeaseNotAfter: time.Now().Add(time.Minute), ExecutionSpecDigest: "digest"}); err != nil {
 		t.Fatal(err)
 	}
+	run, found, err := NewRunRepository(pool).Find(ctx, runID)
+	if err != nil || !found || run.Runner != runnerID {
+		t.Fatalf("run projection = %#v, found=%t, err=%v", run, found, err)
+	}
+	task, found, err := NewTaskRepository(pool).Find(ctx, taskID)
+	if err != nil || !found || task.LatestRun == nil || task.LatestRun.ID != runID || task.LatestRun.TriggerType != "MANUAL" {
+		t.Fatalf("task latest run projection = %#v, found=%t, err=%v", task.LatestRun, found, err)
+	}
 	resources := NewResourceRepository(pool)
 	if err := resources.Create(ctx, resourceID, "Resource", "exclusive"); err != nil {
 		t.Fatal(err)

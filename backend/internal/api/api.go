@@ -1,14 +1,17 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"runtime/debug"
 	"strings"
 	"time"
 
 	"github.com/VBenevides/Glyphflow/backend/internal/platform"
+	"github.com/VBenevides/Glyphflow/backend/internal/store"
 )
 
 type Claims struct {
@@ -22,6 +25,7 @@ type requestAuditContextKey struct{}
 type Authenticator func(*http.Request) (Claims, bool)
 
 type requestAuditDetails struct {
+	Input     map[string]any
 	Error     string
 	Traceback string
 }
@@ -68,6 +72,7 @@ type Server struct {
 	Runs            *RunService
 	Infrastructure  *InfrastructureService
 	AuditQuery      *AuditQueryService
+	ExitCodes       store.ExitCodeRepository
 }
 
 func (s Server) Handler() http.Handler {
@@ -104,6 +109,7 @@ func (s Server) Handler() http.Handler {
 	s.passwordRoutes(mux)
 	s.oidcRoutes(mux)
 	s.authAdminRoutes(mux)
+	s.executionStatusRoutes(mux)
 	s.roleRoutes(mux)
 	s.currentUserRoutes(mux)
 	mux.HandleFunc("/api/v1/healthz", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "ok"}) })
@@ -258,6 +264,7 @@ func (s Server) require(role string, next http.Handler) http.Handler {
 			return
 		}
 		auditDetails := &requestAuditDetails{}
+		auditDetails.Input = captureAuditInput(r)
 		ctx := context.WithValue(r.Context(), requestClaimsContextKey{}, claims)
 		ctx = context.WithValue(ctx, requestAuditContextKey{}, auditDetails)
 		r = r.WithContext(ctx)
@@ -283,10 +290,31 @@ func (s Server) require(role string, next http.Handler) http.Handler {
 					output["error"] = auditDetails.Error
 					traceback = auditDetails.Error + "\n" + auditDetails.Traceback
 				}
-				s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: result, CorrelationID: r.Header.Get("X-Correlation-ID"), Input: map[string]any{"method": r.Method, "endpoint": r.URL.Path}, Output: output, Traceback: traceback})
+				s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: result, CorrelationID: r.Header.Get("X-Correlation-ID"), Input: auditDetails.Input, Output: output, Traceback: traceback})
 			}
 		}
 	})
+}
+
+func captureAuditInput(r *http.Request) map[string]any {
+	var body any
+	if r.Body != nil {
+		raw, err := io.ReadAll(r.Body)
+		r.Body = io.NopCloser(bytes.NewReader(raw))
+		if err == nil && len(bytes.TrimSpace(raw)) > 0 {
+			if json.Unmarshal(raw, &body) != nil {
+				body = string(raw)
+			}
+		}
+	}
+	return map[string]any{"endpoint": r.URL.Path, "method": r.Method, "body": body}
+}
+
+func auditInput(r *http.Request) map[string]any {
+	if details, ok := r.Context().Value(requestAuditContextKey{}).(*requestAuditDetails); ok && details.Input != nil {
+		return details.Input
+	}
+	return captureAuditInput(r)
 }
 
 type auditResponseWriter struct {

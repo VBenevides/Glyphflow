@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { api, type AuthSession, type OidcProvider, type Page, type RoleDefinition, type UserRecord } from './api'
+import { api, type AuthSession, type ExitCode, type OidcProvider, type Page, type RoleDefinition, type UserRecord } from './api'
 import { DangerousAction } from './actions'
 import { Button, DataTable, EmptyState, Input, PageHeader, Pagination, StatusPill } from './components'
 import { QueryState } from './query'
@@ -133,4 +133,32 @@ export function AuthenticationSettingsPage() {
   const defaultRole = defaultRoleId
   const setDefaultRole = setDefaultRoleId
   return <main className="gf-content"><PageHeader title="Authentication settings" description="Control password sign-in, registration, and the default role for new identities." /><section className="gf-card-panel"><div className="gf-editor-form"><label><input type="checkbox" checked={passwordLogin} onChange={(event) => setPasswordLogin(event.target.checked)} /> Enable password login</label><label><input type="checkbox" checked={registration} onChange={(event) => setRegistration(event.target.checked)} /> Allow password registration</label><label htmlFor="default-role">Default role<RoleSelect id="default-role" value={defaultRole} roles={rolesQuery.data} disabled={rolesQuery.isPending || rolesQuery.isError} onChange={setDefaultRole} /></label>{rolesQuery.isError && <small className="gf-form-error">Roles could not be loaded.</small>}{error && <p className="gf-form-error" role="alert">{error}</p>}{manage && <DangerousAction label="Save settings" warning="Changing login methods can lock out administrators. Verify that another working login method remains before saving." onConfirm={save} />}</div></section></main>
+}
+
+export function ExecutionStatusPage() {
+  const { permissions } = useAuth()
+  const manage = hasPermission(permissions, 'auth.settings.manage')
+  const query = useQuery({ queryKey: ['execution-status'], queryFn: ({ signal }) => api.get<ExitCode[]>('/api/v1/admin/execution-status', undefined, signal) })
+  const [editing, setEditing] = useState<ExitCode | null>(null)
+  const [creating, setCreating] = useState(false)
+  const [draft, setDraft] = useState({ code: '', meaning: '' })
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const formOpen = creating || editing !== null
+  const closeForm = () => { setCreating(false); setEditing(null); setDraft({ code: '', meaning: '' }); setError('') }
+  const create = () => { setCreating(true); setEditing(null); setDraft({ code: '', meaning: '' }); setError('') }
+  const edit = (item: ExitCode) => { setEditing(item); setCreating(false); setDraft({ code: String(item.code), meaning: item.meaning }); setError('') }
+  const save = async (event: FormEvent) => {
+    event.preventDefault(); setBusy(true); setError('')
+    try {
+      if (editing !== null) await api.put(`/api/v1/admin/execution-status/${encodeURIComponent(editing.code)}`, { code: Number(draft.code), meaning: draft.meaning })
+      else if (draft.code.trim() !== '' && Number.isInteger(Number(draft.code))) await api.post('/api/v1/admin/execution-status', { code: Number(draft.code), meaning: draft.meaning })
+      else throw new Error('Exit code must be an integer.')
+      closeForm(); await query.refetch()
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Exit code update failed') } finally { setBusy(false) }
+  }
+  const remove = async (item: ExitCode) => { setError(''); try { await api.delete(`/api/v1/admin/execution-status/${encodeURIComponent(item.code)}`); await query.refetch() } catch (cause) { setError(cause instanceof Error ? cause.message : 'Exit code deletion failed') } }
+  return <main className="gf-content"><PageHeader title="Execution Status" description="Exit codes reported by completed task processes." action={manage && !formOpen && <Button onClick={create}>Create exit code</Button>} />
+    {formOpen && <section className="gf-card-panel"><form className="gf-editor-form" onSubmit={save}><div className="gf-form-grid"><label>Exit Code<Input type="number" step="1" value={draft.code} onChange={(event) => setDraft({ ...draft, code: event.target.value })} required /></label><label>Meaning<Input value={draft.meaning} onChange={(event) => setDraft({ ...draft, meaning: event.target.value })} required /></label></div>{error && <p className="gf-form-error" role="alert">{error}</p>}<div className="gf-dialog-actions"><Button type="submit" busy={busy}>{editing !== null ? 'Save exit code' : 'Create exit code'}</Button><Button type="button" variant="ghost" onClick={closeForm}>Cancel</Button></div></form></section>}
+    <QueryState query={query} empty="No exit code meanings are configured.">{(items) => items.length ? <DataTable caption="Execution status" rows={items.map((item) => ({ ...item, id: item.code }))} columns={[{ key: 'code', label: 'Exit Code' }, { key: 'meaning', label: 'Meaning' }, { key: 'isSystem', label: 'Type', render: (item) => <StatusPill status={item.isSystem ? 'system' : 'custom'} /> }, { key: 'actions', label: 'Actions', render: (item) => !item.isSystem && manage && <div className="gf-dialog-actions"><Button variant="secondary" onClick={() => edit(item)}>Edit</Button><DangerousAction label="Delete" onConfirm={() => remove(item)} /></div> }]} /> : <EmptyState title="No execution statuses">Create an exit code meaning.</EmptyState>}</QueryState>{error && !formOpen && <p className="gf-form-error" role="alert">{error}</p>}</main>
 }

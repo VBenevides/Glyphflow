@@ -13,14 +13,16 @@ import (
 )
 
 type RunRecord struct {
-	ID           string `json:"id"`
-	TaskID       string `json:"taskId"`
-	TaskName     string `json:"taskName,omitempty"`
-	State        string `json:"state"`
-	Attempt      int    `json:"attempt"`
-	Runner       string `json:"runner,omitempty"`
-	Trigger      string `json:"trigger"`
-	ScheduledFor string `json:"scheduledFor,omitempty"`
+	ID              string `json:"id"`
+	TaskID          string `json:"taskId"`
+	TaskName        string `json:"taskName,omitempty"`
+	State           string `json:"state"`
+	Attempt         int    `json:"attempt"`
+	ExitCode        *int   `json:"exitCode,omitempty"`
+	ExitCodeMeaning string `json:"exitCodeMeaning"`
+	Runner          string `json:"runner,omitempty"`
+	Trigger         string `json:"trigger"`
+	ScheduledFor    string `json:"scheduledFor,omitempty"`
 }
 
 type LogChunk struct {
@@ -53,7 +55,7 @@ func runRecordFromStore(run store.RunRecord) RunRecord {
 	if !run.ScheduledFor.IsZero() {
 		scheduledFor = run.ScheduledFor.UTC().Format(time.RFC3339)
 	}
-	return RunRecord{ID: run.ID, TaskID: run.TaskID, TaskName: run.TaskName, State: run.State, Attempt: run.Attempt, Trigger: run.TriggerType, ScheduledFor: scheduledFor}
+	return RunRecord{ID: run.ID, TaskID: run.TaskID, TaskName: run.TaskName, State: run.State, Attempt: run.Attempt, ExitCode: run.ExitCode, ExitCodeMeaning: run.ExitCodeMeaning, Runner: run.Runner, Trigger: run.TriggerType, ScheduledFor: scheduledFor}
 }
 
 func (s *RunService) collection(w http.ResponseWriter, r *http.Request) {

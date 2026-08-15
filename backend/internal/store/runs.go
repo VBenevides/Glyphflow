@@ -22,7 +22,10 @@ type RunDefinition struct {
 
 type RunRecord struct {
 	ID, TaskID, TaskName, State, TriggerType string
+	Runner                                   string
 	Attempt                                  int
+	ExitCode                                 *int
+	ExitCodeMeaning                          string
 	ScheduledFor                             time.Time
 }
 
@@ -52,6 +55,7 @@ type RunEventRecord struct {
 
 type DispatchCandidate struct {
 	RunID, TaskID, TaskVersionID, AttemptID string
+	Pool                                    string
 	RunnerID, RunnerSessionID, LeaseToken   string
 	Command                                 []string
 	WorkingDirectory, ExecutionSpecDigest   string
@@ -69,6 +73,7 @@ type DispatchOutboxRecord struct {
 type RunEventInput struct {
 	EventID, OrderID, RunID, TaskID, RunnerID, RunnerSessionID, LeaseToken string
 	EventType, EventChannel, Subject, Error, Result                        string
+	ExitCode                                                               *int
 	Attempt, Sequence, FencingToken                                        int64
 	ReportedAt                                                             time.Time
 	Envelope                                                               []byte
@@ -95,7 +100,7 @@ const (
 
 func NewRunRepository(pool *pgxpool.Pool) *RunStore { return &RunStore{pool: pool} }
 
-const runQuery = `SELECT r.id, r.task_id, t.name, r.state, r.trigger_type, r.scheduled_for, COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = r.id), 1) FROM runs r JOIN tasks t ON t.id = r.task_id`
+const runQuery = `SELECT r.id, r.task_id, t.name, r.state, r.trigger_type, r.scheduled_for, COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = r.id), 1), COALESCE(latest.runner_id, ''), latest.exit_code, COALESCE(ec.meaning, '') FROM runs r JOIN tasks t ON t.id = r.task_id LEFT JOIN LATERAL (SELECT runner_id, exit_code FROM execution_attempts WHERE run_id = r.id ORDER BY attempt_number DESC LIMIT 1) latest ON true LEFT JOIN exit_code ec ON ec.code = latest.exit_code`
 
 func (s *RunStore) List(ctx context.Context) ([]RunRecord, error) {
 	rows, err := s.pool.Query(ctx, runQuery+` ORDER BY r.created_at DESC, r.id`)
@@ -124,7 +129,7 @@ func (s *RunStore) Find(ctx context.Context, id string) (RunRecord, bool, error)
 
 func scanRun(row interface{ Scan(...any) error }) (RunRecord, error) {
 	var item RunRecord
-	if err := row.Scan(&item.ID, &item.TaskID, &item.TaskName, &item.State, &item.TriggerType, &item.ScheduledFor, &item.Attempt); err != nil {
+	if err := row.Scan(&item.ID, &item.TaskID, &item.TaskName, &item.State, &item.TriggerType, &item.ScheduledFor, &item.Attempt, &item.Runner, &item.ExitCode, &item.ExitCodeMeaning); err != nil {
 		return RunRecord{}, err
 	}
 	return item, nil
@@ -184,7 +189,7 @@ func (s *RunStore) ClaimWaiting(ctx context.Context, build func(DispatchCandidat
 	var candidate DispatchCandidate
 	var command []byte
 	var timeout, maxOutput, attempt int
-	err = tx.QueryRow(ctx, `SELECT r.id, r.task_id, r.task_version_id, tv.command, COALESCE(NULLIF(tv.working_directory, ''), '.'), tv.timeout_seconds, tv.max_output_bytes, tv.execution_spec_digest, rs.id, rs.runner_id, COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = r.id), 0) + 1 FROM runs r JOIN task_versions tv ON tv.id = r.task_version_id JOIN runners rr ON rr.pool_id = tv.runner_pool_id AND rr.desired_state = 'ENABLED' AND rr.active_count < rr.capacity AND (tv.pinned_runner_id IS NULL OR tv.pinned_runner_id = rr.id) JOIN runner_sessions rs ON rs.runner_id = rr.id AND rs.disconnected_at IS NULL AND rs.last_heartbeat_at >= now() - interval '30 seconds' WHERE r.state = 'WAITING' AND r.scheduled_for <= now() ORDER BY r.created_at, r.id FOR UPDATE OF r, rr, rs SKIP LOCKED LIMIT 1`).Scan(&candidate.RunID, &candidate.TaskID, &candidate.TaskVersionID, &command, &candidate.WorkingDirectory, &timeout, &maxOutput, &candidate.ExecutionSpecDigest, &candidate.RunnerSessionID, &candidate.RunnerID, &attempt)
+	err = tx.QueryRow(ctx, `SELECT r.id, r.task_id, r.task_version_id, tv.command, COALESCE(NULLIF(tv.working_directory, ''), '.'), tv.timeout_seconds, tv.max_output_bytes, tv.execution_spec_digest, rp.name, rs.id, rs.runner_id, COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = r.id), 0) + 1 FROM runs r JOIN task_versions tv ON tv.id = r.task_version_id JOIN runners rr ON rr.pool_id = tv.runner_pool_id AND rr.desired_state = 'ENABLED' AND rr.active_count < rr.capacity AND (tv.pinned_runner_id IS NULL OR tv.pinned_runner_id = rr.id) JOIN runner_pools rp ON rp.id = rr.pool_id JOIN runner_sessions rs ON rs.runner_id = rr.id AND rs.disconnected_at IS NULL AND rs.last_heartbeat_at >= now() - interval '30 seconds' WHERE r.state = 'WAITING' AND r.scheduled_for <= now() ORDER BY r.created_at, r.id FOR UPDATE OF r, rr, rs SKIP LOCKED LIMIT 1`).Scan(&candidate.RunID, &candidate.TaskID, &candidate.TaskVersionID, &command, &candidate.WorkingDirectory, &timeout, &maxOutput, &candidate.ExecutionSpecDigest, &candidate.Pool, &candidate.RunnerSessionID, &candidate.RunnerID, &attempt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return DispatchCandidate{}, false, nil
 	}
@@ -301,7 +306,11 @@ func (s *RunStore) ApplyRunEvent(ctx context.Context, event RunEventInput) error
 		}
 		return tx.Commit(ctx)
 	}
-	payload, _ := json.Marshal(map[string]any{"result": event.Result, "error": event.Error})
+	payloadValue := map[string]any{"result": event.Result, "error": event.Error}
+	if event.ExitCode != nil {
+		payloadValue["exit_code"] = *event.ExitCode
+	}
+	payload, _ := json.Marshal(payloadValue)
 	if _, err := tx.Exec(ctx, `INSERT INTO run_events (event_id, execution_attempt_id, state_sequence, event_kind, reported_at, payload) VALUES ($1, $2, $3, $4, $5, $6::jsonb)`, event.EventID, attemptID, event.Sequence, event.EventType, event.ReportedAt, payload); err != nil {
 		return err
 	}
@@ -319,7 +328,7 @@ func (s *RunStore) ApplyRunEvent(ctx context.Context, event RunEventInput) error
 		_, err = tx.Exec(ctx, `UPDATE execution_attempts SET last_heartbeat_at = $2, updated_at = now() WHERE id = $1`, attemptID, event.ReportedAt)
 	case "completed", "failed", "timed_out", "cancelled":
 		state := map[string]string{"completed": "SUCCEEDED", "failed": "FAILED", "timed_out": "FAILED", "cancelled": "CANCELLED"}[event.EventType]
-		_, err = tx.Exec(ctx, `UPDATE execution_attempts SET state = $2, finished_at = COALESCE(finished_at, $3), termination_reason = NULLIF($4, ''), result = $5::jsonb, updated_at = now() WHERE id = $1`, attemptID, state, event.ReportedAt, event.Error, payload)
+		_, err = tx.Exec(ctx, `UPDATE execution_attempts SET state = $2, finished_at = COALESCE(finished_at, $3), termination_reason = NULLIF($4, ''), exit_code = $5, result = $6::jsonb, updated_at = now() WHERE id = $1`, attemptID, state, event.ReportedAt, event.Error, event.ExitCode, payload)
 		if err == nil {
 			_, err = tx.Exec(ctx, `UPDATE runs SET state = $2, completed_at = $3, state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state NOT IN ('SUCCEEDED', 'FAILED', 'CANCELLED')`, event.RunID, state, event.ReportedAt)
 		}

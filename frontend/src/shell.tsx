@@ -12,7 +12,7 @@ export const SIDEBAR_KEY = 'glyphflow:sidebar-collapsed'
 type Group = { name: string; icon: typeof LayoutDashboard; paths: string[] }
 const groups: Group[] = [
   { name: 'Operations', icon: LayoutDashboard, paths: ['/', '/tasks', '/schedules', '/runs'] },
-  { name: 'Infrastructure', icon: Server, paths: ['/runners', '/runners/pools', '/resources'] },
+  { name: 'Infrastructure', icon: Server, paths: ['/runners', '/runners/pools', '/resources', '/admin/execution-status'] },
   { name: 'Security', icon: Shield, paths: ['/audit'] },
   { name: 'Administration', icon: Users, paths: ['/admin/users', '/admin/roles', '/admin/sso', '/admin/auth'] },
 ]

@@ -54,6 +54,7 @@ func TestOrderRuntimeExecutesOrderAndPublishesEvents(t *testing.T) {
 		t.Fatalf("published events = %d, want 4", len(publisher.messages))
 	}
 	var types []protocol.EventType
+	var terminalExitCode *int
 	for _, message := range publisher.messages {
 		decoded, err := protocol.DecodeEnvelope(message.Data)
 		if err != nil {
@@ -71,6 +72,9 @@ func TestOrderRuntimeExecutesOrderAndPublishesEvents(t *testing.T) {
 			t.Fatal(err)
 		}
 		types = append(types, event.Type)
+		if event.Type == protocol.EventCompleted {
+			terminalExitCode = event.ExitCode
+		}
 	}
 	if want := []protocol.EventType{protocol.EventAccepted, protocol.EventStarted, protocol.EventLogChunk, protocol.EventCompleted}; len(types) != len(want) {
 		t.Fatalf("event types = %v", types)
@@ -80,5 +84,8 @@ func TestOrderRuntimeExecutesOrderAndPublishesEvents(t *testing.T) {
 				t.Fatalf("event types = %v, want %v", types, want)
 			}
 		}
+	}
+	if terminalExitCode == nil || *terminalExitCode != 0 {
+		t.Fatalf("terminal exit code = %v, want 0", terminalExitCode)
 	}
 }

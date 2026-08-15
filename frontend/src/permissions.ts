@@ -22,6 +22,7 @@ export const ROUTES: RouteRule[] = [
   { path: '/admin/roles', label: 'Roles', access: 'permission', permission: 'roles.read|roles.manage' },
   { path: '/admin/sso', label: 'SSO', access: 'permission', permission: 'sso.read|sso.manage' },
   { path: '/admin/auth', label: 'Authentication', access: 'permission', permission: 'auth.settings.manage' },
+  { path: '/admin/execution-status', label: 'Execution Status', access: 'permission', permission: 'auth.settings.manage' },
 ]
 
 export function hasPermission(grants: Iterable<string>, required?: string): boolean {

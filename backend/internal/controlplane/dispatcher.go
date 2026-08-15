@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -76,7 +77,7 @@ func RunDispatcher(ctx context.Context, events *queue.JetStream, runs DispatchRe
 
 func dispatchWaiting(ctx context.Context, events *queue.JetStream, runs DispatchRepository, signingKey protocol.SigningKey) error {
 	for range 100 {
-		_, claimed, err := runs.ClaimWaiting(ctx, func(candidate store.DispatchCandidate) ([]byte, error) {
+		candidate, claimed, err := runs.ClaimWaiting(ctx, func(candidate store.DispatchCandidate) ([]byte, error) {
 			payload := protocol.OrderPayload{
 				Version: protocol.ProtocolVersion, OrderID: candidate.AttemptID, RunID: candidate.RunID,
 				TaskID: candidate.TaskID, Attempt: uint32(candidate.AttemptNumber), LeaseToken: candidate.LeaseToken,
@@ -104,6 +105,7 @@ func dispatchWaiting(ctx context.Context, events *queue.JetStream, runs Dispatch
 		if !claimed {
 			return nil
 		}
+		fmt.Printf("%s - Dispatched Run %q - Pool %q - Runner %q\n", time.Now().UTC().Format("2006-01-02 15:04 MST"), candidate.RunID, candidate.Pool, candidate.RunnerID)
 	}
 	return nil
 }
@@ -162,8 +164,8 @@ func applyRunnerEvent(ctx context.Context, keys RunnerKeyRepository, runs Dispat
 		EventID: payload.EventID, OrderID: payload.OrderID, RunID: payload.RunID, TaskID: payload.TaskID,
 		RunnerID: payload.RunnerID, RunnerSessionID: payload.RunnerSessionID, LeaseToken: payload.LeaseToken,
 		EventType: string(payload.Type), Subject: message.Subject, Error: payload.Error, Result: payload.Result,
-		EventChannel: payload.EventChannel,
-		Attempt:      int64(payload.Attempt), Sequence: int64(payload.Sequence), FencingToken: int64(payload.FencingToken),
+		EventChannel: payload.EventChannel, ExitCode: payload.ExitCode,
+		Attempt: int64(payload.Attempt), Sequence: int64(payload.Sequence), FencingToken: int64(payload.FencingToken),
 		ReportedAt: payload.ObservedAt, Envelope: message.Data,
 	})
 }
