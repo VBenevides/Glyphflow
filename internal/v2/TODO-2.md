@@ -18,6 +18,8 @@ This file is an implementation handoff. Complete the work in order. Do not check
   - Probe the Linux StatusNotifier watcher before creating the Wails tray.
   - If the probe fails, show the worker window normally so the taskbar can minimize and restore it.
   - Keep the tray-first behavior unchanged when a tray host is available.
+- [x] **Worker: load the embedded UI through Wails' platform asset route**
+  - Use `/` as the window URL so Linux resolves `wails://localhost` instead of trying to connect to `wails.localhost` over TCP.
 
 ## Implementation record
 
@@ -31,6 +33,9 @@ This file is an implementation handoff. Complete the work in order. Do not check
 - [x] Worker tray fallback — commit `52d9813` (`fix(worker): Fall back to regular window without tray`)
   - Result: Linux checks for Wails' `org.kde.StatusNotifierWatcher`; without an owner, the app skips tray registration, starts a visible native window, and leaves normal taskbar minimize/restore and close behavior available. Tray behavior is unchanged when the watcher exists.
   - Verification: `cd backend && GOCACHE=/tmp/glyphflow-go-cache go test -race -tags workerui ./cmd/worker` passed (GTK deprecation warnings only); `cd backend && GOCACHE=/tmp/glyphflow-go-cache go test ./...` passed; `git diff --check` passed.
+- [x] Worker Wails asset route fix — commit `d52b4ce` (`fix(worker): Use Wails asset route on Linux`)
+  - Result: the desktop window now uses Wails' platform-relative `/` route, so Linux serves the embedded UI through its `wails://localhost` protocol instead of the unavailable `http://wails.localhost` endpoint.
+  - Verification: `cd backend && GOCACHE=/tmp/glyphflow-go-cache go test -race -tags workerui ./cmd/worker` passed; `cd backend && GOCACHE=/tmp/glyphflow-go-cache go test ./...` passed; `git diff --check` passed.
 - [x] Runner pool deletion conflict fix — commit `6855786` (`fix(controlplane): Explain runner pool delete conflicts`)
   - Result: backend and frontend regression tests pass; referenced pools now return a safe `runner pool is still in use` message, while stale-data refresh remains limited to actions that request it.
 - [x] Task-version pool deletion conflict clarification — commit `d755b5a` (`fix(controlplane): Explain task references on pool deletion`)
