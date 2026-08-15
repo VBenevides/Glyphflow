@@ -74,3 +74,39 @@ func TestRunnerCapacityDefaultsToTenWithoutAnUpperCap(t *testing.T) {
 		}
 	}
 }
+
+func TestRunnerPoolDeleteArchivesPoolAfterTaskIsDeleted(t *testing.T) {
+	url := os.Getenv("DATABASE_URL")
+	if url == "" {
+		t.Skip("set DATABASE_URL to run PostgreSQL repository tests")
+	}
+	ctx := context.Background()
+	db, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	suffix := time.Now().UTC().Format("20060102150405.000000000")
+	poolID, taskID := "pool-archive-"+suffix, "task-archive-"+suffix
+	t.Cleanup(func() {
+		_, _ = db.Exec(ctx, `DELETE FROM tasks WHERE id = $1`, taskID)
+		_, _ = db.Exec(ctx, `DELETE FROM runner_pools WHERE id = $1`, poolID)
+	})
+	repository := NewRunnerRepository(db)
+	if err := repository.EnsurePool(ctx, poolID, poolID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewTaskRepository(db).Create(ctx, TaskDefinition{ID: taskID, Name: taskID, RunnerPoolID: poolID, Command: []string{"echo", "ok"}, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if deleted, err := NewTaskRepository(db).Delete(ctx, taskID); err != nil || !deleted {
+		t.Fatalf("task archive failed: deleted=%t, err=%v", deleted, err)
+	}
+	if err := repository.DeletePool(ctx, poolID); err != nil {
+		t.Fatal(err)
+	}
+	var archived bool
+	if err := db.QueryRow(ctx, `SELECT is_deleted FROM runner_pools WHERE id = $1`, poolID).Scan(&archived); err != nil || !archived {
+		t.Fatalf("pool was not archived: archived=%t, err=%v", archived, err)
+	}
+}

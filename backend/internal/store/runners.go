@@ -23,6 +23,7 @@ type RunnerRecord struct {
 type RunnerPoolRecord struct {
 	ID, Name, Description string
 	Enabled               bool
+	IsDeleted             bool
 }
 
 type RunnerEnrollmentRecord struct {
@@ -73,7 +74,7 @@ func (s *RunnerStore) EnsurePool(ctx context.Context, id, name string) error {
 }
 
 func (s *RunnerStore) ListPools(ctx context.Context) ([]RunnerPoolRecord, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id, name, description, enabled FROM runner_pools ORDER BY lower(name), id`)
+	rows, err := s.pool.Query(ctx, `SELECT id, name, description, enabled, is_deleted FROM runner_pools WHERE NOT is_deleted ORDER BY lower(name), id`)
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +82,7 @@ func (s *RunnerStore) ListPools(ctx context.Context) ([]RunnerPoolRecord, error)
 	items := []RunnerPoolRecord{}
 	for rows.Next() {
 		var item RunnerPoolRecord
-		if err := rows.Scan(&item.ID, &item.Name, &item.Description, &item.Enabled); err != nil {
+		if err := rows.Scan(&item.ID, &item.Name, &item.Description, &item.Enabled, &item.IsDeleted); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
@@ -91,7 +92,7 @@ func (s *RunnerStore) ListPools(ctx context.Context) ([]RunnerPoolRecord, error)
 
 func (s *RunnerStore) FindPool(ctx context.Context, id string) (RunnerPoolRecord, bool, error) {
 	var item RunnerPoolRecord
-	err := s.pool.QueryRow(ctx, `SELECT id, name, description, enabled FROM runner_pools WHERE id = $1`, id).Scan(&item.ID, &item.Name, &item.Description, &item.Enabled)
+	err := s.pool.QueryRow(ctx, `SELECT id, name, description, enabled, is_deleted FROM runner_pools WHERE id = $1 AND NOT is_deleted`, id).Scan(&item.ID, &item.Name, &item.Description, &item.Enabled, &item.IsDeleted)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RunnerPoolRecord{}, false, nil
 	}
@@ -104,7 +105,7 @@ func (s *RunnerStore) CreatePool(ctx context.Context, item RunnerPoolRecord) err
 }
 
 func (s *RunnerStore) UpdatePool(ctx context.Context, item RunnerPoolRecord) (RunnerPoolRecord, bool, error) {
-	result, err := s.pool.Exec(ctx, `UPDATE runner_pools SET name = $2, description = $3, enabled = $4, updated_at = now() WHERE id = $1`, item.ID, item.Name, item.Description, item.Enabled)
+	result, err := s.pool.Exec(ctx, `UPDATE runner_pools SET name = $2, description = $3, enabled = $4, updated_at = now() WHERE id = $1 AND NOT is_deleted`, item.ID, item.Name, item.Description, item.Enabled)
 	if err != nil || result.RowsAffected() == 0 {
 		return RunnerPoolRecord{}, result.RowsAffected() > 0, err
 	}
@@ -119,15 +120,15 @@ func (s *RunnerStore) DeletePool(ctx context.Context, id string) error {
 	if active {
 		return ErrRunnerPoolInUse
 	}
-	result, err := s.pool.Exec(ctx, `DELETE FROM runner_pools WHERE id = $1`, id)
+	var activeTasks bool
+	if err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM task_versions v JOIN tasks t ON t.id = v.task_id WHERE v.runner_pool_id = $1 AND NOT t.is_deleted)`, id).Scan(&activeTasks); err != nil {
+		return err
+	}
+	if activeTasks {
+		return ErrRunnerPoolHasTaskVersions
+	}
+	result, err := s.pool.Exec(ctx, `UPDATE runner_pools SET is_deleted = true, enabled = false, updated_at = now() WHERE id = $1 AND NOT is_deleted`, id)
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-			if pgErr.ConstraintName == "task_versions_runner_pool_id_fkey" {
-				return ErrRunnerPoolHasTaskVersions
-			}
-			return ErrRunnerPoolInUse
-		}
 		return err
 	}
 	if result.RowsAffected() == 0 {
@@ -284,7 +285,7 @@ func (s *RunnerStore) CreateEnrollment(ctx context.Context, runner RunnerRecord,
 	if poolID == "" {
 		poolID = runner.Pool
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO runners (id, pool_id, name, desired_state, observed_state, capacity, capabilities) VALUES ($1, (SELECT id FROM runner_pools WHERE id = $2 OR name = $2), $3, 'ENABLED', 'PENDING', CASE WHEN $4 > 0 THEN $4 ELSE 10 END, $5::jsonb) ON CONFLICT (id) DO UPDATE SET capacity = CASE WHEN $4 > 0 THEN EXCLUDED.capacity ELSE runners.capacity END`, runner.ID, poolID, runner.Name, runner.Capacity, artifact); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO runners (id, pool_id, name, desired_state, observed_state, capacity, capabilities) VALUES ($1, (SELECT id FROM runner_pools WHERE (id = $2 OR name = $2) AND NOT is_deleted), $3, 'ENABLED', 'PENDING', CASE WHEN $4 > 0 THEN $4 ELSE 10 END, $5::jsonb) ON CONFLICT (id) DO UPDATE SET capacity = CASE WHEN $4 > 0 THEN EXCLUDED.capacity ELSE runners.capacity END`, runner.ID, poolID, runner.Name, runner.Capacity, artifact); err != nil {
 		return err
 	}
 	var lockedRunnerID string

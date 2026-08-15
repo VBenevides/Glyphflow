@@ -113,6 +113,23 @@ func TestTaskArchivalMigrationAddsDeletionFlag(t *testing.T) {
 	}
 }
 
+func TestRunnerPoolArchivalMigrationAddsDeletionFlag(t *testing.T) {
+	migrations, err := LoadMigrations(filepath.Join("..", "..", "migrations"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var poolArchival Migration
+	for _, migration := range migrations {
+		if migration.Name == "runner_pool_archival" {
+			poolArchival = migration
+		}
+	}
+	sql := strings.ToLower(poolArchival.SQL)
+	if poolArchival.Version != 15 || !strings.Contains(sql, "add column if not exists is_deleted") || !strings.Contains(sql, "runner_pools_name_ci_idx") || !strings.Contains(sql, "runner_pools_active_idx") {
+		t.Fatalf("runner pool archival migration = %#v", poolArchival)
+	}
+}
+
 func TestGlobalVariableMigration(t *testing.T) {
 	migrations, err := LoadMigrations(filepath.Join("..", "..", "migrations"))
 	if err != nil {

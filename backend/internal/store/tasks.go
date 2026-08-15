@@ -354,6 +354,13 @@ func normalizeTaskDefinition(definition TaskDefinition) TaskDefinition {
 }
 
 func insertTaskVersion(ctx context.Context, tx pgx.Tx, taskID string, version int, definition TaskDefinition) error {
+	var poolExists bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM runner_pools WHERE id = $1 AND NOT is_deleted)`, definition.RunnerPoolID).Scan(&poolExists); err != nil {
+		return err
+	}
+	if !poolExists {
+		return errors.New("runner pool not found")
+	}
 	command, err := json.Marshal(definition.Command)
 	if err != nil {
 		return err

@@ -46,6 +46,7 @@ type RunnerPoolRecord struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	Enabled     bool   `json:"enabled"`
+	IsDeleted   bool   `json:"isDeleted"`
 }
 type ResourceRecord struct {
 	ID               string `json:"id"`
@@ -142,7 +143,7 @@ func runnerRecordFromStore(runner store.RunnerRecord) RunnerRecord {
 }
 
 func runnerPoolRecordFromStore(pool store.RunnerPoolRecord) RunnerPoolRecord {
-	return RunnerPoolRecord{ID: pool.ID, Name: pool.Name, Description: pool.Description, Enabled: pool.Enabled}
+	return RunnerPoolRecord{ID: pool.ID, Name: pool.Name, Description: pool.Description, Enabled: pool.Enabled, IsDeleted: pool.IsDeleted}
 }
 
 func (s *InfrastructureService) poolCollection(w http.ResponseWriter, r *http.Request) {
