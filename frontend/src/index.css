@@ -165,6 +165,11 @@ a {
 .gf-editor-form { display: grid; gap: 1rem; max-width: 60rem; padding: 1.25rem; background: var(--gf-card); border: 1px solid var(--gf-border); border-radius: var(--gf-radius); }
 .gf-editor-form label { display: grid; gap: 0.35rem; color: var(--gf-text); font-weight: 650; }
 .gf-editor-form label small { color: var(--gf-muted); font-weight: 400; }
+.gf-field-label { display: inline-flex; align-items: center; gap: 0.35rem; }
+.gf-info-tooltip { position: relative; display: inline-flex; align-items: center; }
+.gf-info-tooltip-trigger { display: inline-grid; place-items: center; width: 1.05rem; height: 1.05rem; padding: 0; color: var(--gf-info); background: transparent; border: 1px solid currentColor; border-radius: 50%; font-size: 0.72rem; font-weight: 800; line-height: 1; cursor: help; }
+.gf-info-tooltip-content { position: absolute; z-index: 20; top: calc(100% + 0.5rem); left: 50%; width: 24rem; max-width: calc(100vw - 2rem); padding: 0.75rem; color: var(--gf-text); background: var(--gf-card); border: 1px solid var(--gf-border); border-radius: 0.55rem; box-shadow: var(--gf-shadow); font-size: 0.78rem; font-weight: 400; line-height: 1.45; white-space: pre-line; visibility: hidden; opacity: 0; transform: translate(-50%, -0.25rem); transition: opacity 120ms ease, transform 120ms ease, visibility 120ms ease; pointer-events: none; }
+.gf-info-tooltip:hover .gf-info-tooltip-content, .gf-info-tooltip:focus-within .gf-info-tooltip-content { visibility: visible; opacity: 1; transform: translate(-50%, 0); }
 .gf-form-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem; }
 .gf-textarea { min-height: 5rem; resize: vertical; }
 .gf-review-panel { padding: 1rem; background: var(--gf-surface); border: 1px solid var(--gf-border); border-radius: 0.55rem; }
