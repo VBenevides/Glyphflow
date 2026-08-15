@@ -94,6 +94,9 @@ All items below have runnable test evidence.
 - [x] **High: Add a real run attempt timeline**
   - Test: `cd frontend && npm test && npm run typecheck` — PASS.
   - Commit: `8dec0dc` (`feat(frontend): Render run attempt timeline`).
+- [x] **Medium: Show task version history**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./...` and `cd frontend && npm test -- --run && npm run typecheck && npm run lint && npm run build` — PASS; task versions are loaded from PostgreSQL and rendered newest-first on task details.
+  - Commit: `0d95792` (`feat(controlplane): Show task version history`).
 - [x] **High: Add restart acceptance coverage**
   - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test -tags=integration ./internal/integration` — PASS; external PostgreSQL/TLS NATS execution is skipped without its variables.
   - Commit: `1d25561`.
