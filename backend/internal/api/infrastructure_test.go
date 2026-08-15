@@ -42,6 +42,7 @@ func TestRunnerEnrollmentExplainsInvalidTarget(t *testing.T) {
 		{"runner ID", `{"runner_id":"Runner 2","platform":"linux","architecture":"amd64"}`, "runner_id must contain only letters, digits, dot, underscore, or hyphen"},
 		{"platform", `{"runner_id":"runner-2","platform":"darwin","architecture":"amd64"}`, "platform must be linux or windows"},
 		{"architecture", `{"runner_id":"runner-2","platform":"linux","architecture":"arm64"}`, "architecture must be amd64"},
+		{"capacity", `{"runner_id":"runner-2","platform":"linux","architecture":"amd64","capacity":0}`, "capacity must be at least 1"},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
@@ -91,6 +92,9 @@ func TestRunnerEnrollmentBuildsBootstrapBinaryAndConsumesToken(t *testing.T) {
 	if response.Code != http.StatusCreated {
 		t.Fatalf("enrollment returned %d: %s", response.Code, response.Body.String())
 	}
+	if s.runners["runner-1"].Capacity != 10 {
+		t.Fatalf("default runner capacity = %d, want 10", s.runners["runner-1"].Capacity)
+	}
 	var result struct {
 		Artifact string `json:"artifact"`
 		Filename string `json:"filename"`
@@ -121,10 +125,13 @@ func TestRunnerEnrollmentBuildsBootstrapBinaryAndConsumesToken(t *testing.T) {
 	if replay.Code != http.StatusUnauthorized {
 		t.Fatalf("replay returned %d", replay.Code)
 	}
-	secondRequest := httptest.NewRequest(http.MethodPost, "/api/v1/runners/enrollments", bytes.NewBufferString(`{"runner_id":"runner-1","platform":"linux","architecture":"amd64"}`))
+	secondRequest := httptest.NewRequest(http.MethodPost, "/api/v1/runners/enrollments", bytes.NewBufferString(`{"runner_id":"runner-1","platform":"linux","architecture":"amd64","capacity":42}`))
 	secondRequest.Host = "control.example:8080"
 	second := httptest.NewRecorder()
 	s.enroll(second, secondRequest)
+	if s.runners["runner-1"].Capacity != 42 {
+		t.Fatalf("configured runner capacity = %d, want 42", s.runners["runner-1"].Capacity)
+	}
 	var secondResult struct {
 		Artifact string `json:"artifact"`
 	}
@@ -143,6 +150,13 @@ func TestRunnerEnrollmentBuildsBootstrapBinaryAndConsumesToken(t *testing.T) {
 	s.enrollRunner(rebind, httptest.NewRequest(http.MethodPost, "/api/v1/runners/enroll", bytes.NewBufferString(`{"runner_id":"runner-1","token":"`+secondBootstrap.Token+`","key_id":"`+keyID+`","public_key":"`+publicKey+`"}`)))
 	if rebind.Code != http.StatusOK {
 		t.Fatalf("same-key rebind returned %d: %s", rebind.Code, rebind.Body.String())
+	}
+	thirdRequest := httptest.NewRequest(http.MethodPost, "/api/v1/runners/enrollments", bytes.NewBufferString(`{"runner_id":"runner-1","platform":"linux","architecture":"amd64"}`))
+	thirdRequest.Host = "control.example:8080"
+	third := httptest.NewRecorder()
+	s.enroll(third, thirdRequest)
+	if s.runners["runner-1"].Capacity != 42 {
+		t.Fatalf("omitted runner capacity = %d, want 42", s.runners["runner-1"].Capacity)
 	}
 }
 

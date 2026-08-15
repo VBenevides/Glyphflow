@@ -66,3 +66,11 @@ func TestRunnerRepositoryConsumesEnrollmentOnceAndProtectsActiveSessions(t *test
 		t.Fatal("second active runner session accepted")
 	}
 }
+
+func TestRunnerCapacityDefaultsToTenWithoutAnUpperCap(t *testing.T) {
+	for value, want := range map[int]int{0: 10, -1: 10, 1: 1, 1000: 1000} {
+		if got := maxRunnerCapacity(value); got != want {
+			t.Fatalf("maxRunnerCapacity(%d) = %d, want %d", value, got, want)
+		}
+	}
+}

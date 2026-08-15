@@ -538,6 +538,7 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 		PoolID       string `json:"pool_id"`
 		Platform     string `json:"platform"`
 		Architecture string `json:"architecture"`
+		Capacity     *int   `json:"capacity"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid runner enrollment request", err)
@@ -564,6 +565,10 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 	}
 	if input.Architecture != "amd64" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "architecture must be amd64"})
+		return
+	}
+	if input.Capacity != nil && *input.Capacity < 1 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "capacity must be at least 1"})
 		return
 	}
 	raw := make([]byte, 32)
@@ -597,7 +602,11 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 		if claims, ok := r.Context().Value(requestClaimsContextKey{}).(Claims); ok && claims.UserID != "" {
 			requester = claims.UserID
 		}
-		if err := repository.CreateEnrollment(r.Context(), store.RunnerRecord{ID: input.RunnerID, Name: input.RunnerID, PoolID: input.PoolID, Capacity: 1, Platform: input.Platform, Architecture: input.Architecture}, store.RunnerEnrollmentRecord{ID: "enrollment-" + input.RunnerID + "-" + platform.HashToken(token), RunnerID: input.RunnerID, TokenHash: platform.HashToken(token), ExpiresAt: expiry, Requester: requester, Target: input.RunnerID, Artifact: map[string]any{"platform": input.Platform, "architecture": input.Architecture}}); err != nil {
+		capacity := 0
+		if input.Capacity != nil {
+			capacity = *input.Capacity
+		}
+		if err := repository.CreateEnrollment(r.Context(), store.RunnerRecord{ID: input.RunnerID, Name: input.RunnerID, PoolID: input.PoolID, Capacity: capacity, Platform: input.Platform, Architecture: input.Architecture}, store.RunnerEnrollmentRecord{ID: "enrollment-" + input.RunnerID + "-" + platform.HashToken(token), RunnerID: input.RunnerID, TokenHash: platform.HashToken(token), ExpiresAt: expiry, Requester: requester, Target: input.RunnerID, Artifact: map[string]any{"platform": input.Platform, "architecture": input.Architecture}}); err != nil {
 			recordRequestError(r, err)
 			writeError(w, http.StatusConflict, "enrollment could not be saved", err)
 			return
@@ -620,9 +629,17 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.enrollments[token] = &enrollment{Token: token, RunnerID: input.RunnerID, Expires: expiry}
-	if _, ok := s.runners[input.RunnerID]; !ok {
-		s.runners[input.RunnerID] = RunnerRecord{ID: input.RunnerID, Name: input.RunnerID, PoolID: input.PoolID, DesiredState: "ENABLED", ObservedState: "PENDING", Pool: pool.Name, Capacity: 1, Platform: input.Platform, Architecture: input.Architecture}
+	item, ok := s.runners[input.RunnerID]
+	if !ok {
+		item = RunnerRecord{ID: input.RunnerID, Name: input.RunnerID, PoolID: input.PoolID, DesiredState: "ENABLED", ObservedState: "PENDING", Pool: pool.Name, Platform: input.Platform, Architecture: input.Architecture}
 	}
+	if input.Capacity != nil || !ok {
+		item.Capacity = store.DefaultRunnerCapacity
+		if input.Capacity != nil {
+			item.Capacity = *input.Capacity
+		}
+	}
+	s.runners[input.RunnerID] = item
 	s.mu.Unlock()
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusCreated, map[string]string{"artifact": base64.StdEncoding.EncodeToString(artifact), "expires_at": expiry.UTC().Format(time.RFC3339), "filename": filename})

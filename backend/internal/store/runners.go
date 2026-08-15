@@ -52,6 +52,8 @@ type RunnerRepository interface {
 
 type RunnerStore struct{ pool *pgxpool.Pool }
 
+const DefaultRunnerCapacity = 10
+
 func NewRunnerRepository(pool *pgxpool.Pool) *RunnerStore { return &RunnerStore{pool: pool} }
 
 func (s *RunnerStore) EnsurePool(ctx context.Context, id, name string) error {
@@ -182,7 +184,7 @@ func (s *RunnerStore) CreateEnrollment(ctx context.Context, runner RunnerRecord,
 	if poolID == "" {
 		poolID = runner.Pool
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO runners (id, pool_id, name, desired_state, observed_state, capacity, capabilities) VALUES ($1, (SELECT id FROM runner_pools WHERE id = $2 OR name = $2), $3, 'ENABLED', 'PENDING', $4, $5::jsonb) ON CONFLICT (id) DO NOTHING`, runner.ID, poolID, runner.Name, maxRunnerCapacity(runner.Capacity), artifact); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO runners (id, pool_id, name, desired_state, observed_state, capacity, capabilities) VALUES ($1, (SELECT id FROM runner_pools WHERE id = $2 OR name = $2), $3, 'ENABLED', 'PENDING', CASE WHEN $4 > 0 THEN $4 ELSE 10 END, $5::jsonb) ON CONFLICT (id) DO UPDATE SET capacity = CASE WHEN $4 > 0 THEN EXCLUDED.capacity ELSE runners.capacity END`, runner.ID, poolID, runner.Name, runner.Capacity, artifact); err != nil {
 		return err
 	}
 	var lockedRunnerID string
@@ -200,7 +202,7 @@ func (s *RunnerStore) CreateEnrollment(ctx context.Context, runner RunnerRecord,
 
 func maxRunnerCapacity(value int) int {
 	if value <= 0 {
-		return 1
+		return DefaultRunnerCapacity
 	}
 	return value
 }
