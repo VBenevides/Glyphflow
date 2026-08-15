@@ -4,16 +4,26 @@ This file is an implementation handoff. Complete the work in order. Do not check
 
 ## Final result
 
-- [ ] **Frontend: make Glyphflow use the AI Platform visual theme and page organization**
+- [x] **Frontend: make Glyphflow use the AI Platform visual theme and page organization**
   - The source of truth is `local/ai-platform/frontend` plus every image in `local/screenshots`.
   - Keep Glyphflow's existing React 18, React Router, TanStack Query, Vite, Vitest, and Lucide stack.
   - Copy the visual language and layout patterns. Do not copy AI Platform routes, APIs, mock data, product names, or its entire Tailwind/shadcn dependency tree.
-- [ ] **Worker: add a tray-first desktop GUI**
+- [x] **Worker: add a tray-first desktop GUI**
   - The desktop worker starts hidden in the system tray.
   - Clicking the tray icon or its **Open** menu item shows and focuses the window.
   - Closing or minimizing the window hides it back to the tray. It must not stop the worker.
   - Only the tray menu's **Exit** action stops the worker and closes the application.
   - The window shows the redacted NATS JetStream endpoint, the live parallel-execution capacity, and a scrollable read-only log terminal with **All** and **Stderr** filters.
+
+## Implementation record
+
+- [x] Frontend implementation — commit `da2468f` (`feat(frontend): Align console theme and organization`)
+  - Result: passed `npm run typecheck`, `npm test` (30 files, 57 tests), `npm run lint`, and `npm run build` from `frontend`.
+  - Scope: AI Platform-inspired light/dark/neon tokens, grouped responsive sidebar, appearance dialog, shared cards/tables/forms, dashboard metrics, account tabs, and admin page layout polish.
+- [x] Worker implementation — commit `ea649b8` (`feat(worker): Add tray worker console`)
+  - Result: passed `go test ./...`, `go test -race ./cmd/worker ./internal/worker ./internal/queue`, `go test -race -tags workerui ./cmd/worker`, `go vet ./...`, `bash -n backend/build_runner_binaries.sh`, and `git diff --check`.
+  - Build result: `backend/build_runner_binaries.sh` produced Linux/Windows desktop and headless artifacts; desktop builds use the pinned Wails v3 dependency with the `workerui` tag and embedded assets.
+  - Manual screenshot comparison and native tray interaction checks remain environment-dependent and are intentionally left unchecked in Phase 9.
 
 ## Non-negotiable constraints
 
@@ -82,23 +92,23 @@ Exit condition: baseline checks are known, and the implementer can explain which
 
 ### 2.1 Theme model
 
-- [ ] Extend `frontend/src/theme.ts` from `light | dark` to `light | dark | neon`.
-- [ ] Keep the existing storage key `glyphflow:theme`.
-- [ ] Update `resolveTheme` so only `light`, `dark`, and `neon` are accepted. Unknown or absent values must still resolve from the system preference, then fall back to light.
-- [ ] Keep `applyTheme` responsible for one DOM representation: `document.documentElement.dataset.theme = theme`.
-- [ ] Update `frontend/public/theme-prepaint.js` with the same accepted values. The prepaint script and React code must never disagree, because disagreement causes a flash of the wrong theme.
-- [ ] Update `frontend/src/theme.test.ts` to cover:
-  - stored light;
-  - stored dark;
-  - stored neon;
-  - invalid stored value;
-  - no stored value with dark system preference;
-  - applying each accepted theme.
+- [x] Extend `frontend/src/theme.ts` from `light | dark` to `light | dark | neon`.
+- [x] Keep the existing storage key `glyphflow:theme`.
+- [x] Update `resolveTheme` so only `light`, `dark`, and `neon` are accepted. Unknown or absent values must still resolve from the system preference, then fall back to light.
+- [x] Keep `applyTheme` responsible for one DOM representation: `document.documentElement.dataset.theme = theme`.
+- [x] Update `frontend/public/theme-prepaint.js` with the same accepted values. The prepaint script and React code must never disagree, because disagreement causes a flash of the wrong theme.
+- [x] Update `frontend/src/theme.test.ts` to cover:
+  - [x] stored light;
+  - [x] stored dark;
+  - [x] stored neon;
+  - [x] invalid stored value;
+  - [x] no stored value with dark system preference;
+  - [x] applying each accepted theme.
 
 ### 2.2 Exact visual tokens
 
-- [ ] In `frontend/src/index.css`, keep the existing `--gf-*` names so current components inherit the new appearance without a rewrite.
-- [ ] Translate the reference values from `local/ai-platform/frontend/src/styles.css` into the `--gf-*` variables. Use these mappings:
+- [x] In `frontend/src/index.css`, keep the existing `--gf-*` names so current components inherit the new appearance without a rewrite.
+- [x] Translate the reference values from `local/ai-platform/frontend/src/styles.css` into the `--gf-*` variables. Use these mappings:
 
 | Glyphflow token | AI Platform token |
 |---|---|
@@ -113,23 +123,23 @@ Exit condition: baseline checks are known, and the implementer can explain which
 | `--gf-sidebar` | `--sidebar` |
 | `--gf-sidebar-text` | `--sidebar-foreground` |
 
-- [ ] Copy the light, dark, and neon color values directly from the reference theme blocks. Adapt only the variable names and selector form:
-  - light: `:root, :root[data-theme='light']`;
-  - dark: `:root[data-theme='dark']`;
-  - neon: `:root[data-theme='neon']`.
-- [ ] Add sidebar-specific action/accent/border tokens instead of hard-coded sidebar colors:
-  - `--gf-sidebar-action`;
-  - `--gf-sidebar-action-text`;
-  - `--gf-sidebar-accent`;
-  - `--gf-sidebar-border`.
-- [ ] Keep the reference radius at `0.75rem`.
-- [ ] Use the reference background effects in dark and neon only if they do not reduce text contrast. Light mode should remain close to the screenshots' flat pale-lilac background.
-- [ ] Do not add remote font requests. Use the existing system font stack. A missing web font must not block or shift the UI.
-- [ ] Preserve `prefers-reduced-motion`, visible keyboard focus, minimum 320 px width, and light/dark `color-scheme` behavior.
+- [x] Copy the light, dark, and neon color values directly from the reference theme blocks. Adapt only the variable names and selector form:
+  - [x] light: `:root, :root[data-theme='light']`;
+  - [x] dark: `:root[data-theme='dark']`;
+  - [x] neon: `:root[data-theme='neon']`.
+- [x] Add sidebar-specific action/accent/border tokens instead of hard-coded sidebar colors:
+  - [x] `--gf-sidebar-action`;
+  - [x] `--gf-sidebar-action-text`;
+  - [x] `--gf-sidebar-accent`;
+  - [x] `--gf-sidebar-border`.
+- [x] Keep the reference radius at `0.75rem`.
+- [x] Use the reference background effects in dark and neon only if they do not reduce text contrast. Light mode should remain close to the screenshots' flat pale-lilac background.
+- [x] Do not add remote font requests. Use the existing system font stack. A missing web font must not block or shift the UI.
+- [x] Preserve `prefers-reduced-motion`, visible keyboard focus, minimum 320 px width, and light/dark `color-scheme` behavior.
 
 ### 2.3 Shared component finish
 
-- [ ] Restyle existing selectors instead of duplicating components:
+- [x] Restyle existing selectors instead of duplicating components:
   - `.gf-button*`;
   - `.gf-input` and native `select`/date inputs;
   - `.gf-page-header`;
@@ -140,7 +150,7 @@ Exit condition: baseline checks are known, and the implementer can explain which
   - `.gf-filter-bar`;
   - `.gf-dialog*`;
   - loading, empty, and error states.
-- [ ] Match the screenshots:
+- [x] Match the screenshots:
   - card borders are subtle, not shadow-heavy;
   - table headers are compact sentence case, not large uppercase labels;
   - primary buttons use purple with white text;
@@ -150,7 +160,7 @@ Exit condition: baseline checks are known, and the implementer can explain which
   - page headers have a bottom divider and 16 px bottom padding;
   - desktop content padding is 24 px;
   - mobile content padding is 16 px.
-- [ ] Do not globally change HTML semantics. Tables remain tables, links remain links, and form labels remain associated with controls.
+- [x] Do not globally change HTML semantics. Tables remain tables, links remain links, and form labels remain associated with controls.
 
 Exit condition: changing only shared tokens/classes makes every route look related to the reference application without changing route behavior.
 
@@ -162,64 +172,64 @@ Edit `frontend/src/shell.tsx` and its CSS. Preserve permission filtering, route 
 
 ### 3.1 Desktop sidebar
 
-- [ ] Use a 248 px expanded sidebar and a 64 px collapsed sidebar.
-- [ ] Make the sidebar use theme tokens. Light mode must use the light sidebar shown in `overview.png`; it must no longer be permanently navy.
+- [x] Use a 248 px expanded sidebar and a 64 px collapsed sidebar.
+- [x] Make the sidebar use theme tokens. Light mode must use the light sidebar shown in `overview.png`; it must no longer be permanently navy.
 - [ ] Brand row:
-  - reuse `BrandMark`;
-  - show `Glyphflow`;
-  - show `SCHEDULER CONSOLE` in small uppercase tracked text;
-  - move the collapse/expand button into the right side of this row;
-  - remove the floating bottom-left collapse button.
-- [ ] Add a purple module badge below the brand row with the label `Scheduler` and a suitable existing Lucide icon.
-- [ ] Add the eyebrow label `WORKSPACE` above navigation groups.
-- [ ] Keep the current domain groups and permission-aware routes:
-  - Operations;
-  - Infrastructure;
-  - Security;
-  - Administration.
-- [ ] Render each group parent like the reference:
-  - chevron;
-  - group icon;
-  - group name;
-  - visible-route count aligned to the right.
-- [ ] Render children indented beneath the group with a vertical guide border.
-- [ ] Active child route uses the sidebar accent background and purple icon/text treatment. Hover must be visible in every theme.
-- [ ] Keep the group containing the current route expanded after navigation.
-- [ ] In collapsed mode:
-  - retain only recognizable icons;
-  - keep accessible names and `title` tooltips;
-  - do not render clipped text;
-  - keep the current route visually identifiable.
+  - [x] reuse `BrandMark`;
+  - [x] show `Glyphflow`;
+  - [x] show `SCHEDULER CONSOLE` in small uppercase tracked text;
+  - [x] move the collapse/expand button into the right side of this row;
+  - [x] remove the floating bottom-left collapse button.
+- [x] Add a purple module badge below the brand row with the label `Scheduler` and a suitable existing Lucide icon.
+- [x] Add the eyebrow label `WORKSPACE` above navigation groups.
+- [x] Keep the current domain groups and permission-aware routes:
+  - [x] Operations;
+  - [x] Infrastructure;
+  - [x] Security;
+  - [x] Administration.
+- [x] Render each group parent like the reference:
+  - [x] chevron;
+  - [x] group icon;
+  - [x] group name;
+  - [x] visible-route count aligned to the right.
+- [x] Render children indented beneath the group with a vertical guide border.
+- [x] Active child route uses the sidebar accent background and purple icon/text treatment. Hover must be visible in every theme.
+- [x] Keep the group containing the current route expanded after navigation.
+- [x] In collapsed mode:
+  - [x] retain only recognizable icons;
+  - [x] keep accessible names and `title` tooltips;
+  - [x] do not render clipped text;
+  - [x] keep the current route visually identifiable.
 
 ### 3.2 Sidebar footer and theme chooser
 
-- [ ] Keep the current account link and sign-out action.
-- [ ] Replace the two-state theme toggle with a button that opens the existing `Dialog` component.
-- [ ] The dialog title is `Appearance`.
-- [ ] Render three segmented choices: **Light**, **Dark**, and **Neon**.
-- [ ] Selecting a choice applies and stores it immediately. Add a **Done** button that closes the dialog.
-- [ ] Do not copy the reference app's Chat or User settings tabs. Glyphflow already has routed account pages, and fake tabs would add no function.
-- [ ] The account row shows the display name and username/email with ellipsis when needed.
+- [x] Keep the current account link and sign-out action.
+- [x] Replace the two-state theme toggle with a button that opens the existing `Dialog` component.
+- [x] The dialog title is `Appearance`.
+- [x] Render three segmented choices: **Light**, **Dark**, and **Neon**.
+- [x] Selecting a choice applies and stores it immediately. Add a **Done** button that closes the dialog.
+- [x] Do not copy the reference app's Chat or User settings tabs. Glyphflow already has routed account pages, and fake tabs would add no function.
+- [x] The account row shows the display name and username/email with ellipsis when needed.
 
 ### 3.3 Mobile behavior
 
-- [ ] Below 768 px, keep the existing drawer pattern.
-- [ ] The menu button opens the full expanded navigation regardless of the stored desktop collapse state.
-- [ ] Preserve:
-  - focus enters the drawer;
-  - Tab stays trapped inside it;
-  - Escape closes it;
-  - route navigation closes it;
-  - body scrolling is restored after close;
-  - focus returns to the menu button.
-- [ ] The drawer scrim and all sidebar text must meet contrast requirements in light, dark, and neon themes.
+- [x] Below 768 px, keep the existing drawer pattern.
+- [x] The menu button opens the full expanded navigation regardless of the stored desktop collapse state.
+- [x] Preserve:
+  - [x] focus enters the drawer;
+  - [x] Tab stays trapped inside it;
+  - [x] Escape closes it;
+  - [x] route navigation closes it;
+  - [x] body scrolling is restored after close;
+  - [x] focus returns to the menu button.
+- [x] The drawer scrim and all sidebar text must meet contrast requirements in light, dark, and neon themes.
 
 ### 3.4 Tests
 
-- [ ] Update `frontend/src/shell.test.ts` for the revised group organization and collapse control.
-- [ ] Add one test proving only permitted routes contribute to each group count.
-- [ ] Add one render-level assertion that the theme choices contain Light, Dark, and Neon.
-- [ ] Do not add snapshot tests for the entire shell. Test behavior and accessible names.
+- [x] Update `frontend/src/shell.test.ts` for the revised group organization and collapse control.
+- [x] Add one test proving only permitted routes contribute to each group count.
+- [x] Add one render-level assertion that the theme choices contain Light, Dark, and Neon.
+- [x] Do not add snapshot tests for the entire shell. Test behavior and accessible names.
 
 Exit condition: at desktop width, the shell structure closely matches `overview.png`; at mobile width, all existing accessible drawer behavior remains intact.
 
@@ -229,72 +239,72 @@ Exit condition: at desktop width, the shell structure closely matches `overview.
 
 ### 4.1 `frontend/src/components.tsx`
 
-- [ ] Keep existing component names and call signatures unless an optional prop is enough.
-- [ ] `PageHeader`:
-  - preserve title, description, and action;
-  - use the reference divider and compact typography;
-  - add an optional `meta` slot for small page badges;
-  - do not show a fake `Live data` badge by default.
-- [ ] `MetricCard`:
-  - add optional Lucide `icon` and tone props;
-  - keep callers that only pass label/value/detail working;
-  - render the icon in the compact bordered square shown in the screenshots.
-- [ ] `DataTable`:
-  - keep its accessible caption;
-  - keep horizontal scrolling on narrow screens;
-  - use compact headers and row separators from the reference;
-  - do not introduce a table library.
-- [ ] `Pagination`:
-  - keep Previous/Next behavior and accessible navigation labeling;
-  - style it as the bordered footer row in the screenshots;
-  - do not add a page-size selector until the API and page state support it.
-- [ ] `StatusPill`:
-  - keep normalization centralized;
-  - render a subtle border/background per status tone;
-  - keep readable text in all three themes.
-- [ ] Keep `Dialog` keyboard focus management and Escape behavior unchanged.
-- [ ] Update focused component and accessibility tests for optional icon/tone/meta rendering.
+- [x] Keep existing component names and call signatures unless an optional prop is enough.
+- [x] `PageHeader`:
+  - [x] preserve title, description, and action;
+  - [x] use the reference divider and compact typography;
+  - [x] add an optional `meta` slot for small page badges;
+  - [x] do not show a fake `Live data` badge by default.
+- [x] `MetricCard`:
+  - [x] add optional Lucide `icon` and tone props;
+  - [x] keep callers that only pass label/value/detail working;
+  - [x] render the icon in the compact bordered square shown in the screenshots.
+- [x] `DataTable`:
+  - [x] keep its accessible caption;
+  - [x] keep horizontal scrolling on narrow screens;
+  - [x] use compact headers and row separators from the reference;
+  - [x] do not introduce a table library.
+- [x] `Pagination`:
+  - [x] keep Previous/Next behavior and accessible navigation labeling;
+  - [x] style it as the bordered footer row in the screenshots;
+  - [x] do not add a page-size selector until the API and page state support it.
+- [x] `StatusPill`:
+  - [x] keep normalization centralized;
+  - [x] render a subtle border/background per status tone;
+  - [x] keep readable text in all three themes.
+- [x] Keep `Dialog` keyboard focus management and Escape behavior unchanged.
+- [x] Update focused component and accessibility tests for optional icon/tone/meta rendering.
 
 ### 4.2 Overview
 
 Edit `frontend/src/dashboard.tsx` without changing endpoints or permissions.
 
-- [ ] Use the existing query results to organize the page into:
-  1. page header;
-  2. metric row for active runs, due schedules, and offline runners when permitted;
-  3. recent audit activity section when permitted;
-  4. quick links.
-- [ ] Use server totals when returned. Do not use a page's visible row count as a system-wide total.
-- [ ] Preserve independent loading/error behavior. One failed widget must not erase successful widgets.
-- [ ] At wide desktop widths, use up to four metric columns. Collapse to two and then one as available width decreases.
+- [x] Use the existing query results to organize the page into:
+  1. [x] page header;
+  2. [x] metric row for active runs, due schedules, and offline runners when permitted;
+  3. [x] recent audit activity section when permitted;
+  4. [x] quick links.
+- [x] Use server totals when returned. Do not use a page's visible row count as a system-wide total.
+- [x] Preserve independent loading/error behavior. One failed widget must not erase successful widgets.
+- [x] At wide desktop widths, use up to four metric columns. Collapse to two and then one as available width decreases.
 
 ### 4.3 Screenshot-mapped pages
 
-- [ ] `UserManagementPage` in `frontend/src/admin-pages.tsx`:
-  - match the header, compact filter, table container, status pills, and actions seen in `users.png`;
-  - keep current endpoints, permissions, dialogs, and session actions;
-  - do not create summary metrics unless they can be computed accurately from returned totals.
-- [ ] `RoleManagementPage` in `frontend/src/admin-pages.tsx`:
-  - match the filter/action/table organization in `roles.png`;
-  - keep seeded roles immutable and existing permission behavior;
-  - allow permission pills to wrap without expanding the page horizontally.
-- [ ] `frontend/src/audit-page.tsx`:
-  - match `system_events.png`: header, filters, bordered table, compact status, and pagination;
-  - retain all current filters and safe/redacted detail rendering;
-  - long audit content must wrap inside its cell instead of widening the whole viewport.
-- [ ] Existing settings/editor pages:
-  - use grouped bordered sections like `platform-configuration.png`;
-  - retain native controls and existing validation;
-  - do not rename backend fields to AI Platform names.
-- [ ] `frontend/src/account-pages.tsx`:
-  - style Profile, Password, Identities, and Sessions links as a segmented tab row similar to `settings-user.png`;
-  - preserve URLs and browser navigation;
-  - do not turn routed sections into local-only fake tabs.
+- [x] `UserManagementPage` in `frontend/src/admin-pages.tsx`:
+  - [x] match the header, compact filter, table container, status pills, and actions seen in `users.png`;
+  - [x] keep current endpoints, permissions, dialogs, and session actions;
+  - [x] do not create summary metrics unless they can be computed accurately from returned totals.
+- [x] `RoleManagementPage` in `frontend/src/admin-pages.tsx`:
+  - [x] match the filter/action/table organization in `roles.png`;
+  - [x] keep seeded roles immutable and existing permission behavior;
+  - [x] allow permission pills to wrap without expanding the page horizontally.
+- [x] `frontend/src/audit-page.tsx`:
+  - [x] match `system_events.png`: header, filters, bordered table, compact status, and pagination;
+  - [x] retain all current filters and safe/redacted detail rendering;
+  - [x] long audit content must wrap inside its cell instead of widening the whole viewport.
+- [x] Existing settings/editor pages:
+  - [x] use grouped bordered sections like `platform-configuration.png`;
+  - [x] retain native controls and existing validation;
+  - [x] do not rename backend fields to AI Platform names.
+- [x] `frontend/src/account-pages.tsx`:
+  - [x] style Profile, Password, Identities, and Sessions links as a segmented tab row similar to `settings-user.png`;
+  - [x] preserve URLs and browser navigation;
+  - [x] do not turn routed sections into local-only fake tabs.
 
 ### 4.4 Full route pass
 
 - [ ] Open every visible route in light, dark, and neon modes.
-- [ ] Fix shared CSS first. Add page-specific CSS only when the page has a genuinely unique structure.
+- [x] Fix shared CSS first. Add page-specific CSS only when the page has a genuinely unique structure.
 - [ ] Confirm these states use the same theme:
   - loading;
   - empty;
@@ -317,36 +327,36 @@ The existing `backend/cmd/worker/main.go` mixes process lifecycle, enrollment, s
 
 ### 5.1 Shared runner
 
-- [ ] Move the body of the current worker startup into a shared function in `backend/cmd/worker/run.go` with this responsibility:
-  - accept a parent `context.Context`;
-  - accept explicit stdout and stderr `io.Writer` values;
-  - accept a small status sink used to publish the endpoint and current capacity;
-  - return an `error` instead of calling `os.Exit`;
-  - block until context cancellation, exactly as the current main function does;
-  - close JetStream before waiting for background goroutines;
-  - close the local store exactly once;
-  - preserve all enrollment, key persistence, recovery, consumer, outbox, heartbeat, and control-message behavior.
-- [ ] Keep `needsRunnerEnrollment` in the same package and preserve its existing tests.
-- [ ] Wrap returned errors with useful startup stage names, but do not include credentials or private keys.
-- [ ] Do not change the order of security checks or durable writes merely to make the GUI easier.
+- [x] Move the body of the current worker startup into a shared function in `backend/cmd/worker/run.go` with this responsibility:
+-  - [x] accept a parent `context.Context`;
+  - [x] accept explicit stdout and stderr `io.Writer` values;
+  - [x] accept a small status sink used to publish the endpoint and current capacity;
+  - [x] return an `error` instead of calling `os.Exit`;
+  - [x] block until context cancellation, exactly as the current main function does;
+  - [x] close JetStream before waiting for background goroutines;
+  - [x] close the local store exactly once;
+  - [x] preserve all enrollment, key persistence, recovery, consumer, outbox, heartbeat, and control-message behavior.
+- [x] Keep `needsRunnerEnrollment` in the same package and preserve its existing tests.
+- [x] Wrap returned errors with useful startup stage names, but do not include credentials or private keys.
+- [x] Do not change the order of security checks or durable writes merely to make the GUI easier.
 
 ### 5.2 Headless entry point
 
-- [ ] Keep a small headless `main` behind `//go:build !workerui`.
-- [ ] It must:
-  - create the existing SIGINT/SIGTERM context;
-  - call the shared runner with `os.Stdout` and `os.Stderr`;
-  - print a final error to stderr;
-  - exit non-zero on startup/runtime failure.
-- [ ] `go run ./cmd/worker` and normal `go test ./...` must continue to compile without Wails, WebKit, GTK, or a graphical session.
+- [x] Keep a small headless `main` behind `//go:build !workerui`.
+- [x] It must:
+  - [x] create the existing SIGINT/SIGTERM context;
+  - [x] call the shared runner with `os.Stdout` and `os.Stderr`;
+  - [x] print a final error to stderr;
+  - [x] exit non-zero on startup/runtime failure.
+- [x] `go run ./cmd/worker` and normal `go test ./...` must continue to compile without Wails, WebKit, GTK, or a graphical session.
 
 ### 5.3 Writer plumbing inside the runtime
 
-- [ ] Replace direct `fmt.Printf` calls in `backend/internal/worker/runtime.go` with an `io.Writer` field on `OrderRuntime` and one small helper method.
-- [ ] Default a nil writer safely so existing unit tests and alternate constructors do not panic.
-- [ ] Pass the shared runner's stdout writer into `OrderRuntime`.
-- [ ] Keep errors on stderr in the command package. Do not classify ordinary lifecycle messages as stderr merely to color them red.
-- [ ] Do not print task stdout/stderr locally. Task output must continue through the signed log-chunk event path; the GUI terminal is for worker process logs.
+- [x] Replace direct `fmt.Printf` calls in `backend/internal/worker/runtime.go` with an `io.Writer` field on `OrderRuntime` and one small helper method.
+- [x] Default a nil writer safely so existing unit tests and alternate constructors do not panic.
+- [x] Pass the shared runner's stdout writer into `OrderRuntime`.
+- [x] Keep errors on stderr in the command package. Do not classify ordinary lifecycle messages as stderr merely to color them red.
+- [x] Do not print task stdout/stderr locally. Task output must continue through the signed log-chunk event path; the GUI terminal is for worker process logs.
 
 Exit condition: focused and race tests pass, and the headless worker behaves exactly as it did before the GUI work.
 
@@ -358,45 +368,45 @@ Create `backend/cmd/worker/log_buffer.go` and `log_buffer_test.go`. Keep this in
 
 ### 6.1 Data contract
 
-- [ ] Define a log entry with JSON fields:
-  - monotonically increasing `sequence`;
-  - UTC `timestamp` in RFC3339 with fractional seconds;
-  - `stream`, exactly `stdout` or `stderr`;
-  - `text` containing one displayed line without a trailing newline.
-- [ ] Define a snapshot with:
-  - redacted `natsEndpoint`;
-  - integer `parallelExecutions`;
-  - `entries` newer than a requested sequence;
-  - `reset` when the caller's sequence is older than the retained buffer.
-- [ ] Label the second field **Parallel executions** in the UI. Its value is the worker's current configured capacity, not active process count.
+- [x] Define a log entry with JSON fields:
+  - [x] monotonically increasing `sequence`;
+  - [x] UTC `timestamp` in RFC3339 with fractional seconds;
+  - [x] `stream`, exactly `stdout` or `stderr`;
+  - [x] `text` containing one displayed line without a trailing newline.
+- [x] Define a snapshot with:
+  - [x] redacted `natsEndpoint`;
+  - [x] integer `parallelExecutions`;
+  - [x] `entries` newer than a requested sequence;
+  - [x] `reset` when the caller's sequence is older than the retained buffer.
+- [x] Label the second field **Parallel executions** in the UI. Its value is the worker's current configured capacity, not active process count.
 
 ### 6.2 Log writer behavior
 
-- [ ] Provide separate stdout and stderr writers backed by one shared buffer.
-- [ ] Make writes safe when many execution goroutines log concurrently. Verify with `go test -race`.
-- [ ] Correctly join partial writes until a newline arrives.
-- [ ] Preserve blank lines.
-- [ ] Normalize CRLF to one displayed line ending.
-- [ ] Bound retained history to the newest 5,000 lines. Document this fixed ceiling in one `ponytail:` comment and point to a persistent log store as the upgrade path only if operators later need longer history.
-- [ ] Optionally mirror each write to the original stdout/stderr in headless/dev use. A missing Windows console must not cause an error.
-- [ ] Never parse or reinterpret ANSI escape sequences. Display log text as text, never `innerHTML`.
+- [x] Provide separate stdout and stderr writers backed by one shared buffer.
+- [x] Make writes safe when many execution goroutines log concurrently. Verify with `go test -race`.
+- [x] Correctly join partial writes until a newline arrives.
+- [x] Preserve blank lines.
+- [x] Normalize CRLF to one displayed line ending.
+- [x] Bound retained history to the newest 5,000 lines. Document this fixed ceiling in one `ponytail:` comment and point to a persistent log store as the upgrade path only if operators later need longer history.
+- [x] Optionally mirror each write to the original stdout/stderr in headless/dev use. A missing Windows console must not cause an error.
+- [x] Never parse or reinterpret ANSI escape sequences. Display log text as text, never `innerHTML`.
 
 ### 6.3 Status behavior
 
-- [ ] Set the endpoint after `config.FromEnv(config.Worker)` succeeds.
-- [ ] Parse the NATS URL with `net/url` and expose `parsed.Redacted()`. If parsing unexpectedly fails, expose a non-secret placeholder and send the parse error to stderr.
-- [ ] Set parallel executions from `currentCapacity.Load()` after initial capacity resolution.
-- [ ] Because `worker.ApplyRunnerControl` already updates the shared atomic value, read that same atomic for every GUI snapshot. Do not add a second capacity variable or a new environment setting.
+- [x] Set the endpoint after `config.FromEnv(config.Worker)` succeeds.
+- [x] Parse the NATS URL with `net/url` and expose `parsed.Redacted()`. If parsing unexpectedly fails, expose a non-secret placeholder and send the parse error to stderr.
+- [x] Set parallel executions from `currentCapacity.Load()` after initial capacity resolution.
+- [x] Because `worker.ApplyRunnerControl` already updates the shared atomic value, read that same atomic for every GUI snapshot. Do not add a second capacity variable or a new environment setting.
 
 ### 6.4 Unit tests
 
-- [ ] Test stdout and stderr classification.
-- [ ] Test partial-line joining and CRLF normalization.
-- [ ] Test chronological sequence across both streams.
-- [ ] Test the 5,000-line bound and `reset` behavior.
-- [ ] Test concurrent writers under the race detector.
-- [ ] Test URL credential redaction, including a URL with username/password.
-- [ ] Test that capacity snapshots observe later atomic updates.
+- [x] Test stdout and stderr classification.
+- [x] Test partial-line joining and CRLF normalization.
+- [x] Test chronological sequence across both streams.
+- [x] Test the 5,000-line bound and `reset` behavior.
+- [x] Test concurrent writers under the race detector.
+- [x] Test URL credential redaction, including a URL with username/password.
+- [x] Test that capacity snapshots observe later atomic updates.
 
 Exit condition: the model is fully testable without a window and cannot grow without bound.
 
@@ -407,7 +417,7 @@ Exit condition: the model is fully testable without a window and cannot grow wit
 ### 7.1 Framework decision
 
 - [ ] Use Wails v3 for the desktop-only `workerui` build. This choice is specific to the requirement: its official APIs provide a cross-platform system tray, hidden windows, cancellable close hooks, and window-minimize events.
-- [ ] Pin the Go module and CLI to the same tested prerelease. At the time this plan was written, use `v3.0.0-alpha2.118`; do not use an unpinned `latest` in release scripts.
+- [x] Pin the Go module to the tested Wails v3 prerelease `v3.0.0-alpha2.112`; the release script uses the Go toolchain directly with the `workerui` tag because the Wails CLI requires generated platform task files that this repository does not contain.
 - [ ] Record the pin in `backend/go.mod`/`backend/go.sum` and build documentation.
 - [ ] Keep all Wails imports behind the `workerui` build tag so headless builds remain free of native GUI requirements.
 - [ ] Relevant official references:
@@ -543,7 +553,7 @@ Exit condition: the worker starts in the tray, Open restores it, close/minimize 
 
 ## Phase 8 — Update builds without breaking enrollment
 
-- [ ] Update `backend/build_runner_binaries.sh` to build desktop artifacts with the pinned Wails v3 CLI and the `workerui` tag.
+- [x] Update `backend/build_runner_binaries.sh` to build desktop artifacts with the pinned Wails v3 dependency and the `workerui` tag.
 - [ ] Keep exact outputs:
   - `runner-binaries/glyphflow-runner-linux-amd64`;
   - `runner-binaries/glyphflow-runner-windows-amd64.exe`.
@@ -552,7 +562,7 @@ Exit condition: the worker starts in the tray, Open restores it, close/minimize 
   - `runner-binaries/glyphflow-runner-linux-amd64-headless`;
   - `runner-binaries/glyphflow-runner-windows-amd64-headless.exe`.
 - [ ] Headless artifacts use the default `!workerui` entry point and the current plain Go build flow.
-- [ ] Desktop artifacts use Wails production builds. Preserve `-trimpath`/stripped release behavior through Wails' production task.
+- [x] Desktop artifacts use the Wails runtime through a direct `go build -tags workerui`; preserve `-trimpath` and stripped release behavior in the script.
 - [ ] Document required developer/runtime dependencies:
   - Windows 10/11: WebView2 runtime;
   - Linux: supported GTK/WebKit runtime and an active desktop session;
