@@ -1,0 +1,6 @@
+version: '3'
+
+tasks:
+  build:
+    cmds:
+      - GOOS={{.GOOS | default OS}} GOARCH={{.GOARCH | default "amd64"}} go build -tags "workerui{{if .EXTRA_TAGS}},{{.EXTRA_TAGS}}{{end}}" -trimpath -ldflags="-s -w" -o "{{.OUTPUT | default "bin/glyphflow-worker"}}" ./cmd/worker

@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -29,6 +30,15 @@ type OrderRuntime struct {
 	SigningKey       protocol.SigningKey
 	Executor         Executor
 	Active           *ActiveOrders
+	Writer           io.Writer
+}
+
+func (r OrderRuntime) logf(format string, args ...any) {
+	writer := r.Writer
+	if writer == nil {
+		writer = io.Discard
+	}
+	_, _ = fmt.Fprintf(writer, format, args...)
 }
 
 // ponytail: one outbox drain lock is sufficient for this worker process; split by runner only if publishing becomes a bottleneck.
@@ -116,7 +126,7 @@ func (r OrderRuntime) Handle(ctx context.Context, message queue.Message) error {
 	if err := r.Store.MarkProcessStarted(payload.OrderID); err != nil {
 		return err
 	}
-	fmt.Printf("%s - Started Run %q\n", time.Now().UTC().Format("2006-01-02 15:04 MST"), payload.RunID)
+	r.logf("%s - Started Run %q\n", time.Now().UTC().Format("2006-01-02 15:04 MST"), payload.RunID)
 	if err := r.publishEvent(ctx, payload, protocol.EventStarted, 2, "", "", nil); err != nil {
 		return err
 	}
@@ -163,7 +173,7 @@ func (r OrderRuntime) Handle(ctx context.Context, message queue.Message) error {
 	if exitCode != nil {
 		finishedCode = *exitCode
 	}
-	fmt.Printf("%s - Finished Run %q - %d\n", time.Now().UTC().Format("2006-01-02 15:04 MST"), payload.RunID, finishedCode)
+	r.logf("%s - Finished Run %q - %d\n", time.Now().UTC().Format("2006-01-02 15:04 MST"), payload.RunID, finishedCode)
 	eventType := protocol.EventCompleted
 	if active != nil && active.cancelled.Load() {
 		eventType = protocol.EventCancelled
