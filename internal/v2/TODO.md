@@ -34,6 +34,9 @@ All items below have runnable test evidence.
 
 ## Bugs
 
+- [x] **High: Preserve checksums for applied migrations**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test -race ./...` and `GOCACHE=/tmp/glyphflow-gocache go vet ./...` — PASS; runner capacity now changes through a new migration without modifying the applied canonical migration.
+  - Commit: `675dd7e` (`fix(controlplane): Preserve migration checksums`).
 - [x] **High: Authorize task mutations for plural system-user permissions**
   - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./internal/api -run TestPluralTaskManagePermissionAuthorizesTaskMutations -count=1` — PASS; `tasks.manage` authorizes task creation, version publishing, and deletion.
   - Commit: `a9fed2c`.
