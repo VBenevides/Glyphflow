@@ -49,30 +49,34 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	if !found {
-		if bootstrap == nil {
-			connection = worker.RunnerConnection{}
-		} else {
-			enrollmentKey, keyErr := protocol.GenerateSigningKey("runner:"+bootstrap.RunnerID, time.Now().UTC(), 365*24*time.Hour)
-			if keyErr != nil {
-				fmt.Fprintln(os.Stderr, keyErr)
-				os.Exit(1)
-			}
-			bootstrap.RunnerKeyID = enrollmentKey.ID
-			bootstrap.RunnerPublicKey = base64.RawStdEncoding.EncodeToString(enrollmentKey.Public.PublicKey)
-			if connection, err = bootstrap.Enroll(ctx); err != nil {
-				fmt.Fprintln(os.Stderr, err)
-				os.Exit(1)
-			}
-			if err := localStore.SaveSigningKey(enrollmentKey); err != nil {
-				fmt.Fprintln(os.Stderr, err)
-				os.Exit(1)
-			}
-			if err := localStore.SaveConnection(connection); err != nil {
-				fmt.Fprintln(os.Stderr, err)
-				os.Exit(1)
-			}
+	storedKey, foundKey, err := localStore.LoadSigningKey()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if needsRunnerEnrollment(bootstrap, found, foundKey, storedKey) {
+		enrollmentKey, keyErr := protocol.GenerateSigningKey("runner:"+bootstrap.RunnerID, time.Now().UTC(), 365*24*time.Hour)
+		if keyErr != nil {
+			fmt.Fprintln(os.Stderr, keyErr)
+			os.Exit(1)
 		}
+		bootstrap.RunnerKeyID = enrollmentKey.ID
+		bootstrap.RunnerPublicKey = base64.RawStdEncoding.EncodeToString(enrollmentKey.Public.PublicKey)
+		if connection, err = bootstrap.Enroll(ctx); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		if err := localStore.SaveSigningKey(enrollmentKey); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		if err := localStore.SaveConnection(connection); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		storedKey, foundKey = enrollmentKey, true
+	} else if !found {
+		connection = worker.RunnerConnection{}
 	}
 	if bootstrap != nil && bootstrap.ControlPublicKey != "" && connection.ControlPublicKey != bootstrap.ControlPublicKey {
 		connection.ControlPublicKey = bootstrap.ControlPublicKey
@@ -103,11 +107,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	workerKey, foundKey, err := localStore.LoadSigningKey()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
+	workerKey := storedKey
 	if !foundKey || workerKey.ID != "runner:"+cfg.RunnerID || time.Now().UTC().After(workerKey.Public.NotAfter) {
 		workerKey, err = protocol.GenerateSigningKey("runner:"+cfg.RunnerID, time.Now().UTC(), 365*24*time.Hour)
 		if err != nil {
@@ -188,7 +188,9 @@ func workerHeartbeat(ctx context.Context, jetstream *queue.JetStream, runnerID, 
 		if err != nil {
 			return
 		}
-		_ = jetstream.Publish(ctx, queue.Message{Subject: queue.Subject("events", runnerID), Data: raw, ID: "heartbeat:" + bootID + ":" + now.UTC().Format(time.RFC3339Nano)})
+		if err := jetstream.Publish(ctx, queue.Message{Subject: queue.Subject("events", runnerID), Data: raw, ID: "heartbeat:" + bootID + ":" + now.UTC().Format(time.RFC3339Nano)}); err != nil {
+			fmt.Fprintln(os.Stderr, "runner heartbeat:", err)
+		}
 	}
 	publish(time.Now().UTC())
 	ticker := time.NewTicker(10 * time.Second)
@@ -201,4 +203,8 @@ func workerHeartbeat(ctx context.Context, jetstream *queue.JetStream, runnerID, 
 			publish(now)
 		}
 	}
+}
+
+func needsRunnerEnrollment(bootstrap *worker.Bootstrap, connectionFound, keyFound bool, key protocol.SigningKey) bool {
+	return bootstrap != nil && (!connectionFound || !keyFound || key.ID != "runner:"+bootstrap.RunnerID || time.Now().UTC().After(key.Public.NotAfter))
 }
