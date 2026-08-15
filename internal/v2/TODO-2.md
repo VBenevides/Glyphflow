@@ -37,6 +37,9 @@ This file is an implementation handoff. Complete the work in order. Do not check
 - [x] Block retries for deleted tasks — commit `49d2b56` (`fix(controlplane): Block retries for deleted tasks`)
   - Result: archived tasks cannot re-enter retry wait after deletion.
   - Verification: `cd backend && GOCACHE=/tmp/glyphflow-go-cache go test ./...` passed; `cd frontend && npm test -- --run` (30 files, 58 tests), `npm run typecheck`, and `npm run lint` passed; `git diff --check` passed.
+- [x] Archive runner pools after task archival — commit `af1769c` (`fix(controlplane): Archive pools with deleted tasks`)
+  - Result: runner pools are soft-deleted after all active runners and tasks are archived. Historical task versions retain their foreign-key references, while archived pools disappear from active lists and cannot receive new runners or tasks.
+  - Verification: `cd backend && GOCACHE=/tmp/glyphflow-go-cache go test ./...` passed; `cd frontend && npm test -- --run` (30 files, 58 tests), `npm run typecheck`, and `npm run lint` passed; `git diff --check` passed.
 - [x] Runner deletion conflict fix — commit `0fe15e1` (`fix(controlplane): Explain runner history conflicts`)
   - Result: foreign-key failures from retained execution attempts now return `runner is referenced by execution history`; API regression tests pass.
 - [x] Runner archival, cancellation, pool cleanup, and unique enrollment IDs — commits `dc805a8`, `36bdf51`, `e6c601c`, and `a9da440`
