@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/VBenevides/Glyphflow/backend"
 	"github.com/VBenevides/Glyphflow/backend/internal/config"
 	"github.com/VBenevides/Glyphflow/backend/internal/protocol"
 	"github.com/VBenevides/Glyphflow/backend/internal/queue"
@@ -181,7 +182,7 @@ func main() {
 		}
 	}()
 	go workerHeartbeat(ctx, jetstream, cfg.RunnerID, bootID, workerKey)
-	fmt.Println("Glyphflow worker")
+	fmt.Printf("Glyphflow worker v%s\n", backend.Version)
 	<-ctx.Done()
 }
 

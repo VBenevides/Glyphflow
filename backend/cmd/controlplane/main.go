@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/VBenevides/Glyphflow/backend"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/VBenevides/Glyphflow/backend/internal/api"
@@ -247,7 +248,7 @@ func main() {
 		defer cancel()
 		_ = server.Shutdown(shutdown)
 	}()
-	fmt.Println("Glyphflow control plane")
+	fmt.Printf("Glyphflow control plane v%s\n", backend.Version)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
