@@ -566,7 +566,7 @@ func (s *RunStore) RequestCancellation(ctx context.Context, id, reason string) (
 }
 
 func (s *RunStore) Retry(ctx context.Context, id, reason string) (RunRecord, bool, error) {
-	result, err := s.pool.Exec(ctx, `UPDATE runs SET state = 'RETRY_WAIT', retry_not_before = now(), completed_at = NULL, cancellation_reason = NULLIF($2, ''), state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state IN ('FAILED','UNKNOWN') AND COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = runs.id), 0) < (SELECT max_attempts FROM task_versions WHERE id = runs.task_version_id)`, id, strings.TrimSpace(reason))
+	result, err := s.pool.Exec(ctx, `UPDATE runs SET state = 'RETRY_WAIT', retry_not_before = now(), completed_at = NULL, cancellation_reason = NULLIF($2, ''), state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state IN ('FAILED','UNKNOWN') AND NOT EXISTS (SELECT 1 FROM tasks WHERE tasks.id = runs.task_id AND tasks.is_deleted) AND COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = runs.id), 0) < (SELECT max_attempts FROM task_versions WHERE id = runs.task_version_id)`, id, strings.TrimSpace(reason))
 	if err != nil {
 		return RunRecord{}, false, err
 	}
