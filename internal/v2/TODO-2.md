@@ -30,7 +30,7 @@ This file is an implementation handoff. Complete the work in order. Do not check
   - Result: foreign-key failures from retained execution attempts now return `runner is referenced by execution history`; API regression tests pass.
 - [x] Runner archival, cancellation, pool cleanup, and unique enrollment IDs — commits `dc805a8`, `36bdf51`, `e6c601c`, and `a9da440`
   - Result: runners are archived instead of hard-deleted, retained in an Archived Runners tab, cannot reconnect or be recovered, and assigned work is cancelled immediately or after the existing stale-cancellation timeout. Pools can be deleted after all their runners are archived. Enrollment by runner name creates an ID with a random 8-byte hexadecimal suffix; legacy `runner_id` enrollment remains compatible.
-  - Verification: `cd backend && GOCACHE=/tmp/glyphflow-go-cache go test ./...` passed; `cd frontend && npm run typecheck` passed; `cd frontend && npm test` passed (30 files, 58 tests); `git diff --check` passed.
+  - Verification: `cd backend && GOCACHE=/tmp/glyphflow-go-cache go test ./...` passed; `cd frontend && npm run typecheck`, `npm test` (30 files, 58 tests), and `npm run lint` passed; `git diff --check` passed.
 
 ## Non-negotiable constraints
 
