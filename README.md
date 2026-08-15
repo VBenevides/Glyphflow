@@ -1,10 +1,33 @@
+<p align="center">
+  <img src="assets/glyphflow.png" alt="Glyphflow logo" width="160">
+</p>
+
 # Glyphflow
 
 Glyphflow is an open-source platform for script orchestration across servers and virtual machines.
 
 The platform has one central control plane and many remote workers. The control plane schedules work. Workers execute the work.
 
-Glyphflow is in the design phase. The repository does not contain a production implementation yet.
+Glyphflow is an alpha application. The repository contains the Go control plane, Go workers, React frontend, PostgreSQL persistence, and NATS JetStream integration.
+
+## Quick start
+
+Requirements: Docker Compose, Go, Node.js, and npm.
+
+Run the local environment:
+
+```bash
+./dev_run.sh
+```
+
+The script starts PostgreSQL and NATS, builds the Linux and Windows AMD64 worker binaries, and starts the frontend and control plane.
+
+- Frontend: <http://localhost:5173>
+- Control plane: <http://localhost:8080>
+- Default email: `admin@example_domain.com`
+- Default password: `admin-password-123`
+
+Press `Ctrl-C` to stop the development processes. Docker volumes keep PostgreSQL and NATS data between runs.
 
 ## MVP boundary
 
