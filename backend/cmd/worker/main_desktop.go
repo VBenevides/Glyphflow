@@ -57,7 +57,7 @@ func main() {
 		MinHeight:        420,
 		Hidden:           trayEnabled,
 		BackgroundColour: application.NewRGB(243, 240, 255),
-		URL:              "http://wails.localhost/",
+		URL:              "/",
 	})
 	var exitOnce sync.Once
 	exit := func() {
