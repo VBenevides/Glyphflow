@@ -239,7 +239,8 @@ func (s *RunStore) ClaimWaiting(ctx context.Context, build func(DispatchCandidat
 	if err := json.Unmarshal(command, &candidate.Command); err != nil {
 		return DispatchCandidate{}, false, err
 	}
-	if err := json.Unmarshal(environment, &candidate.Environment); err != nil {
+	candidate.Environment, err = decodeEnvironment(environment)
+	if err != nil {
 		return DispatchCandidate{}, false, err
 	}
 	if err := json.Unmarshal(secrets, &candidate.SecretRefs); err != nil {
@@ -334,6 +335,23 @@ func (s *RunStore) ClaimWaiting(ctx context.Context, build func(DispatchCandidat
 		return DispatchCandidate{}, false, err
 	}
 	return candidate, true, nil
+}
+
+func decodeEnvironment(raw []byte) (map[string]string, error) {
+	var values map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &values); err != nil {
+		return nil, err
+	}
+	environment := make(map[string]string, len(values))
+	for name, value := range values {
+		var text string
+		if json.Unmarshal(value, &text) == nil {
+			environment[name] = text
+			continue
+		}
+		environment[name] = string(value)
+	}
+	return environment, nil
 }
 
 func resolvedExecutionDigest(candidate DispatchCandidate) (string, error) {
