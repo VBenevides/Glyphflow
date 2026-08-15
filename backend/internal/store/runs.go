@@ -186,7 +186,7 @@ func (s *RunStore) Create(ctx context.Context, definition RunDefinition) (RunRec
 	}
 	defer tx.Rollback(ctx)
 	var taskVersionID string
-	if err := tx.QueryRow(ctx, `SELECT current_version_id FROM tasks WHERE id = $1`, definition.TaskID).Scan(&taskVersionID); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT current_version_id FROM tasks WHERE id = $1 AND NOT is_deleted`, definition.TaskID).Scan(&taskVersionID); err != nil {
 		return RunRecord{}, err
 	}
 	variables, err := loadGlobalVariables(ctx, tx)

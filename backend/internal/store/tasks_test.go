@@ -56,6 +56,10 @@ func TestTaskRepositoryKeepsImmutableVersionsAndPointer(t *testing.T) {
 	if err != nil || !deleted {
 		t.Fatalf("task deletion failed: deleted=%t, err=%v", deleted, err)
 	}
+	var isDeleted bool
+	if err := pool.QueryRow(ctx, `SELECT is_deleted FROM tasks WHERE id = $1`, taskID).Scan(&isDeleted); err != nil || !isDeleted {
+		t.Fatalf("task was not soft deleted: deleted=%t, err=%v", isDeleted, err)
+	}
 	if _, found, err := repository.Find(ctx, taskID); err != nil || found {
 		t.Fatalf("deleted task still exists: found=%t, err=%v", found, err)
 	}

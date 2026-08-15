@@ -96,6 +96,23 @@ func TestTaskDeletionMigrationKeepsVersionsImmutableButDeletable(t *testing.T) {
 	}
 }
 
+func TestTaskArchivalMigrationAddsDeletionFlag(t *testing.T) {
+	migrations, err := LoadMigrations(filepath.Join("..", "..", "migrations"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var taskArchival Migration
+	for _, migration := range migrations {
+		if migration.Name == "task_archival" {
+			taskArchival = migration
+		}
+	}
+	sql := strings.ToLower(taskArchival.SQL)
+	if taskArchival.Version != 14 || !strings.Contains(sql, "add column if not exists is_deleted") || !strings.Contains(sql, "tasks_active_idx") || !strings.Contains(sql, "before update or delete on task_versions") {
+		t.Fatalf("task archival migration = %#v", taskArchival)
+	}
+}
+
 func TestGlobalVariableMigration(t *testing.T) {
 	migrations, err := LoadMigrations(filepath.Join("..", "..", "migrations"))
 	if err != nil {

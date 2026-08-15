@@ -38,6 +38,7 @@ type TaskDefinition struct {
 type TaskRecord struct {
 	ID, CurrentVersionID, Name, RunnerPoolID, PinnedRunnerID string
 	Enabled                                                  bool
+	IsDeleted                                                bool
 	ActiveVersion, TimeoutSeconds, MaxAttempts               int
 	MaxOutputBytes                                           int64
 	WorkingDirectory, ExecutionSpecDigest, AmbiguityPolicy   string
@@ -68,7 +69,7 @@ type TaskStore struct{ pool *pgxpool.Pool }
 func NewTaskRepository(pool *pgxpool.Pool) *TaskStore { return &TaskStore{pool: pool} }
 
 func (s *TaskStore) List(ctx context.Context) ([]TaskRecord, error) {
-	rows, err := s.pool.Query(ctx, taskQuery+` ORDER BY lower(t.name), t.id`)
+	rows, err := s.pool.Query(ctx, taskQuery+` WHERE NOT t.is_deleted ORDER BY lower(t.name), t.id`)
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +86,7 @@ func (s *TaskStore) List(ctx context.Context) ([]TaskRecord, error) {
 }
 
 func (s *TaskStore) Find(ctx context.Context, id string) (TaskRecord, bool, error) {
-	item, err := scanTask(s.pool.QueryRow(ctx, taskQuery+` WHERE t.id = $1`, id), id)
+	item, err := scanTask(s.pool.QueryRow(ctx, taskQuery+` WHERE t.id = $1 AND NOT t.is_deleted`, id), id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return TaskRecord{}, false, nil
 	}
@@ -93,7 +94,7 @@ func (s *TaskStore) Find(ctx context.Context, id string) (TaskRecord, bool, erro
 }
 
 func (s *TaskStore) ListVersions(ctx context.Context, taskID string) ([]TaskVersionRecord, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id, version, runner_pool_id, COALESCE(pinned_runner_id, ''), command, working_directory, timeout_seconds, max_output_bytes, max_attempts, ambiguity_policy, execution_spec_digest, created_at FROM task_versions WHERE task_id = $1 ORDER BY version DESC`, taskID)
+	rows, err := s.pool.Query(ctx, `SELECT v.id, v.version, v.runner_pool_id, COALESCE(v.pinned_runner_id, ''), v.command, v.working_directory, v.timeout_seconds, v.max_output_bytes, v.max_attempts, v.ambiguity_policy, v.execution_spec_digest, v.created_at FROM task_versions v JOIN tasks t ON t.id = v.task_id WHERE v.task_id = $1 AND NOT t.is_deleted ORDER BY v.version DESC`, taskID)
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +114,7 @@ func (s *TaskStore) ListVersions(ctx context.Context, taskID string) ([]TaskVers
 	return items, rows.Err()
 }
 
-const taskQuery = `SELECT t.id, COALESCE(t.current_version_id, ''), t.name, t.enabled, COALESCE(v.version, 0), COALESCE(v.runner_pool_id, ''), COALESCE(v.pinned_runner_id, ''), COALESCE(v.command, '[]'::jsonb), COALESCE(v.working_directory, '.'), COALESCE(v.placement_selectors, '{}'::jsonb), COALESCE(v.environment, '{}'::jsonb), COALESCE(v.secret_references, '{}'::jsonb), COALESCE(v.timeout_seconds, 0), COALESCE(v.max_output_bytes, 0), COALESCE(v.max_attempts, 1), COALESCE(v.ambiguity_policy, ''), COALESCE(v.execution_spec_digest, ''), COALESCE(latest_run.id, ''), COALESCE(latest_run.task_id, ''), COALESCE(latest_run.task_name, ''), COALESCE(latest_run.state, ''), COALESCE(latest_run.attempt, 0), latest_run.exit_code, COALESCE(latest_run.exit_code_meaning, ''), COALESCE(latest_run.runner, ''), COALESCE(latest_run.trigger_type, ''), COALESCE(latest_run.scheduled_for, 'epoch'::timestamptz) FROM tasks t LEFT JOIN task_versions v ON v.id = t.current_version_id LEFT JOIN LATERAL (SELECT r.id, r.task_id, t_run.name AS task_name, r.state, r.trigger_type, r.scheduled_for, COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = r.id), 1) AS attempt, latest_attempt.runner_id AS runner, latest_attempt.exit_code, COALESCE(ec.meaning, '') AS exit_code_meaning FROM runs r JOIN tasks t_run ON t_run.id = r.task_id LEFT JOIN LATERAL (SELECT runner_id, exit_code FROM execution_attempts WHERE run_id = r.id ORDER BY attempt_number DESC LIMIT 1) latest_attempt ON true LEFT JOIN exit_code ec ON ec.code = latest_attempt.exit_code WHERE r.task_id = t.id ORDER BY r.created_at DESC, r.id DESC LIMIT 1) latest_run ON true`
+const taskQuery = `SELECT t.id, COALESCE(t.current_version_id, ''), t.name, t.enabled, COALESCE(v.version, 0), COALESCE(v.runner_pool_id, ''), COALESCE(v.pinned_runner_id, ''), COALESCE(v.command, '[]'::jsonb), COALESCE(v.working_directory, '.'), COALESCE(v.placement_selectors, '{}'::jsonb), COALESCE(v.environment, '{}'::jsonb), COALESCE(v.secret_references, '{}'::jsonb), COALESCE(v.timeout_seconds, 0), COALESCE(v.max_output_bytes, 0), COALESCE(v.max_attempts, 1), COALESCE(v.ambiguity_policy, ''), COALESCE(v.execution_spec_digest, ''), COALESCE(latest_run.id, ''), COALESCE(latest_run.task_id, ''), COALESCE(latest_run.task_name, ''), COALESCE(latest_run.state, ''), COALESCE(latest_run.attempt, 0), latest_run.exit_code, COALESCE(latest_run.exit_code_meaning, ''), COALESCE(latest_run.runner, ''), COALESCE(latest_run.trigger_type, ''), COALESCE(latest_run.scheduled_for, 'epoch'::timestamptz), t.is_deleted FROM tasks t LEFT JOIN task_versions v ON v.id = t.current_version_id LEFT JOIN LATERAL (SELECT r.id, r.task_id, t_run.name AS task_name, r.state, r.trigger_type, r.scheduled_for, COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = r.id), 1) AS attempt, latest_attempt.runner_id AS runner, latest_attempt.exit_code, COALESCE(ec.meaning, '') AS exit_code_meaning FROM runs r JOIN tasks t_run ON t_run.id = r.task_id LEFT JOIN LATERAL (SELECT runner_id, exit_code FROM execution_attempts WHERE run_id = r.id ORDER BY attempt_number DESC LIMIT 1) latest_attempt ON true LEFT JOIN exit_code ec ON ec.code = latest_attempt.exit_code WHERE r.task_id = t.id ORDER BY r.created_at DESC, r.id DESC LIMIT 1) latest_run ON true`
 
 type rowScanner interface{ Scan(...any) error }
 
@@ -124,7 +125,7 @@ func scanTask(row rowScanner, _ ...string) (TaskRecord, error) {
 	var latestAttempt int
 	var latestExitCode *int
 	var latestScheduledFor time.Time
-	if err := row.Scan(&item.ID, &item.CurrentVersionID, &item.Name, &item.Enabled, &item.ActiveVersion, &item.RunnerPoolID, &item.PinnedRunnerID, &command, &item.WorkingDirectory, &selectors, &environment, &secrets, &item.TimeoutSeconds, &item.MaxOutputBytes, &item.MaxAttempts, &item.AmbiguityPolicy, &item.ExecutionSpecDigest, &latestRunID, &latestTaskID, &latestTaskName, &latestState, &latestAttempt, &latestExitCode, &latestMeaning, &latestRunner, &latestTrigger, &latestScheduledFor); err != nil {
+	if err := row.Scan(&item.ID, &item.CurrentVersionID, &item.Name, &item.Enabled, &item.ActiveVersion, &item.RunnerPoolID, &item.PinnedRunnerID, &command, &item.WorkingDirectory, &selectors, &environment, &secrets, &item.TimeoutSeconds, &item.MaxOutputBytes, &item.MaxAttempts, &item.AmbiguityPolicy, &item.ExecutionSpecDigest, &latestRunID, &latestTaskID, &latestTaskName, &latestState, &latestAttempt, &latestExitCode, &latestMeaning, &latestRunner, &latestTrigger, &latestScheduledFor, &item.IsDeleted); err != nil {
 		return TaskRecord{}, err
 	}
 	if err := json.Unmarshal(command, &item.Command); err != nil {
@@ -180,7 +181,7 @@ func (s *TaskStore) CreateVersion(ctx context.Context, taskID string, definition
 		return TaskRecord{}, err
 	}
 	defer tx.Rollback(ctx)
-	if err := tx.QueryRow(ctx, `SELECT id FROM tasks WHERE id = $1 FOR UPDATE`, taskID).Scan(new(string)); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT id FROM tasks WHERE id = $1 AND NOT is_deleted FOR UPDATE`, taskID).Scan(new(string)); err != nil {
 		return TaskRecord{}, err
 	}
 	var version int
@@ -289,8 +290,25 @@ func (s *TaskStore) CreateVersion(ctx context.Context, taskID string, definition
 }
 
 func (s *TaskStore) Delete(ctx context.Context, id string) (bool, error) {
-	result, err := s.pool.Exec(ctx, `DELETE FROM tasks WHERE id = $1`, id)
-	return result.RowsAffected() > 0, err
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx)
+	result, err := tx.Exec(ctx, `UPDATE tasks SET is_deleted = true, enabled = false, updated_at = now() WHERE id = $1 AND NOT is_deleted`, id)
+	if err != nil || result.RowsAffected() == 0 {
+		return result.RowsAffected() > 0, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE schedules SET enabled = false, updated_at = now() WHERE task_id = $1`, id); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE runs SET state = CASE WHEN state IN ('WAITING','RETRY_WAIT') THEN 'CANCELLED' ELSE 'CANCELLING' END, cancellation_requested_at = COALESCE(cancellation_requested_at, now()), cancellation_reason = 'task deleted', completed_at = CASE WHEN state IN ('WAITING','RETRY_WAIT') THEN now() ELSE completed_at END, state_version = state_version + 1, updated_at = now() WHERE task_id = $1 AND state IN ('WAITING','RUNNING','RETRY_WAIT','CANCELLING')`, id); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func normalizeTaskDefinition(definition TaskDefinition) TaskDefinition {

@@ -19,6 +19,7 @@ type TaskRecord struct {
 	ID                 string         `json:"id"`
 	Name               string         `json:"name"`
 	Enabled            bool           `json:"enabled"`
+	IsDeleted          bool           `json:"isDeleted"`
 	ActiveVersion      int            `json:"activeVersion"`
 	Pool               string         `json:"pool"`
 	PinnedRunner       string         `json:"pinnedRunner,omitempty"`
@@ -100,7 +101,7 @@ func taskRecordFromStore(task store.TaskRecord) TaskRecord {
 		mapped := runRecordFromStore(*task.LatestRun)
 		latestRun = &mapped
 	}
-	return TaskRecord{ID: task.ID, Name: task.Name, Enabled: task.Enabled, ActiveVersion: task.ActiveVersion, Pool: task.RunnerPoolID, PinnedRunner: task.PinnedRunnerID, Command: append([]string(nil), task.Command...), WorkingDirectory: task.WorkingDirectory, PlacementSelectors: task.PlacementSelectors, Environment: task.Environment, SecretReferences: task.SecretReferences, TimeoutSeconds: task.TimeoutSeconds, MaxOutputBytes: task.MaxOutputBytes, MaxAttempts: task.MaxAttempts, AmbiguityPolicy: task.AmbiguityPolicy, LatestRun: latestRun}
+	return TaskRecord{ID: task.ID, Name: task.Name, Enabled: task.Enabled, IsDeleted: task.IsDeleted, ActiveVersion: task.ActiveVersion, Pool: task.RunnerPoolID, PinnedRunner: task.PinnedRunnerID, Command: append([]string(nil), task.Command...), WorkingDirectory: task.WorkingDirectory, PlacementSelectors: task.PlacementSelectors, Environment: task.Environment, SecretReferences: task.SecretReferences, TimeoutSeconds: task.TimeoutSeconds, MaxOutputBytes: task.MaxOutputBytes, MaxAttempts: task.MaxAttempts, AmbiguityPolicy: task.AmbiguityPolicy, LatestRun: latestRun}
 }
 
 func taskVersionRecordFromStore(version store.TaskVersionRecord) TaskVersionRecord {
@@ -170,6 +171,9 @@ func (o *OperationsService) taskCollection(w http.ResponseWriter, r *http.Reques
 		o.mu.RLock()
 		items := make([]TaskRecord, 0, len(o.tasks))
 		for _, task := range o.tasks {
+			if task.IsDeleted {
+				continue
+			}
 			items = append(items, task)
 		}
 		o.mu.RUnlock()
@@ -556,16 +560,21 @@ func (o *OperationsService) task(id string) (TaskRecord, bool) {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
 	task, ok := o.tasks[id]
+	if ok && task.IsDeleted {
+		return TaskRecord{}, false
+	}
 	return task, ok
 }
 
 func (o *OperationsService) deleteTask(id string) bool {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if _, ok := o.tasks[id]; !ok {
+	task, ok := o.tasks[id]
+	if !ok || task.IsDeleted {
 		return false
 	}
-	delete(o.tasks, id)
+	task.IsDeleted, task.Enabled = true, false
+	o.tasks[id] = task
 	for scheduleID, schedule := range o.schedules {
 		if schedule.TaskID == id {
 			delete(o.schedules, scheduleID)

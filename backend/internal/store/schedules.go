@@ -102,7 +102,7 @@ func (s *ScheduleStore) Create(ctx context.Context, definition ScheduleDefinitio
 	}
 	defer tx.Rollback(ctx)
 	var taskVersionID string
-	if err := tx.QueryRow(ctx, `SELECT current_version_id FROM tasks WHERE id = $1 FOR SHARE`, definition.TaskID).Scan(&taskVersionID); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT current_version_id FROM tasks WHERE id = $1 AND NOT is_deleted FOR SHARE`, definition.TaskID).Scan(&taskVersionID); err != nil {
 		return ScheduleRecord{}, err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO schedules (id, task_id, name, enabled, next_fire_at) VALUES ($1, $2, $3, $4, $5)`, definition.ID, definition.TaskID, definition.Name, definition.Enabled, definition.NextFireAt); err != nil {
@@ -148,7 +148,7 @@ func (s *ScheduleStore) Update(ctx context.Context, id string, definition Schedu
 	if definition.TaskID == "" {
 		definition.TaskID = taskID
 	}
-	if err := tx.QueryRow(ctx, `SELECT current_version_id FROM tasks WHERE id = $1 FOR SHARE`, definition.TaskID).Scan(&taskVersionID); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT current_version_id FROM tasks WHERE id = $1 AND NOT is_deleted FOR SHARE`, definition.TaskID).Scan(&taskVersionID); err != nil {
 		return ScheduleRecord{}, err
 	}
 	var version int
