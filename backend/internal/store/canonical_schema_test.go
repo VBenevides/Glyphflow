@@ -47,6 +47,28 @@ func TestRunnerPendingStateMigration(t *testing.T) {
 	}
 }
 
+func TestGlobalVariableMigration(t *testing.T) {
+	migrations, err := LoadMigrations(filepath.Join("..", "..", "migrations"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var globalMigration Migration
+	for _, migration := range migrations {
+		if migration.Name == "global_variables" {
+			globalMigration = migration
+		}
+	}
+	if globalMigration.Version != 6 {
+		t.Fatalf("migrations = %#v, want global variable migration", migrations)
+	}
+	sql := strings.ToLower(globalMigration.SQL)
+	for _, fragment := range []string{"create table global_variables", "global_variable_references", "on delete restrict"} {
+		if !strings.Contains(sql, fragment) {
+			t.Errorf("global variable migration does not contain %q", fragment)
+		}
+	}
+}
+
 func TestCanonicalMigrationContainsTargetTables(t *testing.T) {
 	sql := canonicalMigrationSQL(t)
 	for _, table := range []string{

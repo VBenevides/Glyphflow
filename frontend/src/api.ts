@@ -40,6 +40,7 @@ export type ExitCode = { code: number; meaning: string; isSystem?: boolean }
 export type Runner = { id: string; name: string; poolId?: string; desiredState?: string; observedState?: string; pool?: string; capacity?: number; activeCount?: number; heartbeatAt?: string; platform?: string; architecture?: string }
 export type RunnerPool = { id: string; name: string; description?: string; enabled?: boolean }
 export type Resource = { id: string; name: string; enabled?: boolean; holder?: string; expiresAt?: string; fencingToken?: number }
+export type GlobalVariable = { id: string; name: string; value: string; updatedAt?: string; references?: number }
 export type AuditEvent = { id: string; actor?: string; actorName?: string; actorEmail?: string; action?: string; description?: string; target?: string; result?: string; createdAt?: string; correlationId?: string; request?: string; input?: unknown; output?: unknown; traceback?: string; before?: unknown; after?: unknown }
 export type AuthSession = { id: string; createdAt?: string; expiresAt?: string; lastSeenAt?: string; current?: boolean; userAgent?: string; ipAddress?: string }
 export type UserRecord = { id: string; username: string; email?: string; displayName?: string; status?: string; enabled?: boolean; systemAdmin?: boolean; loginMethods?: string[]; roles?: string[]; roleSources?: string[]; permissions?: string[]; identities?: Identity[]; sessions?: AuthSession[] }

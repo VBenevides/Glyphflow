@@ -46,8 +46,6 @@ func main() {
 	}
 	configStore := store.NewConfigStore(db)
 	for name, value := range map[string]any{
-		"DATABASE_URL":                 cfg.DatabaseURL,
-		"NATS_URL":                     cfg.NATSURL,
 		"WEB_ORIGIN":                   cfg.WebOrigin,
 		"MAX_MESSAGE_BYTES":            cfg.MaxMessageBytes,
 		"GLYPHFLOW_BOOTSTRAP_EMAIL":    cfg.BootstrapUsername,
@@ -62,7 +60,7 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	signingKey, err := loadControlPlaneSigningKey(ctx, configStore)
+	signingKey, err := loadControlPlaneSigningKey(cfg.ControlPlaneSigningPrivateKey)
 	if err != nil {
 		db.Close()
 		fmt.Fprintln(os.Stderr, err)
@@ -143,6 +141,8 @@ func main() {
 	operations.SetTaskRepository(store.NewTaskRepository(db))
 	scheduleRepository := store.NewScheduleRepository(db)
 	operations.SetScheduleRepository(scheduleRepository)
+	globalVariables := api.NewGlobalVariableService()
+	globalVariables.SetRepository(store.NewGlobalVariableRepository(db))
 	runs := api.NewRunService()
 	runRepository := store.NewRunRepository(db)
 	runs.SetRepository(runRepository)
@@ -160,7 +160,7 @@ func main() {
 	infrastructure.SetControlPlanePublicKey(base64.RawStdEncoding.EncodeToString(signingKey.Public.PublicKey))
 	audit := api.NewAuditQueryService()
 	audit.SetRepository(store.NewAuditRepository(db))
-	application := api.Server{AuthService: authService, AuthAdmin: &api.AuthAdminService{Auth: authService, OIDC: oidcService, Sessions: authService.SessionManager()}, Sessions: authService.SessionManager(), OIDC: oidcService, Roles: roles, Auth: authService.Authenticator(), Permissions: authService.Permissions, CSRFOrigin: cfg.WebOrigin, Operations: operations, Runs: runs, Infrastructure: infrastructure, AuditQuery: audit, ExitCodes: store.NewExitCodeRepository(db), Ready: func(ctx context.Context) error {
+	application := api.Server{AuthService: authService, AuthAdmin: &api.AuthAdminService{Auth: authService, OIDC: oidcService, Sessions: authService.SessionManager()}, Sessions: authService.SessionManager(), OIDC: oidcService, Roles: roles, Auth: authService.Authenticator(), Permissions: authService.Permissions, CSRFOrigin: cfg.WebOrigin, Operations: operations, Runs: runs, Infrastructure: infrastructure, AuditQuery: audit, ExitCodes: store.NewExitCodeRepository(db), GlobalVariables: globalVariables, Ready: func(ctx context.Context) error {
 		if err := db.Ping(ctx); err != nil {
 			return err
 		}

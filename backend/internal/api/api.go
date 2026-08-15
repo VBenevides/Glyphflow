@@ -31,6 +31,7 @@ type requestAuditDetails struct {
 }
 
 const auditErrorBodyLimit = 4 << 10
+const maxRequestBodyBytes = 1 << 20
 
 func recordRequestError(r *http.Request, err error) {
 	if err == nil {
@@ -73,6 +74,7 @@ type Server struct {
 	Infrastructure  *InfrastructureService
 	AuditQuery      *AuditQueryService
 	ExitCodes       store.ExitCodeRepository
+	GlobalVariables *GlobalVariableService
 }
 
 func (s Server) Handler() http.Handler {
@@ -93,6 +95,9 @@ func (s Server) Handler() http.Handler {
 	}
 	if s.AuditQuery == nil {
 		s.AuditQuery = NewAuditQueryService()
+	}
+	if s.GlobalVariables == nil {
+		s.GlobalVariables = NewGlobalVariableService()
 	}
 	if s.AuthAdmin == nil && s.AuthService != nil {
 		s.AuthAdmin = &AuthAdminService{Auth: s.AuthService, Sessions: s.AuthService.sessions, OIDC: s.OIDC}
@@ -141,6 +146,18 @@ func (s Server) Handler() http.Handler {
 		return "tasks.manage"
 	}, http.HandlerFunc(s.Operations.scheduleCollection)))
 	mux.Handle("/api/v1/schedules/preview", s.require("tasks.manage", http.HandlerFunc(s.Operations.preview)))
+	mux.Handle("/api/v1/global-variables", s.requireMethodRole(func(r *http.Request) string {
+		if r.Method == http.MethodGet {
+			return "tasks.read"
+		}
+		return "tasks.manage"
+	}, http.HandlerFunc(s.GlobalVariables.collection)))
+	mux.Handle("/api/v1/global-variables/", s.requireMethodRole(func(r *http.Request) string {
+		if r.Method == http.MethodGet {
+			return "tasks.read"
+		}
+		return "tasks.manage"
+	}, http.HandlerFunc(s.GlobalVariables.path)))
 	mux.Handle("/api/v1/resources", s.requireMethodRole(func(r *http.Request) string {
 		if r.Method == http.MethodGet {
 			return "resources.read"
@@ -244,7 +261,20 @@ func (s Server) Handler() http.Handler {
 	if s.CSRFOrigin != "" {
 		handler = s.withCSRF(handler, s.CSRFOrigin)
 	}
-	return s.noStore(s.withCorrelation(handler))
+	return s.noStore(s.withCorrelation(s.limitRequestBody(handler)))
+}
+
+func (s Server) limitRequestBody(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			if r.ContentLength > maxRequestBodyBytes {
+				writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "request body is too large"})
+				return
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s Server) require(role string, next http.Handler) http.Handler {
@@ -430,8 +460,7 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 }
 
 func writeError(w http.ResponseWriter, status int, operation string, err error) {
-	if err != nil && strings.TrimSpace(err.Error()) != "" {
-		operation += ": " + strings.TrimSpace(err.Error())
-	}
+	// Do not reflect database, filesystem, or upstream provider details to clients.
+	// Callers can record the original error with recordRequestError for correlated logs.
 	writeJSON(w, status, map[string]string{"error": operation})
 }
