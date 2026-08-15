@@ -122,3 +122,28 @@ func TestConsumeConcurrentRunsDeliveredMessagesTogether(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestConsumeConcurrentCancelsBlockedHandler(t *testing.T) {
+	messages := newTestMessages(testMessage{subject: "orders"})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	started := make(chan struct{})
+	go func() {
+		done <- (&JetStream{}).ConsumeConcurrent(ctx, testConsumer{messages: messages}, func(handlerCtx context.Context, _ Message) error {
+			close(started)
+			<-handlerCtx.Done()
+			return nil
+		})
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("message handler did not start")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("consumer did not stop after cancellation")
+	}
+}

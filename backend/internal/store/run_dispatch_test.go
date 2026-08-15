@@ -79,7 +79,7 @@ func TestRunRepositoryReconcilesStaleCancellation(t *testing.T) {
 	if _, err := db.Exec(ctx, `INSERT INTO runner_pools (id, name) VALUES ($1, $1)`, poolID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(ctx, `INSERT INTO runners (id, pool_id, name, desired_state, capabilities, active_count) VALUES ($1, $2, $1, 'ENABLED', '{}'::jsonb, 1)`, runnerID, poolID); err != nil {
+	if _, err := db.Exec(ctx, `INSERT INTO runners (id, pool_id, name, desired_state, capabilities) VALUES ($1, $2, $1, 'ENABLED', '{}'::jsonb)`, runnerID, poolID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(ctx, `INSERT INTO runner_sessions (id, runner_id, boot_id, last_heartbeat_at) VALUES ($1, $2, $3, now())`, runnerID+"/boot", runnerID, "boot"); err != nil {

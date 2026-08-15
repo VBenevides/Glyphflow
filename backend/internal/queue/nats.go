@@ -78,7 +78,7 @@ func connectJetStream(url string, options ...nats.Option) (*JetStream, error) {
 
 func (j *JetStream) Close() {
 	if j != nil && j.conn != nil {
-		j.conn.Drain()
+		j.conn.Close()
 	}
 }
 func (j *JetStream) StreamName() string {
@@ -116,8 +116,11 @@ func (j *JetStream) ConsumeOne(ctx context.Context, consumer jetstream.Consumer,
 	if consumer == nil || handler == nil {
 		return errors.New("consumer and handler are required")
 	}
-	message, err := consumer.Next(jetstream.FetchMaxWait(30 * time.Second))
+	message, err := consumer.Next(jetstream.FetchMaxWait(time.Second))
 	if err != nil {
+		if errors.Is(err, nats.ErrTimeout) {
+			return nil
+		}
 		return err
 	}
 	return j.processMessage(ctx, message, handler)

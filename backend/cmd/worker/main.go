@@ -156,7 +156,6 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	defer jetstream.Close()
 	capacity := connection.Capacity
 	if capacity < 1 {
 		capacity = store.DefaultRunnerCapacity
@@ -182,6 +181,7 @@ func main() {
 			if err := jetstream.ConsumeConcurrent(ctx, consumer, func(handlerCtx context.Context, message queue.Message) error {
 				return runtime.Handle(handlerCtx, message)
 			}); err != nil && ctx.Err() == nil {
+				fmt.Fprintln(os.Stderr, "runner order consumer:", err)
 				time.Sleep(time.Second)
 			}
 		}
@@ -212,12 +212,14 @@ func main() {
 			if err := jetstream.ConsumeOne(ctx, controlConsumer, func(handlerCtx context.Context, message queue.Message) error {
 				return worker.ApplyRunnerControl(handlerCtx, message, cfg.RunnerID, ed25519.PublicKey(controlPublicKey), &currentCapacity)
 			}); err != nil && ctx.Err() == nil {
+				fmt.Fprintln(os.Stderr, "runner control consumer:", err)
 				time.Sleep(time.Second)
 			}
 		}
 	}()
 	fmt.Printf("Glyphflow worker v%s\n", backend.Version)
 	<-ctx.Done()
+	jetstream.Close()
 	background.Wait()
 }
 
