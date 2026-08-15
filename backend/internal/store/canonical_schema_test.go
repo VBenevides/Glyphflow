@@ -79,6 +79,23 @@ func TestRunnerCurrentCapacityMigration(t *testing.T) {
 	}
 }
 
+func TestTaskDeletionMigrationKeepsVersionsImmutableButDeletable(t *testing.T) {
+	migrations, err := LoadMigrations(filepath.Join("..", "..", "migrations"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var taskDeletion Migration
+	for _, migration := range migrations {
+		if migration.Name == "task_deletion" {
+			taskDeletion = migration
+		}
+	}
+	sql := strings.ToLower(taskDeletion.SQL)
+	if taskDeletion.Version != 13 || !strings.Contains(sql, "drop trigger if exists task_versions_immutable") || !strings.Contains(sql, "before update on task_versions") || strings.Contains(sql, "before update or delete on task_versions") {
+		t.Fatalf("task deletion migration = %#v", taskDeletion)
+	}
+}
+
 func TestGlobalVariableMigration(t *testing.T) {
 	migrations, err := LoadMigrations(filepath.Join("..", "..", "migrations"))
 	if err != nil {
