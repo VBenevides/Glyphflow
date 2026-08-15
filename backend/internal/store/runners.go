@@ -61,6 +61,7 @@ const DefaultRunnerCapacity = 10
 
 var (
 	ErrRunnerPoolInUse           = errors.New("runner pool is still in use")
+	ErrRunnerPoolHasTaskVersions = errors.New("runner pool is still referenced by task versions")
 	ErrRunnerHasExecutionHistory = errors.New("runner is referenced by execution history")
 )
 
@@ -122,6 +123,9 @@ func (s *RunnerStore) DeletePool(ctx context.Context, id string) error {
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			if pgErr.ConstraintName == "task_versions_runner_pool_id_fkey" {
+				return ErrRunnerPoolHasTaskVersions
+			}
 			return ErrRunnerPoolInUse
 		}
 		return err

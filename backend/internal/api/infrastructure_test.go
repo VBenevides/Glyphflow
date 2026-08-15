@@ -332,6 +332,16 @@ func TestRunnerPoolDeleteReportsWhenPoolIsInUse(t *testing.T) {
 	}
 }
 
+func TestRunnerPoolDeleteReportsTaskVersionReferences(t *testing.T) {
+	s := NewInfrastructureService()
+	s.runnerRepository = runnerRepositoryWithDeleteError{err: store.ErrRunnerPoolHasTaskVersions}
+	response := httptest.NewRecorder()
+	s.poolPath(response, httptest.NewRequest(http.MethodDelete, "/api/v1/runners/pools/pool-1", nil))
+	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), `"error":"runner pool is still referenced by task versions"`) {
+		t.Fatalf("delete pool response = %d: %s", response.Code, response.Body.String())
+	}
+}
+
 func TestRunnerCapacityUpdatePublishesControlMessage(t *testing.T) {
 	s := NewInfrastructureService()
 	s.runners["runner-1"] = RunnerRecord{ID: "runner-1", Name: "runner-1", Capacity: 1}

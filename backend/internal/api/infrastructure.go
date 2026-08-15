@@ -248,7 +248,7 @@ func (s *InfrastructureService) poolPath(w http.ResponseWriter, r *http.Request)
 	if r.Method == http.MethodDelete {
 		if repository != nil {
 			if err := repository.DeletePool(r.Context(), id); err != nil {
-				if errors.Is(err, store.ErrRunnerPoolInUse) {
+				if errors.Is(err, store.ErrRunnerPoolInUse) || errors.Is(err, store.ErrRunnerPoolHasTaskVersions) {
 					writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 					return
 				}
