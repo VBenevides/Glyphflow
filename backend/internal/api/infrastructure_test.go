@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -28,6 +29,10 @@ type runnerRepositoryWithDeleteError struct {
 func (r runnerRepositoryWithDeleteError) DeletePool(context.Context, string) error { return r.err }
 
 func (r runnerRepositoryWithDeleteError) Delete(context.Context, string) (bool, error) {
+	return false, r.err
+}
+
+func (r runnerRepositoryWithDeleteError) Archive(context.Context, string) (bool, error) {
 	return false, r.err
 }
 
@@ -175,6 +180,53 @@ func TestRunnerEnrollmentBuildsBootstrapBinaryAndConsumesToken(t *testing.T) {
 	}
 }
 
+func TestRunnerEnrollmentGeneratesUniqueIDForName(t *testing.T) {
+	s := NewInfrastructureService()
+	directory := t.TempDir()
+	s.SetRunnerBinaryDirectory(directory)
+	s.SetRunnerArtifactConfig("nats://localhost:4222", 1<<20)
+	s.SetControlPlanePublicKey(base64.RawStdEncoding.EncodeToString(make([]byte, 32)))
+	if err := os.WriteFile(filepath.Join(directory, "glyphflow-runner-linux-amd64"), []byte("runner-binary"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	s.enroll(response, httptest.NewRequest(http.MethodPost, "/api/v1/runners/enrollments", bytes.NewBufferString(`{"runner_name":"build-agent","platform":"linux","architecture":"amd64"}`)))
+	if response.Code != http.StatusCreated {
+		t.Fatalf("enrollment returned %d: %s", response.Code, response.Body.String())
+	}
+	var result struct {
+		RunnerID string `json:"runner_id"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if !regexp.MustCompile(`^build-agent-[0-9a-f]{16}$`).MatchString(result.RunnerID) {
+		t.Fatalf("runner id = %q", result.RunnerID)
+	}
+	if s.runners[result.RunnerID].Name != "build-agent" {
+		t.Fatalf("runner name = %q", s.runners[result.RunnerID].Name)
+	}
+}
+
+func TestArchivedRunnerCanReleasePool(t *testing.T) {
+	s := NewInfrastructureService()
+	s.pools["pool-1"] = RunnerPoolRecord{ID: "pool-1", Name: "pool-1", Enabled: true}
+	s.runners["runner-1"] = RunnerRecord{ID: "runner-1", Name: "runner-1", PoolID: "pool-1"}
+	archive := httptest.NewRecorder()
+	s.deleteRunner(archive, httptest.NewRequest(http.MethodDelete, "/api/v1/runners/runner-1", nil), "runner-1")
+	if archive.Code != http.StatusNoContent {
+		t.Fatalf("archive returned %d", archive.Code)
+	}
+	deletePool := httptest.NewRecorder()
+	s.poolPath(deletePool, httptest.NewRequest(http.MethodDelete, "/api/v1/runners/pools/pool-1", nil))
+	if deletePool.Code != http.StatusNoContent {
+		t.Fatalf("pool delete returned %d: %s", deletePool.Code, deletePool.Body.String())
+	}
+	if s.runners["runner-1"].PoolID != "" {
+		t.Fatalf("archived runner pool = %q", s.runners["runner-1"].PoolID)
+	}
+}
+
 func TestInfrastructureMarksStaleRunnersAndFencesLeases(t *testing.T) {
 	s := NewInfrastructureService()
 	now := time.Now().UTC().Truncate(time.Second)
@@ -243,7 +295,7 @@ func TestResourceCreate(t *testing.T) {
 	}
 }
 
-func TestRunnerDeleteRemovesRunnerAndEnrollments(t *testing.T) {
+func TestRunnerArchiveKeepsRunnerAndRemovesEnrollments(t *testing.T) {
 	s := NewInfrastructureService()
 	s.runners["runner-1"] = RunnerRecord{ID: "runner-1", Name: "runner-1"}
 	s.enrollments["token"] = &enrollment{RunnerID: "runner-1"}
@@ -252,21 +304,21 @@ func TestRunnerDeleteRemovesRunnerAndEnrollments(t *testing.T) {
 	if response.Code != http.StatusNoContent {
 		t.Fatalf("delete runner returned %d", response.Code)
 	}
-	if _, ok := s.runners["runner-1"]; ok {
-		t.Fatal("runner was not deleted")
+	if runner := s.runners["runner-1"]; !runner.IsArchived || !runner.IsDeleted {
+		t.Fatalf("runner flags = %#v", runner)
 	}
 	if _, ok := s.enrollments["token"]; ok {
 		t.Fatal("runner enrollment was not deleted")
 	}
 }
 
-func TestRunnerDeleteReportsExecutionHistoryConflict(t *testing.T) {
+func TestRunnerArchiveReportsStorageConflict(t *testing.T) {
 	s := NewInfrastructureService()
 	s.runnerRepository = runnerRepositoryWithDeleteError{err: store.ErrRunnerHasExecutionHistory}
 	response := httptest.NewRecorder()
 	s.deleteRunner(response, httptest.NewRequest(http.MethodDelete, "/api/v1/runners/runner-1", nil), "runner-1")
-	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), `"error":"runner is referenced by execution history"`) {
-		t.Fatalf("delete runner response = %d: %s", response.Code, response.Body.String())
+	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), `"error":"runner archival failed"`) {
+		t.Fatalf("archive runner response = %d: %s", response.Code, response.Body.String())
 	}
 }
 

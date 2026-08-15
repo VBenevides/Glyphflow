@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -37,6 +38,8 @@ type RunnerRecord struct {
 	HeartbeatAt     string `json:"heartbeatAt,omitempty"`
 	Platform        string `json:"platform,omitempty"`
 	Architecture    string `json:"architecture,omitempty"`
+	IsArchived      bool   `json:"isArchived"`
+	IsDeleted       bool   `json:"isDeleted"`
 }
 type RunnerPoolRecord struct {
 	ID          string `json:"id"`
@@ -135,7 +138,7 @@ func runnerRecordFromStore(runner store.RunnerRecord) RunnerRecord {
 	if runner.HeartbeatAt != nil {
 		heartbeat = runner.HeartbeatAt.UTC().Format(time.RFC3339)
 	}
-	return RunnerRecord{ID: runner.ID, Name: runner.Name, PoolID: runner.PoolID, DesiredState: runner.DesiredState, ObservedState: runner.ObservedState, Pool: runner.Pool, Capacity: runner.Capacity, CurrentCapacity: runner.CurrentCapacity, ActiveCount: runner.ActiveCount, HeartbeatAt: heartbeat, Platform: runner.Platform, Architecture: runner.Architecture}
+	return RunnerRecord{ID: runner.ID, Name: runner.Name, PoolID: runner.PoolID, DesiredState: runner.DesiredState, ObservedState: runner.ObservedState, Pool: runner.Pool, Capacity: runner.Capacity, CurrentCapacity: runner.CurrentCapacity, ActiveCount: runner.ActiveCount, HeartbeatAt: heartbeat, Platform: runner.Platform, Architecture: runner.Architecture, IsArchived: runner.IsArchived, IsDeleted: runner.IsDeleted}
 }
 
 func runnerPoolRecordFromStore(pool store.RunnerPoolRecord) RunnerPoolRecord {
@@ -261,6 +264,18 @@ func (s *InfrastructureService) poolPath(w http.ResponseWriter, r *http.Request)
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "runner pool not found"})
 			return
 		}
+		for runnerID, runner := range s.runners {
+			if runner.PoolID != id {
+				continue
+			}
+			if !runner.IsArchived && !runner.IsDeleted {
+				s.mu.Unlock()
+				writeJSON(w, http.StatusConflict, map[string]string{"error": store.ErrRunnerPoolInUse.Error()})
+				return
+			}
+			runner.PoolID, runner.Pool = "", ""
+			s.runners[runnerID] = runner
+		}
 		delete(s.pools, id)
 		s.mu.Unlock()
 		w.WriteHeader(http.StatusNoContent)
@@ -319,7 +334,13 @@ func (s *InfrastructureService) runnerCollection(w http.ResponseWriter, r *http.
 	repository := s.runnerRepository
 	s.mu.RUnlock()
 	if repository != nil {
-		items, err := repository.List(r.Context())
+		var items []store.RunnerRecord
+		var err error
+		if strings.EqualFold(r.URL.Query().Get("archived"), "true") {
+			items, err = repository.ListArchived(r.Context())
+		} else {
+			items, err = repository.List(r.Context())
+		}
 		if err != nil {
 			writeError(w, http.StatusServiceUnavailable, "runner storage unavailable", err)
 			return
@@ -335,8 +356,11 @@ func (s *InfrastructureService) runnerCollection(w http.ResponseWriter, r *http.
 	}
 	s.mu.RLock()
 	items := make([]RunnerRecord, 0, len(s.runners))
+	archived := strings.EqualFold(r.URL.Query().Get("archived"), "true")
 	for _, item := range s.runners {
-		items = append(items, item)
+		if archived == (item.IsArchived || item.IsDeleted) {
+			items = append(items, item)
+		}
 	}
 	s.mu.RUnlock()
 	items = filterRunners(items, r.URL.Query().Get("state"), r.URL.Query().Get("search"))
@@ -581,17 +605,13 @@ func (s *InfrastructureService) deleteRunner(w http.ResponseWriter, r *http.Requ
 	repository := s.runnerRepository
 	s.mu.RUnlock()
 	if repository != nil {
-		deleted, err := repository.Delete(r.Context(), id)
+		archived, err := repository.Archive(r.Context(), id)
 		if err != nil {
 			recordRequestError(r, err)
-			if errors.Is(err, store.ErrRunnerHasExecutionHistory) {
-				writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
-				return
-			}
-			writeError(w, http.StatusConflict, "runner deletion failed", err)
+			writeError(w, http.StatusConflict, "runner archival failed", err)
 			return
 		}
-		if !deleted {
+		if !archived {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "runner not found"})
 			return
 		}
@@ -599,12 +619,16 @@ func (s *InfrastructureService) deleteRunner(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	s.mu.Lock()
-	if _, ok := s.runners[id]; !ok {
+	runner, ok := s.runners[id]
+	if !ok {
 		s.mu.Unlock()
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "runner not found"})
 		return
 	}
-	delete(s.runners, id)
+	runner.IsArchived, runner.IsDeleted = true, true
+	runner.DesiredState, runner.ObservedState = "DISABLED", "OFFLINE"
+	runner.HeartbeatAt = ""
+	s.runners[id] = runner
 	for token, item := range s.enrollments {
 		if item.RunnerID == id {
 			delete(s.enrollments, token)
@@ -620,6 +644,7 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 	}
 	var input struct {
 		RunnerID     string `json:"runner_id"`
+		RunnerName   string `json:"runner_name"`
 		PoolID       string `json:"pool_id"`
 		Platform     string `json:"platform"`
 		Architecture string `json:"architecture"`
@@ -629,11 +654,26 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid runner enrollment request", err)
 		return
 	}
-	if strings.TrimSpace(input.RunnerID) == "" {
-		writeJSON(w, 400, map[string]string{"error": "runner_id is required"})
+	input.RunnerID = strings.TrimSpace(input.RunnerID)
+	input.RunnerName = strings.TrimSpace(input.RunnerName)
+	if input.RunnerID == "" && input.RunnerName == "" {
+		writeJSON(w, 400, map[string]string{"error": "runner_name is required"})
 		return
 	}
-	input.RunnerID = strings.TrimSpace(input.RunnerID)
+	if input.RunnerName != "" {
+		if !runnerIDPattern.MatchString(input.RunnerName) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "runner_name must contain only letters, digits, dot, underscore, or hyphen"})
+			return
+		}
+		rawID := make([]byte, 8)
+		if _, err := rand.Read(rawID); err != nil {
+			writeError(w, http.StatusInternalServerError, "enrollment failed while generating a runner id", err)
+			return
+		}
+		input.RunnerID = input.RunnerName + "-" + hex.EncodeToString(rawID)
+	} else {
+		input.RunnerName = input.RunnerID
+	}
 	input.PoolID = strings.TrimSpace(input.PoolID)
 	if input.PoolID == "" {
 		input.PoolID = "default"
@@ -691,13 +731,13 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 		if input.Capacity != nil {
 			capacity = *input.Capacity
 		}
-		if err := repository.CreateEnrollment(r.Context(), store.RunnerRecord{ID: input.RunnerID, Name: input.RunnerID, PoolID: input.PoolID, Capacity: capacity, Platform: input.Platform, Architecture: input.Architecture}, store.RunnerEnrollmentRecord{ID: "enrollment-" + input.RunnerID + "-" + platform.HashToken(token), RunnerID: input.RunnerID, TokenHash: platform.HashToken(token), ExpiresAt: expiry, Requester: requester, Target: input.RunnerID, Artifact: map[string]any{"platform": input.Platform, "architecture": input.Architecture}}); err != nil {
+		if err := repository.CreateEnrollment(r.Context(), store.RunnerRecord{ID: input.RunnerID, Name: input.RunnerName, PoolID: input.PoolID, Capacity: capacity, Platform: input.Platform, Architecture: input.Architecture}, store.RunnerEnrollmentRecord{ID: "enrollment-" + input.RunnerID + "-" + platform.HashToken(token), RunnerID: input.RunnerID, TokenHash: platform.HashToken(token), ExpiresAt: expiry, Requester: requester, Target: input.RunnerID, Artifact: map[string]any{"platform": input.Platform, "architecture": input.Architecture}}); err != nil {
 			recordRequestError(r, err)
 			writeError(w, http.StatusConflict, "enrollment could not be saved", err)
 			return
 		}
 		w.Header().Set("Cache-Control", "no-store")
-		writeJSON(w, http.StatusCreated, map[string]string{"artifact": base64.StdEncoding.EncodeToString(artifact), "expires_at": expiry.UTC().Format(time.RFC3339), "filename": filename})
+		writeJSON(w, http.StatusCreated, map[string]string{"artifact": base64.StdEncoding.EncodeToString(artifact), "expires_at": expiry.UTC().Format(time.RFC3339), "filename": filename, "runner_id": input.RunnerID, "runner_name": input.RunnerName})
 		return
 	}
 	s.mu.RLock()
@@ -715,8 +755,13 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 	}
 	s.enrollments[token] = &enrollment{Token: token, RunnerID: input.RunnerID, Expires: expiry}
 	item, ok := s.runners[input.RunnerID]
+	if ok && (item.IsArchived || item.IsDeleted) {
+		s.mu.Unlock()
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "runner is archived"})
+		return
+	}
 	if !ok {
-		item = RunnerRecord{ID: input.RunnerID, Name: input.RunnerID, PoolID: input.PoolID, DesiredState: "ENABLED", ObservedState: "PENDING", Pool: pool.Name, Platform: input.Platform, Architecture: input.Architecture}
+		item = RunnerRecord{ID: input.RunnerID, Name: input.RunnerName, PoolID: input.PoolID, DesiredState: "ENABLED", ObservedState: "PENDING", Pool: pool.Name, Platform: input.Platform, Architecture: input.Architecture}
 	}
 	if input.Capacity != nil || !ok {
 		item.Capacity = store.DefaultRunnerCapacity
@@ -727,7 +772,7 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 	s.runners[input.RunnerID] = item
 	s.mu.Unlock()
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusCreated, map[string]string{"artifact": base64.StdEncoding.EncodeToString(artifact), "expires_at": expiry.UTC().Format(time.RFC3339), "filename": filename})
+	writeJSON(w, http.StatusCreated, map[string]string{"artifact": base64.StdEncoding.EncodeToString(artifact), "expires_at": expiry.UTC().Format(time.RFC3339), "filename": filename, "runner_id": input.RunnerID, "runner_name": input.RunnerName})
 }
 
 func (s *InfrastructureService) buildRunnerArtifact(r *http.Request, platformName, architecture, runnerID, token string) ([]byte, string, error) {

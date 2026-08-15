@@ -229,7 +229,7 @@ func (s *RunStore) ClaimWaiting(ctx context.Context, build func(DispatchCandidat
 	var candidate DispatchCandidate
 	var command, environment, secrets, selectors, resources, resolvedGlobals []byte
 	var timeout, maxOutput, attempt int
-	err = tx.QueryRow(ctx, `SELECT r.id, r.task_id, r.task_version_id, tv.command, COALESCE(NULLIF(tv.working_directory, ''), '.'), tv.timeout_seconds, tv.max_output_bytes, tv.execution_spec_digest, COALESCE(r.resolved_global_variables, '{}'::jsonb), COALESCE(tv.environment, '{}'::jsonb), COALESCE(tv.secret_references, '{}'::jsonb), COALESCE(tv.placement_selectors, '{}'::jsonb), COALESCE((SELECT jsonb_agg(resource_id) FROM task_resource_requirements WHERE task_version_id = tv.id), '[]'::jsonb), rp.name, rs.id, rs.runner_id, COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = r.id), 0) + 1 FROM runs r JOIN task_versions tv ON tv.id = r.task_version_id JOIN runners rr ON rr.pool_id = tv.runner_pool_id AND rr.desired_state = 'ENABLED' AND rr.active_count < rr.capacity AND (tv.pinned_runner_id IS NULL OR tv.pinned_runner_id = rr.id) JOIN runner_pools rp ON rp.id = rr.pool_id JOIN runner_sessions rs ON rs.runner_id = rr.id AND rs.disconnected_at IS NULL AND rs.last_heartbeat_at >= now() - interval '30 seconds' WHERE (r.state = 'WAITING' OR (r.state = 'RETRY_WAIT' AND (r.retry_not_before IS NULL OR r.retry_not_before <= now()))) AND r.scheduled_for <= now() AND (r.state = 'WAITING' OR COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = r.id), 0) < tv.max_attempts) AND rr.capabilities @> COALESCE(tv.placement_selectors, '{}'::jsonb) AND NOT EXISTS (SELECT 1 FROM task_resource_requirements req JOIN resources resource ON resource.id = req.resource_id LEFT JOIN resource_leases lease ON lease.resource_id = req.resource_id AND lease.state = 'ACTIVE' AND lease.expires_at > now() WHERE req.task_version_id = tv.id AND (NOT resource.enabled OR lease.id IS NOT NULL)) ORDER BY r.created_at, r.id FOR UPDATE OF r, rr, rs SKIP LOCKED LIMIT 1`).Scan(&candidate.RunID, &candidate.TaskID, &candidate.TaskVersionID, &command, &candidate.WorkingDirectory, &timeout, &maxOutput, &candidate.ExecutionSpecDigest, &resolvedGlobals, &environment, &secrets, &selectors, &resources, &candidate.Pool, &candidate.RunnerSessionID, &candidate.RunnerID, &attempt)
+	err = tx.QueryRow(ctx, `SELECT r.id, r.task_id, r.task_version_id, tv.command, COALESCE(NULLIF(tv.working_directory, ''), '.'), tv.timeout_seconds, tv.max_output_bytes, tv.execution_spec_digest, COALESCE(r.resolved_global_variables, '{}'::jsonb), COALESCE(tv.environment, '{}'::jsonb), COALESCE(tv.secret_references, '{}'::jsonb), COALESCE(tv.placement_selectors, '{}'::jsonb), COALESCE((SELECT jsonb_agg(resource_id) FROM task_resource_requirements WHERE task_version_id = tv.id), '[]'::jsonb), rp.name, rs.id, rs.runner_id, COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = r.id), 0) + 1 FROM runs r JOIN task_versions tv ON tv.id = r.task_version_id JOIN runners rr ON rr.pool_id = tv.runner_pool_id AND NOT rr.is_archived AND NOT rr.is_deleted AND rr.desired_state = 'ENABLED' AND rr.active_count < rr.capacity AND (tv.pinned_runner_id IS NULL OR tv.pinned_runner_id = rr.id) JOIN runner_pools rp ON rp.id = rr.pool_id JOIN runner_sessions rs ON rs.runner_id = rr.id AND rs.disconnected_at IS NULL AND rs.last_heartbeat_at >= now() - interval '30 seconds' WHERE (r.state = 'WAITING' OR (r.state = 'RETRY_WAIT' AND (r.retry_not_before IS NULL OR r.retry_not_before <= now()))) AND r.scheduled_for <= now() AND (r.state = 'WAITING' OR COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = r.id), 0) < tv.max_attempts) AND rr.capabilities @> COALESCE(tv.placement_selectors, '{}'::jsonb) AND NOT EXISTS (SELECT 1 FROM task_resource_requirements req JOIN resources resource ON resource.id = req.resource_id LEFT JOIN resource_leases lease ON lease.resource_id = req.resource_id AND lease.state = 'ACTIVE' AND lease.expires_at > now() WHERE req.task_version_id = tv.id AND (NOT resource.enabled OR lease.id IS NOT NULL)) ORDER BY r.created_at, r.id FOR UPDATE OF r, rr, rs SKIP LOCKED LIMIT 1`).Scan(&candidate.RunID, &candidate.TaskID, &candidate.TaskVersionID, &command, &candidate.WorkingDirectory, &timeout, &maxOutput, &candidate.ExecutionSpecDigest, &resolvedGlobals, &environment, &secrets, &selectors, &resources, &candidate.Pool, &candidate.RunnerSessionID, &candidate.RunnerID, &attempt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return DispatchCandidate{}, false, nil
 	}
@@ -432,18 +432,19 @@ func (s *RunStore) ReconcileStaleCancellations(ctx context.Context, cutoff time.
 		return err
 	}
 	defer tx.Rollback(ctx)
-	rows, err := tx.Query(ctx, `SELECT a.id, a.run_id, a.runner_id, a.last_applied_state_sequence FROM runs r JOIN execution_attempts a ON a.run_id = r.id WHERE r.state = 'CANCELLING' AND a.state IN ('DISPATCHED','ACCEPTED','RUNNING','CANCELLING') AND r.updated_at < $1 ORDER BY r.updated_at, r.id FOR UPDATE OF r, a SKIP LOCKED LIMIT 100`, cutoff)
+	rows, err := tx.Query(ctx, `SELECT a.id, a.run_id, a.runner_id, a.last_applied_state_sequence, COALESCE(r.cancellation_reason, '') FROM runs r JOIN execution_attempts a ON a.run_id = r.id WHERE r.state = 'CANCELLING' AND a.state IN ('DISPATCHED','ACCEPTED','RUNNING','CANCELLING') AND r.updated_at < $1 ORDER BY r.updated_at, r.id FOR UPDATE OF r, a SKIP LOCKED LIMIT 100`, cutoff)
 	if err != nil {
 		return err
 	}
 	type staleCancellation struct {
 		attemptID, runID, runnerID string
 		lastSequence               int64
+		reason                     string
 	}
 	candidates := make([]staleCancellation, 0, 100)
 	for rows.Next() {
 		var candidate staleCancellation
-		if err := rows.Scan(&candidate.attemptID, &candidate.runID, &candidate.runnerID, &candidate.lastSequence); err != nil {
+		if err := rows.Scan(&candidate.attemptID, &candidate.runID, &candidate.runnerID, &candidate.lastSequence, &candidate.reason); err != nil {
 			return err
 		}
 		candidates = append(candidates, candidate)
@@ -458,14 +459,24 @@ func (s *RunStore) ReconcileStaleCancellations(ctx context.Context, cutoff time.
 		if sequence < 3 {
 			sequence = 3
 		}
+		cancelled := candidate.reason == "runner archived"
 		payload := []byte(`{"result":"","error":"cancellation could not be confirmed before timeout"}`)
-		if _, err := tx.Exec(ctx, `INSERT INTO run_events (event_id, execution_attempt_id, state_sequence, event_kind, reported_at, payload) VALUES ($1, $2, $3, 'unknown', $4, $5::jsonb)`, "cancellation-timeout:"+candidate.attemptID, candidate.attemptID, sequence, reportedAt, payload); err != nil {
+		state, termination, eventKind := "UNKNOWN", "cancellation could not be confirmed", "unknown"
+		if cancelled {
+			payload = []byte(`{"result":"","error":"runner archived"}`)
+			state, termination, eventKind = "CANCELLED", "runner archived", "cancelled"
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO run_events (event_id, execution_attempt_id, state_sequence, event_kind, reported_at, payload) VALUES ($1, $2, $3, $4, $5, $6::jsonb)`, "cancellation-timeout:"+candidate.attemptID, candidate.attemptID, sequence, eventKind, reportedAt, payload); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `UPDATE execution_attempts SET state = 'UNKNOWN', finished_at = COALESCE(finished_at, $2), termination_reason = 'cancellation could not be confirmed', last_applied_state_sequence = $3, state_version = state_version + 1, updated_at = now() WHERE id = $1`, candidate.attemptID, reportedAt, sequence); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE execution_attempts SET state = $2, finished_at = COALESCE(finished_at, $3), termination_reason = $4, last_applied_state_sequence = $5, state_version = state_version + 1, updated_at = now() WHERE id = $1`, candidate.attemptID, state, reportedAt, termination, sequence); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `UPDATE runs SET state = 'UNKNOWN', retry_not_before = NULL, state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state = 'CANCELLING'`, candidate.runID); err != nil {
+		runState := "UNKNOWN"
+		if cancelled {
+			runState = "CANCELLED"
+		}
+		if _, err := tx.Exec(ctx, `UPDATE runs SET state = $2, retry_not_before = NULL, completed_at = CASE WHEN $2 = 'CANCELLED' THEN COALESCE(completed_at, $3) ELSE completed_at END, state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state = 'CANCELLING'`, candidate.runID, runState, reportedAt); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `UPDATE runners SET active_count = GREATEST(active_count - 1, 0), updated_at = now() WHERE id = $1 AND active_count > 0`, candidate.runnerID); err != nil {

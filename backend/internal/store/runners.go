@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"crypto/ed25519"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"time"
@@ -16,6 +17,7 @@ type RunnerRecord struct {
 	ID, Name, PoolID, Pool, DesiredState, ObservedState, Platform, Architecture string
 	Capacity, CurrentCapacity, ActiveCount                                      int
 	HeartbeatAt                                                                 *time.Time
+	IsArchived, IsDeleted                                                       bool
 }
 
 type RunnerPoolRecord struct {
@@ -37,10 +39,12 @@ type RunnerRepository interface {
 	UpdatePool(context.Context, RunnerPoolRecord) (RunnerPoolRecord, bool, error)
 	DeletePool(context.Context, string) error
 	List(context.Context) ([]RunnerRecord, error)
+	ListArchived(context.Context) ([]RunnerRecord, error)
 	Find(context.Context, string) (RunnerRecord, bool, error)
 	SetDesiredState(context.Context, string, string) (RunnerRecord, bool, error)
 	UpdateCapacity(context.Context, string, int) (RunnerRecord, bool, error)
 	Delete(context.Context, string) (bool, error)
+	Archive(context.Context, string) (bool, error)
 	CreateEnrollment(context.Context, RunnerRecord, RunnerEnrollmentRecord) error
 	ConsumeEnrollment(context.Context, string, time.Time) (RunnerRecord, error)
 	ConsumeEnrollmentWithKey(context.Context, string, time.Time, string, []byte) (RunnerRecord, error)
@@ -107,6 +111,13 @@ func (s *RunnerStore) UpdatePool(ctx context.Context, item RunnerPoolRecord) (Ru
 }
 
 func (s *RunnerStore) DeletePool(ctx context.Context, id string) error {
+	var active bool
+	if err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM runners WHERE pool_id = $1 AND NOT is_archived AND NOT is_deleted)`, id).Scan(&active); err != nil {
+		return err
+	}
+	if active {
+		return ErrRunnerPoolInUse
+	}
 	result, err := s.pool.Exec(ctx, `DELETE FROM runner_pools WHERE id = $1`, id)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -121,10 +132,27 @@ func (s *RunnerStore) DeletePool(ctx context.Context, id string) error {
 	return nil
 }
 
-const runnerQuery = `SELECT r.id, r.name, p.id, p.name, r.desired_state, r.observed_state, r.capacity, COALESCE((SELECT current_capacity FROM runner_sessions WHERE runner_id = r.id AND disconnected_at IS NULL ORDER BY last_heartbeat_at DESC LIMIT 1), 0), r.active_count, r.last_seen_at, COALESCE(r.capabilities->>'platform', ''), COALESCE(r.capabilities->>'architecture', '') FROM runners r JOIN runner_pools p ON p.id = r.pool_id`
+const runnerQuery = `SELECT r.id, r.name, p.id, p.name, r.desired_state, r.observed_state, r.capacity, COALESCE((SELECT current_capacity FROM runner_sessions WHERE runner_id = r.id AND disconnected_at IS NULL ORDER BY last_heartbeat_at DESC LIMIT 1), 0), r.active_count, r.last_seen_at, COALESCE(r.capabilities->>'platform', ''), COALESCE(r.capabilities->>'architecture', ''), r.is_archived, r.is_deleted FROM runners r LEFT JOIN runner_pools p ON p.id = r.pool_id`
 
 func (s *RunnerStore) List(ctx context.Context) ([]RunnerRecord, error) {
-	rows, err := s.pool.Query(ctx, runnerQuery+` ORDER BY r.id`)
+	rows, err := s.pool.Query(ctx, runnerQuery+` WHERE NOT r.is_archived AND NOT r.is_deleted ORDER BY r.id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []RunnerRecord{}
+	for rows.Next() {
+		item, err := scanRunner(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (s *RunnerStore) ListArchived(ctx context.Context) ([]RunnerRecord, error) {
+	rows, err := s.pool.Query(ctx, runnerQuery+` WHERE r.is_archived OR r.is_deleted ORDER BY r.id`)
 	if err != nil {
 		return nil, err
 	}
@@ -150,9 +178,11 @@ func (s *RunnerStore) Find(ctx context.Context, id string) (RunnerRecord, bool, 
 
 func scanRunner(row interface{ Scan(...any) error }) (RunnerRecord, error) {
 	var item RunnerRecord
-	if err := row.Scan(&item.ID, &item.Name, &item.PoolID, &item.Pool, &item.DesiredState, &item.ObservedState, &item.Capacity, &item.CurrentCapacity, &item.ActiveCount, &item.HeartbeatAt, &item.Platform, &item.Architecture); err != nil {
+	var poolID, pool sql.NullString
+	if err := row.Scan(&item.ID, &item.Name, &poolID, &pool, &item.DesiredState, &item.ObservedState, &item.Capacity, &item.CurrentCapacity, &item.ActiveCount, &item.HeartbeatAt, &item.Platform, &item.Architecture, &item.IsArchived, &item.IsDeleted); err != nil {
 		return RunnerRecord{}, err
 	}
+	item.PoolID, item.Pool = poolID.String, pool.String
 	return item, nil
 }
 
@@ -197,6 +227,43 @@ func (s *RunnerStore) Delete(ctx context.Context, id string) (bool, error) {
 	return result.RowsAffected() > 0, err
 }
 
+func (s *RunnerStore) Archive(ctx context.Context, id string) (bool, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx)
+	var archived bool
+	if err := tx.QueryRow(ctx, `SELECT is_archived OR is_deleted FROM runners WHERE id = $1 FOR UPDATE`, id).Scan(&archived); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	if archived {
+		return true, tx.Commit(ctx)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE runners SET is_archived = true, is_deleted = true, desired_state = 'DISABLED', observed_state = 'OFFLINE', updated_at = now() WHERE id = $1`, id); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE runner_sessions SET disconnected_at = COALESCE(disconnected_at, now()) WHERE runner_id = $1 AND disconnected_at IS NULL`, id); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE runner_keys SET revoked_at = COALESCE(revoked_at, now()) WHERE runner_id = $1 AND revoked_at IS NULL`, id); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM runner_enrollments WHERE runner_id = $1 AND used_at IS NULL`, id); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE runs SET state = CASE WHEN state IN ('WAITING','RETRY_WAIT') THEN 'CANCELLED' ELSE 'CANCELLING' END, cancellation_requested_at = COALESCE(cancellation_requested_at, now()), cancellation_reason = 'runner archived', completed_at = CASE WHEN state IN ('WAITING','RETRY_WAIT') THEN now() ELSE completed_at END, state_version = state_version + 1, updated_at = now() WHERE id IN (SELECT run_id FROM execution_attempts WHERE runner_id = $1) AND state IN ('WAITING','RUNNING','RETRY_WAIT','CANCELLING')`, id); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func (s *RunnerStore) CreateEnrollment(ctx context.Context, runner RunnerRecord, enrollment RunnerEnrollmentRecord) error {
 	artifact, err := json.Marshal(enrollment.Artifact)
 	if err != nil {
@@ -215,8 +282,12 @@ func (s *RunnerStore) CreateEnrollment(ctx context.Context, runner RunnerRecord,
 		return err
 	}
 	var lockedRunnerID string
-	if err := tx.QueryRow(ctx, `SELECT id FROM runners WHERE id = $1 FOR UPDATE`, runner.ID).Scan(&lockedRunnerID); err != nil {
+	var archived bool
+	if err := tx.QueryRow(ctx, `SELECT id, is_archived OR is_deleted FROM runners WHERE id = $1 FOR UPDATE`, runner.ID).Scan(&lockedRunnerID, &archived); err != nil {
 		return err
+	}
+	if archived {
+		return errors.New("runner is archived")
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM runner_enrollments WHERE runner_id = $1 AND used_at IS NULL`, runner.ID); err != nil {
 		return err
@@ -288,7 +359,7 @@ func (s *RunnerStore) consumeEnrollment(ctx context.Context, tokenHash string, n
 			return RunnerRecord{}, err
 		}
 	}
-	if _, err := tx.Exec(ctx, `UPDATE runners SET observed_state = 'PENDING', last_seen_at = NULL, updated_at = now() WHERE id = $1`, runnerID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE runners SET observed_state = 'PENDING', last_seen_at = NULL, updated_at = now() WHERE id = $1 AND NOT is_archived AND NOT is_deleted`, runnerID); err != nil {
 		return RunnerRecord{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -307,7 +378,7 @@ func (s *RunnerStore) CreateSession(ctx context.Context, runnerID, bootID string
 }
 
 func (s *RunnerStore) Heartbeat(ctx context.Context, runnerID string, now time.Time) error {
-	_, err := s.pool.Exec(ctx, `UPDATE runners SET observed_state = 'ONLINE', last_seen_at = $2, updated_at = now() WHERE id = $1 AND observed_state <> 'REVOKED' AND (last_seen_at IS NULL OR last_seen_at < $2)`, runnerID, now)
+	_, err := s.pool.Exec(ctx, `UPDATE runners SET observed_state = 'ONLINE', last_seen_at = $2, updated_at = now() WHERE id = $1 AND NOT is_archived AND NOT is_deleted AND observed_state <> 'REVOKED' AND (last_seen_at IS NULL OR last_seen_at < $2)`, runnerID, now)
 	return err
 }
 
@@ -345,7 +416,7 @@ func (s *RunnerStore) HeartbeatWithKeyAndCapacity(ctx context.Context, runnerID,
 	if boundRunner != runnerID || !ed25519.PublicKey(boundKey).Equal(ed25519.PublicKey(publicKey)) {
 		return errors.New("runner heartbeat key does not match enrollment")
 	}
-	if _, err := tx.Exec(ctx, `UPDATE runners SET observed_state = 'ONLINE', last_seen_at = $2, updated_at = now() WHERE id = $1 AND observed_state <> 'REVOKED'`, runnerID, now); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE runners SET observed_state = 'ONLINE', last_seen_at = $2, updated_at = now() WHERE id = $1 AND NOT is_archived AND NOT is_deleted AND observed_state <> 'REVOKED'`, runnerID, now); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
