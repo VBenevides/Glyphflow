@@ -395,6 +395,16 @@ func (s *RunnerStore) HeartbeatWithKeyAndCapacity(ctx context.Context, runnerID,
 		return err
 	}
 	defer tx.Rollback(ctx)
+	var active bool
+	if err := tx.QueryRow(ctx, `SELECT NOT is_archived AND NOT is_deleted FROM runners WHERE id = $1 FOR UPDATE`, runnerID).Scan(&active); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errors.New("runner not found")
+		}
+		return err
+	}
+	if !active {
+		return errors.New("runner is archived")
+	}
 	if _, err := tx.Exec(ctx, `UPDATE runner_sessions SET disconnected_at = $2 WHERE runner_id = $1 AND disconnected_at IS NULL AND boot_id <> $3`, runnerID, now, bootID); err != nil {
 		return err
 	}
