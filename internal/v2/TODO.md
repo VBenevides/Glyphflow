@@ -52,6 +52,9 @@ All items below have runnable test evidence.
 - [x] **High: Restore runner heartbeat enrollment after local-store recovery**
   - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test -race ./...` and `GOCACHE=/tmp/glyphflow-gocache go vet ./...` — PASS; legacy, mismatched, and expired local signing keys re-enroll before heartbeats, and publish failures are logged.
   - Commit: `4e695d6` (`fix(worker): Restore runner heartbeat enrollment`).
+- [x] **High: Revalidate persisted runner keys on bootstrap startup**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test -race ./...` and `GOCACHE=/tmp/glyphflow-gocache go vet ./...` — PASS; bootstrap startup re-enrolls persisted keys, same-runner key rebinding is accepted, and enrollment failures are surfaced.
+  - Commit: `878248f` (`fix(worker): Rebind persisted runner heartbeat keys`).
 - [x] **High: Enforce legal state-event order**
   - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test -race ./internal/store ./internal/controlplane` — PASS.
   - Commit: `1d25561`.
