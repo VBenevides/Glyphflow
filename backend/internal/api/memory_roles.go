@@ -46,8 +46,18 @@ func (s *memoryRoleRepository) List(_ context.Context) ([]store.RoleRecord, erro
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	roles := make([]store.RoleRecord, 0, len(s.roles))
+	usersByRole := map[string]map[string]bool{}
+	for userID, assignments := range s.assignments {
+		for _, assignment := range assignments {
+			if usersByRole[assignment.RoleID] == nil {
+				usersByRole[assignment.RoleID] = map[string]bool{}
+			}
+			usersByRole[assignment.RoleID][userID] = true
+		}
+	}
 	for _, role := range s.roles {
 		role.Permissions = append([]string(nil), role.Permissions...)
+		role.AssignedUsers = len(usersByRole[role.ID])
 		roles = append(roles, role)
 	}
 	sort.Slice(roles, func(i, j int) bool { return roles[i].Name < roles[j].Name })

@@ -52,6 +52,15 @@ func TestRoleRepositoryRoundTrip(t *testing.T) {
 	if err := repository.Assign(ctx, userID, roleID, "system-admin", userID); err != nil {
 		t.Fatal(err)
 	}
+	listed, err := repository.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, listedRole := range listed {
+		if listedRole.ID == roleID && listedRole.AssignedUsers != 1 {
+			t.Fatalf("assigned users = %d, want 1", listedRole.AssignedUsers)
+		}
+	}
 	if err := repository.Unassign(ctx, userID, roleID); err != nil {
 		t.Fatal(err)
 	}

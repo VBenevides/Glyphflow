@@ -12,10 +12,11 @@ import (
 )
 
 type RoleDefinition struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	Permissions []string `json:"permissions"`
-	System      bool     `json:"system"`
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	Permissions   []string `json:"permissions"`
+	System        bool     `json:"system"`
+	AssignedUsers int      `json:"assignedUsers"`
 }
 type RoleAdminService struct {
 	repository store.RoleRepository
@@ -118,7 +119,7 @@ func (s *RoleAdminService) List() []RoleDefinition {
 	}
 	out := make([]RoleDefinition, 0, len(roles))
 	for _, role := range roles {
-		out = append(out, RoleDefinition{ID: role.ID, Name: role.Name, Permissions: append([]string{}, role.Permissions...), System: role.System})
+		out = append(out, RoleDefinition{ID: role.ID, Name: role.Name, Permissions: append([]string{}, role.Permissions...), System: role.System, AssignedUsers: role.AssignedUsers})
 	}
 	return out
 }

@@ -14,6 +14,7 @@ type RoleRecord struct {
 	ID, Name, Description string
 	System                bool
 	Permissions           []string
+	AssignedUsers         int
 }
 
 type RoleAssignmentRecord struct {
@@ -86,7 +87,7 @@ func replaceRolePermissions(ctx context.Context, tx pgx.Tx, roleID string, permi
 }
 
 func (s *RoleStore) List(ctx context.Context) ([]RoleRecord, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id, name, description, is_system FROM roles ORDER BY lower(name), id`)
+	rows, err := s.pool.Query(ctx, `SELECT r.id, r.name, r.description, r.is_system, COUNT(DISTINCT a.user_id) FROM roles r LEFT JOIN role_assignments a ON a.role_id = r.id GROUP BY r.id, r.name, r.description, r.is_system ORDER BY lower(r.name), r.id`)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +95,7 @@ func (s *RoleStore) List(ctx context.Context) ([]RoleRecord, error) {
 	roles := []RoleRecord{}
 	for rows.Next() {
 		var role RoleRecord
-		if err := rows.Scan(&role.ID, &role.Name, &role.Description, &role.System); err != nil {
+		if err := rows.Scan(&role.ID, &role.Name, &role.Description, &role.System, &role.AssignedUsers); err != nil {
 			return nil, err
 		}
 		role.Permissions, err = s.permissions(ctx, role.ID)

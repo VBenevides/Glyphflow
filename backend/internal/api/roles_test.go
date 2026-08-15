@@ -86,3 +86,26 @@ func TestRoleListSerializesEmptyPermissionsAsArray(t *testing.T) {
 		t.Fatalf("role permissions contract: %d %s", recorder.Code, recorder.Body.String())
 	}
 }
+
+func TestRoleListCountsDistinctAffectedUsers(t *testing.T) {
+	roles := NewRoleAdminService()
+	if err := roles.Seed("admin", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := roles.Seed("user", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := roles.Assign("default-user", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if err := roles.Assign("default-user", "user"); err != nil {
+		t.Fatal(err)
+	}
+	counts := map[string]int{}
+	for _, role := range roles.List() {
+		counts[role.Name] = role.AssignedUsers
+	}
+	if counts["admin"] != 1 || counts["user"] != 1 {
+		t.Fatalf("affected users = %#v", counts)
+	}
+}
