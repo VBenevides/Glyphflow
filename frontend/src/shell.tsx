@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Activity, ChevronDown, ChevronRight, FolderKanban, KeyRound, LayoutDashboard, LogOut, Menu, Moon, PanelLeftClose, PanelLeftOpen, Server, Shield, Sun, Users, X } from 'lucide-react'
+import { Activity, ChevronDown, ChevronRight, FolderKanban, KeyRound, LayoutDashboard, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Server, Shield, Sun, Users, X } from 'lucide-react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from './auth'
 import { api } from './api'
-import { Button } from './components'
-import { applyTheme, currentTheme } from './theme'
+import { Button, Dialog } from './components'
+import { applyTheme, currentTheme, type Theme } from './theme'
 import { ROUTES, visibleRoutes, type RouteRule } from './permissions'
 import { BrandMark } from './feedback'
 
@@ -32,13 +32,18 @@ function routeIcon(path: string) {
   return Server
 }
 
+export function AppearanceChoices({ theme, onSelect }: { theme: Theme; onSelect: (theme: Theme) => void }) {
+  return <div className="gf-theme-choices" role="group" aria-label="Theme"><button type="button" className={theme === 'light' ? 'is-selected' : ''} aria-pressed={theme === 'light'} onClick={() => onSelect('light')}>Light</button><button type="button" className={theme === 'dark' ? 'is-selected' : ''} aria-pressed={theme === 'dark'} onClick={() => onSelect('dark')}>Dark</button><button type="button" className={theme === 'neon' ? 'is-selected' : ''} aria-pressed={theme === 'neon'} onClick={() => onSelect('neon')}>Neon</button></div>
+}
+
 export function Shell({ children }: { children: ReactNode }) {
   const { profile, permissions, setProfile } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [collapsed, setCollapsed] = useState(() => window.localStorage.getItem(SIDEBAR_KEY) === 'true')
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [theme, setTheme] = useState(currentTheme())
+  const [theme, setTheme] = useState<Theme>(currentTheme())
+  const [appearanceOpen, setAppearanceOpen] = useState(false)
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({ Operations: true, Infrastructure: true, Security: true, Administration: true })
   const menuButtonRef = useRef<HTMLButtonElement>(null)
   const sidebarRef = useRef<HTMLElement>(null)
@@ -65,14 +70,13 @@ export function Shell({ children }: { children: ReactNode }) {
       if (!event.shiftKey && document.activeElement === items[items.length - 1]) { event.preventDefault(); items[0].focus() }
     }
     document.addEventListener('keydown', onKeyDown)
-    menuButtonRef.current?.focus()
     return () => { document.body.style.overflow = ''; document.removeEventListener('keydown', onKeyDown); previous?.focus() }
   }, [mobileOpen])
   const logout = async () => { try { await api.post('/api/v1/auth/logout') } finally { setProfile(null); navigate('/login', { replace: true }) } }
-  const toggleTheme = () => { const next = theme === 'dark' ? 'light' : 'dark'; applyTheme(next); setTheme(next) }
-  const navigation = <nav className="gf-sidebar-nav" aria-label="Primary navigation">{grouped.map(({ group, routes }) => { const Icon = group.icon; const expanded = openGroups[group.name] ?? true; return <section key={group.name} className="gf-nav-group"><button className="gf-nav-group-button" title={`${expanded ? 'Collapse' : 'Expand'} ${group.name}`} aria-expanded={expanded} onClick={() => setOpenGroups((current) => ({ ...current, [group.name]: !expanded }))}><Icon size={16} aria-hidden="true" /><span>{group.name}</span>{expanded ? <ChevronDown size={15} aria-hidden="true" /> : <ChevronRight size={15} aria-hidden="true" />}</button>{expanded && routes.map((route) => { const RouteIcon = routeIcon(route.path); return <NavLink key={route.path} to={route.path} end={route.path === '/'} className={({ isActive }) => `gf-nav-link${isActive ? ' is-active' : ''}`} title={collapsed ? route.label : undefined}><RouteIcon size={16} aria-hidden="true" /><span>{route.label}</span></NavLink> })}</section> })}</nav>
-  const sidebar = <aside ref={sidebarRef} className={`gf-sidebar${collapsed ? ' is-collapsed' : ''}${mobileOpen ? ' is-mobile-open' : ''}`} aria-label="Glyphflow sidebar"><div className="gf-sidebar-brand"><BrandMark /><div className="gf-sidebar-brand-copy"><strong>Glyphflow</strong><small>Scheduler console</small></div>{mobileOpen && <Button variant="ghost" aria-label="Close navigation" onClick={() => setMobileOpen(false)}><X size={18} /></Button>}</div>{navigation}<div className="gf-sidebar-footer"><Link className="gf-user-card" to="/account"><Users size={18} aria-hidden="true" /><span><strong>{profile?.displayName ?? profile?.username}</strong><small>{profile?.username}</small></span></Link><div className="gf-sidebar-actions"><Button variant="ghost" aria-label="Toggle theme" onClick={toggleTheme}>{theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}</Button><Button variant="ghost" aria-label="Sign out" onClick={logout}><LogOut size={17} /></Button></div></div></aside>
-  return <div className="gf-app-shell"><Button ref={menuButtonRef} className="gf-mobile-menu" variant="secondary" aria-label="Open navigation" onClick={() => setMobileOpen(true)}><Menu size={18} /></Button>{mobileOpen && <button className="gf-drawer-scrim" title="Close navigation" aria-label="Close navigation" onClick={() => setMobileOpen(false)} />}{sidebar}<main id="app-main" className="gf-main" tabIndex={-1}>{children}</main><Button className="gf-collapse-button" variant="secondary" aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} onClick={() => setCollapsed((value) => !value)}>{collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</Button></div>
+  const selectTheme = (next: Theme) => { applyTheme(next); setTheme(next) }
+  const navigation = <nav className="gf-sidebar-nav" aria-label="Primary navigation"><p className="gf-sidebar-eyebrow">Workspace</p>{grouped.map(({ group, routes }) => { const Icon = group.icon; const expanded = openGroups[group.name] ?? true; return <section key={group.name} className="gf-nav-group"><button className={`gf-nav-group-button${activeGroupName(location.pathname) === group.name ? ' is-active' : ''}`} title={`${expanded ? 'Collapse' : 'Expand'} ${group.name}`} aria-expanded={expanded} onClick={() => setOpenGroups((current) => ({ ...current, [group.name]: !expanded }))}>{expanded ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}<Icon size={16} aria-hidden="true" /><span>{group.name}</span><small>{routes.length}</small></button>{expanded && <div className="gf-nav-children">{routes.map((route) => { const RouteIcon = routeIcon(route.path); return <NavLink key={route.path} to={route.path} end={route.path === '/'} className={({ isActive }) => `gf-nav-link${isActive ? ' is-active' : ''}`} title={collapsed && !mobileOpen ? route.label : undefined}><RouteIcon size={16} aria-hidden="true" /><span>{route.label}</span></NavLink> })}</div>}</section> })}</nav>
+  const sidebar = <aside ref={sidebarRef} className={`gf-sidebar${collapsed ? ' is-collapsed' : ''}${mobileOpen ? ' is-mobile-open' : ''}`} aria-label="Glyphflow sidebar"><div className="gf-sidebar-brand"><BrandMark /><div className="gf-sidebar-brand-copy"><strong>Glyphflow</strong><small>Scheduler console</small></div><Button className="gf-sidebar-collapse" variant="ghost" aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} onClick={() => setCollapsed((value) => !value)}>{collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}</Button>{mobileOpen && <Button variant="ghost" aria-label="Close navigation" onClick={() => setMobileOpen(false)}><X size={18} /></Button>}</div><div className="gf-module-badge"><LayoutDashboard size={15} aria-hidden="true" /><span>Scheduler</span></div>{navigation}<div className="gf-sidebar-footer"><Link className="gf-user-card" to="/account"><Users size={18} aria-hidden="true" /><span><strong>{profile?.displayName ?? profile?.username}</strong><small>{profile?.username}</small></span></Link><div className="gf-sidebar-actions"><Button variant="ghost" aria-label="Appearance" onClick={() => setAppearanceOpen(true)}><Sun size={17} /><span>Appearance</span></Button><Button variant="ghost" aria-label="Sign out" onClick={logout}><LogOut size={17} /></Button></div></div></aside>
+  return <div className={`gf-app-shell${collapsed ? ' is-sidebar-collapsed' : ''}`}><Button ref={menuButtonRef} className="gf-mobile-menu" variant="secondary" aria-label="Open navigation" onClick={() => setMobileOpen(true)}><Menu size={18} /></Button>{mobileOpen && <button className="gf-drawer-scrim" title="Close navigation" aria-label="Close navigation" onClick={() => setMobileOpen(false)} />}{sidebar}<main id="app-main" className="gf-main" tabIndex={-1}>{children}</main><Dialog open={appearanceOpen} title="Appearance" onClose={() => setAppearanceOpen(false)}><AppearanceChoices theme={theme} onSelect={selectTheme} /><div className="gf-dialog-actions"><Button onClick={() => setAppearanceOpen(false)}>Done</Button></div></Dialog></div>
 }
 
 export const allRoutes = ROUTES

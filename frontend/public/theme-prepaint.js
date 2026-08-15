@@ -1,6 +1,9 @@
 (() => {
   const key = 'glyphflow:theme'
   const saved = localStorage.getItem(key)
-  const dark = saved === 'dark' || (!saved && matchMedia('(prefers-color-scheme: dark)').matches)
-  document.documentElement.dataset.theme = dark ? 'dark' : 'light'
+  const themes = ['light', 'dark', 'neon']
+  const theme = themes.includes(saved)
+    ? saved
+    : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  document.documentElement.dataset.theme = theme
 })()

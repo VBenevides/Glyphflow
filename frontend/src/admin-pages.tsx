@@ -27,6 +27,10 @@ function sessionLabel(session: AuthSession): string {
   return `${session.current ? 'Current session' : session.userAgent ?? 'Session'}${session.lastSeenAt ? ` · ${session.lastSeenAt}` : ''}`
 }
 
+function InlinePills({ values }: { values?: string[] }) {
+  return values?.length ? <span className="gf-pill-list">{values.map((value) => <span className="gf-inline-pill" key={value}>{value}</span>)}</span> : '—'
+}
+
 export function UserManagementPage() {
   const { permissions } = useAuth()
   const manage = hasPermission(permissions, 'users.manage')
@@ -42,8 +46,8 @@ export function UserManagementPage() {
       return <><DataTable caption="Users" rows={data.items} columns={[
         { key: 'email', label: 'User', render: (user) => <span><strong>{user.displayName ?? user.email ?? user.username}</strong><br /><small>{user.email ?? user.username}</small></span> },
         { key: 'status', label: 'Status', render: (user) => <StatusPill status={user.status ?? (user.enabled === false ? 'disabled' : 'active')} /> },
-        { key: 'loginMethods', label: 'Login methods', render: (user) => user.loginMethods?.join(', ') || '—' },
-        { key: 'roles', label: 'Roles', render: (user) => user.roles?.join(', ') || '—' },
+        { key: 'loginMethods', label: 'Login methods', render: (user) => <InlinePills values={user.loginMethods} /> },
+        { key: 'roles', label: 'Roles', render: (user) => <InlinePills values={user.roles} /> },
         { key: 'sessions', label: 'Sessions', render: (user) => user.sessions?.length ?? 0 },
         { key: 'actions', label: 'Actions', render: (user) => manage && <div className="gf-dialog-actions">{!user.systemAdmin && <DangerousAction label="Disable" onConfirm={() => disable(user)} />}<Link to={`/admin/users/${encodeURIComponent(user.id)}`}>Details</Link></div> },
       ]} />
@@ -87,7 +91,7 @@ export function RoleManagementPage() {
     <QueryState query={query} empty="No roles are configured.">{(roles) => roles.length ? <DataTable caption="Roles" rows={roles} columns={[
       { key: 'name', label: 'Role', render: (role) => <strong>{role.name}</strong> },
       { key: 'system', label: 'Source', render: (role) => <StatusPill status={role.system ? 'system' : 'custom'} /> },
-      { key: 'permissions', label: 'Permissions', render: (role) => role.permissions?.join(', ') || '—' },
+      { key: 'permissions', label: 'Permissions', render: (role) => <InlinePills values={role.permissions} /> },
       { key: 'assignedUsers', label: 'Affected users', render: (role) => Array.isArray(role.assignedUsers) ? role.assignedUsers.length : role.assignedUsers ?? 0 },
       { key: 'actions', label: 'Actions', render: (role) => manage && !role.system && <div className="gf-dialog-actions"><Button variant="secondary" onClick={() => setEditing(role)}>Edit</Button><DangerousAction label="Delete" warning={`Review ${Array.isArray(role.assignedUsers) ? role.assignedUsers.length : role.assignedUsers ?? 0} affected users before deleting this role.`} onConfirm={() => remove(role)} /></div> },
     ]} /> : <EmptyState title="No roles">Seed or create a role before assigning access.</EmptyState>}</QueryState>

@@ -1,4 +1,4 @@
-import { Children, forwardRef, useEffect, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from 'react'
+import { Children, forwardRef, useEffect, useRef, type ButtonHTMLAttributes, type ComponentType, type InputHTMLAttributes, type ReactNode } from 'react'
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: 'primary' | 'secondary' | 'danger' | 'ghost'
@@ -79,12 +79,14 @@ export function StatusPill({ status }: { status: string }) {
   return <span className={`gf-status gf-status-${normalized}`}>{status}</span>
 }
 
-export function PageHeader({ title, description, action }: { title: string; description?: string; action?: ReactNode }) {
-  return <header className="gf-page-header"><div><h1>{title}</h1>{description && <p>{description}</p>}</div>{action}</header>
+export function PageHeader({ title, description, action, meta }: { title: string; description?: string; action?: ReactNode; meta?: ReactNode }) {
+  return <header className="gf-page-header"><div><h1>{title}</h1>{description && <p>{description}</p>}</div><div className="gf-page-header-actions">{meta && <div className="gf-page-header-meta">{meta}</div>}{action}</div></header>
 }
 
-export function MetricCard({ label, value, detail }: { label: string; value: ReactNode; detail?: string }) {
-  return <section className="gf-metric"><span>{label}</span><strong>{value}</strong>{detail && <small>{detail}</small>}</section>
+export type MetricTone = 'default' | 'success' | 'warning' | 'danger' | 'info'
+
+export function MetricCard({ label, value, detail, icon: Icon, tone = 'default' }: { label: string; value: ReactNode; detail?: ReactNode; icon?: ComponentType<{ className?: string; size?: string | number }>; tone?: MetricTone }) {
+  return <section className={`gf-metric gf-metric-${tone}`}><div className="gf-metric-heading"><span>{label}</span>{Icon && <span className="gf-metric-icon" aria-hidden="true"><Icon size={16} /></span>}</div><strong>{value}</strong>{detail && <small>{detail}</small>}</section>
 }
 
 export type Column<T> = { key: string; label: string; render?: (row: T) => ReactNode }
