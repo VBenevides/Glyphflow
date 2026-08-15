@@ -109,6 +109,27 @@ func TestTaskCreationStoresAndReturnsTask(t *testing.T) {
 	}
 }
 
+func TestPluralTaskManagePermissionAuthorizesTaskMutations(t *testing.T) {
+	h := (Server{Auth: func(*http.Request) (Claims, bool) {
+		return Claims{Roles: map[string]bool{"tasks.manage": true}}, true
+	}}).Handler()
+	create := httptest.NewRecorder()
+	h.ServeHTTP(create, httptest.NewRequest(http.MethodPost, "/api/v1/tasks", bytes.NewBufferString(`{"name":"Nightly","command":["echo","hi"],"runner_pool":"default"}`)))
+	if create.Code != http.StatusCreated {
+		t.Fatalf("task creation returned %d", create.Code)
+	}
+	version := httptest.NewRecorder()
+	h.ServeHTTP(version, httptest.NewRequest(http.MethodPost, "/api/v1/tasks/task-1/versions", bytes.NewBufferString(`{"command":["echo","updated"],"runner_pool":"default"}`)))
+	if version.Code != http.StatusCreated {
+		t.Fatalf("task version mutation returned %d", version.Code)
+	}
+	deleted := httptest.NewRecorder()
+	h.ServeHTTP(deleted, httptest.NewRequest(http.MethodDelete, "/api/v1/tasks/task-1", nil))
+	if deleted.Code != http.StatusNoContent {
+		t.Fatalf("task deletion returned %d", deleted.Code)
+	}
+}
+
 func TestRunnerPoolCRUD(t *testing.T) {
 	h := (Server{Auth: func(*http.Request) (Claims, bool) { return Claims{}, true }, Permissions: func(Claims) map[string]bool { return map[string]bool{"runners.read": true, "runners.manage": true} }, Infrastructure: NewInfrastructureService()}).Handler()
 	request := func(method, path, body string) *httptest.ResponseRecorder {

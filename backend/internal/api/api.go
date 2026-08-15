@@ -416,7 +416,7 @@ func (s Server) effectivePermissions(claims Claims) map[string]bool {
 }
 
 func hasPermission(permissions map[string]bool, required string) bool {
-	aliases := map[string]string{"task.read": "tasks.read", "task.create": "tasks.manage", "run.read": "runs.read", "run.cancel": "runs.cancel", "run.retry": "runs.retry", "runner.read": "runners.read", "event.read": "logs.read"}
+	aliases := map[string]string{"task.read": "tasks.read", "task.create": "tasks.manage", "task.manage": "tasks.manage", "run.read": "runs.read", "run.cancel": "runs.cancel", "run.retry": "runs.retry", "runner.read": "runners.read", "event.read": "logs.read"}
 	for _, candidate := range strings.Split(required, "|") {
 		if permissions[candidate] || permissions[aliases[candidate]] {
 			return true
