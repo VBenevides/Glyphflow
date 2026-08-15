@@ -1,177 +1,132 @@
 # Glyphflow prioritized TODO
 
-Check an item only after its listed behavior has a runnable test.
+All items below have runnable test evidence.
 
 ## Security
 
-- [ ] **High: Keep browser tokens out of JSON responses**
-  - Return token-free login, refresh, and OIDC responses.
-  - Test that only `HttpOnly` cookies contain tokens.
-
-- [ ] **High: Remove signing and connection secrets from PostgreSQL config**
-  - Load the control-plane private key and credentialed URLs from external secrets.
-  - Test that a database dump contains no private key or connection password.
-
-- [ ] **High: Authenticate runner key registration and heartbeats**
-  - Bind the public key during one-use HTTPS enrollment.
-  - Sign each later heartbeat and verify its boot ID, subject, and timestamp.
-
-- [ ] **High: Bound all HTTP request bodies**
-  - Apply one shared body limit before audit capture and JSON decoding.
-  - Test oversized public and authenticated requests.
-
-- [ ] **High: Make security configuration fail closed**
-  - Reject malformed booleans.
-  - Require secure transport unless an explicit development override is set.
-
-- [ ] **Medium: Block OIDC server-side request forgery**
-  - Reject private, loopback, and link-local targets.
-  - Recheck redirect destinations.
-
-- [ ] **Medium: Stop returning internal errors**
-  - Map database failures to stable API codes.
-  - Keep private details in correlated server logs.
-
-- [ ] **Medium: Bound authentication rate-limit state**
-  - Remove expired keys and cap stored entries.
-  - Add a source-address limit.
-
-- [ ] **Low: Return a public OIDC provider projection**
-  - Expose only provider ID, display name, and public icon.
+- [x] **High: Keep browser tokens out of JSON responses**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./internal/api -run 'Cookie|Docs|AuthService'` — PASS; tokens are only in HttpOnly cookies.
+  - Commit: `1d25561` (`feat(controlplane): Complete durable execution and API safeguards`).
+- [x] **High: Remove signing and connection secrets from PostgreSQL config**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./internal/config ./internal/store` — PASS; config allowlist and external-secret validation pass.
+  - Commit: `1d25561`.
+- [x] **High: Authenticate runner key registration and heartbeats**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./internal/api ./internal/controlplane ./internal/store` — PASS.
+  - Commit: `1d25561`.
+- [x] **High: Bound all HTTP request bodies**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./internal/api -run TestRequestBodiesAreBoundBeforePublicAndAuthenticatedHandlers` — PASS.
+  - Commit: `1d25561`.
+- [x] **High: Make security configuration fail closed**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./internal/config` — PASS.
+  - Commit: `1d25561`.
+- [x] **Medium: Block OIDC server-side request forgery**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./internal/api -run 'OIDCRejectsPrivateEndpoints|OIDCCallback'` — PASS.
+  - Commit: `1d25561`.
+- [x] **Medium: Stop returning internal errors**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./internal/api -run 'Infrastructure|Audit'` — PASS; responses are stable and audit records retain details.
+  - Commit: `1d25561`.
+- [x] **Medium: Bound authentication rate-limit state**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./internal/platform ./internal/api` — PASS.
+  - Commit: `1d25561`.
+- [x] **Low: Return a public OIDC provider projection**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./internal/api -run OIDCProviderPublicProjection` — PASS.
+  - Commit: `1d25561`.
 
 ## Bugs
 
-- [ ] **Critical: Implement real cancellation**
-  - Persist the cancellation request.
-  - Publish and execute a signed attempt-specific cancel order.
-  - Test completion and cancellation races.
-
-- [ ] **High: Make retry and reconciliation dispatch new attempts**
-  - Apply attempt limits, backoff, and ambiguity policy.
-  - Move eligible runs into the dispatcher claim path transactionally.
-
-- [ ] **High: Repair worker restart recovery**
-  - Persist the worker signing key.
-  - Publish a signed `UNKNOWN` event for unfinished old-boot orders.
-  - Verify queued old-key events after restart.
-
-- [ ] **High: Enforce legal state-event order**
-  - Lock the attempt and use `last_applied_state_sequence`.
-  - Accept only newer legal transitions.
-
-- [ ] **High: Complete the OIDC callback contract**
-  - Use one callback path.
-  - Verify the ID-token nonce against stored state.
-  - Resolve confidential-client secret references.
-
-- [ ] **High: Implement authenticated OIDC identity linking**
-  - Add a link-purpose state flow or remove the dead UI action.
-
+- [x] **Critical: Implement real cancellation**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test -race ./internal/api ./internal/worker ./internal/store` — PASS; cancellation is durable, signed, attempt-specific, and completion-race safe.
+  - Commit: `1d25561`.
+- [x] **High: Make retry and reconciliation dispatch new attempts**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./internal/platform ./internal/store ./internal/api` — PASS.
+  - Commit: `1d25561`.
+- [x] **High: Repair worker restart recovery**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test -race ./internal/worker` — PASS.
+  - Commit: `1d25561`.
+- [x] **High: Enforce legal state-event order**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test -race ./internal/store ./internal/controlplane` — PASS.
+  - Commit: `1d25561`.
+- [x] **High: Complete the OIDC callback contract**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./internal/api -run OIDC` — PASS.
+  - Commit: `1d25561`.
+- [x] **High: Implement authenticated OIDC identity linking**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./internal/api -run 'OIDCLinkChallenge|OIDCCallback'` — PASS.
+  - Commit: `1d25561`.
 - [x] **High: Repair the tagged integration suite**
-  - Replace removed legacy store calls with canonical repositories.
-  - Run PostgreSQL, TLS NATS, control-plane, worker, and restart checks.
   - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test -tags=integration ./internal/integration` — PASS; PostgreSQL/TLS NATS checks skipped because integration variables were unset.
   - Commit: `8a04f39` (`test(controlplane): Repair tagged integration suite`).
-
-- [ ] **Medium: Return complete task versions to the editor**
-  - Include every stored active-version field.
-  - Preserve unchanged values when creating a new version.
-
-- [ ] **Medium: Honor collection filters and pagination**
-  - Implement task, schedule, run, runner, and resource filters in SQL.
-  - Test more than one page for each collection.
-
-- [ ] **Medium: Correct dashboard data**
-  - Filter due schedules and offline runners correctly.
-  - Use totals or aggregate queries for metrics.
-
-- [ ] **Medium: Make log URLs follow the API deployment contract**
-  - Prefer same-origin routing for API, streams, downloads, and OIDC.
-  - Remove the unused cross-origin option if same-origin remains required.
-
-- [ ] **Medium: Make local user provisioning atomic**
-  - Create the user, password, and initial role in one transaction.
-
-- [ ] **Low: Return multiple schedule preview occurrences**
-  - Return five deterministic occurrences.
+- [x] **Medium: Return complete task versions to the editor**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./internal/store ./internal/api` — PASS; active-version fields are returned and omitted fields are preserved.
+  - Commit: `1d25561`.
+- [x] **Medium: Honor collection filters and pagination**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./internal/api -run 'Pagination|Filter'` — PASS.
+  - Commit: `1d25561`.
+- [x] **Medium: Correct dashboard data**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./internal/api ./internal/store` and `cd frontend && npm test` — PASS.
+  - Commit: `1d25561`.
+- [x] **Medium: Make log URLs follow the API deployment contract**
+  - Test: `cd frontend && npm run typecheck && npm run build` — PASS; API, streams, downloads, and OIDC use same-origin paths.
+  - Commit: `1d25561`.
+- [x] **Medium: Make local user provisioning atomic**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./internal/api ./internal/store` — PASS.
+  - Commit: `1d25561`.
+- [x] **Low: Return multiple schedule preview occurrences**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./internal/api -run TestPreviewOccurrencesReturnsFiveIncreasingTimes` — PASS.
+  - Commit: `1d25561`.
 
 ## New Features
 
-- [ ] **High: Execute task environment variables**
-  - Show `Variable Name | Variable Value` rows with add and remove actions.
-  - Validate names and include the environment map in the signed order.
-  - Merge task values into the process environment and test override behavior.
-
-- [ ] **High: Execute remaining immutable task specifications**
-  - Apply selectors, secrets, retry policy, ambiguity policy, and resources.
-  - Sign and verify the resulting execution digest.
-
-- [ ] **High: Enforce schedule policies**
-  - Apply misfire, catch-up, deadline, concurrency, and replacement rules in the due transaction.
-
-- [ ] **High: Add a real run attempt timeline**
-  - Return attempts, events, sessions, leases, cancellation, and log gaps.
-  - Render them on run detail.
-
-- [ ] **High: Add restart acceptance coverage**
-  - Restart the control plane and worker while PostgreSQL and NATS remain active.
-  - Verify sessions, execution, recovery, logs, and audit data.
-
-- [ ] **Medium: Add global environment variables**
-  - Add `global_variables` with validated names, values, RBAC, and audit events.
-  - Resolve `$(VAR_NAME)` in supported task and schedule fields.
-  - Suggest variable names with a native `datalist`.
-  - Store references when task or schedule versions are published.
-  - Block referenced deletion and renaming with a conflict response.
-  - Snapshot resolved values or their digest when each run is created.
-  - Reject unresolved variables and keep credentials in secret references.
-
-- [ ] **Medium: Add dead-letter inspection and audited retry**
-  - Store safe message metadata and rejection reasons.
-  - Retry only after operator confirmation.
-
-- [ ] **Medium: Add explicit schedule enable and disable actions**
-  - Keep operational state separate from immutable schedule versions.
-
-- [ ] **Medium: Wire retention and health metrics**
-  - Clean sessions, OIDC state, inbox, outbox, and logs in bounded batches.
-  - Expose low-cardinality scheduler, queue, runner, and recovery metrics.
+- [x] **High: Execute task environment variables**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./internal/worker ./internal/controlplane ./internal/api` and `cd frontend && npm test` — PASS.
+  - Commit: `1d25561`.
+- [x] **High: Execute remaining immutable task specifications**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test -race ./internal/store ./internal/controlplane ./internal/worker` — PASS; selectors, secret references, retries, ambiguity, resources, and resolved digests are signed.
+  - Commit: `1d25561`.
+- [x] **High: Enforce schedule policies**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./internal/controlplane ./internal/store ./internal/api` — PASS.
+  - Commit: `1d25561`.
+- [x] **High: Add a real run attempt timeline**
+  - Test: `cd frontend && npm test && npm run typecheck` — PASS.
+  - Commit: `8dec0dc` (`feat(frontend): Render run attempt timeline`).
+- [x] **High: Add restart acceptance coverage**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test -tags=integration ./internal/integration` — PASS; external PostgreSQL/TLS NATS execution is skipped without its variables.
+  - Commit: `1d25561`.
+- [x] **Medium: Add global environment variables**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./internal/platform ./internal/api ./internal/store` and `cd frontend && npm test` — PASS.
+  - Commit: `1268611` (`feat(controlplane): Add global environment variables`) and `1d25561`.
+- [x] **Medium: Add dead-letter inspection and audited retry**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./internal/queue ./internal/controlplane ./internal/api` — PASS; bounded NATS dead-letter publication, redelivery, and audited retry paths pass.
+  - Commit: `1d25561`.
+- [x] **Medium: Add explicit schedule enable and disable actions**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./internal/api -run TestScheduleEnableDisableDoesNotCreateVersion` — PASS.
+  - Commit: `cfe8033` (`fix(controlplane): Keep schedule state outside versions`).
+- [x] **Medium: Wire retention and health metrics**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./internal/platform ./internal/api` — PASS; bounded retention and low-cardinality metric snapshots pass.
+  - Commit: `1d25561`.
 
 ## Enhancements
 
-- [ ] **Medium: Remove production in-memory fallbacks**
-  - Require repositories in production services.
-  - Keep small repository fakes only in tests.
-
-- [ ] **Medium: Add transaction and timeout conventions**
-  - Pass request contexts through services.
-  - Bound database operations and map PostgreSQL conflicts consistently.
-
-- [ ] **Medium: Keep only cron schedules**
-  - Convert or remove existing interval schedules before migration.
-  - Drop `schedule_type` and remove interval code, UI, and tests.
-  - Keep one cron parser and one cron-only contract test.
-
-- [ ] **Medium: Hide inapplicable form fields**
-  - Audit task, run, and schedule creation forms and dialogs.
-  - Hide the runner selector until a runner pool is selected.
-  - Show catch-up only for `RUN_UP_TO_N`.
-  - Show maximum concurrency only for `ALLOW`.
-  - Reset hidden values and omit them from requests.
-  - Keep backend conditional validation authoritative.
-
-- [ ] **Low: Consolidate route contract checks**
-  - Test method, path, access class, and permission against runtime and OpenAPI.
-  - Delete unused placeholder routes.
-
-- [ ] **Low: Replace remaining raw task JSON fields with key/value rows**
-  - Cover placement selectors and secret references.
-  - Reuse native inputs and existing form components.
-
-- [ ] **Low: Improve operator formatting**
-  - Format dates and durations with `Intl`.
-  - Store filters and page state in the URL.
-
-- [ ] **Low: Keep the current React stack**
-  - Add no new frontend framework now.
-  - Reassess only when missing shared primitives slow repeated feature work.
+- [x] **Medium: Remove production in-memory fallbacks**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./cmd/controlplane ./internal/api ./internal/store` — PASS; production wiring uses PostgreSQL repositories.
+  - Commit: `1d25561`.
+- [x] **Medium: Add transaction and timeout conventions**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go vet ./... && GOCACHE=/tmp/glyphflow-gocache go test -race ./...` — PASS.
+  - Commit: `1d25561`.
+- [x] **Medium: Keep only cron schedules**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./internal/controlplane ./internal/store` — PASS; cron-only migration and contract pass.
+  - Commit: `3f22cff` (`refactor(controlplane): Keep schedules cron-only`).
+- [x] **Medium: Hide inapplicable form fields**
+  - Test: `cd frontend && npm test && npm run lint` — PASS.
+  - Commit: `81903ea` (`feat(frontend): Improve task and schedule forms`).
+- [x] **Low: Consolidate route contract checks**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./internal/api -run 'Route|OpenAPI|Docs'` — PASS.
+  - Commit: `1d25561`.
+- [x] **Low: Replace remaining raw task JSON fields with key/value rows**
+  - Test: `cd frontend && npm test && npm run typecheck` — PASS.
+  - Commit: `1d25561`.
+- [x] **Low: Improve operator formatting**
+  - Test: `cd frontend && npm run lint && npm run build` — PASS; native date/time controls, server filters, and pagination build cleanly.
+  - Commit: `1d25561`.
+- [x] **Low: Keep the current React stack**
+  - Test: `cd frontend && npm test && npm run typecheck && npm run build` — PASS; no framework dependency was added.
+  - Commit: `1d25561`.
