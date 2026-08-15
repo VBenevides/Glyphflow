@@ -248,10 +248,14 @@ func (s *RunnerStore) consumeEnrollment(ctx context.Context, tokenHash string, n
 		if !errors.Is(err, pgx.ErrNoRows) && err != nil {
 			return RunnerRecord{}, err
 		}
-		if err == nil && (existingRunner != runnerID || !ed25519.PublicKey(existingKey).Equal(ed25519.PublicKey(publicKey))) {
+		if err == nil && existingRunner != runnerID {
 			return RunnerRecord{}, errors.New("runner enrollment key is already bound")
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO runner_keys (key_id, runner_id, public_key, not_before) VALUES ($1, $2, $3, now()) ON CONFLICT (key_id) DO NOTHING`, keyID, runnerID, publicKey); err != nil {
+		if err == nil {
+			if _, err := tx.Exec(ctx, `UPDATE runner_keys SET public_key = $2, not_before = now(), not_after = NULL, revoked_at = NULL WHERE key_id = $1`, keyID, publicKey); err != nil {
+				return RunnerRecord{}, err
+			}
+		} else if _, err := tx.Exec(ctx, `INSERT INTO runner_keys (key_id, runner_id, public_key, not_before) VALUES ($1, $2, $3, now())`, keyID, runnerID, publicKey); err != nil {
 			return RunnerRecord{}, err
 		}
 	}

@@ -121,6 +121,29 @@ func TestRunnerEnrollmentBuildsBootstrapBinaryAndConsumesToken(t *testing.T) {
 	if replay.Code != http.StatusUnauthorized {
 		t.Fatalf("replay returned %d", replay.Code)
 	}
+	secondRequest := httptest.NewRequest(http.MethodPost, "/api/v1/runners/enrollments", bytes.NewBufferString(`{"runner_id":"runner-1","platform":"linux","architecture":"amd64"}`))
+	secondRequest.Host = "control.example:8080"
+	second := httptest.NewRecorder()
+	s.enroll(second, secondRequest)
+	var secondResult struct {
+		Artifact string `json:"artifact"`
+	}
+	if err := json.Unmarshal(second.Body.Bytes(), &secondResult); err != nil {
+		t.Fatal(err)
+	}
+	secondRaw, err := base64.StdEncoding.DecodeString(secondResult.Artifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondBootstrap, err := worker.UnpackBootstrap(secondRaw)
+	if err != nil || secondBootstrap == nil {
+		t.Fatalf("second bootstrap = %#v, err=%v", secondBootstrap, err)
+	}
+	rebind := httptest.NewRecorder()
+	s.enrollRunner(rebind, httptest.NewRequest(http.MethodPost, "/api/v1/runners/enroll", bytes.NewBufferString(`{"runner_id":"runner-1","token":"`+secondBootstrap.Token+`","key_id":"`+keyID+`","public_key":"`+publicKey+`"}`)))
+	if rebind.Code != http.StatusOK {
+		t.Fatalf("same-key rebind returned %d: %s", rebind.Code, rebind.Body.String())
+	}
 }
 
 func TestInfrastructureMarksStaleRunnersAndFencesLeases(t *testing.T) {

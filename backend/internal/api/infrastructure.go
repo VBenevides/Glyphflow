@@ -934,8 +934,8 @@ func (s *InfrastructureService) consumeEnrollmentWithKey(token string, now time.
 	if !ok {
 		return RunnerRecord{}, errEnrollmentNotFound
 	}
-	for _, existing := range s.runnerKeys {
-		if existing.ID == keyID && !existing.Public.Equal(ed25519.PublicKey(publicKey)) {
+	for runnerID, existing := range s.runnerKeys {
+		if runnerID != item.RunnerID && existing.ID == keyID {
 			return RunnerRecord{}, errors.New("runner enrollment key is already bound")
 		}
 	}
