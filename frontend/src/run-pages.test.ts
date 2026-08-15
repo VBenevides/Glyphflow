@@ -1,7 +1,8 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
-import { eligibleRunActions, hasActiveRuns, runQuery, runStatusLabel, RunTimeline } from './run-pages'
+import { eligibleRunActions, hasActiveRuns, runQuery, runStatusLabel, RunIDCell, RunTimeline } from './run-pages'
 import { isTerminalRunState } from './run-logs'
 
 describe('run inventory', () => {
@@ -28,5 +29,12 @@ describe('run inventory', () => {
       logGaps: [{ stream: 'stdout', fromSequence: 3, toSequence: 4 }],
     } }))
     for (const value of ['Attempt timeline', 'runner-1', 'started', 'session-1', 'ACTIVE', 'operator stop', 'stdout', '3–4']) expect(markup).toContain(value)
+  })
+
+  it('keeps compact run IDs hoverable and copyable', () => {
+    const markup = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(RunIDCell, { id: 'run-123', compact: true })))
+    expect(markup).toContain('gf-run-id-cell-compact')
+    expect(markup).toContain('title="run-123"')
+    expect(markup).toContain('aria-label="Copy run ID"')
   })
 })

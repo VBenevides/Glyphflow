@@ -29,8 +29,8 @@ export function hasActiveRuns(data?: Page<Run>) {
   return Boolean(data?.items.some((run) => ['WAITING', 'RUNNING', 'RETRY_WAIT', 'CANCELLING'].includes(run.state.toUpperCase())))
 }
 
-function RunIDCell({ id }: { id: string }) {
-  return <div className="gf-run-id-cell"><Link className="gf-run-id" to={`/runs/${id}`} title={id}>{id}</Link><Button variant="ghost" className="gf-run-id-copy" aria-label="Copy run ID" onClick={() => { void navigator.clipboard?.writeText(id).catch(() => undefined) }}><Copy size={15} aria-hidden="true" /></Button></div>
+export function RunIDCell({ id, compact = false }: { id: string; compact?: boolean }) {
+  return <div className={`gf-run-id-cell${compact ? ' gf-run-id-cell-compact' : ''}`}><Link className="gf-run-id" to={`/runs/${id}`} title={id}>{id}</Link><Button variant="ghost" className="gf-run-id-copy" aria-label="Copy run ID" onClick={() => { void navigator.clipboard?.writeText(id).catch(() => undefined) }}><Copy size={15} aria-hidden="true" /></Button></div>
 }
 
 export function RunInventoryPage() {

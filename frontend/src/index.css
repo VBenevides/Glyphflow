@@ -119,6 +119,7 @@ a {
 .gf-table th { color: var(--gf-muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
 .gf-table tr:last-child td { border-bottom: 0; }
 .gf-run-id-cell { display: flex; align-items: center; gap: 0.35rem; width: 12rem; max-width: 12rem; min-width: 0; }
+.gf-run-id-cell-compact { width: 100px; max-width: 100px; }
 .gf-run-id { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gf-run-id-copy { flex: 0 0 auto; padding: 0.25rem; line-height: 1; }
 .gf-pagination { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1rem; }
