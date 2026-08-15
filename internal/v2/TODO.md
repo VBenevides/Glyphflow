@@ -124,6 +124,9 @@ All items below have runnable test evidence.
 - [x] **High: Show runner runs and update capacity live**
   - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test -race ./...` and `GOCACHE=/tmp/glyphflow-gocache go vet ./...`; `cd frontend && npm test -- --run && npm run typecheck && npm run lint && npm run build` — PASS; runner details list active runs, capacity updates use signed control messages without binary regeneration, and heartbeats report the worker's current capacity.
   - Commit: `117a195` (`feat(controlplane): Show runner runs and update capacity live`).
+- [x] **Medium: Compact runner current-run IDs**
+  - Test: `cd frontend && npm test -- --run && npm run typecheck && npm run lint && npm run build` — PASS; current-run IDs are capped at 100px while retaining the full-ID hover title and copy action used by the runs page.
+  - Commit: `5cfc3af` (`fix(frontend): Compact runner current run IDs`).
 - [x] **Medium: Add dead-letter inspection and audited retry**
   - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./internal/queue ./internal/controlplane ./internal/api` — PASS; bounded NATS dead-letter publication, redelivery, and audited retry paths pass.
   - Commit: `1d25561`.
