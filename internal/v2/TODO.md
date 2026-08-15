@@ -46,6 +46,9 @@ All items below have runnable test evidence.
 - [x] **Critical: Implement real cancellation**
   - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test -race ./internal/api ./internal/worker ./internal/store` — PASS; cancellation is durable, signed, attempt-specific, and completion-race safe.
   - Commit: `1d25561`.
+- [x] **High: Reconcile cancellations that lose runner confirmation**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test -race ./...` and `GOCACHE=/tmp/glyphflow-gocache go vet ./...` — PASS; the PostgreSQL reconciliation test is included and skips when `DATABASE_URL` is unset. Stale `CANCELLING` runs become `UNKNOWN`, release runner capacity and active leases, and remain available for manual reconciliation.
+  - Commit: `05a7ec6` (`fix(controlplane): Reconcile stale cancellations`).
 - [x] **High: Make retry and reconciliation dispatch new attempts**
   - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./internal/platform ./internal/store ./internal/api` — PASS.
   - Commit: `1d25561`.
