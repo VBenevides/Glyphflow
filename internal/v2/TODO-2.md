@@ -34,6 +34,9 @@ This file is an implementation handoff. Complete the work in order. Do not check
 - [x] Soft-delete tasks — commit `7414989` (`feat(controlplane): Soft-delete tasks`)
   - Result: task deletion sets `tasks.is_deleted`, hides the task from active APIs, disables its schedules, cancels pending work, and preserves task/execution history. Task versions remain immutable.
   - Verification: `cd backend && GOCACHE=/tmp/glyphflow-go-cache go test ./...` passed; `cd frontend && npm test -- --run` (30 files, 58 tests), `npm run typecheck`, and `npm run lint` passed; `git diff --check` passed.
+- [x] Block retries for deleted tasks — commit `49d2b56` (`fix(controlplane): Block retries for deleted tasks`)
+  - Result: archived tasks cannot re-enter retry wait after deletion.
+  - Verification: `cd backend && GOCACHE=/tmp/glyphflow-go-cache go test ./...` passed; `cd frontend && npm test -- --run` (30 files, 58 tests), `npm run typecheck`, and `npm run lint` passed; `git diff --check` passed.
 - [x] Runner deletion conflict fix — commit `0fe15e1` (`fix(controlplane): Explain runner history conflicts`)
   - Result: foreign-key failures from retained execution attempts now return `runner is referenced by execution history`; API regression tests pass.
 - [x] Runner archival, cancellation, pool cleanup, and unique enrollment IDs — commits `dc805a8`, `36bdf51`, `e6c601c`, and `a9da440`
