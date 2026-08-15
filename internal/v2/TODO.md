@@ -67,9 +67,11 @@ Check an item only after its listed behavior has a runnable test.
 - [ ] **High: Implement authenticated OIDC identity linking**
   - Add a link-purpose state flow or remove the dead UI action.
 
-- [ ] **High: Repair the tagged integration suite**
+- [x] **High: Repair the tagged integration suite**
   - Replace removed legacy store calls with canonical repositories.
   - Run PostgreSQL, TLS NATS, control-plane, worker, and restart checks.
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test -tags=integration ./internal/integration` — PASS; PostgreSQL/TLS NATS checks skipped because integration variables were unset.
+  - Commit: `8a04f39` (`test(controlplane): Repair tagged integration suite`).
 
 - [ ] **Medium: Return complete task versions to the editor**
   - Include every stored active-version field.
