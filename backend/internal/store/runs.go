@@ -423,6 +423,54 @@ func (s *RunStore) ClaimCancelling(ctx context.Context, build func(CancellationC
 	return candidate, true, nil
 }
 
+func (s *RunStore) ReconcileStaleCancellations(ctx context.Context, cutoff time.Time) error {
+	if cutoff.IsZero() {
+		return errors.New("cancellation reconciliation cutoff is required")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	rows, err := tx.Query(ctx, `SELECT a.id, a.run_id, a.runner_id, a.last_applied_state_sequence FROM runs r JOIN execution_attempts a ON a.run_id = r.id WHERE r.state = 'CANCELLING' AND a.state IN ('DISPATCHED','ACCEPTED','RUNNING','CANCELLING') AND r.updated_at < $1 ORDER BY r.updated_at, r.id FOR UPDATE OF r, a SKIP LOCKED LIMIT 100`, cutoff)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	reportedAt := time.Now().UTC()
+	for rows.Next() {
+		var attemptID, runID, runnerID string
+		var lastSequence int64
+		if err := rows.Scan(&attemptID, &runID, &runnerID, &lastSequence); err != nil {
+			return err
+		}
+		sequence := lastSequence + 1
+		if sequence < 3 {
+			sequence = 3
+		}
+		payload := []byte(`{"result":"","error":"cancellation could not be confirmed before timeout"}`)
+		if _, err := tx.Exec(ctx, `INSERT INTO run_events (event_id, execution_attempt_id, state_sequence, event_kind, reported_at, payload) VALUES ($1, $2, $3, 'unknown', $4, $5::jsonb)`, "cancellation-timeout:"+attemptID, attemptID, sequence, reportedAt, payload); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE execution_attempts SET state = 'UNKNOWN', finished_at = COALESCE(finished_at, $2), termination_reason = 'cancellation could not be confirmed', last_applied_state_sequence = $3, state_version = state_version + 1, updated_at = now() WHERE id = $1`, attemptID, reportedAt, sequence); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE runs SET state = 'UNKNOWN', retry_not_before = NULL, state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state = 'CANCELLING'`, runID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE runners SET active_count = GREATEST(active_count - 1, 0), updated_at = now() WHERE id = $1 AND active_count > 0`, runnerID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE resource_leases SET state = 'RELEASED', released_at = now() WHERE execution_attempt_id = $1 AND state = 'ACTIVE'`, attemptID); err != nil {
+			return err
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 func (s *RunStore) RequestCancellation(ctx context.Context, id, reason string) (RunRecord, bool, error) {
 	reason = strings.TrimSpace(reason)
 	if reason == "" {

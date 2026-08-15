@@ -17,11 +17,14 @@ import (
 type DispatchRepository interface {
 	ClaimWaiting(context.Context, func(store.DispatchCandidate) ([]byte, error)) (store.DispatchCandidate, bool, error)
 	ClaimCancelling(context.Context, func(store.CancellationCandidate) ([]byte, error)) (store.CancellationCandidate, bool, error)
+	ReconcileStaleCancellations(context.Context, time.Time) error
 	PendingDispatch(context.Context, int) ([]store.DispatchOutboxRecord, error)
 	MarkDispatchPublished(context.Context, string) error
 	RetryDispatch(context.Context, string, error) error
 	ApplyRunEvent(context.Context, store.RunEventInput) error
 }
+
+const cancellationReconciliationDelay = 30 * time.Second
 
 type RunnerKeyRepository interface {
 	FindPublicKey(context.Context, string, string) (ed25519.PublicKey, error)
@@ -70,6 +73,9 @@ func RunDispatcher(ctx context.Context, events *queue.JetStream, runs DispatchRe
 				return err
 			}
 			if err := dispatchCancellations(ctx, events, runs, signingKey); err != nil {
+				return err
+			}
+			if err := runs.ReconcileStaleCancellations(ctx, time.Now().UTC().Add(-cancellationReconciliationDelay)); err != nil {
 				return err
 			}
 			if err := publishPending(ctx, events, runs); err != nil {
