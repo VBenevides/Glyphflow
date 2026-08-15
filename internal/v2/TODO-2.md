@@ -28,7 +28,7 @@ This file is an implementation handoff. Complete the work in order. Do not check
   - Result: backend and frontend regression tests pass; referenced pools now return a safe `runner pool is still in use` message, while stale-data refresh remains limited to actions that request it.
 - [x] Runner deletion conflict fix — commit `0fe15e1` (`fix(controlplane): Explain runner history conflicts`)
   - Result: foreign-key failures from retained execution attempts now return `runner is referenced by execution history`; API regression tests pass.
-- [x] Runner archival, cancellation, pool cleanup, and unique enrollment IDs — commits `dc805a8` and `36bdf51`
+- [x] Runner archival, cancellation, pool cleanup, and unique enrollment IDs — commits `dc805a8`, `36bdf51`, and `e6c601c`
   - Result: runners are archived instead of hard-deleted, retained in an Archived Runners tab, cannot reconnect or be recovered, and assigned work is cancelled immediately or after the existing stale-cancellation timeout. Pools can be deleted after all their runners are archived. Enrollment by runner name creates an ID with a random 8-byte hexadecimal suffix; legacy `runner_id` enrollment remains compatible.
   - Verification: `cd backend && GOCACHE=/tmp/glyphflow-go-cache go test ./...` passed; `cd frontend && npm run typecheck` passed; `cd frontend && npm test` passed (30 files, 58 tests); `git diff --check` passed.
 
