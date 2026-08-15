@@ -121,6 +121,9 @@ All items below have runnable test evidence.
 - [x] **High: Run runner tasks concurrently**
   - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test -race ./...` and `GOCACHE=/tmp/glyphflow-gocache go vet ./...`; `cd frontend && npm test -- --run && npm run typecheck && npm run lint && npm run build` — PASS; delivered orders run in separate goroutines with independent stdout/stderr streaming, long tasks renew JetStream delivery, and control-plane capacity/resource admission remains authoritative.
   - Commit: `95f0cd5` (`feat(worker): Run tasks concurrently`).
+- [x] **High: Show runner runs and update capacity live**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test -race ./...` and `GOCACHE=/tmp/glyphflow-gocache go vet ./...`; `cd frontend && npm test -- --run && npm run typecheck && npm run lint && npm run build` — PASS; runner details list active runs, capacity updates use signed control messages without binary regeneration, and heartbeats report the worker's current capacity.
+  - Commit: `117a195` (`feat(controlplane): Show runner runs and update capacity live`).
 - [x] **Medium: Add dead-letter inspection and audited retry**
   - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./internal/queue ./internal/controlplane ./internal/api` — PASS; bounded NATS dead-letter publication, redelivery, and audited retry paths pass.
   - Commit: `1d25561`.
