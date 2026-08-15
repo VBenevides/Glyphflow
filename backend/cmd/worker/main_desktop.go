@@ -38,6 +38,10 @@ func main() {
 			_, _ = fmt.Fprintln(stderr, err)
 		}
 	}()
+	trayEnabled := trayAvailable()
+	if !trayEnabled {
+		_, _ = fmt.Fprintln(stderr, "system tray unavailable; showing a regular worker window")
+	}
 
 	app := application.New(application.Options{
 		Name:        "Glyphflow Worker",
@@ -51,22 +55,10 @@ func main() {
 		Height:           560,
 		MinWidth:         640,
 		MinHeight:        420,
-		Hidden:           true,
+		Hidden:           trayEnabled,
 		BackgroundColour: application.NewRGB(243, 240, 255),
 		URL:              "http://wails.localhost/",
 	})
-	tray := app.SystemTray.New()
-	tray.SetIcon(workerIcon)
-	tray.SetLabel("Glyphflow Worker")
-	tray.SetTooltip("Glyphflow Worker")
-	open := func() {
-		window.UnMinimise()
-		window.Show()
-		window.Focus()
-	}
-	menu := app.NewMenu()
-	menu.Add("Open").OnClick(func(*application.Context) { open() })
-	menu.AddSeparator()
 	var exitOnce sync.Once
 	exit := func() {
 		exitOnce.Do(func() {
@@ -74,23 +66,37 @@ func main() {
 			app.Quit()
 		})
 	}
-	menu.Add("Exit").OnClick(func(*application.Context) { exit() })
-	tray.SetMenu(menu)
-	tray.OnClick(open)
-
-	window.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			event.Cancel()
-			window.Hide()
+	if trayEnabled {
+		tray := app.SystemTray.New()
+		tray.SetIcon(workerIcon)
+		tray.SetLabel("Glyphflow Worker")
+		tray.SetTooltip("Glyphflow Worker")
+		open := func() {
+			window.UnMinimise()
+			window.Show()
+			window.Focus()
 		}
-	})
-	window.OnWindowEvent(events.Common.WindowMinimise, func(*application.WindowEvent) {
-		window.UnMinimise()
-		window.Hide()
-	})
+		menu := app.NewMenu()
+		menu.Add("Open").OnClick(func(*application.Context) { open() })
+		menu.AddSeparator()
+		menu.Add("Exit").OnClick(func(*application.Context) { exit() })
+		tray.SetMenu(menu)
+		tray.OnClick(open)
+
+		window.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				event.Cancel()
+				window.Hide()
+			}
+		})
+		window.OnWindowEvent(events.Common.WindowMinimise, func(*application.WindowEvent) {
+			window.UnMinimise()
+			window.Hide()
+		})
+	}
 	app.OnShutdown(func() {
 		cancel()
 		<-workerDone
