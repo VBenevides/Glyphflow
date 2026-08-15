@@ -17,6 +17,7 @@ import (
 type DispatchRepository interface {
 	ClaimWaiting(context.Context, func(store.DispatchCandidate) ([]byte, error)) (store.DispatchCandidate, bool, error)
 	ClaimCancelling(context.Context, func(store.CancellationCandidate) ([]byte, error)) (store.CancellationCandidate, bool, error)
+	ReconcileTimedOutDispatches(context.Context, time.Time) error
 	ReconcileStaleCancellations(context.Context, time.Time) error
 	PendingDispatch(context.Context, int) ([]store.DispatchOutboxRecord, error)
 	MarkDispatchPublished(context.Context, string) error
@@ -73,6 +74,9 @@ func RunDispatcher(ctx context.Context, events *queue.JetStream, runs DispatchRe
 				return err
 			}
 			if err := dispatchCancellations(ctx, events, runs, signingKey); err != nil {
+				return err
+			}
+			if err := runs.ReconcileTimedOutDispatches(ctx, time.Now().UTC()); err != nil {
 				return err
 			}
 			if err := runs.ReconcileStaleCancellations(ctx, time.Now().UTC().Add(-cancellationReconciliationDelay)); err != nil {

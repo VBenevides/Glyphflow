@@ -337,6 +337,66 @@ func (s *RunStore) ClaimWaiting(ctx context.Context, build func(DispatchCandidat
 	return candidate, true, nil
 }
 
+// ReconcileTimedOutDispatches marks attempts that outlived their task timeout
+// plus a grace period as UNKNOWN when no terminal runner event was received.
+func (s *RunStore) ReconcileTimedOutDispatches(ctx context.Context, now time.Time) error {
+	if now.IsZero() {
+		return errors.New("dispatch timeout reconciliation time is required")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	rows, err := tx.Query(ctx, `SELECT a.id, a.run_id, a.runner_id, a.last_applied_state_sequence FROM runs r JOIN execution_attempts a ON a.run_id = r.id JOIN task_versions tv ON tv.id = r.task_version_id WHERE r.state = 'RUNNING' AND a.state IN ('DISPATCHED','ACCEPTED','RUNNING') AND a.dispatched_at IS NOT NULL AND a.dispatched_at + (tv.timeout_seconds * interval '1 second') + interval '10 minutes' <= $1 ORDER BY a.dispatched_at, a.id FOR UPDATE OF r, a SKIP LOCKED LIMIT 100`, now)
+	if err != nil {
+		return err
+	}
+	type timedOutDispatch struct {
+		attemptID, runID, runnerID string
+		lastSequence               int64
+	}
+	candidates := make([]timedOutDispatch, 0, 100)
+	for rows.Next() {
+		var candidate timedOutDispatch
+		if err := rows.Scan(&candidate.attemptID, &candidate.runID, &candidate.runnerID, &candidate.lastSequence); err != nil {
+			return err
+		}
+		candidates = append(candidates, candidate)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
+	for _, candidate := range candidates {
+		sequence := candidate.lastSequence + 1
+		if sequence < 3 {
+			sequence = 3
+		}
+		reportedAt := now.UTC()
+		payload := []byte(`{"result":"","error":"execution exceeded its timeout and could not be confirmed"}`)
+		if _, err := tx.Exec(ctx, `INSERT INTO run_events (event_id, execution_attempt_id, state_sequence, event_kind, reported_at, payload) VALUES ($1, $2, $3, 'unknown', $4, $5::jsonb)`, "dispatch-timeout:"+candidate.attemptID, candidate.attemptID, sequence, reportedAt, payload); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE execution_attempts SET state = 'UNKNOWN', finished_at = COALESCE(finished_at, $2), termination_reason = 'execution timeout could not be confirmed', last_applied_state_sequence = $3, state_version = state_version + 1, updated_at = now() WHERE id = $1`, candidate.attemptID, reportedAt, sequence); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE runs SET state = 'UNKNOWN', retry_not_before = NULL, state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state = 'RUNNING'`, candidate.runID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE runners SET active_count = GREATEST(active_count - 1, 0), updated_at = now() WHERE id = $1 AND active_count > 0`, candidate.runnerID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE resource_leases SET state = 'RELEASED', released_at = now() WHERE execution_attempt_id = $1 AND state = 'ACTIVE'`, candidate.attemptID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE dispatch_outbox SET state = 'FAILED', last_error = 'execution timeout could not be confirmed' WHERE execution_attempt_id = $1 AND message_type = 'execute' AND state = 'PENDING'`, candidate.attemptID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
 func decodeEnvironment(raw []byte) (map[string]string, error) {
 	var values map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &values); err != nil {
