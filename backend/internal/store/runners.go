@@ -189,7 +189,9 @@ func scanRunner(row interface{ Scan(...any) error }) (RunnerRecord, error) {
 func (s *RunnerStore) SetDesiredState(ctx context.Context, id, state string) (RunnerRecord, bool, error) {
 	query := `UPDATE runners SET desired_state = $2, updated_at = now() WHERE id = $1`
 	if state == "REVOKED" {
-		query = `UPDATE runners SET desired_state = 'DISABLED', observed_state = 'REVOKED', updated_at = now() WHERE id = $1`
+		query = `UPDATE runners SET desired_state = 'DISABLED', observed_state = 'REVOKED', updated_at = now() WHERE id = $1 AND NOT is_archived AND NOT is_deleted`
+	} else {
+		query += ` AND NOT is_archived AND NOT is_deleted`
 	}
 	var result pgconn.CommandTag
 	var err error
@@ -209,7 +211,7 @@ func (s *RunnerStore) UpdateCapacity(ctx context.Context, id string, capacity in
 	if capacity < 1 {
 		return RunnerRecord{}, false, errors.New("runner capacity must be at least 1")
 	}
-	result, err := s.pool.Exec(ctx, `UPDATE runners SET capacity = $2, updated_at = now() WHERE id = $1`, id, capacity)
+	result, err := s.pool.Exec(ctx, `UPDATE runners SET capacity = $2, updated_at = now() WHERE id = $1 AND NOT is_archived AND NOT is_deleted`, id, capacity)
 	if err != nil || result.RowsAffected() == 0 {
 		return RunnerRecord{}, result.RowsAffected() > 0, err
 	}

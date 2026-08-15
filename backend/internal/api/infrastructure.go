@@ -453,6 +453,9 @@ func (s *InfrastructureService) runnerPath(w http.ResponseWriter, r *http.Reques
 			s.mu.Lock()
 			var found bool
 			item, found = s.runners[parts[3]]
+			if found && (item.IsArchived || item.IsDeleted) {
+				found = false
+			}
 			if found {
 				item.Capacity = input.Capacity
 				s.runners[parts[3]] = item
@@ -515,6 +518,9 @@ func (s *InfrastructureService) runnerPath(w http.ResponseWriter, r *http.Reques
 		item, ok := s.runners[parts[3]]
 		states := map[string]string{"enable": "ENABLED", "disable": "DISABLED", "drain": "DRAINING", "reset": "ENABLED", "revoke": "REVOKED"}
 		state, valid := states[parts[4]]
+		if ok && (item.IsArchived || item.IsDeleted) {
+			ok = false
+		}
 		if ok && valid {
 			item.DesiredState = state
 			s.runners[parts[3]] = item
