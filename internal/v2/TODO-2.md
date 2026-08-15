@@ -20,6 +20,9 @@ This file is an implementation handoff. Complete the work in order. Do not check
   - Keep the tray-first behavior unchanged when a tray host is available.
 - [x] **Worker: load the embedded UI through Wails' platform asset route**
   - Use `/` as the window URL so Linux resolves `wails://localhost` instead of trying to connect to `wails.localhost` over TCP.
+- [x] **Worker: show runner identity and Glyphflow branding**
+  - Display the enrolled Runner ID above the NATS JetStream endpoint.
+  - Serve the embedded Glyphflow icon in the worker header.
 
 ## Implementation record
 
@@ -35,6 +38,9 @@ This file is an implementation handoff. Complete the work in order. Do not check
   - Verification: `cd backend && GOCACHE=/tmp/glyphflow-go-cache go test -race -tags workerui ./cmd/worker` passed (GTK deprecation warnings only); `cd backend && GOCACHE=/tmp/glyphflow-go-cache go test ./...` passed; `git diff --check` passed.
 - [x] Worker Wails asset route fix — commit `d52b4ce` (`fix(worker): Use Wails asset route on Linux`)
   - Result: the desktop window now uses Wails' platform-relative `/` route, so Linux serves the embedded UI through its `wails://localhost` protocol instead of the unavailable `http://wails.localhost` endpoint.
+  - Verification: `cd backend && GOCACHE=/tmp/glyphflow-go-cache go test -race -tags workerui ./cmd/worker` passed; `cd backend && GOCACHE=/tmp/glyphflow-go-cache go test ./...` passed; `git diff --check` passed.
+- [x] Worker identity and branding — commit `31f1ed2` (`feat(worker): Show runner identity and branding`)
+  - Result: snapshots include the enrolled runner ID, the GUI renders it above the NATS endpoint, and `/assets/glyphflow.png` is served from the embedded asset tree so the header icon loads.
   - Verification: `cd backend && GOCACHE=/tmp/glyphflow-go-cache go test -race -tags workerui ./cmd/worker` passed; `cd backend && GOCACHE=/tmp/glyphflow-go-cache go test ./...` passed; `git diff --check` passed.
 - [x] Runner pool deletion conflict fix — commit `6855786` (`fix(controlplane): Explain runner pool delete conflicts`)
   - Result: backend and frontend regression tests pass; referenced pools now return a safe `runner pool is still in use` message, while stale-data refresh remains limited to actions that request it.
