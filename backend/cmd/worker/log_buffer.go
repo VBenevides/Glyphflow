@@ -20,6 +20,7 @@ type LogEntry struct {
 }
 
 type Snapshot struct {
+	RunnerID           string     `json:"runnerId"`
 	NATSEndpoint       string     `json:"natsEndpoint"`
 	ParallelExecutions int64      `json:"parallelExecutions"`
 	Entries            []LogEntry `json:"entries"`
@@ -27,6 +28,7 @@ type Snapshot struct {
 }
 
 type StatusSink interface {
+	SetRunnerID(string)
 	SetNATSEndpoint(string)
 	SetCapacitySource(*atomic.Int64)
 }
@@ -35,9 +37,16 @@ type LogBuffer struct {
 	mu       sync.Mutex
 	entries  []LogEntry
 	next     uint64
+	runnerID string
 	endpoint string
 	capacity *atomic.Int64
 	partial  map[string]string
+}
+
+func (b *LogBuffer) SetRunnerID(runnerID string) {
+	b.mu.Lock()
+	b.runnerID = runnerID
+	b.mu.Unlock()
 }
 
 func NewLogBuffer(capacity *atomic.Int64) *LogBuffer {
@@ -72,7 +81,7 @@ func (b *LogBuffer) Snapshot(after uint64) Snapshot {
 	if b.capacity != nil {
 		capacity = b.capacity.Load()
 	}
-	result := Snapshot{NATSEndpoint: b.endpoint, ParallelExecutions: capacity}
+	result := Snapshot{RunnerID: b.runnerID, NATSEndpoint: b.endpoint, ParallelExecutions: capacity}
 	if len(b.entries) == 0 {
 		return result
 	}

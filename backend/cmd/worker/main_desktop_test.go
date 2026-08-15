@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +16,7 @@ func TestSnapshotHandler(t *testing.T) {
 	var capacity atomic.Int64
 	capacity.Store(4)
 	logs := NewLogBuffer(&capacity)
+	logs.SetRunnerID("runner-abc123")
 	logs.SetNATSEndpoint("nats://example.test:4222")
 	_, _ = logs.Writer("stderr", nil).Write([]byte("warning\n"))
 
@@ -28,7 +30,7 @@ func TestSnapshotHandler(t *testing.T) {
 	if err := json.NewDecoder(recorder.Body).Decode(&snapshot); err != nil {
 		t.Fatalf("decode snapshot: %v", err)
 	}
-	if snapshot.NATSEndpoint != "nats://example.test:4222" || snapshot.ParallelExecutions != 4 || len(snapshot.Entries) != 1 {
+	if snapshot.RunnerID != "runner-abc123" || snapshot.NATSEndpoint != "nats://example.test:4222" || snapshot.ParallelExecutions != 4 || len(snapshot.Entries) != 1 {
 		t.Fatalf("snapshot = %#v", snapshot)
 	}
 
@@ -42,5 +44,16 @@ func TestSnapshotHandler(t *testing.T) {
 	snapshotHandler(logs).ServeHTTP(method, httptest.NewRequest(http.MethodPost, "/api/snapshot", nil))
 	if method.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("method status = %d, want 405", method.Code)
+	}
+}
+
+func TestWorkerAssetHandlerServesGlyphflowIcon(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	workerAssetHandler(NewLogBuffer(nil)).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/assets/glyphflow.png", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", recorder.Code)
+	}
+	if !bytes.Equal(recorder.Body.Bytes(), workerIcon) {
+		t.Fatal("served Glyphflow icon does not match embedded icon")
 	}
 }

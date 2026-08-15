@@ -13,6 +13,8 @@
     h1 { font-size: 20px; margin: 0; }
     header p { color: #766e87; margin: 3px 0 0; }
     .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .identity { margin-bottom: 14px; }
+    .identity .card { grid-column: 1 / -1; }
     .card, .terminal { background: #fff; border: 1px solid #ded8ed; border-radius: .75rem; }
     .card { padding: 16px; }
     .label, .terminal-title { color: #766e87; font-size: 12px; }
@@ -29,6 +31,9 @@
 </head>
 <body>
   <header><img src="/assets/glyphflow.png" alt=""><div><h1>Glyphflow Worker</h1><p>Runs in the system tray</p></div></header>
+  <section class="cards identity" aria-label="Worker identity">
+    <div class="card"><div class="label">Runner ID</div><div class="value" id="runner-id">—</div></div>
+  </section>
   <section class="cards" aria-label="Worker status">
     <div class="card"><div class="label">NATS JetStream endpoint</div><div class="value" id="endpoint">Connecting…</div></div>
     <div class="card"><div class="label">Parallel executions</div><div class="value" id="capacity">—</div></div>
@@ -39,6 +44,7 @@
   </section>
   <script>
     (() => {
+      const runnerID = document.querySelector('#runner-id');
       const endpoint = document.querySelector('#endpoint');
       const capacity = document.querySelector('#capacity');
       const logs = document.querySelector('#logs');
@@ -61,6 +67,7 @@
           const response = await fetch(`/api/snapshot?after=${after}`, { cache: 'no-store' });
           if (!response.ok) return;
           const snapshot = await response.json();
+          runnerID.textContent = snapshot.runnerId || '—';
           endpoint.textContent = snapshot.natsEndpoint || '—';
           capacity.textContent = snapshot.parallelExecutions;
           if (snapshot.reset) entries = snapshot.entries || [];

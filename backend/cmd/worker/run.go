@@ -111,6 +111,7 @@ func runWorker(ctx context.Context, stdout, stderr io.Writer, status StatusSink)
 		return fmt.Errorf("load worker configuration: %w", err)
 	}
 	if status != nil {
+		status.SetRunnerID(cfg.RunnerID)
 		endpoint, parseErr := redactNATSEndpoint(cfg.NATSURL)
 		if parseErr != nil {
 			fmt.Fprintln(stderr, "worker NATS endpoint could not be parsed")

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"strconv"
@@ -110,6 +111,9 @@ func main() {
 func workerAssetHandler(logs *LogBuffer) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/api/snapshot", snapshotHandler(logs))
+	if assets, err := fs.Sub(workerAssets, "assets"); err == nil {
+		mux.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.FS(assets))))
+	}
 	mux.Handle("/", application.AssetFileServerFS(workerAssets))
 	return mux
 }
