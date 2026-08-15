@@ -7,10 +7,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/VBenevides/Glyphflow/backend/internal/platform"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -67,6 +69,10 @@ type DispatchCandidate struct {
 	RunnerID, RunnerSessionID, LeaseToken   string
 	Command                                 []string
 	WorkingDirectory, ExecutionSpecDigest   string
+	Environment                             map[string]string
+	SecretRefs                              []string
+	PlacementSelectors                      map[string]any
+	Resources                               map[string]string
 	AttemptNumber                           int
 	TimeoutSeconds, MaxOutputBytes          int
 	FencingToken                            int64
@@ -76,6 +82,14 @@ type DispatchCandidate struct {
 type DispatchOutboxRecord struct {
 	MessageID, Subject string
 	Envelope           []byte
+}
+
+type CancellationCandidate struct {
+	RunID, TaskID, AttemptID, RunnerID, RunnerSessionID, LeaseToken string
+	AttemptNumber                                                   int
+	FencingToken                                                    int64
+	LeaseNotAfter                                                   time.Time
+	Reason                                                          string
 }
 
 type RunEventInput struct {
@@ -96,6 +110,16 @@ type RunRepository interface {
 	AppendEvent(context.Context, RunEventRecord) error
 	AppendLogChunk(context.Context, RunLogChunkRecord) error
 	ListLogChunks(context.Context, string, string, int64) ([]RunLogChunkRecord, error)
+}
+
+// CancellationRepository is implemented by durable stores that can enqueue a
+// signed, attempt-specific cancel order. It is optional for API fakes.
+type CancellationRepository interface {
+	RequestCancellation(context.Context, string, string) (RunRecord, bool, error)
+}
+
+type RetryRepository interface {
+	Retry(context.Context, string, string) (RunRecord, bool, error)
 }
 
 type RunStore struct{ pool *pgxpool.Pool }
@@ -165,11 +189,19 @@ func (s *RunStore) Create(ctx context.Context, definition RunDefinition) (RunRec
 	if err := tx.QueryRow(ctx, `SELECT current_version_id FROM tasks WHERE id = $1`, definition.TaskID).Scan(&taskVersionID); err != nil {
 		return RunRecord{}, err
 	}
+	variables, err := loadGlobalVariables(ctx, tx)
+	if err != nil {
+		return RunRecord{}, err
+	}
+	resolvedGlobals, err := json.Marshal(variables)
+	if err != nil {
+		return RunRecord{}, err
+	}
 	var triggeredBy any
 	if strings.TrimSpace(definition.TriggeredBy) != "" {
 		triggeredBy = definition.TriggeredBy
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO runs (id, task_id, task_version_id, triggered_by, trigger_type, scheduled_for, state, idempotency_key) VALUES ($1, $2, $3, $4, $5, $6, 'WAITING', $7)`, definition.ID, definition.TaskID, taskVersionID, triggeredBy, definition.TriggerType, definition.ScheduledFor, definition.IdempotencyKey); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO runs (id, task_id, task_version_id, triggered_by, trigger_type, scheduled_for, resolved_global_variables, state, idempotency_key) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, 'WAITING', $8)`, definition.ID, definition.TaskID, taskVersionID, triggeredBy, definition.TriggerType, definition.ScheduledFor, resolvedGlobals, definition.IdempotencyKey); err != nil {
 		return RunRecord{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -195,9 +227,9 @@ func (s *RunStore) ClaimWaiting(ctx context.Context, build func(DispatchCandidat
 	}
 	defer tx.Rollback(ctx)
 	var candidate DispatchCandidate
-	var command []byte
+	var command, environment, secrets, selectors, resources, resolvedGlobals []byte
 	var timeout, maxOutput, attempt int
-	err = tx.QueryRow(ctx, `SELECT r.id, r.task_id, r.task_version_id, tv.command, COALESCE(NULLIF(tv.working_directory, ''), '.'), tv.timeout_seconds, tv.max_output_bytes, tv.execution_spec_digest, rp.name, rs.id, rs.runner_id, COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = r.id), 0) + 1 FROM runs r JOIN task_versions tv ON tv.id = r.task_version_id JOIN runners rr ON rr.pool_id = tv.runner_pool_id AND rr.desired_state = 'ENABLED' AND rr.active_count < rr.capacity AND (tv.pinned_runner_id IS NULL OR tv.pinned_runner_id = rr.id) JOIN runner_pools rp ON rp.id = rr.pool_id JOIN runner_sessions rs ON rs.runner_id = rr.id AND rs.disconnected_at IS NULL AND rs.last_heartbeat_at >= now() - interval '30 seconds' WHERE r.state = 'WAITING' AND r.scheduled_for <= now() ORDER BY r.created_at, r.id FOR UPDATE OF r, rr, rs SKIP LOCKED LIMIT 1`).Scan(&candidate.RunID, &candidate.TaskID, &candidate.TaskVersionID, &command, &candidate.WorkingDirectory, &timeout, &maxOutput, &candidate.ExecutionSpecDigest, &candidate.Pool, &candidate.RunnerSessionID, &candidate.RunnerID, &attempt)
+	err = tx.QueryRow(ctx, `SELECT r.id, r.task_id, r.task_version_id, tv.command, COALESCE(NULLIF(tv.working_directory, ''), '.'), tv.timeout_seconds, tv.max_output_bytes, tv.execution_spec_digest, COALESCE(r.resolved_global_variables, '{}'::jsonb), COALESCE(tv.environment, '{}'::jsonb), COALESCE(tv.secret_references, '{}'::jsonb), COALESCE(tv.placement_selectors, '{}'::jsonb), COALESCE((SELECT jsonb_agg(resource_id) FROM task_resource_requirements WHERE task_version_id = tv.id), '[]'::jsonb), rp.name, rs.id, rs.runner_id, COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = r.id), 0) + 1 FROM runs r JOIN task_versions tv ON tv.id = r.task_version_id JOIN runners rr ON rr.pool_id = tv.runner_pool_id AND rr.desired_state = 'ENABLED' AND rr.active_count < rr.capacity AND (tv.pinned_runner_id IS NULL OR tv.pinned_runner_id = rr.id) JOIN runner_pools rp ON rp.id = rr.pool_id JOIN runner_sessions rs ON rs.runner_id = rr.id AND rs.disconnected_at IS NULL AND rs.last_heartbeat_at >= now() - interval '30 seconds' WHERE (r.state = 'WAITING' OR (r.state = 'RETRY_WAIT' AND (r.retry_not_before IS NULL OR r.retry_not_before <= now()))) AND r.scheduled_for <= now() AND (r.state = 'WAITING' OR COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = r.id), 0) < tv.max_attempts) AND rr.capabilities @> COALESCE(tv.placement_selectors, '{}'::jsonb) AND NOT EXISTS (SELECT 1 FROM task_resource_requirements req JOIN resources resource ON resource.id = req.resource_id LEFT JOIN resource_leases lease ON lease.resource_id = req.resource_id AND lease.state = 'ACTIVE' AND lease.expires_at > now() WHERE req.task_version_id = tv.id AND (NOT resource.enabled OR lease.id IS NOT NULL)) ORDER BY r.created_at, r.id FOR UPDATE OF r, rr, rs SKIP LOCKED LIMIT 1`).Scan(&candidate.RunID, &candidate.TaskID, &candidate.TaskVersionID, &command, &candidate.WorkingDirectory, &timeout, &maxOutput, &candidate.ExecutionSpecDigest, &resolvedGlobals, &environment, &secrets, &selectors, &resources, &candidate.Pool, &candidate.RunnerSessionID, &candidate.RunnerID, &attempt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return DispatchCandidate{}, false, nil
 	}
@@ -205,6 +237,56 @@ func (s *RunStore) ClaimWaiting(ctx context.Context, build func(DispatchCandidat
 		return DispatchCandidate{}, false, err
 	}
 	if err := json.Unmarshal(command, &candidate.Command); err != nil {
+		return DispatchCandidate{}, false, err
+	}
+	if err := json.Unmarshal(environment, &candidate.Environment); err != nil {
+		return DispatchCandidate{}, false, err
+	}
+	if err := json.Unmarshal(secrets, &candidate.SecretRefs); err != nil {
+		// Secret references are historically stored as a JSON object. Keep the
+		// values opaque and send only reference names to the worker.
+		var secretMap map[string]any
+		if json.Unmarshal(secrets, &secretMap) != nil {
+			return DispatchCandidate{}, false, err
+		}
+		for key := range secretMap {
+			candidate.SecretRefs = append(candidate.SecretRefs, key)
+		}
+		sort.Strings(candidate.SecretRefs)
+	}
+	if err := json.Unmarshal(selectors, &candidate.PlacementSelectors); err != nil {
+		return DispatchCandidate{}, false, err
+	}
+	var resourceIDs []string
+	if err := json.Unmarshal(resources, &resourceIDs); err != nil {
+		return DispatchCandidate{}, false, err
+	}
+	candidate.Resources = make(map[string]string, len(resourceIDs))
+	for _, resourceID := range resourceIDs {
+		candidate.Resources[resourceID] = resourceID
+	}
+	globals := map[string]string{}
+	if err := json.Unmarshal(resolvedGlobals, &globals); err != nil {
+		return DispatchCandidate{}, false, err
+	}
+	for index, argument := range candidate.Command {
+		candidate.Command[index], err = platform.ResolveGlobalVariables(argument, globals)
+		if err != nil {
+			return DispatchCandidate{}, false, err
+		}
+	}
+	candidate.WorkingDirectory, err = platform.ResolveGlobalVariables(candidate.WorkingDirectory, globals)
+	if err != nil {
+		return DispatchCandidate{}, false, err
+	}
+	for name, value := range candidate.Environment {
+		candidate.Environment[name], err = platform.ResolveGlobalVariables(value, globals)
+		if err != nil {
+			return DispatchCandidate{}, false, err
+		}
+	}
+	candidate.ExecutionSpecDigest, err = resolvedExecutionDigest(candidate)
+	if err != nil {
 		return DispatchCandidate{}, false, err
 	}
 	candidate.AttemptNumber = attempt
@@ -227,7 +309,19 @@ func (s *RunStore) ClaimWaiting(ctx context.Context, build func(DispatchCandidat
 	if _, err := tx.Exec(ctx, `INSERT INTO execution_attempts (id, run_id, attempt_number, runner_id, runner_session_id, state, lease_token, fencing_token, lease_not_after, execution_spec_digest, dispatched_at) VALUES ($1, $2, $3, $4, $5, 'DISPATCHED', $6, $7, $8, $9, now())`, candidate.AttemptID, candidate.RunID, candidate.AttemptNumber, candidate.RunnerID, candidate.RunnerSessionID, candidate.LeaseToken, candidate.FencingToken, candidate.LeaseNotAfter, candidate.ExecutionSpecDigest); err != nil {
 		return DispatchCandidate{}, false, err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE runs SET state = 'RUNNING', state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state = 'WAITING'`, candidate.RunID); err != nil {
+	for resourceID := range candidate.Resources {
+		if _, err := tx.Exec(ctx, `UPDATE resource_leases SET state = 'EXPIRED', released_at = now() WHERE resource_id = $1 AND state = 'ACTIVE' AND expires_at <= now()`, resourceID); err != nil {
+			return DispatchCandidate{}, false, err
+		}
+		var fencingToken int64
+		if err := tx.QueryRow(ctx, `UPDATE resources SET next_fencing_token = next_fencing_token + 1, updated_at = now() WHERE id = $1 AND enabled RETURNING next_fencing_token`, resourceID).Scan(&fencingToken); err != nil {
+			return DispatchCandidate{}, false, err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO resource_leases (id, resource_id, execution_attempt_id, state, lease_token, fencing_token, acquired_at, expires_at) VALUES ($1, $2, $3, 'ACTIVE', $4, $5, now(), $6)`, randomLeaseID(), resourceID, candidate.AttemptID, randomLeaseID(), fencingToken, candidate.LeaseNotAfter); err != nil {
+			return DispatchCandidate{}, false, err
+		}
+	}
+	if _, err := tx.Exec(ctx, `UPDATE runs SET state = 'RUNNING', state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state IN ('WAITING', 'RETRY_WAIT')`, candidate.RunID); err != nil {
 		return DispatchCandidate{}, false, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE runners SET active_count = active_count + 1, updated_at = now() WHERE id = $1`, candidate.RunnerID); err != nil {
@@ -240,6 +334,103 @@ func (s *RunStore) ClaimWaiting(ctx context.Context, build func(DispatchCandidat
 		return DispatchCandidate{}, false, err
 	}
 	return candidate, true, nil
+}
+
+func resolvedExecutionDigest(candidate DispatchCandidate) (string, error) {
+	canonical, err := json.Marshal(struct {
+		TaskVersion, WorkingDirectory string
+		Command                       []string
+		Environment                   map[string]string
+		SecretRefs                    []string
+		PlacementSelectors            map[string]any
+		Resources                     map[string]string
+		TimeoutSeconds, MaxOutput     int
+	}{candidate.TaskVersionID, candidate.WorkingDirectory, candidate.Command, candidate.Environment, candidate.SecretRefs, candidate.PlacementSelectors, candidate.Resources, candidate.TimeoutSeconds, candidate.MaxOutputBytes})
+	if err != nil {
+		return "", err
+	}
+	return sha256Hex(canonical), nil
+}
+
+func loadGlobalVariables(ctx context.Context, tx pgx.Tx) (map[string]string, error) {
+	rows, err := tx.Query(ctx, `SELECT name, value FROM global_variables`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	variables := map[string]string{}
+	for rows.Next() {
+		var name, value string
+		if err := rows.Scan(&name, &value); err != nil {
+			return nil, err
+		}
+		variables[name] = value
+	}
+	return variables, rows.Err()
+}
+
+func (s *RunStore) ClaimCancelling(ctx context.Context, build func(CancellationCandidate) ([]byte, error)) (CancellationCandidate, bool, error) {
+	if build == nil {
+		return CancellationCandidate{}, false, errors.New("cancellation order builder is required")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return CancellationCandidate{}, false, err
+	}
+	defer tx.Rollback(ctx)
+	var candidate CancellationCandidate
+	err = tx.QueryRow(ctx, `SELECT r.id, r.task_id, a.id, a.runner_id, a.runner_session_id, a.lease_token, a.attempt_number, a.fencing_token, a.lease_not_after, COALESCE(r.cancellation_reason, '') FROM runs r JOIN execution_attempts a ON a.run_id = r.id WHERE r.state = 'CANCELLING' AND a.state IN ('DISPATCHED','ACCEPTED','RUNNING') AND a.cancel_requested_at IS NULL ORDER BY r.updated_at, r.id FOR UPDATE OF r, a SKIP LOCKED LIMIT 1`).Scan(&candidate.RunID, &candidate.TaskID, &candidate.AttemptID, &candidate.RunnerID, &candidate.RunnerSessionID, &candidate.LeaseToken, &candidate.AttemptNumber, &candidate.FencingToken, &candidate.LeaseNotAfter, &candidate.Reason)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return CancellationCandidate{}, false, nil
+	}
+	if err != nil {
+		return CancellationCandidate{}, false, err
+	}
+	envelope, err := build(candidate)
+	if err != nil {
+		return CancellationCandidate{}, false, err
+	}
+	if len(envelope) == 0 {
+		return CancellationCandidate{}, false, errors.New("cancellation order is empty")
+	}
+	if _, err := tx.Exec(ctx, `UPDATE execution_attempts SET cancel_requested_at = now(), updated_at = now() WHERE id = $1`, candidate.AttemptID); err != nil {
+		return CancellationCandidate{}, false, err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO dispatch_outbox (message_id, execution_attempt_id, message_type, subject, envelope, state) VALUES ($1, $2, 'cancel', $3, $4, 'PENDING') ON CONFLICT (message_id) DO NOTHING`, "cancel:"+candidate.AttemptID, candidate.AttemptID, "glyphflow.orders."+candidate.RunnerID, envelope); err != nil {
+		return CancellationCandidate{}, false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return CancellationCandidate{}, false, err
+	}
+	return candidate, true, nil
+}
+
+func (s *RunStore) RequestCancellation(ctx context.Context, id, reason string) (RunRecord, bool, error) {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return RunRecord{}, false, errors.New("cancellation reason is required")
+	}
+	result, err := s.pool.Exec(ctx, `UPDATE runs SET state = CASE WHEN state IN ('WAITING','RETRY_WAIT') THEN 'CANCELLED' ELSE 'CANCELLING' END, cancellation_requested_at = COALESCE(cancellation_requested_at, now()), cancellation_reason = $2, completed_at = CASE WHEN state IN ('WAITING','RETRY_WAIT') THEN now() ELSE completed_at END, state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state IN ('WAITING','RUNNING','RETRY_WAIT','CANCELLING')`, id, reason)
+	if err != nil {
+		return RunRecord{}, false, err
+	}
+	if result.RowsAffected() == 0 {
+		return RunRecord{}, false, nil
+	}
+	item, found, err := s.Find(ctx, id)
+	return item, found, err
+}
+
+func (s *RunStore) Retry(ctx context.Context, id, reason string) (RunRecord, bool, error) {
+	result, err := s.pool.Exec(ctx, `UPDATE runs SET state = 'RETRY_WAIT', retry_not_before = now(), completed_at = NULL, cancellation_reason = NULLIF($2, ''), state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state IN ('FAILED','UNKNOWN') AND COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = runs.id), 0) < (SELECT max_attempts FROM task_versions WHERE id = runs.task_version_id)`, id, strings.TrimSpace(reason))
+	if err != nil {
+		return RunRecord{}, false, err
+	}
+	if result.RowsAffected() == 0 {
+		return RunRecord{}, false, nil
+	}
+	item, found, err := s.Find(ctx, id)
+	return item, found, err
 }
 
 func (s *RunStore) PendingDispatch(ctx context.Context, limit int) ([]DispatchOutboxRecord, error) {
@@ -284,9 +475,10 @@ func (s *RunStore) ApplyRunEvent(ctx context.Context, event RunEventInput) error
 		return err
 	}
 	defer tx.Rollback(ctx)
-	var attemptID, runnerID, sessionID, leaseToken string
+	var attemptID, runnerID, sessionID, leaseToken, attemptState string
 	var fencingToken int64
-	if err := tx.QueryRow(ctx, `SELECT id, runner_id, runner_session_id, lease_token, fencing_token FROM execution_attempts WHERE run_id = $1 AND attempt_number = $2 AND runner_id = $3 AND lease_token = $4`, event.RunID, event.Attempt, event.RunnerID, event.LeaseToken).Scan(&attemptID, &runnerID, &sessionID, &leaseToken, &fencingToken); err != nil {
+	var lastSequence int64
+	if err := tx.QueryRow(ctx, `SELECT id, runner_id, runner_session_id, lease_token, fencing_token, state, last_applied_state_sequence FROM execution_attempts WHERE run_id = $1 AND attempt_number = $2 AND runner_id = $3 AND lease_token = $4 FOR UPDATE`, event.RunID, event.Attempt, event.RunnerID, event.LeaseToken).Scan(&attemptID, &runnerID, &sessionID, &leaseToken, &fencingToken, &attemptState, &lastSequence); err != nil {
 		return err
 	}
 	if event.RunnerSessionID != "" && event.RunnerSessionID != sessionID {
@@ -314,6 +506,12 @@ func (s *RunStore) ApplyRunEvent(ctx context.Context, event RunEventInput) error
 		}
 		return tx.Commit(ctx)
 	}
+	if event.Sequence <= lastSequence {
+		return tx.Commit(ctx)
+	}
+	if !legalAttemptTransition(attemptState, event.EventType) {
+		return errors.New("run event transition is not allowed")
+	}
 	payloadValue := map[string]any{"result": event.Result, "error": event.Error}
 	if event.ExitCode != nil {
 		payloadValue["exit_code"] = *event.ExitCode
@@ -338,10 +536,65 @@ func (s *RunStore) ApplyRunEvent(ctx context.Context, event RunEventInput) error
 		state := map[string]string{"completed": "SUCCEEDED", "failed": "FAILED", "timed_out": "FAILED", "cancelled": "CANCELLED"}[event.EventType]
 		_, err = tx.Exec(ctx, `UPDATE execution_attempts SET state = $2, finished_at = COALESCE(finished_at, $3), termination_reason = NULLIF($4, ''), exit_code = $5, result = $6::jsonb, updated_at = now() WHERE id = $1`, attemptID, state, event.ReportedAt, event.Error, event.ExitCode, payload)
 		if err == nil {
-			_, err = tx.Exec(ctx, `UPDATE runs SET state = $2, completed_at = $3, state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state NOT IN ('SUCCEEDED', 'FAILED', 'CANCELLED')`, event.RunID, state, event.ReportedAt)
+			if event.EventType == "failed" || event.EventType == "timed_out" {
+				var maxAttempts, initialBackoff, maxBackoff int
+				var multiplier float64
+				var exitCodes, reasons []byte
+				if queryErr := tx.QueryRow(ctx, `SELECT max_attempts, initial_backoff_seconds, max_backoff_seconds, backoff_multiplier, retryable_exit_codes, retryable_termination_reasons FROM task_versions tv JOIN runs r ON r.task_version_id = tv.id WHERE r.id = $1`, event.RunID).Scan(&maxAttempts, &initialBackoff, &maxBackoff, &multiplier, &exitCodes, &reasons); queryErr != nil {
+					err = queryErr
+				} else if shouldRetry(event, int(maxAttempts), exitCodes, reasons) {
+					if multiplier < 1 {
+						multiplier = 2
+					}
+					seconds := float64(initialBackoff)
+					for index := 1; index < int(event.Attempt); index++ {
+						seconds *= multiplier
+						if maxBackoff > 0 && seconds >= float64(maxBackoff) {
+							seconds = float64(maxBackoff)
+							break
+						}
+					}
+					if maxBackoff > 0 && seconds > float64(maxBackoff) {
+						seconds = float64(maxBackoff)
+					}
+					_, err = tx.Exec(ctx, `UPDATE runs SET state = 'RETRY_WAIT', retry_not_before = now() + ($2 * interval '1 second'), completed_at = NULL, state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state NOT IN ('SUCCEEDED', 'FAILED', 'CANCELLED')`, event.RunID, seconds)
+				} else {
+					_, err = tx.Exec(ctx, `UPDATE runs SET state = $2, completed_at = $3, retry_not_before = NULL, state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state NOT IN ('SUCCEEDED', 'FAILED', 'CANCELLED')`, event.RunID, state, event.ReportedAt)
+				}
+			} else {
+				_, err = tx.Exec(ctx, `UPDATE runs SET state = $2, completed_at = $3, retry_not_before = NULL, state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state NOT IN ('SUCCEEDED', 'FAILED', 'CANCELLED')`, event.RunID, state, event.ReportedAt)
+			}
 		}
 		if err == nil {
 			_, err = tx.Exec(ctx, `UPDATE runners SET active_count = GREATEST(active_count - 1, 0), updated_at = now() WHERE id = $1 AND active_count > 0`, runnerID)
+		}
+		if err == nil {
+			_, err = tx.Exec(ctx, `UPDATE resource_leases SET state = 'RELEASED', released_at = now() WHERE execution_attempt_id = $1 AND state = 'ACTIVE'`, attemptID)
+		}
+	case "unknown":
+		_, err = tx.Exec(ctx, `UPDATE execution_attempts SET state = 'UNKNOWN', finished_at = COALESCE(finished_at, $2), termination_reason = 'runner restart', updated_at = now() WHERE id = $1`, attemptID, event.ReportedAt)
+		if err == nil {
+			var policy string
+			if queryErr := tx.QueryRow(ctx, `SELECT ambiguity_policy FROM task_versions tv JOIN runs r ON r.task_version_id = tv.id WHERE r.id = $1`, event.RunID).Scan(&policy); queryErr != nil {
+				err = queryErr
+			} else {
+				state, resolveErr := platform.ResolveAmbiguous(platform.AmbiguityPolicy(policy))
+				if resolveErr != nil {
+					err = resolveErr
+				} else if state == "retry_wait" {
+					_, err = tx.Exec(ctx, `UPDATE runs SET state = 'RETRY_WAIT', retry_not_before = now() + interval '1 second', state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state NOT IN ('SUCCEEDED','FAILED','CANCELLED')`, event.RunID)
+				} else if state == "failed" {
+					_, err = tx.Exec(ctx, `UPDATE runs SET state = 'FAILED', completed_at = $2, state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state NOT IN ('SUCCEEDED','FAILED','CANCELLED')`, event.RunID, event.ReportedAt)
+				} else {
+					_, err = tx.Exec(ctx, `UPDATE runs SET state = 'UNKNOWN', state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state NOT IN ('SUCCEEDED','FAILED','CANCELLED')`, event.RunID)
+				}
+			}
+		}
+		if err == nil {
+			_, err = tx.Exec(ctx, `UPDATE runners SET active_count = GREATEST(active_count - 1, 0), updated_at = now() WHERE id = $1 AND active_count > 0`, runnerID)
+		}
+		if err == nil {
+			_, err = tx.Exec(ctx, `UPDATE resource_leases SET state = 'RELEASED', released_at = now() WHERE execution_attempt_id = $1 AND state = 'ACTIVE'`, attemptID)
 		}
 	default:
 		return errors.New("unsupported run event type")
@@ -349,7 +602,65 @@ func (s *RunStore) ApplyRunEvent(ctx context.Context, event RunEventInput) error
 	if err != nil {
 		return err
 	}
+	if _, err := tx.Exec(ctx, `UPDATE execution_attempts SET last_applied_state_sequence = $2, state_version = state_version + 1, updated_at = now() WHERE id = $1`, attemptID, event.Sequence); err != nil {
+		return err
+	}
 	return tx.Commit(ctx)
+}
+
+func shouldRetry(event RunEventInput, maxAttempts int, exitCodes, reasons []byte) bool {
+	if maxAttempts <= int(event.Attempt) {
+		return false
+	}
+	var codes []int
+	var retryReasons []string
+	_ = json.Unmarshal(exitCodes, &codes)
+	_ = json.Unmarshal(reasons, &retryReasons)
+	if len(codes) > 0 {
+		if event.ExitCode == nil {
+			return false
+		}
+		matched := false
+		for _, code := range codes {
+			if *event.ExitCode == code {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+	if len(retryReasons) > 0 {
+		matched := false
+		for _, reason := range retryReasons {
+			if reason == event.Error {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+	return true
+}
+
+func legalAttemptTransition(state, eventType string) bool {
+	switch eventType {
+	case "accepted":
+		return state == "DISPATCHED"
+	case "started":
+		return state == "ACCEPTED" || state == "DISPATCHED"
+	case "heartbeat":
+		return state == "ACCEPTED" || state == "RUNNING"
+	case "completed", "failed", "timed_out", "cancelled":
+		return state == "ACCEPTED" || state == "RUNNING" || state == "CANCELLING"
+	case "unknown":
+		return state == "DISPATCHED" || state == "ACCEPTED" || state == "RUNNING" || state == "CANCELLING"
+	default:
+		return false
+	}
 }
 
 func (s *RunStore) Transition(ctx context.Context, id string, from []string, to string) (RunRecord, bool, error) {

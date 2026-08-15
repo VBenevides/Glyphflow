@@ -120,7 +120,7 @@ func (s Server) passwordRoutes(mux routeRegistrar) {
 				return
 			}
 			s.setSessionCookies(w, tokens)
-			writeJSON(w, 200, tokens)
+			writeJSON(w, 200, map[string]string{"status": "authenticated"})
 		})
 		mux.HandleFunc("/api/v1/auth/refresh", func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost {
@@ -147,7 +147,7 @@ func (s Server) passwordRoutes(mux routeRegistrar) {
 				return
 			}
 			s.setSessionCookies(w, tokens)
-			writeJSON(w, 200, tokens)
+			writeJSON(w, 200, map[string]string{"status": "refreshed"})
 		})
 		mux.HandleFunc("/api/v1/auth/logout", func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost {
@@ -228,6 +228,6 @@ func (s Server) passwordRoutes(mux routeRegistrar) {
 			return
 		}
 		s.setAccessCookie(w, token)
-		writeJSON(w, 200, map[string]string{"access_token": token})
+		writeJSON(w, 200, map[string]string{"status": "authenticated"})
 	})
 }

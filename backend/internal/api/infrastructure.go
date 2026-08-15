@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -54,12 +55,17 @@ type enrollment struct {
 	Expires  time.Time
 	Used     bool
 }
+type runnerKey struct {
+	ID     string
+	Public ed25519.PublicKey
+}
 type InfrastructureService struct {
 	mu                    sync.RWMutex
 	runners               map[string]RunnerRecord
 	pools                 map[string]RunnerPoolRecord
 	resources             map[string]ResourceRecord
 	enrollments           map[string]*enrollment
+	runnerKeys            map[string]runnerKey
 	next                  int
 	runnerRepository      store.RunnerRepository
 	resourceRepository    store.ResourceRepository
@@ -70,7 +76,7 @@ type InfrastructureService struct {
 }
 
 func NewInfrastructureService() *InfrastructureService {
-	return &InfrastructureService{runners: map[string]RunnerRecord{}, pools: map[string]RunnerPoolRecord{"default": {ID: "default", Name: "default", Enabled: true}}, resources: map[string]ResourceRecord{}, enrollments: map[string]*enrollment{}, runnerBinaryDir: "runner-binaries"}
+	return &InfrastructureService{runners: map[string]RunnerRecord{}, pools: map[string]RunnerPoolRecord{"default": {ID: "default", Name: "default", Enabled: true}}, resources: map[string]ResourceRecord{}, enrollments: map[string]*enrollment{}, runnerKeys: map[string]runnerKey{}, runnerBinaryDir: "runner-binaries"}
 }
 
 func (s *InfrastructureService) SetRunnerRepository(repository store.RunnerRepository) {
@@ -305,7 +311,7 @@ func (s *InfrastructureService) runnerCollection(w http.ResponseWriter, r *http.
 		for _, item := range items {
 			result = append(result, runnerRecordFromStore(item))
 		}
-		result = filterRunners(result, r.URL.Query().Get("state"))
+		result = filterRunners(result, r.URL.Query().Get("state"), r.URL.Query().Get("search"))
 		sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 		writePage(w, r, result)
 		return
@@ -316,19 +322,25 @@ func (s *InfrastructureService) runnerCollection(w http.ResponseWriter, r *http.
 		items = append(items, item)
 	}
 	s.mu.RUnlock()
-	items = filterRunners(items, r.URL.Query().Get("state"))
+	items = filterRunners(items, r.URL.Query().Get("state"), r.URL.Query().Get("search"))
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 	writePage(w, r, items)
 }
 
-func filterRunners(items []RunnerRecord, state string) []RunnerRecord {
+func filterRunners(items []RunnerRecord, state string, searchValues ...string) []RunnerRecord {
 	state = strings.TrimSpace(state)
-	if state == "" {
+	search := ""
+	if len(searchValues) > 0 {
+		search = searchValues[0]
+	}
+	search = strings.ToLower(strings.TrimSpace(search))
+	if state == "" && search == "" {
 		return items
 	}
 	filtered := items[:0]
 	for _, item := range items {
-		if strings.EqualFold(item.ObservedState, state) {
+		matchesSearch := search == "" || strings.Contains(strings.ToLower(item.ID), search) || strings.Contains(strings.ToLower(item.Name), search) || strings.Contains(strings.ToLower(item.Pool), search)
+		if (state == "" || strings.EqualFold(item.ObservedState, state)) && matchesSearch {
 			filtered = append(filtered, item)
 		}
 	}
@@ -421,8 +433,10 @@ func (s *InfrastructureService) enrollRunner(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	var input struct {
-		RunnerID string `json:"runner_id"`
-		Token    string `json:"token"`
+		RunnerID  string `json:"runner_id"`
+		Token     string `json:"token"`
+		KeyID     string `json:"key_id"`
+		PublicKey string `json:"public_key"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid runner enrollment request", err)
@@ -436,6 +450,11 @@ func (s *InfrastructureService) enrollRunner(w http.ResponseWriter, r *http.Requ
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "runner enrollment token is required"})
 		return
 	}
+	publicKey, err := base64.RawStdEncoding.DecodeString(input.PublicKey)
+	if err != nil || input.KeyID == "" || len(publicKey) != ed25519.PublicKeySize {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "runner key_id and public_key are required"})
+		return
+	}
 	s.mu.RLock()
 	natsURL, maxMessageBytes := s.runnerNATSURL, s.runnerMaxMessageBytes
 	s.mu.RUnlock()
@@ -443,10 +462,31 @@ func (s *InfrastructureService) enrollRunner(w http.ResponseWriter, r *http.Requ
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "runner connection is not configured"})
 		return
 	}
-	runner, err := s.ConsumeEnrollment(input.Token, time.Now().UTC())
-	if err != nil {
-		writeError(w, http.StatusUnauthorized, "runner enrollment rejected", err)
-		return
+	s.mu.RLock()
+	repository := s.runnerRepository
+	s.mu.RUnlock()
+	var runner RunnerRecord
+	if repository != nil {
+		keyRepository, ok := repository.(interface {
+			ConsumeEnrollmentWithKey(context.Context, string, time.Time, string, []byte) (store.RunnerRecord, error)
+		})
+		if !ok {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "runner enrollment key binding is unavailable"})
+			return
+		}
+		stored, consumeErr := keyRepository.ConsumeEnrollmentWithKey(r.Context(), platform.HashToken(input.Token), time.Now().UTC(), input.KeyID, publicKey)
+		if consumeErr != nil {
+			writeError(w, http.StatusUnauthorized, "runner enrollment rejected", consumeErr)
+			return
+		}
+		runner = runnerRecordFromStore(stored)
+	} else {
+		var consumeErr error
+		runner, consumeErr = s.consumeEnrollmentWithKey(input.Token, time.Now().UTC(), input.KeyID, publicKey)
+		if consumeErr != nil {
+			writeError(w, http.StatusUnauthorized, "runner enrollment rejected", consumeErr)
+			return
+		}
 	}
 	if runner.ID != input.RunnerID {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "runner enrollment belongs to a different runner"})
@@ -686,6 +726,7 @@ func (s *InfrastructureService) resourceCollection(w http.ResponseWriter, r *htt
 		for _, item := range items {
 			result = append(result, resourceRecordFromStore(item))
 		}
+		result = filterResources(result, r.URL.Query().Get("search"))
 		writePage(w, r, result)
 		return
 	}
@@ -695,8 +736,23 @@ func (s *InfrastructureService) resourceCollection(w http.ResponseWriter, r *htt
 		items = append(items, item)
 	}
 	s.mu.RUnlock()
+	items = filterResources(items, r.URL.Query().Get("search"))
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 	writePage(w, r, items)
+}
+
+func filterResources(items []ResourceRecord, search string) []ResourceRecord {
+	search = strings.ToLower(strings.TrimSpace(search))
+	if search == "" {
+		return items
+	}
+	filtered := items[:0]
+	for _, item := range items {
+		if strings.Contains(strings.ToLower(item.ID), search) || strings.Contains(strings.ToLower(item.Name), search) {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
 }
 func (s *InfrastructureService) resourcePath(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
@@ -858,6 +914,37 @@ func (s *InfrastructureService) ConsumeEnrollment(token string, now time.Time) (
 	runner.ObservedState = "PENDING"
 	runner.HeartbeatAt = ""
 	s.runners[item.RunnerID] = runner
+	return runner, nil
+}
+
+func (s *InfrastructureService) consumeEnrollmentWithKey(token string, now time.Time, keyID string, publicKey []byte) (RunnerRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, ok := s.enrollments[token]
+	if !ok {
+		return RunnerRecord{}, errEnrollmentNotFound
+	}
+	if item.Used {
+		return RunnerRecord{}, errEnrollmentUsed
+	}
+	if !now.Before(item.Expires) {
+		return RunnerRecord{}, errEnrollmentExpired
+	}
+	runner, ok := s.runners[item.RunnerID]
+	if !ok {
+		return RunnerRecord{}, errEnrollmentNotFound
+	}
+	for _, existing := range s.runnerKeys {
+		if existing.ID == keyID && !existing.Public.Equal(ed25519.PublicKey(publicKey)) {
+			return RunnerRecord{}, errors.New("runner enrollment key is already bound")
+		}
+	}
+	item.Used = true
+	runner.ObservedState = "PENDING"
+	runner.HeartbeatAt = ""
+	s.enrollments[token] = item
+	s.runners[item.RunnerID] = runner
+	s.runnerKeys[item.RunnerID] = runnerKey{ID: keyID, Public: append(ed25519.PublicKey(nil), publicKey...)}
 	return runner, nil
 }
 

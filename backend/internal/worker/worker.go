@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -18,6 +20,7 @@ type Executor struct {
 	Roots           []string
 	AllowedCommands map[string]bool
 	MaxOutputBytes  int
+	Environment     map[string]string
 }
 
 func (e Executor) Run(ctx context.Context, args []string, dir string) ([]byte, error) {
@@ -61,6 +64,24 @@ func (e Executor) RunStreamingWithExitCode(ctx context.Context, args []string, d
 	defer cancel()
 	cmd := exec.CommandContext(runCtx, args[0], args[1:]...)
 	cmd.Dir = clean
+	if len(e.Environment) > 0 {
+		environment := os.Environ()
+		positions := make(map[string]int, len(environment))
+		for index, entry := range environment {
+			if split := strings.IndexByte(entry, '='); split > 0 {
+				positions[entry[:split]] = index
+			}
+		}
+		for name, value := range e.Environment {
+			entry := name + "=" + value
+			if index, ok := positions[name]; ok {
+				environment[index] = entry
+			} else {
+				environment = append(environment, entry)
+			}
+		}
+		cmd.Env = environment
+	}
 	configureCommand(cmd)
 	chunks := make(chan executorOutput, 32)
 	stopped := &atomic.Bool{}

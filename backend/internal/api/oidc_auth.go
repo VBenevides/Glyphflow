@@ -11,8 +11,10 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -37,6 +39,13 @@ type OIDCProvider struct {
 	GroupMapping       map[string]string `json:"groupMapping,omitempty"`
 	LegacyGroupMapping map[string]string `json:"group_mapping,omitempty"`
 }
+
+// OIDCProviderPublic is the provider projection used by the public login page.
+type OIDCProviderPublic struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Icon string `json:"icon,omitempty"`
+}
 type OIDCService struct {
 	mu              sync.RWMutex
 	providers       map[string]OIDCProvider
@@ -46,10 +55,12 @@ type OIDCService struct {
 	stateKey        []byte
 	defaultCallback string
 	httpClient      *http.Client
+	secretResolver  func(string) (string, error)
+	linkTargets     map[string]string
 }
 
 func NewOIDCService() *OIDCService {
-	return &OIDCService{providers: map[string]OIDCProvider{}, states: platform.NewAuthorizationStateStore(), httpClient: &http.Client{Timeout: 10 * time.Second}}
+	return &OIDCService{providers: map[string]OIDCProvider{}, states: platform.NewAuthorizationStateStore(), linkTargets: map[string]string{}, httpClient: &http.Client{Timeout: 10 * time.Second}}
 }
 
 func (s *OIDCService) SetHTTPClient(client *http.Client) {
@@ -58,6 +69,12 @@ func (s *OIDCService) SetHTTPClient(client *http.Client) {
 	}
 	s.mu.Lock()
 	s.httpClient = client
+	s.mu.Unlock()
+}
+
+func (s *OIDCService) SetSecretResolver(resolve func(string) (string, error)) {
+	s.mu.Lock()
+	s.secretResolver = resolve
 	s.mu.Unlock()
 }
 
@@ -124,7 +141,7 @@ func decryptAuthorizationValue(key, encrypted []byte) (string, error) {
 	return string(plain), nil
 }
 
-func (s *OIDCService) createPersistentChallenge(provider, purpose, callback, verifier string, now time.Time, lifetime time.Duration) (string, string, error) {
+func (s *OIDCService) createPersistentChallenge(provider, purpose, callback, verifier, userID string, now time.Time, lifetime time.Duration) (string, string, error) {
 	stateBytes, nonceBytes := make([]byte, 24), make([]byte, 16)
 	if _, err := rand.Read(stateBytes); err != nil {
 		return "", "", err
@@ -143,7 +160,7 @@ func (s *OIDCService) createPersistentChallenge(provider, purpose, callback, ver
 	if err := repository.DeleteExpired(context.Background(), now); err != nil {
 		return "", "", err
 	}
-	if err := repository.Create(context.Background(), store.OIDCAuthorizationStateRecord{ID: "oidc-state-" + authorizationValueHash(state), ProviderID: provider, StateHash: authorizationValueHash(state), NonceHash: authorizationValueHash(nonce), EncryptedPKCEVerifier: encrypted, Purpose: purpose, Callback: callback, ExpiresAt: now.Add(lifetime)}); err != nil {
+	if err := repository.Create(context.Background(), store.OIDCAuthorizationStateRecord{ID: "oidc-state-" + authorizationValueHash(state), ProviderID: provider, StateHash: authorizationValueHash(state), NonceHash: authorizationValueHash(nonce), EncryptedPKCEVerifier: encrypted, Purpose: purpose, UserID: userID, Callback: callback, ExpiresAt: now.Add(lifetime)}); err != nil {
 		return "", "", err
 	}
 	return state, nonce, nil
@@ -153,6 +170,11 @@ func (s *OIDCService) consumePersistentState(state, nonce, provider, purpose, ca
 	s.mu.RLock()
 	repository := s.stateRepo
 	s.mu.RUnlock()
+	if purpose == "" {
+		if anyRepository, ok := repository.(store.OIDCAuthorizationStateAnyRepository); ok {
+			return anyRepository.ConsumeAny(context.Background(), authorizationValueHash(state), authorizationValueHash(nonce), provider, callback, now)
+		}
+	}
 	return repository.Consume(context.Background(), authorizationValueHash(state), authorizationValueHash(nonce), provider, purpose, callback, now)
 }
 
@@ -227,7 +249,7 @@ func (s *OIDCService) AddProvider(provider OIDCProvider) error {
 	s.mu.Unlock()
 	return nil
 }
-func (s *OIDCService) Providers() []OIDCProvider {
+func (s *OIDCService) ConfiguredProviders() []OIDCProvider {
 	s.mu.RLock()
 	repository := s.repository
 	s.mu.RUnlock()
@@ -260,6 +282,15 @@ func (s *OIDCService) Providers() []OIDCProvider {
 		}
 	}
 	return out
+}
+
+func (s *OIDCService) Providers() []OIDCProviderPublic {
+	configured := s.ConfiguredProviders()
+	result := make([]OIDCProviderPublic, 0, len(configured))
+	for _, provider := range configured {
+		result = append(result, OIDCProviderPublic{ID: provider.Key, Name: provider.Name})
+	}
+	return result
 }
 
 func (s *OIDCService) Provider(key string) (OIDCProvider, bool) {
@@ -295,6 +326,22 @@ func (s *OIDCService) Challenge(key, redirect string, now time.Time) (string, er
 type OIDCChallenge struct{ URL, State, Nonce, Verifier string }
 
 func (s *OIDCService) ChallengeWithPKCE(key, redirect string, now time.Time) (OIDCChallenge, error) {
+	return s.challengeWithPKCE(key, redirect, now, "", "")
+}
+
+func (s *OIDCService) LinkChallenge(key, userID string, now time.Time) (OIDCChallenge, error) {
+	p, ok := s.provider(key)
+	if !ok {
+		return OIDCChallenge{}, errors.New("OIDC provider is unavailable")
+	}
+	callback := p.Callback
+	if callback == "" && len(p.Callbacks) > 0 {
+		callback = p.Callbacks[0]
+	}
+	return s.challengeWithPKCE(key, callback, now, "link", userID)
+}
+
+func (s *OIDCService) challengeWithPKCE(key, redirect string, now time.Time, purpose, userID string) (OIDCChallenge, error) {
 	p, ok := s.provider(key)
 	if !ok || !p.Enabled {
 		return OIDCChallenge{}, errors.New("OIDC provider is unavailable")
@@ -322,10 +369,16 @@ func (s *OIDCService) ChallengeWithPKCE(key, redirect string, now time.Time) (OI
 	s.mu.RUnlock()
 	var state, nonce string
 	var err error
+	purpose = purposeOrLogin(purpose)
 	if persistent {
-		state, nonce, err = s.createPersistentChallenge(key, "login", redirect, verifier, now, 10*time.Minute)
+		state, nonce, err = s.createPersistentChallenge(key, purpose, redirect, verifier, userID, now, 10*time.Minute)
 	} else {
-		state, nonce, err = s.states.CreateChallenge(key, "login", redirect, verifier, now, 10*time.Minute)
+		state, nonce, err = s.states.CreateChallenge(key, purpose, redirect, verifier, now, 10*time.Minute)
+		if err == nil && purpose == "link" {
+			s.mu.Lock()
+			s.linkTargets[state] = userID
+			s.mu.Unlock()
+		}
 	}
 	if err != nil {
 		return OIDCChallenge{}, err
@@ -348,6 +401,13 @@ func (s *OIDCService) ChallengeWithPKCE(key, redirect string, now time.Time) (OI
 	q.Set("client_id", p.ClientID)
 	u.RawQuery = q.Encode()
 	return OIDCChallenge{URL: u.String(), State: state, Nonce: nonce, Verifier: verifier}, nil
+}
+
+func purposeOrLogin(value string) string {
+	if value == "link" {
+		return value
+	}
+	return "login"
 }
 func (s *OIDCService) Complete(key, state, nonce string, now time.Time) error {
 	s.mu.RLock()
@@ -386,45 +446,56 @@ func (s *OIDCService) CompleteChallenge(key, state, nonce, callback, verifier st
 }
 
 func (s *OIDCService) CompleteAuthorizationCode(state, nonce, code string, now time.Time) (OIDCProvider, platform.OIDCClaims, error) {
+	provider, claims, _, _, err := s.CompleteAuthorizationCodeDetails(state, nonce, code, now)
+	return provider, claims, err
+}
+
+func (s *OIDCService) CompleteAuthorizationCodeDetails(state, nonce, code string, now time.Time) (OIDCProvider, platform.OIDCClaims, string, string, error) {
 	if code == "" {
-		return OIDCProvider{}, platform.OIDCClaims{}, errors.New("OIDC authorization code is required")
+		return OIDCProvider{}, platform.OIDCClaims{}, "", "", errors.New("OIDC authorization code is required")
 	}
 	s.mu.RLock()
 	persistent, stateKey := s.stateRepo != nil, append([]byte(nil), s.stateKey...)
 	s.mu.RUnlock()
-	var key, callback, verifier string
+	var key, callback, verifier, purpose, userID string
 	if persistent {
-		stateRecord, err := s.consumePersistentState(state, nonce, "", "login", "", now)
+		stateRecord, err := s.consumePersistentState(state, nonce, "", "", "", now)
 		if err != nil {
-			return OIDCProvider{}, platform.OIDCClaims{}, err
+			return OIDCProvider{}, platform.OIDCClaims{}, "", "", err
 		}
-		key, callback = stateRecord.ProviderID, stateRecord.Callback
+		key, callback, purpose, userID = stateRecord.ProviderID, stateRecord.Callback, stateRecord.Purpose, stateRecord.UserID
 		verifier, err = decryptAuthorizationValue(stateKey, stateRecord.EncryptedPKCEVerifier)
 		if err != nil {
-			return OIDCProvider{}, platform.OIDCClaims{}, errors.New("PKCE verifier is invalid")
+			return OIDCProvider{}, platform.OIDCClaims{}, "", "", errors.New("PKCE verifier is invalid")
 		}
 	} else {
 		var err error
-		key, callback, verifier, err = s.states.ReadChallenge(state, nonce, "login", now)
+		s.mu.RLock()
+		purpose = "login"
+		if _, ok := s.linkTargets[state]; ok {
+			purpose, userID = "link", s.linkTargets[state]
+		}
+		s.mu.RUnlock()
+		key, callback, verifier, err = s.states.ReadChallenge(state, nonce, purpose, now)
 		if err != nil {
-			return OIDCProvider{}, platform.OIDCClaims{}, err
+			return OIDCProvider{}, platform.OIDCClaims{}, "", "", err
 		}
 	}
 	provider, ok := s.provider(key)
 	if !ok || !provider.Enabled {
-		return OIDCProvider{}, platform.OIDCClaims{}, errors.New("OIDC provider is unavailable")
+		return OIDCProvider{}, platform.OIDCClaims{}, "", "", errors.New("OIDC provider is unavailable")
 	}
 	metadata, err := s.discovery(provider)
 	if err != nil {
-		return OIDCProvider{}, platform.OIDCClaims{}, err
+		return OIDCProvider{}, platform.OIDCClaims{}, "", "", err
 	}
 	token, err := s.exchangeCode(provider, metadata.TokenEndpoint, code, callback, verifier)
 	if err != nil {
-		return OIDCProvider{}, platform.OIDCClaims{}, err
+		return OIDCProvider{}, platform.OIDCClaims{}, "", "", err
 	}
 	jwks, err := s.fetch(metadata.JWKSURI, nil)
 	if err != nil {
-		return OIDCProvider{}, platform.OIDCClaims{}, err
+		return OIDCProvider{}, platform.OIDCClaims{}, "", "", err
 	}
 	audience := provider.Audience
 	if audience == "" {
@@ -432,14 +503,17 @@ func (s *OIDCService) CompleteAuthorizationCode(state, nonce, code string, now t
 	}
 	claims, err := platform.VerifyOIDCIDToken(token, string(jwks), metadata.Issuer, audience, nonce, now)
 	if err != nil {
-		return OIDCProvider{}, platform.OIDCClaims{}, err
+		return OIDCProvider{}, platform.OIDCClaims{}, "", "", err
 	}
 	if !persistent {
-		if err := s.states.ConsumeChallenge(state, nonce, key, "login", callback, verifier, now); err != nil {
-			return OIDCProvider{}, platform.OIDCClaims{}, err
+		if err := s.states.ConsumeChallenge(state, nonce, key, purpose, callback, verifier, now); err != nil {
+			return OIDCProvider{}, platform.OIDCClaims{}, "", "", err
 		}
+		s.mu.Lock()
+		delete(s.linkTargets, state)
+		s.mu.Unlock()
 	}
-	return provider, claims, nil
+	return provider, claims, purpose, userID, nil
 }
 
 type oidcMetadata struct {
@@ -472,6 +546,28 @@ func (s *OIDCService) discovery(provider OIDCProvider) (oidcMetadata, error) {
 
 func (s *OIDCService) exchangeCode(provider OIDCProvider, endpoint, code, callback, verifier string) (string, error) {
 	form := url.Values{"grant_type": {"authorization_code"}, "code": {code}, "redirect_uri": {callback}, "client_id": {provider.ClientID}, "code_verifier": {verifier}}
+	if provider.SecretReference != "" {
+		s.mu.RLock()
+		resolver := s.secretResolver
+		s.mu.RUnlock()
+		if resolver == nil {
+			resolver = func(reference string) (string, error) {
+				if !strings.HasPrefix(reference, "env://") {
+					return "", errors.New("OIDC client secret resolver is not configured")
+				}
+				value, ok := os.LookupEnv(strings.TrimPrefix(reference, "env://"))
+				if !ok || value == "" {
+					return "", errors.New("OIDC client secret is unavailable")
+				}
+				return value, nil
+			}
+		}
+		secret, err := resolver(provider.SecretReference)
+		if err != nil || secret == "" {
+			return "", errors.New("OIDC client secret is unavailable")
+		}
+		form.Set("client_secret", secret)
+	}
 	body, err := s.fetch(endpoint, strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", err
@@ -505,7 +601,12 @@ func (s *OIDCService) fetch(endpoint string, body io.Reader) ([]byte, error) {
 	if body != nil {
 		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
-	response, err := client.Do(request)
+	clientCopy := *client
+	clientCopy.CheckRedirect = func(next *http.Request, _ []*http.Request) error {
+		_, err := secureURL(next.URL.String())
+		return err
+	}
+	response, err := clientCopy.Do(request)
 	if err != nil {
 		return nil, err
 	}
@@ -525,7 +626,25 @@ func secureURL(value string) (string, error) {
 	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
 		return "", errors.New("OIDC endpoint must use HTTPS")
 	}
+	host := parsed.Hostname()
+	if ip := net.ParseIP(host); ip != nil {
+		if isPrivateIP(ip) {
+			return "", errors.New("OIDC endpoint targets a private network")
+		}
+		return parsed.String(), nil
+	}
+	if ips, lookupErr := net.LookupIP(host); lookupErr == nil {
+		for _, ip := range ips {
+			if isPrivateIP(ip) {
+				return "", errors.New("OIDC endpoint targets a private network")
+			}
+		}
+	}
 	return parsed.String(), nil
+}
+
+func isPrivateIP(ip net.IP) bool {
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified()
 }
 
 func (s Server) oidcRoutes(mux routeRegistrar) {
@@ -554,6 +673,19 @@ func (s Server) oidcRoutes(mux routeRegistrar) {
 		}
 		http.Redirect(w, r, redirect, http.StatusFound)
 	})
+	mux.Handle("/api/v1/auth/oidc/link", s.requireAuthenticated(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			return
+		}
+		claims, _ := s.authenticator()(r)
+		challenge, err := s.OIDC.LinkChallenge(r.URL.Query().Get("provider"), claims.UserID, time.Now())
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "OIDC link failed", err)
+			return
+		}
+		http.Redirect(w, r, challenge.URL, http.StatusFound)
+	})))
 	mux.HandleFunc("/api/v1/auth/oidc/callback", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			writeJSON(w, 405, map[string]string{"error": "method not allowed"})
@@ -567,9 +699,17 @@ func (s Server) oidcRoutes(mux routeRegistrar) {
 			return
 		}
 		now := time.Now()
-		provider, claims, err := s.OIDC.CompleteAuthorizationCode(r.URL.Query().Get("state"), r.URL.Query().Get("nonce"), r.URL.Query().Get("code"), now)
+		provider, claims, purpose, userID, err := s.OIDC.CompleteAuthorizationCodeDetails(r.URL.Query().Get("state"), r.URL.Query().Get("nonce"), r.URL.Query().Get("code"), now)
 		if err != nil {
 			writeError(w, http.StatusUnauthorized, "OIDC callback failed", err)
+			return
+		}
+		if purpose == "link" {
+			if userID == "" || s.AuthService.LinkOIDC(userID, provider.Key, claims.Subject) != nil {
+				writeJSON(w, http.StatusConflict, map[string]string{"error": "OIDC identity is already linked"})
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]string{"status": "linked"})
 			return
 		}
 		tokens, err := s.AuthService.LoginOIDCWithGroups(provider.Key, claims.Subject, claims.Username, claims.Email, provider.AutoProvision, claims.Groups)
@@ -578,7 +718,7 @@ func (s Server) oidcRoutes(mux routeRegistrar) {
 			return
 		}
 		s.setSessionCookies(w, tokens)
-		writeJSON(w, 200, tokens)
+		writeJSON(w, 200, map[string]string{"status": "authenticated"})
 	})
 }
 

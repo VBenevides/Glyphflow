@@ -40,12 +40,19 @@ func TestAuthServiceRegistrationLoginRefreshReplayAndPermissionRevocation(t *tes
 	if w.Code != http.StatusOK {
 		t.Fatalf("login: %d", w.Code)
 	}
-	var tokens AuthTokens
-	if err := json.Unmarshal(w.Body.Bytes(), &tokens); err != nil {
-		t.Fatal(err)
+	if strings.Contains(w.Body.String(), "access_token") || !hasCookie(w.Result().Cookies(), accessCookie) {
+		t.Fatalf("login leaked or omitted session cookie: %s", w.Body.String())
 	}
-	if tokens.AccessToken == "" || tokens.RefreshToken == "" || tokens.SessionID == "" {
-		t.Fatal("login did not issue all session credentials")
+	var tokens AuthTokens
+	for _, cookie := range w.Result().Cookies() {
+		switch cookie.Name {
+		case accessCookie:
+			tokens.AccessToken = cookie.Value
+		case refreshCookie:
+			tokens.RefreshToken = cookie.Value
+		case sessionCookie:
+			tokens.SessionID = cookie.Value
+		}
 	}
 	refresh := tokens.RefreshToken
 	next, err := auth.Refresh(tokens.SessionID, refresh)

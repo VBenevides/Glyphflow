@@ -29,7 +29,9 @@ type OrderPayload struct {
 	Type                OrderType         `json:"type"`
 	Command             []string          `json:"command"`
 	WorkingDir          string            `json:"working_dir"`
+	Environment         map[string]string `json:"environment,omitempty"`
 	SecretRefs          []string          `json:"secret_refs,omitempty"`
+	TargetOrderID       string            `json:"target_order_id,omitempty"`
 	TimeoutSeconds      uint32            `json:"timeout_seconds"`
 	Limits              ResourceLimits    `json:"limits"`
 	Resources           map[string]string `json:"resources,omitempty"`
@@ -93,7 +95,7 @@ func DecodeEventPayload(raw []byte) (EventPayload, error) {
 	if payload.Version != ProtocolVersion {
 		return EventPayload{}, errors.New("unsupported event payload version")
 	}
-	if !payload.Type.Valid() {
+	if !payload.Type.Valid() && !(payload.Type == EventUnknown && payload.EventID != "" && payload.OrderID != "" && payload.RunnerID != "" && payload.Attempt > 0 && payload.Sequence > 0) {
 		return EventPayload{}, errors.New("unsupported event type")
 	}
 	return payload, nil

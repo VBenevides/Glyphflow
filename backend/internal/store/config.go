@@ -15,16 +15,13 @@ type ConfigStore struct {
 }
 
 var allowedConfigNames = map[string]struct{}{
-	"ENABLE_PASSWORD_LOGIN":             {},
-	"ENABLE_PASSWORD_REGISTRATION":      {},
-	"DEFAULT_ROLE_ID":                   {},
-	"DATABASE_URL":                      {},
-	"NATS_URL":                          {},
-	"WEB_ORIGIN":                        {},
-	"MAX_MESSAGE_BYTES":                 {},
-	"GLYPHFLOW_BOOTSTRAP_EMAIL":         {},
-	"GLYPHFLOW_SYSTEM_ADMINS":           {},
-	"CONTROL_PLANE_SIGNING_PRIVATE_KEY": {},
+	"ENABLE_PASSWORD_LOGIN":        {},
+	"ENABLE_PASSWORD_REGISTRATION": {},
+	"DEFAULT_ROLE_ID":              {},
+	"WEB_ORIGIN":                   {},
+	"MAX_MESSAGE_BYTES":            {},
+	"GLYPHFLOW_BOOTSTRAP_EMAIL":    {},
+	"GLYPHFLOW_SYSTEM_ADMINS":      {},
 }
 
 func validateConfigName(name string) error {

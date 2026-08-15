@@ -2,30 +2,32 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/VBenevides/Glyphflow/backend/internal/platform"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type ScheduleDefinition struct {
-	ID, Name, TaskID, Expression, Timezone string
-	Enabled                                bool
-	NextFireAt                             *time.Time
-	MisfirePolicy, ConcurrencyPolicy       string
+	ID, Name, TaskID, Expression, Timezone           string
+	Enabled                                          bool
+	NextFireAt                                       *time.Time
+	MisfirePolicy, ConcurrencyPolicy                 string
 	CatchupLimit, DeadlineSeconds, MaxConcurrentRuns int
 }
 
 type ScheduleRecord struct {
-	ID, Name, TaskID, Expression, Timezone string
-	Enabled                                bool
-	NextFireAt                             *time.Time
-	State, MisfirePolicy, ConcurrencyPolicy string
+	ID, Name, TaskID, Expression, Timezone           string
+	Enabled                                          bool
+	NextFireAt                                       *time.Time
+	State, MisfirePolicy, ConcurrencyPolicy          string
 	CatchupLimit, DeadlineSeconds, MaxConcurrentRuns int
-	ActiveVersion                         int
+	ActiveVersion                                    int
 }
 
 type ScheduleRepository interface {
@@ -33,14 +35,16 @@ type ScheduleRepository interface {
 	Find(context.Context, string) (ScheduleRecord, bool, error)
 	Create(context.Context, ScheduleDefinition) (ScheduleRecord, error)
 	Update(context.Context, string, ScheduleDefinition) (ScheduleRecord, error)
+	SetEnabled(context.Context, string, bool) (ScheduleRecord, bool, error)
 	Delete(context.Context, string) (bool, error)
 	CreateDueRun(context.Context, time.Time, func(DueScheduleRecord) (time.Time, error)) (string, bool, error)
 }
 
 type DueScheduleRecord struct {
-	ID, TaskID, TaskVersionID, ScheduleVersionID string
-	Expression, Timezone                         string
-	NextFireAt                                   time.Time
+	ID, TaskID, TaskVersionID, ScheduleVersionID                 string
+	Expression, Timezone, MisfirePolicy, ConcurrencyPolicy       string
+	NextFireAt                                                   time.Time
+	CatchupLimit, DeadlineSeconds, MaxConcurrentRuns, ActiveRuns int
 }
 
 type ScheduleStore struct{ pool *pgxpool.Pool }
@@ -179,6 +183,15 @@ func (s *ScheduleStore) Delete(ctx context.Context, id string) (bool, error) {
 	return result.RowsAffected() > 0, err
 }
 
+func (s *ScheduleStore) SetEnabled(ctx context.Context, id string, enabled bool) (ScheduleRecord, bool, error) {
+	result, err := s.pool.Exec(ctx, `UPDATE schedules SET enabled = $2, updated_at = now() WHERE id = $1`, id, enabled)
+	if err != nil || result.RowsAffected() == 0 {
+		return ScheduleRecord{}, result.RowsAffected() > 0, err
+	}
+	item, found, err := s.Find(ctx, id)
+	return item, found, err
+}
+
 func (s *ScheduleStore) CreateDueRun(ctx context.Context, now time.Time, next func(DueScheduleRecord) (time.Time, error)) (string, bool, error) {
 	if next == nil {
 		return "", false, errors.New("schedule next-fire function is required")
@@ -190,10 +203,26 @@ func (s *ScheduleStore) CreateDueRun(ctx context.Context, now time.Time, next fu
 	defer tx.Rollback(ctx)
 	var due DueScheduleRecord
 	var storedNext *time.Time
-	err = tx.QueryRow(ctx, `SELECT s.id, s.task_id, sv.task_version_id, s.current_version_id, sv.expression, sv.timezone, s.next_fire_at FROM schedules s JOIN schedule_versions sv ON sv.id = s.current_version_id WHERE s.enabled AND (s.next_fire_at IS NULL OR s.next_fire_at <= $1) ORDER BY COALESCE(s.next_fire_at, $1), s.id FOR UPDATE OF s SKIP LOCKED LIMIT 1`, now).Scan(&due.ID, &due.TaskID, &due.TaskVersionID, &due.ScheduleVersionID, &due.Expression, &due.Timezone, &storedNext)
+	err = tx.QueryRow(ctx, `SELECT s.id, s.task_id, sv.task_version_id, s.current_version_id, sv.expression, sv.timezone, sv.misfire_policy, sv.catchup_limit, sv.start_deadline_seconds, sv.concurrency_policy, sv.max_concurrent_runs, COALESCE((SELECT count(*) FROM runs active WHERE active.schedule_version_id = s.current_version_id AND active.state IN ('WAITING','RUNNING','RETRY_WAIT','CANCELLING')), 0), s.next_fire_at FROM schedules s JOIN schedule_versions sv ON sv.id = s.current_version_id WHERE s.enabled AND (s.next_fire_at IS NULL OR s.next_fire_at <= $1) ORDER BY COALESCE(s.next_fire_at, $1), s.id FOR UPDATE OF s SKIP LOCKED LIMIT 1`, now).Scan(&due.ID, &due.TaskID, &due.TaskVersionID, &due.ScheduleVersionID, &due.Expression, &due.Timezone, &due.MisfirePolicy, &due.CatchupLimit, &due.DeadlineSeconds, &due.ConcurrencyPolicy, &due.MaxConcurrentRuns, &due.ActiveRuns, &storedNext)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", false, nil
 	}
+	if err != nil {
+		return "", false, err
+	}
+	variables, err := loadGlobalVariables(ctx, tx)
+	if err != nil {
+		return "", false, err
+	}
+	resolvedGlobals, err := json.Marshal(variables)
+	if err != nil {
+		return "", false, err
+	}
+	due.Expression, err = platform.ResolveGlobalVariables(due.Expression, variables)
+	if err != nil {
+		return "", false, err
+	}
+	due.Timezone, err = platform.ResolveGlobalVariables(due.Timezone, variables)
 	if err != nil {
 		return "", false, err
 	}
@@ -219,15 +248,48 @@ func (s *ScheduleStore) CreateDueRun(ctx context.Context, now time.Time, next fu
 		}
 		return "", true, nil
 	}
+	if due.ConcurrencyPolicy == "SKIP" && due.ActiveRuns > 0 {
+		if _, err := tx.Exec(ctx, `UPDATE schedules SET next_fire_at = $2, updated_at = now() WHERE id = $1`, due.ID, nextFire); err != nil {
+			return "", false, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return "", false, err
+		}
+		return "", true, nil
+	}
+	if due.ConcurrencyPolicy == "ALLOW" && due.MaxConcurrentRuns > 0 && due.ActiveRuns >= due.MaxConcurrentRuns {
+		return "", false, nil
+	}
+	if due.ConcurrencyPolicy == "QUEUE" && due.ActiveRuns > 0 {
+		return "", false, nil
+	}
+	if due.ConcurrencyPolicy == "REPLACE" && due.ActiveRuns > 0 {
+		if _, err := tx.Exec(ctx, `UPDATE runs SET state = 'CANCELLING', cancellation_requested_at = COALESCE(cancellation_requested_at, now()), cancellation_reason = 'schedule replacement', state_version = state_version + 1, updated_at = now() WHERE schedule_version_id = $1 AND state IN ('WAITING','RUNNING','RETRY_WAIT')`, due.ScheduleVersionID); err != nil {
+			return "", false, err
+		}
+	}
+	occurrence, nextFire, err := chooseDueOccurrence(due, now, nextFire, next)
+	if err != nil {
+		return "", false, err
+	}
+	if occurrence.IsZero() {
+		if _, err := tx.Exec(ctx, `UPDATE schedules SET next_fire_at = $2, updated_at = now() WHERE id = $1`, due.ID, nextFire); err != nil {
+			return "", false, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return "", false, err
+		}
+		return "", true, nil
+	}
 	runID, err := NewRunID()
 	if err != nil {
 		return "", false, err
 	}
-	idempotencyKey := due.ID + ":" + due.NextFireAt.UTC().Format(time.RFC3339Nano)
+	idempotencyKey := due.ID + ":" + occurrence.UTC().Format(time.RFC3339Nano)
 	if nextFire.IsZero() {
 		return "", false, errors.New("schedule next fire is empty")
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO runs (id, task_id, task_version_id, schedule_version_id, trigger_type, scheduled_for, state, idempotency_key) VALUES ($1, $2, $3, $4, 'SCHEDULE', $5, 'WAITING', $6) ON CONFLICT (idempotency_key) DO NOTHING`, runID, due.TaskID, due.TaskVersionID, due.ScheduleVersionID, due.NextFireAt, idempotencyKey); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO runs (id, task_id, task_version_id, schedule_version_id, trigger_type, scheduled_for, resolved_global_variables, start_deadline_at, state, idempotency_key) VALUES ($1, $2, $3, $4, 'SCHEDULE', $5, $6::jsonb, $7, 'WAITING', $8) ON CONFLICT (idempotency_key) DO NOTHING`, runID, due.TaskID, due.TaskVersionID, due.ScheduleVersionID, occurrence, resolvedGlobals, deadlineValue(occurrence, due.DeadlineSeconds), idempotencyKey); err != nil {
 		return "", false, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE schedules SET next_fire_at = $2, updated_at = now() WHERE id = $1`, due.ID, nextFire); err != nil {
@@ -239,13 +301,53 @@ func (s *ScheduleStore) CreateDueRun(ctx context.Context, now time.Time, next fu
 	return runID, true, nil
 }
 
+func deadlineValue(occurrence time.Time, seconds int) any {
+	if seconds <= 0 {
+		return nil
+	}
+	return occurrence.Add(time.Duration(seconds) * time.Second)
+}
+
+func chooseDueOccurrence(due DueScheduleRecord, now, nextFire time.Time, next func(DueScheduleRecord) (time.Time, error)) (time.Time, time.Time, error) {
+	if nextFire.After(now) {
+		return due.NextFireAt, nextFire, nil
+	}
+	missed := []time.Time{due.NextFireAt}
+	current := nextFire
+	for !current.After(now) && len(missed) < 1000 {
+		missed = append(missed, current)
+		current, err := next(DueScheduleRecord{Expression: due.Expression, Timezone: due.Timezone, NextFireAt: current})
+		if err != nil {
+			return time.Time{}, time.Time{}, err
+		}
+		if current.IsZero() {
+			return time.Time{}, time.Time{}, errors.New("schedule next fire is empty")
+		}
+	}
+	switch due.MisfirePolicy {
+	case "SKIP_ALL", "FAIL_AND_ALERT":
+		return time.Time{}, current, nil
+	case "RUN_LATEST":
+		return missed[len(missed)-1], current, nil
+	case "RUN_UP_TO_N":
+		limit := due.CatchupLimit
+		if limit <= 0 || len(missed) <= limit {
+			return missed[0], nextFire, nil
+		}
+		index := len(missed) - limit
+		return missed[index], missed[index+1], nil
+	default:
+		return missed[0], nextFire, nil
+	}
+}
+
 func normalizeScheduleDefinition(definition ScheduleDefinition) ScheduleDefinition {
 	definition.Name = strings.TrimSpace(definition.Name)
 	if definition.Timezone == "" {
 		definition.Timezone = "UTC"
 	}
 	if definition.MisfirePolicy == "" {
-		definition.MisfirePolicy = "SKIP"
+		definition.MisfirePolicy = "SKIP_ALL"
 	}
 	if definition.ConcurrencyPolicy == "" {
 		definition.ConcurrencyPolicy = "ALLOW"

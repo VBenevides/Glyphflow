@@ -59,7 +59,7 @@ func TestRunnerEnrollmentExplainsArtifactFailure(t *testing.T) {
 	s.SetRunnerArtifactConfig("nats://localhost:4222", 1<<20)
 	response := httptest.NewRecorder()
 	s.enroll(response, httptest.NewRequest(http.MethodPost, "/api/v1/runners/enrollments", bytes.NewBufferString(`{"runner_id":"runner-1","platform":"linux","architecture":"amd64"}`)))
-	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "runner binary is unavailable:") {
+	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), `"error":"runner binary is unavailable"`) || strings.Contains(response.Body.String(), "runner binary is unavailable:") {
 		t.Fatalf("response = %d %s", response.Code, response.Body.String())
 	}
 }
@@ -69,8 +69,8 @@ func TestRunnerEnrollmentExplainsTokenFailure(t *testing.T) {
 	s.SetRunnerArtifactConfig("nats://localhost:4222", 1<<20)
 	s.enrollments["token"] = &enrollment{RunnerID: "runner-1", Expires: time.Now().Add(-time.Minute)}
 	response := httptest.NewRecorder()
-	s.enrollRunner(response, httptest.NewRequest(http.MethodPost, "/api/v1/runners/enroll", bytes.NewBufferString(`{"runner_id":"runner-1","token":"token"}`)))
-	if response.Code != http.StatusUnauthorized || !strings.Contains(response.Body.String(), "runner enrollment rejected: enrollment expired") {
+	s.enrollRunner(response, httptest.NewRequest(http.MethodPost, "/api/v1/runners/enroll", bytes.NewBufferString(`{"runner_id":"runner-1","token":"token","key_id":"runner:runner-1","public_key":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}`)))
+	if response.Code != http.StatusUnauthorized || !strings.Contains(response.Body.String(), `"error":"runner enrollment rejected"`) || strings.Contains(response.Body.String(), "enrollment expired") {
 		t.Fatalf("response = %d %s", response.Code, response.Body.String())
 	}
 }
@@ -110,12 +110,14 @@ func TestRunnerEnrollmentBuildsBootstrapBinaryAndConsumesToken(t *testing.T) {
 		t.Fatalf("bootstrap = %#v, err=%v", bootstrap, err)
 	}
 	consume := httptest.NewRecorder()
-	s.enrollRunner(consume, httptest.NewRequest(http.MethodPost, "/api/v1/runners/enroll", bytes.NewBufferString(`{"runner_id":"runner-1","token":"`+bootstrap.Token+`"}`)))
+	keyID := "runner:runner-1"
+	publicKey := base64.RawStdEncoding.EncodeToString(make([]byte, 32))
+	s.enrollRunner(consume, httptest.NewRequest(http.MethodPost, "/api/v1/runners/enroll", bytes.NewBufferString(`{"runner_id":"runner-1","token":"`+bootstrap.Token+`","key_id":"`+keyID+`","public_key":"`+publicKey+`"}`)))
 	if consume.Code != http.StatusOK {
 		t.Fatalf("consumption returned %d: %s", consume.Code, consume.Body.String())
 	}
 	replay := httptest.NewRecorder()
-	s.enrollRunner(replay, httptest.NewRequest(http.MethodPost, "/api/v1/runners/enroll", bytes.NewBufferString(`{"runner_id":"runner-1","token":"`+bootstrap.Token+`"}`)))
+	s.enrollRunner(replay, httptest.NewRequest(http.MethodPost, "/api/v1/runners/enroll", bytes.NewBufferString(`{"runner_id":"runner-1","token":"`+bootstrap.Token+`","key_id":"`+keyID+`","public_key":"`+publicKey+`"}`)))
 	if replay.Code != http.StatusUnauthorized {
 		t.Fatalf("replay returned %d", replay.Code)
 	}

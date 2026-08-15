@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/ed25519"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/url"
@@ -21,28 +23,30 @@ const (
 )
 
 type Config struct {
-	Role                        Role
-	DatabaseURL                 string
-	NATSURL                     string
-	NATSCertFile                string
-	NATSKeyFile                 string
-	NATSCAFile                  string
-	AccessTokenSecret           string
-	PasswordPepper              string
-	WebOrigin                   string
-	PasswordLoginEnabled        bool
-	PasswordRegistrationEnabled bool
-	DefaultRoleID               string
-	BootstrapUsername           string
-	BootstrapPassword           string
-	BootstrapOIDCProvider       string
-	BootstrapOIDCSubject        string
-	SystemAdminEmails           []string
-	Environment                 string
-	DataDir                     string
-	RunnerID                    string
-	MaxMessageBytes             int
-	MaxOutputBytes              int
+	Role                          Role
+	DatabaseURL                   string
+	NATSURL                       string
+	NATSCertFile                  string
+	NATSKeyFile                   string
+	NATSCAFile                    string
+	AccessTokenSecret             string
+	ControlPlaneSigningPrivateKey string
+	PasswordPepper                string
+	WebOrigin                     string
+	PasswordLoginEnabled          bool
+	PasswordRegistrationEnabled   bool
+	DefaultRoleID                 string
+	BootstrapUsername             string
+	BootstrapPassword             string
+	BootstrapOIDCProvider         string
+	BootstrapOIDCSubject          string
+	SystemAdminEmails             []string
+	Environment                   string
+	AllowInsecureTransport        bool
+	DataDir                       string
+	RunnerID                      string
+	MaxMessageBytes               int
+	MaxOutputBytes                int
 }
 
 func FromEnv(role Role) (Config, error) {
@@ -50,27 +54,39 @@ func FromEnv(role Role) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("GLYPHFLOW_SYSTEM_ADMINS: %w", err)
 	}
+	passwordLogin, err := envBoolAlias("ENABLE_PASSWORD_LOGIN", "PASSWORD_LOGIN_ENABLED", true)
+	if err != nil {
+		return Config{}, err
+	}
+	passwordRegistration, err := envBoolAlias("ENABLE_PASSWORD_REGISTRATION", "PASSWORD_REGISTRATION_ENABLED", true)
+	if err != nil {
+		return Config{}, err
+	}
 	config := Config{
-		Role:                        role,
-		DatabaseURL:                 os.Getenv("DATABASE_URL"),
-		NATSURL:                     os.Getenv("NATS_URL"),
-		NATSCertFile:                os.Getenv("NATS_CERT_FILE"),
-		NATSKeyFile:                 os.Getenv("NATS_KEY_FILE"),
-		NATSCAFile:                  os.Getenv("NATS_CA_FILE"),
-		AccessTokenSecret:           os.Getenv("ACCESS_TOKEN_SECRET"),
-		PasswordPepper:              os.Getenv("PASSWORD_PEPPER"),
-		WebOrigin:                   os.Getenv("WEB_ORIGIN"),
-		PasswordLoginEnabled:        envBoolDefault("ENABLE_PASSWORD_LOGIN", envBoolDefault("PASSWORD_LOGIN_ENABLED", true)),
-		PasswordRegistrationEnabled: envBoolDefault("ENABLE_PASSWORD_REGISTRATION", envBoolDefault("PASSWORD_REGISTRATION_ENABLED", true)),
-		DefaultRoleID:               strings.TrimSpace(envStringDefault("DEFAULT_ROLE_ID", "system-user")),
-		BootstrapUsername:           strings.TrimSpace(os.Getenv("GLYPHFLOW_BOOTSTRAP_EMAIL")),
-		BootstrapPassword:           os.Getenv("GLYPHFLOW_BOOTSTRAP_PASSWORD"),
-		BootstrapOIDCProvider:       strings.TrimSpace(os.Getenv("GLYPHFLOW_BOOTSTRAP_OIDC_PROVIDER")),
-		BootstrapOIDCSubject:        strings.TrimSpace(os.Getenv("GLYPHFLOW_BOOTSTRAP_OIDC_SUBJECT")),
-		SystemAdminEmails:           systemAdminEmails,
-		Environment:                 strings.ToLower(strings.TrimSpace(os.Getenv("ENVIRONMENT"))),
-		DataDir:                     os.Getenv("DATA_DIR"),
-		RunnerID:                    os.Getenv("RUNNER_ID"),
+		Role:                          role,
+		DatabaseURL:                   os.Getenv("DATABASE_URL"),
+		NATSURL:                       os.Getenv("NATS_URL"),
+		NATSCertFile:                  os.Getenv("NATS_CERT_FILE"),
+		NATSKeyFile:                   os.Getenv("NATS_KEY_FILE"),
+		NATSCAFile:                    os.Getenv("NATS_CA_FILE"),
+		AccessTokenSecret:             os.Getenv("ACCESS_TOKEN_SECRET"),
+		ControlPlaneSigningPrivateKey: strings.TrimSpace(os.Getenv("CONTROL_PLANE_SIGNING_PRIVATE_KEY")),
+		PasswordPepper:                os.Getenv("PASSWORD_PEPPER"),
+		WebOrigin:                     os.Getenv("WEB_ORIGIN"),
+		PasswordLoginEnabled:          passwordLogin,
+		PasswordRegistrationEnabled:   passwordRegistration,
+		DefaultRoleID:                 strings.TrimSpace(envStringDefault("DEFAULT_ROLE_ID", "system-user")),
+		BootstrapUsername:             strings.TrimSpace(os.Getenv("GLYPHFLOW_BOOTSTRAP_EMAIL")),
+		BootstrapPassword:             os.Getenv("GLYPHFLOW_BOOTSTRAP_PASSWORD"),
+		BootstrapOIDCProvider:         strings.TrimSpace(os.Getenv("GLYPHFLOW_BOOTSTRAP_OIDC_PROVIDER")),
+		BootstrapOIDCSubject:          strings.TrimSpace(os.Getenv("GLYPHFLOW_BOOTSTRAP_OIDC_SUBJECT")),
+		SystemAdminEmails:             systemAdminEmails,
+		Environment:                   strings.ToLower(strings.TrimSpace(os.Getenv("ENVIRONMENT"))),
+		DataDir:                       os.Getenv("DATA_DIR"),
+		RunnerID:                      os.Getenv("RUNNER_ID"),
+	}
+	if config.AllowInsecureTransport, err = envBool("ALLOW_INSECURE_TRANSPORT", false); err != nil {
+		return Config{}, err
 	}
 	if config.MaxMessageBytes, err = envInt("MAX_MESSAGE_BYTES"); err != nil {
 		return Config{}, err
@@ -114,6 +130,23 @@ func (c Config) Validate() error {
 		if err := requireURL("WEB_ORIGIN", c.WebOrigin, "http", "https"); err != nil {
 			return err
 		}
+		if !c.AllowInsecureTransport || c.Environment != "development" {
+			if err := requireURL("WEB_ORIGIN", c.WebOrigin, "https"); err != nil {
+				return err
+			}
+			if !strings.HasPrefix(c.NATSURL, "tls://") {
+				return errors.New("NATS_URL must use TLS outside development")
+			}
+		}
+		if c.Environment != "development" && c.ControlPlaneSigningPrivateKey == "" {
+			return errors.New("CONTROL_PLANE_SIGNING_PRIVATE_KEY is required outside development")
+		}
+		if c.ControlPlaneSigningPrivateKey != "" {
+			raw, err := base64.RawStdEncoding.DecodeString(c.ControlPlaneSigningPrivateKey)
+			if err != nil || len(raw) != ed25519.PrivateKeySize {
+				return errors.New("CONTROL_PLANE_SIGNING_PRIVATE_KEY is invalid")
+			}
+		}
 		if c.Environment == "production" && (c.NATSCertFile == "" || c.NATSKeyFile == "" || c.NATSCAFile == "") {
 			return errors.New("production requires NATS client certificate, key, and CA files")
 		}
@@ -152,6 +185,25 @@ func envBoolDefault(name string, fallback bool) bool {
 		return fallback
 	}
 	return parsed
+}
+
+func envBool(name string, fallback bool) (bool, error) {
+	value, ok := os.LookupEnv(name)
+	if !ok || strings.TrimSpace(value) == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return false, fmt.Errorf("%s must be a boolean", name)
+	}
+	return parsed, nil
+}
+
+func envBoolAlias(primary, legacy string, fallback bool) (bool, error) {
+	if _, ok := os.LookupEnv(primary); ok {
+		return envBool(primary, fallback)
+	}
+	return envBool(legacy, fallback)
 }
 
 func envStringDefault(name, fallback string) string {

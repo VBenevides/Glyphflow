@@ -72,18 +72,45 @@ func TestOIDCProviderChallengeIsSingleUse(t *testing.T) {
 	_ = httptest.NewRecorder()
 }
 
-func TestOIDCProviderExposesOnlySecretReference(t *testing.T) {
+func TestOIDCProviderPublicProjectionExposesNoConfiguration(t *testing.T) {
 	s := NewOIDCService()
 	if err := s.AddProvider(OIDCProvider{Key: "corp", Issuer: "https://id.example", ClientID: "client", SecretReference: "secret://oidc/client", Callback: "https://app.example/callback", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
 	providers := s.Providers()
-	if len(providers) != 1 || providers[0].SecretReference != "secret://oidc/client" {
+	if len(providers) != 1 || providers[0].ID != "corp" || providers[0].Name != "corp" {
 		t.Fatalf("provider response = %#v", providers)
 	}
 	encoded, _ := json.Marshal(providers[0])
-	if strings.Contains(string(encoded), "client-secret") {
-		t.Fatal("provider response exposed a client secret")
+	for _, forbidden := range []string{"issuer", "clientId", "secretReference", "callback"} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Fatalf("provider response exposed %s: %s", forbidden, encoded)
+		}
+	}
+}
+
+func TestOIDCLinkChallengeUsesLinkPurpose(t *testing.T) {
+	s := NewOIDCService()
+	if err := s.AddProvider(OIDCProvider{Key: "corp", Issuer: "https://id.example", AuthURL: "https://id.example/authorize", ClientID: "client", Callback: "https://app.example/callback", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	challenge, err := s.LinkChallenge("corp", "user-1", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := s.states.ReadChallenge(challenge.State, challenge.Nonce, "login", time.Now()); err == nil {
+		t.Fatal("link state accepted as login state")
+	}
+	if _, _, verifier, err := s.states.ReadChallenge(challenge.State, challenge.Nonce, "link", time.Now()); err != nil || verifier == "" {
+		t.Fatalf("link state was not stored: %v", err)
+	}
+}
+
+func TestOIDCRejectsPrivateEndpoints(t *testing.T) {
+	for _, endpoint := range []string{"https://127.0.0.1/oidc", "https://[::1]/oidc", "https://169.254.169.254/metadata"} {
+		if _, err := secureURL(endpoint); err == nil {
+			t.Fatalf("private endpoint accepted: %s", endpoint)
+		}
 	}
 }
 
@@ -191,12 +218,10 @@ func TestOIDCCallbackExchangesCodeAndIgnoresQueryClaims(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("callback status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
-	var tokens AuthTokens
-	if err := json.Unmarshal(recorder.Body.Bytes(), &tokens); err != nil {
-		t.Fatal(err)
-	}
 	sessionRequest := httptest.NewRequest(http.MethodGet, "/", nil)
-	sessionRequest.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	for _, cookie := range recorder.Result().Cookies() {
+		sessionRequest.AddCookie(cookie)
+	}
 	claims, ok := auth.sessions.Authenticator()(sessionRequest)
 	if !ok {
 		t.Fatal("callback did not issue an active session")

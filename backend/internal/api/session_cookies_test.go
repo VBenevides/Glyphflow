@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -28,6 +29,9 @@ func TestCookieSessionLoginRefreshAndLogout(t *testing.T) {
 	cookies := login.Result().Cookies()
 	if !hasCookie(cookies, accessCookie) || !hasCookie(cookies, refreshCookie) || !hasCookie(cookies, sessionCookie) {
 		t.Fatalf("login did not set session cookies: %#v", cookies)
+	}
+	if strings.Contains(login.Body.String(), "access_token") || strings.Contains(login.Body.String(), "refresh_token") {
+		t.Fatalf("login leaked token in JSON: %s", login.Body.String())
 	}
 	me := httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
 	addCookies(me, cookies)

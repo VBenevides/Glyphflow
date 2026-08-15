@@ -22,7 +22,7 @@ function WidgetState({ widget, result }: { widget: Widget; result: UseQueryResul
   if (result.isError && result.data === undefined) return <section className="gf-dashboard-widget"><h2>{widget.label}</h2><ErrorState message={result.error instanceof Error ? result.error.message : 'Widget failed'} onRetry={() => result.refetch()} /></section>
   const value = result.data as Page<Run | Schedule | Runner> | undefined
   const items = Array.isArray(value) ? value : value?.items ?? []
-  if (widget.kind === 'metric') return <MetricCard label={widget.label} value={items.length} detail={result.isFetching ? 'Refreshing…' : undefined} />
+  if (widget.kind === 'metric') return <MetricCard label={widget.label} value={value?.total ?? items.length} detail={result.isFetching ? 'Refreshing…' : undefined} />
   return <section className="gf-dashboard-widget"><h2>{widget.label}</h2>{items.length ? <ul className="gf-dashboard-list">{items.slice(0, 5).map((item, index) => <li key={String((item as { id?: string }).id ?? index)}><span>{String((item as { name?: string; id?: string }).name ?? (item as { id?: string }).id ?? 'Record')}</span>{'state' in item && <StatusPill status={String(item.state)} />}</li>)}</ul> : <EmptyState title="None" />}</section>
 }
 

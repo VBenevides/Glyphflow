@@ -91,7 +91,7 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 		}
 		switch r.Method {
 		case http.MethodGet:
-			writeJSON(w, 200, s.AuthAdmin.OIDC.Providers())
+			writeJSON(w, 200, s.AuthAdmin.OIDC.ConfiguredProviders())
 		case http.MethodPost:
 			var provider OIDCProvider
 			if err := json.NewDecoder(r.Body).Decode(&provider); err != nil {

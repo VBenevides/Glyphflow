@@ -1,8 +1,11 @@
 package worker
 
 import (
+	"crypto/ed25519"
 	"errors"
 	"sync"
+
+	"github.com/VBenevides/Glyphflow/backend/internal/protocol"
 )
 
 type OrderRecovery struct {
@@ -39,4 +42,11 @@ func RecoverDurable(store *LocalStore, previousBootID string) ([]string, error) 
 		return nil, errors.New("durable recovery inputs are required")
 	}
 	return store.RecoverOrders(previousBootID)
+}
+
+func RecoverDurableSigned(store *LocalStore, previousBootID string, key protocol.SigningKey) ([]string, error) {
+	if store == nil || previousBootID == "" || len(key.Private) != ed25519.PrivateKeySize {
+		return nil, errors.New("signed durable recovery inputs are required")
+	}
+	return store.RecoverOrdersSigned(previousBootID, key)
 }

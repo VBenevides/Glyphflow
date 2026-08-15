@@ -16,6 +16,7 @@ import (
 
 type DispatchRepository interface {
 	ClaimWaiting(context.Context, func(store.DispatchCandidate) ([]byte, error)) (store.DispatchCandidate, bool, error)
+	ClaimCancelling(context.Context, func(store.CancellationCandidate) ([]byte, error)) (store.CancellationCandidate, bool, error)
 	PendingDispatch(context.Context, int) ([]store.DispatchOutboxRecord, error)
 	MarkDispatchPublished(context.Context, string) error
 	RetryDispatch(context.Context, string, error) error
@@ -68,6 +69,9 @@ func RunDispatcher(ctx context.Context, events *queue.JetStream, runs DispatchRe
 			if err := dispatchWaiting(ctx, events, runs, signingKey); err != nil {
 				return err
 			}
+			if err := dispatchCancellations(ctx, events, runs, signingKey); err != nil {
+				return err
+			}
 			if err := publishPending(ctx, events, runs); err != nil {
 				return err
 			}
@@ -87,7 +91,8 @@ func dispatchWaiting(ctx context.Context, events *queue.JetStream, runs Dispatch
 				Limits: protocol.ResourceLimits{MaxOutputBytes: uint64(candidate.MaxOutputBytes)}, Issuer: signingKey.ID,
 				Recipient: candidate.RunnerID, RunnerSessionID: candidate.RunnerSessionID,
 				FencingToken: uint64(candidate.FencingToken), LeaseNotAfter: candidate.LeaseNotAfter,
-				ExecutionSpecDigest: candidate.ExecutionSpecDigest,
+				ExecutionSpecDigest: candidate.ExecutionSpecDigest, Environment: candidate.Environment,
+				SecretRefs: candidate.SecretRefs, Resources: candidate.Resources,
 			}
 			rawPayload, err := protocol.EncodeOrderPayload(payload)
 			if err != nil {
@@ -106,6 +111,42 @@ func dispatchWaiting(ctx context.Context, events *queue.JetStream, runs Dispatch
 			return nil
 		}
 		fmt.Printf("%s - Dispatched Run %q - Pool %q - Runner %q\n", time.Now().UTC().Format("2006-01-02 15:04 MST"), candidate.RunID, candidate.Pool, candidate.RunnerID)
+	}
+	return nil
+}
+
+func dispatchCancellations(ctx context.Context, events *queue.JetStream, runs DispatchRepository, signingKey protocol.SigningKey) error {
+	for range 100 {
+		candidate, claimed, err := runs.ClaimCancelling(ctx, func(candidate store.CancellationCandidate) ([]byte, error) {
+			now := time.Now().UTC()
+			payload := protocol.OrderPayload{Version: protocol.ProtocolVersion, OrderID: candidate.AttemptID,
+				TargetOrderID: candidate.AttemptID, RunID: candidate.RunID, TaskID: candidate.TaskID,
+				Attempt: uint32(candidate.AttemptNumber), LeaseToken: candidate.LeaseToken, RunnerID: candidate.RunnerID,
+				IssuedAt: now, NotBefore: now, ExpiresAt: candidate.LeaseNotAfter, Type: protocol.OrderCancel,
+				Issuer: signingKey.ID, Recipient: candidate.RunnerID, RunnerSessionID: candidate.RunnerSessionID,
+				FencingToken: uint64(candidate.FencingToken), LeaseNotAfter: candidate.LeaseNotAfter,
+				ExecutionSpecDigest: "cancel:" + candidate.Reason, Command: []string{"true"}, WorkingDir: ".", TimeoutSeconds: 1}
+			raw, err := protocol.EncodeOrderPayload(payload)
+			if err != nil {
+				return nil, err
+			}
+			envelope, err := signingKey.SignOrder(raw)
+			if err != nil {
+				return nil, err
+			}
+			encoded, err := protocol.EncodeEnvelope(envelope)
+			if err != nil {
+				return nil, err
+			}
+			return encoded, nil
+		})
+		if err != nil {
+			return err
+		}
+		if !claimed {
+			return nil
+		}
+		_ = candidate
 	}
 	return nil
 }

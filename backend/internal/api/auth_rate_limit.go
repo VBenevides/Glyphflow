@@ -8,7 +8,7 @@ import (
 )
 
 func (s Server) allowAuth(w http.ResponseWriter, r *http.Request, key string) bool {
-	if s.AuthRateLimiter == nil || s.AuthRateLimiter.Allow(key+"|"+requestSource(r), time.Now()) {
+	if s.AuthRateLimiter == nil || s.AuthRateLimiter.AllowSource(key, requestSource(r), time.Now()) {
 		return true
 	}
 	w.Header().Set("Retry-After", "60")

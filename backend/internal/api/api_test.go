@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -18,6 +19,30 @@ func TestAuthAndPagination(t *testing.T) {
 	s.Handler().ServeHTTP(w, r)
 	if w.Code != 200 || w.Header().Get("Content-Type") != "application/json" {
 		t.Fatalf("unexpected response: %d", w.Code)
+	}
+}
+
+func TestRequestBodiesAreBoundBeforePublicAndAuthenticatedHandlers(t *testing.T) {
+	large := strings.NewReader(strings.Repeat("x", maxRequestBodyBytes+1))
+	response := httptest.NewRecorder()
+	(Server{}).Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", large))
+	if response.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("public oversized request returned %d", response.Code)
+	}
+	sessions, err := NewSessionManager("01234567890123456789012345678901")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, _, err := sessions.Issue("user-1", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", strings.NewReader(strings.Repeat("x", maxRequestBodyBytes+1)))
+	request.Header.Set("Authorization", "Bearer "+token)
+	response = httptest.NewRecorder()
+	(Server{Auth: sessions.Authenticator(), Permissions: func(Claims) map[string]bool { return map[string]bool{"task.create": true} }}).Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("authenticated oversized request returned %d", response.Code)
 	}
 }
 

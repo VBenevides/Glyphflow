@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { commandArguments, emptyTaskDraft, environmentObject, environmentRows, taskDraftFromRecord, validateTaskDraft } from './task-editor'
+import { commandArguments, emptyTaskDraft, environmentObject, environmentRows, keyValueObject, keyValueRows, taskDraftFromRecord, validateTaskDraft } from './task-editor'
 
 describe('task version editor', () => {
   it('keeps command arguments separate from shell parsing', () => {
@@ -27,5 +27,10 @@ describe('task version editor', () => {
 		const errors = validateTaskDraft({ ...emptyTaskDraft, name: 'Nightly', command: 'echo', pool: 'default', environment: [{ name: 'BAD-NAME', value: 'x' }, { name: 'BAD-NAME', value: 'y' }] })
 		expect(errors['environment.0.name']).toContain('letters')
 		expect(errors['environment.1.name']).toContain('unique')
+	})
+
+	it('maps selector and secret rows without raw JSON fields', () => {
+		expect(keyValueRows({ os: 'linux', labels: { gpu: true } })).toEqual([{ name: 'labels', value: '{"gpu":true}' }, { name: 'os', value: 'linux' }])
+		expect(keyValueObject([{ name: ' os ', value: 'linux' }, { name: 'count', value: '2' }], true)).toEqual({ os: 'linux', count: 2 })
 	})
 })

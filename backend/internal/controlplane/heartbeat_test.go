@@ -2,6 +2,8 @@ package controlplane
 
 import (
 	"context"
+	"crypto/ed25519"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -9,8 +11,9 @@ import (
 )
 
 type heartbeatRepository struct {
-	id string
-	at time.Time
+	id  string
+	at  time.Time
+	key protocol.SigningKey
 }
 
 func TestRecordRunnerHeartbeatIgnoresRunnerEventEnvelope(t *testing.T) {
@@ -19,8 +22,8 @@ func TestRecordRunnerHeartbeatIgnoresRunnerEventEnvelope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := recordRunnerHeartbeat(context.Background(), repository, raw); err != nil {
-		t.Fatal(err)
+	if err := recordRunnerHeartbeat(context.Background(), repository, raw); err == nil {
+		t.Fatal("unsigned heartbeat envelope was accepted")
 	}
 	if repository.id != "" {
 		t.Fatalf("event envelope recorded as heartbeat for %q", repository.id)
@@ -32,15 +35,37 @@ func (r *heartbeatRepository) Heartbeat(_ context.Context, id string, at time.Ti
 	return nil
 }
 
+func (r *heartbeatRepository) FindPublicKey(context.Context, string, string) (ed25519.PublicKey, error) {
+	return r.key.Public.PublicKey, nil
+}
+
+func (r *heartbeatRepository) HeartbeatWithKey(_ context.Context, id, _ string, at time.Time, _ string, _ []byte) error {
+	r.id, r.at = id, at
+	return nil
+}
+
 func (r *heartbeatRepository) MarkStale(context.Context, time.Time) error { return nil }
 
 func TestRecordRunnerHeartbeat(t *testing.T) {
 	repository := &heartbeatRepository{}
-	want := time.Date(2026, 8, 14, 15, 0, 0, 123, time.UTC)
-	if err := recordRunnerHeartbeat(context.Background(), repository, []byte(`{"runner_id":"runner-1","boot_id":"boot-1","at":"2026-08-14T15:00:00.000000123Z"}`)); err != nil {
+	key, err := protocol.GenerateSigningKey("runner:1", time.Now().UTC(), time.Hour)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if repository.id != "runner-1" || !repository.at.Equal(want) {
+	repository.key = key
+	payload, _ := json.Marshal(map[string]string{"runner_id": "runner-1", "boot_id": "boot-1", "at": time.Now().UTC().Format(time.RFC3339Nano)})
+	envelope, err := key.SignEvent(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := protocol.EncodeEnvelope(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := recordRunnerHeartbeat(context.Background(), repository, raw); err != nil {
+		t.Fatal(err)
+	}
+	if repository.id != "runner-1" || repository.at.IsZero() {
 		t.Fatalf("heartbeat = %q %s", repository.id, repository.at)
 	}
 }

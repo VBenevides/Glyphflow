@@ -26,6 +26,8 @@ type Bootstrap struct {
 	ControlPublicKey string `json:"control_public_key,omitempty"`
 	NATSURL          string `json:"nats_url"`
 	MaxMessageBytes  int    `json:"max_message_bytes"`
+	RunnerKeyID      string `json:"runner_key_id,omitempty"`
+	RunnerPublicKey  string `json:"runner_public_key,omitempty"`
 }
 
 type RunnerConnection struct {
@@ -88,7 +90,7 @@ func LoadEmbeddedBootstrap() (*Bootstrap, error) {
 }
 
 func (b Bootstrap) Enroll(ctx context.Context) (RunnerConnection, error) {
-	payload, err := json.Marshal(map[string]string{"runner_id": b.RunnerID, "token": b.Token})
+	payload, err := json.Marshal(map[string]string{"runner_id": b.RunnerID, "token": b.Token, "key_id": b.RunnerKeyID, "public_key": b.RunnerPublicKey})
 	if err != nil {
 		return RunnerConnection{}, err
 	}

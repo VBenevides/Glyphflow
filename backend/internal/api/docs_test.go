@@ -42,8 +42,7 @@ func TestDocsAndPasswordAuthorization(t *testing.T) {
 	if login.Code != http.StatusOK {
 		t.Fatalf("docs login: %d", login.Code)
 	}
-	var tokens AuthTokens
-	if err := json.Unmarshal(login.Body.Bytes(), &tokens); err != nil || tokens.AccessToken == "" {
+	if strings.Contains(login.Body.String(), "access_token") || !hasCookie(login.Result().Cookies(), accessCookie) {
 		t.Fatalf("docs login response: %s", login.Body.String())
 	}
 }

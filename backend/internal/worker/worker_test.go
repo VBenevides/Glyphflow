@@ -10,6 +10,19 @@ import (
 	"time"
 )
 
+func TestActiveOrdersCancelAfterCompletionIsIdempotent(t *testing.T) {
+	active := &ActiveOrders{}
+	called := false
+	item := active.put("attempt-1", func() { called = true })
+	active.remove("attempt-1")
+	if active.cancel("attempt-1") {
+		t.Fatal("completed order was reported active")
+	}
+	if item.cancelled.Load() || called {
+		t.Fatal("completed order was cancelled")
+	}
+}
+
 func TestExecutorRejectsUntrustedDirectory(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -78,5 +91,18 @@ func TestExecutorReturnsNonZeroExitCodeAsFailure(t *testing.T) {
 	_, exitCode, err := executor.RunStreamingWithExitCode(ctx, []string{"sh", "-c", "exit 7"}, "/tmp", 0, nil)
 	if err == nil || exitCode == nil || *exitCode != 7 {
 		t.Fatalf("exit code = %v, err = %v", exitCode, err)
+	}
+}
+
+func TestExecutorEnvironmentOverridesProcessValue(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sh is not a Windows command")
+	}
+	executor := Executor{Roots: []string{"/tmp"}, AllowedCommands: map[string]bool{"sh": true}, MaxOutputBytes: 1024, Environment: map[string]string{"GLYPHFLOW_TEST": "task"}}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	output, err := executor.Run(ctx, []string{"sh", "-c", "printf %s \"$GLYPHFLOW_TEST\""}, "/tmp")
+	if err != nil || string(output) != "task" {
+		t.Fatalf("environment = %q, err = %v", output, err)
 	}
 }

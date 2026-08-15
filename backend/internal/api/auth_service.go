@@ -366,6 +366,14 @@ func (s *AuthService) register(email, password string, requireRegistration bool)
 	if !roleFound {
 		return AuthUser{}, errors.New("default role is not configured")
 	}
+	adminRoleID := ""
+	if systemAdmin {
+		adminRole, found, err := s.roles.FindByName(context.Background(), "admin")
+		if err != nil || !found {
+			return AuthUser{}, errors.New("admin role is not configured")
+		}
+		adminRoleID = adminRole.ID
+	}
 	hash, err := s.hasher.Hash(password)
 	if err != nil {
 		return AuthUser{}, err
@@ -375,19 +383,24 @@ func (s *AuthService) register(email, password string, requireRegistration bool)
 		return AuthUser{}, err
 	}
 	user := AuthUser{ID: id, Username: key, Email: key, Enabled: true}
-	if err := s.users.Create(context.Background(), store.UserRecord{ID: user.ID, Username: user.Username, Email: user.Email, Enabled: user.Enabled}, hash); err != nil {
-		return AuthUser{}, errors.New("registration failed")
-	}
-	if err := s.roles.Assign(context.Background(), id, roleDefinition.ID, "default", roleDefinition.ID); err != nil {
-		return AuthUser{}, err
-	}
-	if systemAdmin {
-		adminRole, found, err := s.roles.FindByName(context.Background(), "admin")
-		if err != nil || !found {
-			return AuthUser{}, errors.New("admin role is not configured")
+	userRecord := store.UserRecord{ID: user.ID, Username: user.Username, Email: user.Email, Enabled: user.Enabled}
+	if provisioner, ok := s.users.(interface {
+		ProvisionLocal(context.Context, store.UserRecord, string, string, string) error
+	}); ok {
+		if err := provisioner.ProvisionLocal(context.Background(), userRecord, hash, roleDefinition.ID, adminRoleID); err != nil {
+			return AuthUser{}, errors.New("registration failed")
 		}
-		if err := s.roles.Assign(context.Background(), id, adminRole.ID, "system-admin", id); err != nil {
+	} else {
+		if err := s.users.Create(context.Background(), userRecord, hash); err != nil {
+			return AuthUser{}, errors.New("registration failed")
+		}
+		if err := s.roles.Assign(context.Background(), id, roleDefinition.ID, "default", roleDefinition.ID); err != nil {
 			return AuthUser{}, err
+		}
+		if adminRoleID != "" {
+			if err := s.roles.Assign(context.Background(), id, adminRoleID, "system-admin", id); err != nil {
+				return AuthUser{}, err
+			}
 		}
 	}
 	s.mu.Lock()

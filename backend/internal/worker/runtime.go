@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/VBenevides/Glyphflow/backend/internal/protocol"
@@ -26,6 +28,40 @@ type OrderRuntime struct {
 	ControlPublicKey ed25519.PublicKey
 	SigningKey       protocol.SigningKey
 	Executor         Executor
+	Active           *ActiveOrders
+}
+
+type activeOrder struct {
+	cancel    context.CancelFunc
+	cancelled atomic.Bool
+}
+
+type ActiveOrders struct {
+	mu     sync.Mutex
+	orders map[string]*activeOrder
+}
+
+func (a *ActiveOrders) put(id string, cancel context.CancelFunc) *activeOrder {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.orders == nil {
+		a.orders = map[string]*activeOrder{}
+	}
+	item := &activeOrder{cancel: cancel}
+	a.orders[id] = item
+	return item
+}
+func (a *ActiveOrders) remove(id string) { a.mu.Lock(); delete(a.orders, id); a.mu.Unlock() }
+func (a *ActiveOrders) cancel(id string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	item, ok := a.orders[id]
+	if !ok {
+		return false
+	}
+	item.cancelled.Store(true)
+	item.cancel()
+	return true
 }
 
 func (r OrderRuntime) Handle(ctx context.Context, message queue.Message) error {
@@ -43,6 +79,23 @@ func (r OrderRuntime) Handle(ctx context.Context, message queue.Message) error {
 	order, err := protocol.DecodeOrderPayload(rawPayload)
 	if err != nil {
 		return err
+	}
+	if order.Type == protocol.OrderCancel {
+		if err := order.ValidateTime(time.Now().UTC(), time.Second); err != nil {
+			return err
+		}
+		if err := order.ValidateIdentity(r.RunnerID, order.RunID, order.Attempt, order.LeaseToken); err != nil {
+			return err
+		}
+		if err := order.ValidateExecution(); err != nil {
+			return err
+		}
+		if r.Active != nil {
+			// Completion can win the cancellation race. The signed, attempt-specific
+			// order is then already satisfied and must not be redelivered forever.
+			_ = r.Active.cancel(order.TargetOrderID)
+		}
+		return nil
 	}
 	payload, err := r.Store.AcceptOrder(message.Data, protocol.Keyring{"control-plane": {ID: "control-plane", PublicKey: r.ControlPublicKey}}, time.Now().UTC(), r.RunnerID, order.RunID, order.Attempt, order.LeaseToken, time.Second)
 	if err != nil {
@@ -66,9 +119,18 @@ func (r OrderRuntime) Handle(ctx context.Context, message queue.Message) error {
 	}
 	executionContext, cancel := context.WithTimeout(ctx, time.Duration(payload.TimeoutSeconds)*time.Second)
 	defer cancel()
+	var active *activeOrder
+	if r.Active != nil {
+		active = r.Active.put(payload.OrderID, cancel)
+		defer r.Active.remove(payload.OrderID)
+	}
 	logSequences := map[string]uint64{"stdout": 0, "stderr": 0}
 	streamed := false
-	output, exitCode, runErr := r.Executor.RunStreamingWithExitCode(executionContext, payload.Command, payload.WorkingDir, logFlushInterval, func(stream string, chunk []byte) error {
+	executor := r.Executor
+	if payload.Environment != nil {
+		executor.Environment = payload.Environment
+	}
+	output, exitCode, runErr := executor.RunStreamingWithExitCode(executionContext, payload.Command, payload.WorkingDir, logFlushInterval, func(stream string, chunk []byte) error {
 		if stream != "stdout" && stream != "stderr" {
 			return errors.New("executor returned an invalid output stream")
 		}
@@ -100,7 +162,10 @@ func (r OrderRuntime) Handle(ctx context.Context, message queue.Message) error {
 	}
 	fmt.Printf("%s - Finished Run %q - %d\n", time.Now().UTC().Format("2006-01-02 15:04 MST"), payload.RunID, finishedCode)
 	eventType := protocol.EventCompleted
-	if runErr != nil {
+	if active != nil && active.cancelled.Load() {
+		eventType = protocol.EventCancelled
+	}
+	if runErr != nil && (active == nil || !active.cancelled.Load()) {
 		eventType = protocol.EventFailed
 	}
 	errorText := ""
@@ -115,7 +180,10 @@ func (r OrderRuntime) Handle(ctx context.Context, message queue.Message) error {
 		return err
 	}
 	state := "COMPLETED"
-	if runErr != nil {
+	if active != nil && active.cancelled.Load() {
+		state = "CANCELLED"
+	}
+	if runErr != nil && state != "CANCELLED" {
 		state = "FAILED"
 	}
 	return r.Store.FinishOrder(payload.OrderID, state, errorText)

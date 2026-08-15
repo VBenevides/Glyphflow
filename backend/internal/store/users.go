@@ -45,6 +45,31 @@ func (s *UserStore) Create(ctx context.Context, user UserRecord, passwordHash st
 	return tx.Commit(ctx)
 }
 
+func (s *UserStore) ProvisionLocal(ctx context.Context, user UserRecord, passwordHash, defaultRoleID, adminRoleID string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `INSERT INTO users (id, username, email, display_name, status) VALUES ($1, $2, $3, $4, $5)`, user.ID, user.Username, user.Email, user.DisplayName, enabledStatus(user.Enabled)); err != nil {
+		return err
+	}
+	if passwordHash != "" {
+		if _, err := tx.Exec(ctx, `INSERT INTO user_passwords (user_id, password_hash) VALUES ($1, $2)`, user.ID, passwordHash); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO role_assignments (user_id, role_id, source_type, source_key) VALUES ($1, $2, 'default', $2)`, user.ID, defaultRoleID); err != nil {
+		return err
+	}
+	if adminRoleID != "" {
+		if _, err := tx.Exec(ctx, `INSERT INTO role_assignments (user_id, role_id, source_type, source_key) VALUES ($1, $2, 'system-admin', $1)`, user.ID, adminRoleID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
 func (s *UserStore) FindByID(ctx context.Context, id string) (UserRecord, bool, error) {
 	return s.find(ctx, `WHERE id = $1`, id)
 }

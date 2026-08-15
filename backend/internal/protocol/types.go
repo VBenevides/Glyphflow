@@ -13,6 +13,7 @@ const (
 	EventFailed    EventType = "failed"
 	EventTimedOut  EventType = "timed_out"
 	EventCancelled EventType = "cancelled"
+	EventUnknown   EventType = "unknown"
 )
 
 func (t OrderType) Valid() bool {

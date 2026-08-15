@@ -42,6 +42,7 @@ type RunnerRepository interface {
 	Delete(context.Context, string) (bool, error)
 	CreateEnrollment(context.Context, RunnerRecord, RunnerEnrollmentRecord) error
 	ConsumeEnrollment(context.Context, string, time.Time) (RunnerRecord, error)
+	ConsumeEnrollmentWithKey(context.Context, string, time.Time, string, []byte) (RunnerRecord, error)
 	CreateSession(context.Context, string, string) error
 	Heartbeat(context.Context, string, time.Time) error
 	HeartbeatWithKey(context.Context, string, string, time.Time, string, []byte) error
@@ -205,6 +206,17 @@ func maxRunnerCapacity(value int) int {
 }
 
 func (s *RunnerStore) ConsumeEnrollment(ctx context.Context, tokenHash string, now time.Time) (RunnerRecord, error) {
+	return s.consumeEnrollment(ctx, tokenHash, now, "", nil)
+}
+
+func (s *RunnerStore) ConsumeEnrollmentWithKey(ctx context.Context, tokenHash string, now time.Time, keyID string, publicKey []byte) (RunnerRecord, error) {
+	if keyID == "" || len(publicKey) != ed25519.PublicKeySize {
+		return RunnerRecord{}, errors.New("runner enrollment key is incomplete")
+	}
+	return s.consumeEnrollment(ctx, tokenHash, now, keyID, publicKey)
+}
+
+func (s *RunnerStore) consumeEnrollment(ctx context.Context, tokenHash string, now time.Time, keyID string, publicKey []byte) (RunnerRecord, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return RunnerRecord{}, err
@@ -228,6 +240,20 @@ func (s *RunnerStore) ConsumeEnrollment(ctx context.Context, tokenHash string, n
 	}
 	if _, err := tx.Exec(ctx, `UPDATE runner_enrollments SET used_at = now() WHERE token_hash = decode($1, 'hex')`, tokenHash); err != nil {
 		return RunnerRecord{}, err
+	}
+	if keyID != "" {
+		var existingRunner string
+		var existingKey []byte
+		err := tx.QueryRow(ctx, `SELECT runner_id, public_key FROM runner_keys WHERE key_id = $1 FOR UPDATE`, keyID).Scan(&existingRunner, &existingKey)
+		if !errors.Is(err, pgx.ErrNoRows) && err != nil {
+			return RunnerRecord{}, err
+		}
+		if err == nil && (existingRunner != runnerID || !ed25519.PublicKey(existingKey).Equal(ed25519.PublicKey(publicKey))) {
+			return RunnerRecord{}, errors.New("runner enrollment key is already bound")
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO runner_keys (key_id, runner_id, public_key, not_before) VALUES ($1, $2, $3, now()) ON CONFLICT (key_id) DO NOTHING`, keyID, runnerID, publicKey); err != nil {
+			return RunnerRecord{}, err
+		}
 	}
 	if _, err := tx.Exec(ctx, `UPDATE runners SET observed_state = 'PENDING', last_seen_at = NULL, updated_at = now() WHERE id = $1`, runnerID); err != nil {
 		return RunnerRecord{}, err
@@ -267,8 +293,16 @@ func (s *RunnerStore) HeartbeatWithKey(ctx context.Context, runnerID, bootID str
 	if _, err := tx.Exec(ctx, `INSERT INTO runner_sessions (id, runner_id, boot_id, last_heartbeat_at) VALUES ($1, $2, $3, $4) ON CONFLICT (runner_id, boot_id) DO UPDATE SET last_heartbeat_at = EXCLUDED.last_heartbeat_at, disconnected_at = NULL`, runnerID+"/"+bootID, runnerID, bootID, now); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO runner_keys (key_id, runner_id, public_key, not_before) VALUES ($1, $2, $3, $4) ON CONFLICT (key_id) DO UPDATE SET public_key = EXCLUDED.public_key, not_before = EXCLUDED.not_before, revoked_at = NULL`, keyID, runnerID, publicKey, now.Add(-time.Minute)); err != nil {
+	var boundRunner string
+	var boundKey []byte
+	if err := tx.QueryRow(ctx, `SELECT runner_id, public_key FROM runner_keys WHERE key_id = $1 AND revoked_at IS NULL`, keyID).Scan(&boundRunner, &boundKey); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errors.New("runner heartbeat key is not enrolled")
+		}
 		return err
+	}
+	if boundRunner != runnerID || !ed25519.PublicKey(boundKey).Equal(ed25519.PublicKey(publicKey)) {
+		return errors.New("runner heartbeat key does not match enrollment")
 	}
 	if _, err := tx.Exec(ctx, `UPDATE runners SET observed_state = 'ONLINE', last_seen_at = $2, updated_at = now() WHERE id = $1 AND observed_state <> 'REVOKED'`, runnerID, now); err != nil {
 		return err

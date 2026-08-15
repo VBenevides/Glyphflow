@@ -58,6 +58,7 @@ var routeDefinitions = []RouteDefinition{
 	{Pattern: "/api/v1/auth/logout-all", Access: RouteAuthenticated},
 	{Pattern: "/api/v1/auth/oidc/providers", Access: RoutePublic},
 	{Pattern: "/api/v1/auth/oidc/login", Access: RoutePublic},
+	{Pattern: "/api/v1/auth/oidc/link", Access: RouteAuthenticated},
 	{Pattern: "/api/v1/auth/oidc/callback", Access: RoutePublic},
 	{Pattern: "/api/v1/me", Access: RouteAuthenticated},
 	{Pattern: "/api/v1/me/password", Access: RouteAuthenticated},

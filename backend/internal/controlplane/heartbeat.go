@@ -3,7 +3,6 @@ package controlplane
 import (
 	"context"
 	"crypto/ed25519"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -36,7 +35,7 @@ func RunRunnerHeartbeatMonitor(ctx context.Context, events *queue.JetStream, rep
 	go func() {
 		for monitorCtx.Err() == nil {
 			if err := events.ConsumeOne(monitorCtx, consumer, func(ctx context.Context, message queue.Message) error {
-				return recordRunnerHeartbeat(ctx, repository, message.Data)
+				return recordRunnerHeartbeatForSubject(ctx, repository, message.Subject, message.Data)
 			}); err != nil && monitorCtx.Err() == nil {
 				select {
 				case <-time.After(time.Second):
@@ -62,38 +61,56 @@ func RunRunnerHeartbeatMonitor(ctx context.Context, events *queue.JetStream, rep
 }
 
 func recordRunnerHeartbeat(ctx context.Context, repository RunnerHeartbeatRepository, raw []byte) error {
-	if _, err := protocol.DecodeEnvelope(raw); err == nil {
-		return nil
+	return recordRunnerHeartbeatForSubject(ctx, repository, "", raw)
+}
+
+func recordRunnerHeartbeatForSubject(ctx context.Context, repository RunnerHeartbeatRepository, subject string, raw []byte) error {
+	envelope, err := protocol.DecodeEnvelope(raw)
+	if err != nil {
+		return errors.New("runner heartbeat must be signed")
+	}
+	payload, err := envelope.PayloadBytes()
+	if err != nil {
+		return err
 	}
 	var heartbeat struct {
-		RunnerID  string `json:"runner_id"`
-		BootID    string `json:"boot_id"`
-		At        string `json:"at"`
-		KeyID     string `json:"key_id"`
-		PublicKey string `json:"public_key"`
-		EventID   string `json:"event_id"`
+		RunnerID string `json:"runner_id"`
+		BootID   string `json:"boot_id"`
+		At       string `json:"at"`
+		KeyID    string `json:"key_id"`
 	}
-	if err := json.Unmarshal(raw, &heartbeat); err != nil {
+	if err := json.Unmarshal(payload, &heartbeat); err != nil {
 		return fmt.Errorf("invalid runner heartbeat: %w", err)
-	}
-	if heartbeat.EventID != "" && heartbeat.BootID == "" {
-		return nil
 	}
 	if strings.TrimSpace(heartbeat.RunnerID) == "" || strings.TrimSpace(heartbeat.BootID) == "" || strings.TrimSpace(heartbeat.At) == "" {
 		return errors.New("runner heartbeat fields are required")
+	}
+	if subject != "" && subject != queue.Subject("events", heartbeat.RunnerID) {
+		return errors.New("runner heartbeat subject does not match runner")
+	}
+	keyRepository, ok := repository.(interface {
+		FindPublicKey(context.Context, string, string) (ed25519.PublicKey, error)
+	})
+	if !ok {
+		return errors.New("runner heartbeat key repository is unavailable")
+	}
+	publicKey, err := keyRepository.FindPublicKey(ctx, heartbeat.RunnerID, envelope.KeyID)
+	if err != nil {
+		return errors.New("runner heartbeat key is not enrolled")
+	}
+	if err := envelope.VerifyEvent(publicKey); err != nil {
+		return err
 	}
 	at, err := time.Parse(time.RFC3339Nano, heartbeat.At)
 	if err != nil {
 		return fmt.Errorf("invalid runner heartbeat timestamp: %w", err)
 	}
-	if heartbeat.PublicKey != "" {
-		publicKey, err := base64.RawStdEncoding.DecodeString(heartbeat.PublicKey)
-		if err != nil || len(publicKey) != ed25519.PublicKeySize {
-			return errors.New("invalid runner public key")
-		}
-		if sessionRepository, ok := repository.(RunnerSessionHeartbeatRepository); ok {
-			return sessionRepository.HeartbeatWithKey(ctx, heartbeat.RunnerID, heartbeat.BootID, at.UTC(), heartbeat.KeyID, publicKey)
-		}
+	now := time.Now().UTC()
+	if at.Before(now.Add(-30*time.Second)) || at.After(now.Add(30*time.Second)) {
+		return errors.New("runner heartbeat timestamp is outside the allowed window")
 	}
-	return repository.Heartbeat(ctx, heartbeat.RunnerID, at.UTC())
+	if sessionRepository, ok := repository.(RunnerSessionHeartbeatRepository); ok {
+		return sessionRepository.HeartbeatWithKey(ctx, heartbeat.RunnerID, heartbeat.BootID, at.UTC(), envelope.KeyID, publicKey)
+	}
+	return errors.New("runner heartbeat session repository is unavailable")
 }

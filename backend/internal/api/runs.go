@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -72,7 +73,7 @@ func (s *RunService) collection(w http.ResponseWriter, r *http.Request) {
 			for _, item := range items {
 				result = append(result, runRecordFromStore(item))
 			}
-			result = filterRuns(result, r.URL.Query().Get("state"))
+			result = filterRuns(result, r.URL.Query())
 			writePage(w, r, result)
 			return
 		}
@@ -82,7 +83,7 @@ func (s *RunService) collection(w http.ResponseWriter, r *http.Request) {
 			items = append(items, run)
 		}
 		s.mu.RUnlock()
-		items = filterRuns(items, r.URL.Query().Get("state"))
+		items = filterRuns(items, r.URL.Query())
 		sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 		writePage(w, r, items)
 		return
@@ -90,9 +91,12 @@ func (s *RunService) collection(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 }
 
-func filterRuns(items []RunRecord, state string) []RunRecord {
-	state = strings.ToUpper(strings.TrimSpace(state))
-	if state == "" {
+func filterRuns(items []RunRecord, query url.Values) []RunRecord {
+	state := strings.ToUpper(strings.TrimSpace(query.Get("state")))
+	task, runner, trigger := strings.ToLower(strings.TrimSpace(query.Get("task"))), strings.ToLower(strings.TrimSpace(query.Get("runner"))), strings.ToUpper(strings.TrimSpace(query.Get("trigger")))
+	from, _ := parseFilterTime(query.Get("from"))
+	to, _ := parseFilterTime(query.Get("to"))
+	if state == "" && task == "" && runner == "" && trigger == "" && from.IsZero() && to.IsZero() {
 		return items
 	}
 	filtered := items[:0]
@@ -101,11 +105,40 @@ func filterRuns(items []RunRecord, state string) []RunRecord {
 		if state == "ACTIVE" {
 			match = isActiveRunState(item.State)
 		}
+		if state == "" {
+			match = true
+		}
+		if task != "" {
+			match = match && (strings.Contains(strings.ToLower(item.TaskID), task) || strings.Contains(strings.ToLower(item.TaskName), task))
+		}
+		if runner != "" {
+			match = match && strings.Contains(strings.ToLower(item.Runner), runner)
+		}
+		if trigger != "" {
+			match = match && strings.EqualFold(item.Trigger, trigger)
+		}
+		if at, err := parseFilterTime(item.ScheduledFor); !from.IsZero() {
+			match = match && err == nil && !at.Before(from)
+		}
+		if at, err := parseFilterTime(item.ScheduledFor); !to.IsZero() {
+			match = match && err == nil && !at.After(to)
+		}
 		if match {
 			filtered = append(filtered, item)
 		}
 	}
 	return filtered
+}
+
+func parseFilterTime(value string) (time.Time, error) {
+	if value == "" {
+		return time.Time{}, nil
+	}
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		parsed, err = time.Parse("2006-01-02T15:04", value)
+	}
+	return parsed, err
 }
 
 func isActiveRunState(state string) bool {
@@ -272,6 +305,44 @@ func (s *RunService) action(w http.ResponseWriter, r *http.Request, id, action s
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.repository != nil {
+		if action == "cancel" {
+			if cancellation, ok := s.repository.(store.CancellationRepository); ok {
+				updated, changed, err := cancellation.RequestCancellation(r.Context(), id, input.Reason)
+				if err != nil {
+					writeError(w, http.StatusServiceUnavailable, "run cancellation failed", err)
+					return
+				}
+				if !changed {
+					if _, found, findErr := s.repository.Find(r.Context(), id); findErr != nil || !found {
+						writeJSON(w, http.StatusNotFound, map[string]string{"error": "run not found"})
+					} else {
+						writeJSON(w, http.StatusConflict, map[string]string{"error": "run action is not allowed in the current state"})
+					}
+					return
+				}
+				writeJSON(w, http.StatusOK, runRecordFromStore(updated))
+				return
+			}
+		}
+		if action == "retry" || action == "reconcile" {
+			if retryRepository, ok := s.repository.(store.RetryRepository); ok {
+				updated, changed, err := retryRepository.Retry(r.Context(), id, input.Reason)
+				if err != nil {
+					writeError(w, http.StatusServiceUnavailable, "run retry failed", err)
+					return
+				}
+				if !changed {
+					if _, found, findErr := s.repository.Find(r.Context(), id); findErr != nil || !found {
+						writeJSON(w, http.StatusNotFound, map[string]string{"error": "run not found"})
+					} else {
+						writeJSON(w, http.StatusConflict, map[string]string{"error": "run retry is not allowed in the current state"})
+					}
+					return
+				}
+				writeJSON(w, http.StatusOK, runRecordFromStore(updated))
+				return
+			}
+		}
 		var from []string
 		var to string
 		switch action {

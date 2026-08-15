@@ -52,12 +52,26 @@ func main() {
 	if !found {
 		if bootstrap == nil {
 			connection = worker.RunnerConnection{}
-		} else if connection, err = bootstrap.Enroll(ctx); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		} else if err := localStore.SaveConnection(connection); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+		} else {
+			enrollmentKey, keyErr := protocol.GenerateSigningKey("runner:"+bootstrap.RunnerID, time.Now().UTC(), 365*24*time.Hour)
+			if keyErr != nil {
+				fmt.Fprintln(os.Stderr, keyErr)
+				os.Exit(1)
+			}
+			bootstrap.RunnerKeyID = enrollmentKey.ID
+			bootstrap.RunnerPublicKey = base64.RawStdEncoding.EncodeToString(enrollmentKey.Public.PublicKey)
+			if connection, err = bootstrap.Enroll(ctx); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			if err := localStore.SaveSigningKey(enrollmentKey); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			if err := localStore.SaveConnection(connection); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
 		}
 	}
 	if bootstrap != nil && bootstrap.ControlPublicKey != "" && connection.ControlPublicKey != bootstrap.ControlPublicKey {
@@ -89,23 +103,34 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	workerKey, foundKey, err := localStore.LoadSigningKey()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if !foundKey || workerKey.ID != "runner:"+cfg.RunnerID || time.Now().UTC().After(workerKey.Public.NotAfter) {
+		workerKey, err = protocol.GenerateSigningKey("runner:"+cfg.RunnerID, time.Now().UTC(), 365*24*time.Hour)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		if err := localStore.SaveSigningKey(workerKey); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	}
 	var previousBootID string
 	if raw, err := localStore.Get("worker.boot"); err == nil {
 		_ = json.Unmarshal(raw, &previousBootID)
 	}
 	if previousBootID != "" {
-		if _, err := worker.RecoverDurable(localStore, previousBootID); err != nil {
+		if _, err := worker.RecoverDurableSigned(localStore, previousBootID, workerKey); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
 	}
 	bootID := fmt.Sprintf("%s-%d", cfg.RunnerID, time.Now().UnixNano())
 	if err := localStore.Put("worker.boot", bootID); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-	workerKey, err := protocol.GenerateSigningKey("runner:"+cfg.RunnerID, time.Now().UTC(), 365*24*time.Hour)
-	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -120,7 +145,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer jetstream.Close()
-	runtime := worker.OrderRuntime{Store: localStore, Publisher: jetstream, RunnerID: cfg.RunnerID, ExecutorBootID: bootID, ProcessID: int64(os.Getpid()), ControlPublicKey: ed25519.PublicKey(controlPublicKey), SigningKey: workerKey, Executor: worker.Executor{Roots: []string{cfg.DataDir, "."}, MaxOutputBytes: cfg.MaxOutputBytes}}
+	runtime := worker.OrderRuntime{Store: localStore, Publisher: jetstream, RunnerID: cfg.RunnerID, ExecutorBootID: bootID, ProcessID: int64(os.Getpid()), ControlPublicKey: ed25519.PublicKey(controlPublicKey), SigningKey: workerKey, Active: &worker.ActiveOrders{}, Executor: worker.Executor{Roots: []string{cfg.DataDir, "."}, MaxOutputBytes: cfg.MaxOutputBytes}}
 	consumer, err := jetstream.Consumer(ctx, "runner-"+cfg.RunnerID, queue.Subject("orders", cfg.RunnerID), 100)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -153,10 +178,17 @@ func main() {
 }
 
 func workerHeartbeat(ctx context.Context, jetstream *queue.JetStream, runnerID, bootID string, signingKey protocol.SigningKey) {
-	publicKey := signingKey.Private.Public().(ed25519.PublicKey)
 	publish := func(now time.Time) {
-		payload, _ := json.Marshal(map[string]string{"runner_id": runnerID, "boot_id": bootID, "at": now.UTC().Format(time.RFC3339Nano), "key_id": signingKey.ID, "public_key": base64.RawStdEncoding.EncodeToString(publicKey)})
-		_ = jetstream.Publish(ctx, queue.Message{Subject: queue.Subject("events", runnerID), Data: payload, ID: "heartbeat:" + bootID + ":" + now.UTC().Format(time.RFC3339Nano)})
+		payload, _ := json.Marshal(map[string]string{"runner_id": runnerID, "boot_id": bootID, "at": now.UTC().Format(time.RFC3339Nano)})
+		envelope, err := signingKey.SignEvent(payload)
+		if err != nil {
+			return
+		}
+		raw, err := protocol.EncodeEnvelope(envelope)
+		if err != nil {
+			return
+		}
+		_ = jetstream.Publish(ctx, queue.Message{Subject: queue.Subject("events", runnerID), Data: raw, ID: "heartbeat:" + bootID + ":" + now.UTC().Format(time.RFC3339Nano)})
 	}
 	publish(time.Now().UTC())
 	ticker := time.NewTicker(10 * time.Second)

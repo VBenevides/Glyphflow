@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,15 +16,22 @@ import (
 )
 
 type TaskRecord struct {
-	ID             string     `json:"id"`
-	Name           string     `json:"name"`
-	Enabled        bool       `json:"enabled"`
-	ActiveVersion  int        `json:"activeVersion"`
-	Pool           string     `json:"pool"`
-	PinnedRunner   string     `json:"pinnedRunner,omitempty"`
-	Command        []string   `json:"command,omitempty"`
-	TimeoutSeconds int        `json:"timeoutSeconds"`
-	LatestRun      *RunRecord `json:"latestRun,omitempty"`
+	ID                 string         `json:"id"`
+	Name               string         `json:"name"`
+	Enabled            bool           `json:"enabled"`
+	ActiveVersion      int            `json:"activeVersion"`
+	Pool               string         `json:"pool"`
+	PinnedRunner       string         `json:"pinnedRunner,omitempty"`
+	Command            []string       `json:"command,omitempty"`
+	WorkingDirectory   string         `json:"workingDirectory,omitempty"`
+	PlacementSelectors map[string]any `json:"placementSelectors,omitempty"`
+	Environment        map[string]any `json:"environment,omitempty"`
+	SecretReferences   map[string]any `json:"secretReferences,omitempty"`
+	TimeoutSeconds     int            `json:"timeoutSeconds"`
+	MaxOutputBytes     int64          `json:"maxOutputBytes"`
+	MaxAttempts        int            `json:"maxAttempts"`
+	AmbiguityPolicy    string         `json:"ambiguityPolicy,omitempty"`
+	LatestRun          *RunRecord     `json:"latestRun,omitempty"`
 }
 
 type ScheduleRecord struct {
@@ -77,7 +85,7 @@ func taskRecordFromStore(task store.TaskRecord) TaskRecord {
 		mapped := runRecordFromStore(*task.LatestRun)
 		latestRun = &mapped
 	}
-	return TaskRecord{ID: task.ID, Name: task.Name, Enabled: task.Enabled, ActiveVersion: task.ActiveVersion, Pool: task.RunnerPoolID, PinnedRunner: task.PinnedRunnerID, Command: append([]string(nil), task.Command...), TimeoutSeconds: task.TimeoutSeconds, LatestRun: latestRun}
+	return TaskRecord{ID: task.ID, Name: task.Name, Enabled: task.Enabled, ActiveVersion: task.ActiveVersion, Pool: task.RunnerPoolID, PinnedRunner: task.PinnedRunnerID, Command: append([]string(nil), task.Command...), WorkingDirectory: task.WorkingDirectory, PlacementSelectors: task.PlacementSelectors, Environment: task.Environment, SecretReferences: task.SecretReferences, TimeoutSeconds: task.TimeoutSeconds, MaxOutputBytes: task.MaxOutputBytes, MaxAttempts: task.MaxAttempts, AmbiguityPolicy: task.AmbiguityPolicy, LatestRun: latestRun}
 }
 
 type taskInput struct {
@@ -132,6 +140,7 @@ func (o *OperationsService) taskCollection(w http.ResponseWriter, r *http.Reques
 			for _, item := range items {
 				result = append(result, taskRecordFromStore(item))
 			}
+			result = filterTasks(result, r.URL.Query().Get("search"))
 			writePage(w, r, result)
 			return
 		}
@@ -141,6 +150,7 @@ func (o *OperationsService) taskCollection(w http.ResponseWriter, r *http.Reques
 			items = append(items, task)
 		}
 		o.mu.RUnlock()
+		items = filterTasks(items, r.URL.Query().Get("search"))
 		sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 		writePage(w, r, items)
 		return
@@ -273,6 +283,7 @@ func (o *OperationsService) scheduleCollection(w http.ResponseWriter, r *http.Re
 			for _, item := range items {
 				result = append(result, scheduleRecordFromStore(item))
 			}
+			result = filterSchedules(result, r.URL.Query())
 			writePage(w, r, result)
 			return
 		}
@@ -282,6 +293,7 @@ func (o *OperationsService) scheduleCollection(w http.ResponseWriter, r *http.Re
 			items = append(items, schedule)
 		}
 		o.mu.RUnlock()
+		items = filterSchedules(items, r.URL.Query())
 		sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 		writePage(w, r, items)
 		return
@@ -328,6 +340,39 @@ func (o *OperationsService) scheduleCollection(w http.ResponseWriter, r *http.Re
 func (o *OperationsService) schedulePath(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	if len(parts) != 4 {
+		if len(parts) == 5 && (parts[4] == "enable" || parts[4] == "disable") && r.Method == http.MethodPost {
+			id := parts[3]
+			enabled := parts[4] == "enable"
+			o.mu.RLock()
+			repository := o.scheduleRepository
+			o.mu.RUnlock()
+			if repository != nil {
+				item, found, err := repository.SetEnabled(r.Context(), id, enabled)
+				if err != nil {
+					writeError(w, http.StatusConflict, "schedule state update failed", err)
+					return
+				}
+				if !found {
+					writeJSON(w, http.StatusNotFound, map[string]string{"error": "schedule not found"})
+					return
+				}
+				writeJSON(w, http.StatusOK, scheduleRecordFromStore(item))
+				return
+			}
+			o.mu.Lock()
+			item, found := o.schedules[id]
+			if found {
+				item.Enabled, item.State = enabled, map[bool]string{true: "ACTIVE", false: "DISABLED"}[enabled]
+				o.schedules[id] = item
+			}
+			o.mu.Unlock()
+			if !found {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "schedule not found"})
+				return
+			}
+			writeJSON(w, http.StatusOK, item)
+			return
+		}
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "schedule not found"})
 		return
 	}
@@ -417,12 +462,26 @@ func (o *OperationsService) preview(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "schedule expression is required"})
 		return
 	}
-	next, err := controlplane.NextFire(input.Expression, input.Timezone, time.Now().UTC())
+	occurrences, err := previewOccurrences(input.Expression, input.Timezone, time.Now().UTC())
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string][]string{"occurrences": {next.Format(time.RFC3339)}})
+	writeJSON(w, http.StatusOK, map[string][]string{"occurrences": occurrences})
+}
+
+func previewOccurrences(expression, timezone string, now time.Time) ([]string, error) {
+	cursor := now
+	occurrences := make([]string, 0, 5)
+	for range 5 {
+		next, err := controlplane.NextFire(expression, timezone, cursor)
+		if err != nil {
+			return nil, err
+		}
+		occurrences = append(occurrences, next.Format(time.RFC3339))
+		cursor = next
+	}
+	return occurrences, nil
 }
 
 type scheduleInput struct {
@@ -514,6 +573,42 @@ func (o *OperationsService) schedule(id string) (ScheduleRecord, bool) {
 	defer o.mu.RUnlock()
 	schedule, ok := o.schedules[id]
 	return schedule, ok
+}
+
+func filterTasks(items []TaskRecord, search string) []TaskRecord {
+	search = strings.ToLower(strings.TrimSpace(search))
+	if search == "" {
+		return items
+	}
+	filtered := items[:0]
+	for _, item := range items {
+		if strings.Contains(strings.ToLower(item.ID), search) || strings.Contains(strings.ToLower(item.Name), search) || strings.Contains(strings.ToLower(item.Pool), search) {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
+}
+
+func filterSchedules(items []ScheduleRecord, query url.Values) []ScheduleRecord {
+	task, due := strings.TrimSpace(query.Get("task")), strings.EqualFold(query.Get("due"), "true")
+	if task == "" && !due {
+		return items
+	}
+	filtered := items[:0]
+	now := time.Now().UTC()
+	for _, item := range items {
+		if task != "" && !strings.Contains(strings.ToLower(item.TaskID), strings.ToLower(task)) {
+			continue
+		}
+		if due {
+			at, err := time.Parse(time.RFC3339, item.NextFireAt)
+			if err != nil || at.After(now) {
+				continue
+			}
+		}
+		filtered = append(filtered, item)
+	}
+	return filtered
 }
 
 func (o *OperationsService) deleteSchedule(id string) bool {
