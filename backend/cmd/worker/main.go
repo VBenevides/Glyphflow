@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -155,21 +156,26 @@ func main() {
 	}
 	defer jetstream.Close()
 	runtime := worker.OrderRuntime{Store: localStore, Publisher: jetstream, RunnerID: cfg.RunnerID, ExecutorBootID: bootID, ProcessID: int64(os.Getpid()), ControlPublicKey: ed25519.PublicKey(controlPublicKey), SigningKey: workerKey, Active: &worker.ActiveOrders{}, Executor: worker.Executor{Roots: []string{cfg.DataDir, "."}, MaxOutputBytes: cfg.MaxOutputBytes}}
-	consumer, err := jetstream.Consumer(ctx, "runner-"+cfg.RunnerID, queue.Subject("orders", cfg.RunnerID), 100)
+	consumer, err := jetstream.Consumer(ctx, "runner-"+cfg.RunnerID, queue.Subject("orders", cfg.RunnerID), queue.UnlimitedPending)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	var background sync.WaitGroup
+	background.Add(1)
 	go func() {
+		defer background.Done()
 		for ctx.Err() == nil {
-			if err := jetstream.ConsumeOne(ctx, consumer, func(handlerCtx context.Context, message queue.Message) error {
+			if err := jetstream.ConsumeConcurrent(ctx, consumer, func(handlerCtx context.Context, message queue.Message) error {
 				return runtime.Handle(handlerCtx, message)
 			}); err != nil && ctx.Err() == nil {
 				time.Sleep(time.Second)
 			}
 		}
 	}()
+	background.Add(1)
 	go func() {
+		defer background.Done()
 		for ctx.Err() == nil {
 			if err := worker.PublishPendingEvents(ctx, localStore, jetstream, cfg.RunnerID); err != nil && ctx.Err() == nil {
 				time.Sleep(time.Second)
@@ -181,9 +187,14 @@ func main() {
 			}
 		}
 	}()
-	go workerHeartbeat(ctx, jetstream, cfg.RunnerID, bootID, workerKey)
+	background.Add(1)
+	go func() {
+		defer background.Done()
+		workerHeartbeat(ctx, jetstream, cfg.RunnerID, bootID, workerKey)
+	}()
 	fmt.Printf("Glyphflow worker v%s\n", backend.Version)
 	<-ctx.Done()
+	background.Wait()
 }
 
 func workerHeartbeat(ctx context.Context, jetstream *queue.JetStream, runnerID, bootID string, signingKey protocol.SigningKey) {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	urlpkg "net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -17,6 +18,8 @@ type JetStream struct {
 	js     jetstream.JetStream
 	stream jetstream.Stream
 }
+
+const UnlimitedPending = -1
 
 type TLSConfig struct {
 	CertificateFile string
@@ -98,7 +101,7 @@ func (j *JetStream) Publish(ctx context.Context, message Message) error {
 }
 
 func (j *JetStream) Consumer(ctx context.Context, durable, subject string, maxPending int) (jetstream.Consumer, error) {
-	if j == nil || j.stream == nil || durable == "" || subject == "" || maxPending < 1 {
+	if j == nil || j.stream == nil || durable == "" || subject == "" || maxPending == 0 || maxPending < UnlimitedPending {
 		return nil, errors.New("consumer configuration is invalid")
 	}
 	return j.stream.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
@@ -117,6 +120,86 @@ func (j *JetStream) ConsumeOne(ctx context.Context, consumer jetstream.Consumer,
 	if err != nil {
 		return err
 	}
+	return j.processMessage(ctx, message, handler)
+}
+
+func (j *JetStream) ConsumeConcurrent(ctx context.Context, consumer jetstream.Consumer, handler Handler) error {
+	if consumer == nil || handler == nil {
+		return errors.New("consumer and handler are required")
+	}
+	messages, err := consumer.Messages(jetstream.PullMaxMessages(1))
+	if err != nil {
+		return err
+	}
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		select {
+		case <-ctx.Done():
+			messages.Stop()
+		case <-stop:
+		}
+	}()
+
+	var workers sync.WaitGroup
+	var firstErr error
+	var errMu sync.Mutex
+	setFirstErr := func(err error) {
+		if err == nil {
+			return
+		}
+		errMu.Lock()
+		if firstErr == nil {
+			firstErr = err
+		}
+		errMu.Unlock()
+	}
+	for ctx.Err() == nil {
+		message, nextErr := messages.Next()
+		if nextErr != nil {
+			if ctx.Err() == nil && !errors.Is(nextErr, jetstream.ErrMsgIteratorClosed) {
+				setFirstErr(nextErr)
+			}
+			break
+		}
+		workers.Add(1)
+		go func(message jetstream.Msg) {
+			defer workers.Done()
+			if err := j.processMessage(ctx, message, handler); err != nil {
+				setFirstErr(err)
+				messages.Stop()
+			}
+		}(message)
+	}
+	messages.Stop()
+	workers.Wait()
+	errMu.Lock()
+	defer errMu.Unlock()
+	return firstErr
+}
+
+func (j *JetStream) processMessage(ctx context.Context, message jetstream.Msg, handler Handler) error {
+	keepAlive := time.NewTicker(10 * time.Second)
+	keepAliveStop := make(chan struct{})
+	keepAliveExited := make(chan struct{})
+	go func() {
+		defer close(keepAliveExited)
+		for {
+			select {
+			case <-keepAlive.C:
+				_ = message.InProgress()
+			case <-ctx.Done():
+				return
+			case <-keepAliveStop:
+				return
+			}
+		}
+	}()
+	defer func() {
+		keepAlive.Stop()
+		close(keepAliveStop)
+		<-keepAliveExited
+	}()
 	queueMessage := Message{Subject: message.Subject(), Data: message.Data(), ID: message.Headers().Get("Nats-Msg-Id")}
 	if err := handler(ctx, queueMessage); err == nil {
 		return message.DoubleAck(ctx)

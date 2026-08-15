@@ -31,6 +31,9 @@ type OrderRuntime struct {
 	Active           *ActiveOrders
 }
 
+// ponytail: one outbox drain lock is sufficient for this worker process; split by runner only if publishing becomes a bottleneck.
+var pendingEventsMu sync.Mutex
+
 type activeOrder struct {
 	cancel    context.CancelFunc
 	cancelled atomic.Bool
@@ -226,6 +229,8 @@ func PublishPendingEvents(ctx context.Context, store *LocalStore, publisher queu
 	if store == nil || publisher == nil || runnerID == "" {
 		return errors.New("worker event publisher is not configured")
 	}
+	pendingEventsMu.Lock()
+	defer pendingEventsMu.Unlock()
 	pendingEvents, err := store.PendingEvents(100)
 	if err != nil {
 		return err
