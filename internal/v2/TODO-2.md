@@ -26,6 +26,8 @@ This file is an implementation handoff. Complete the work in order. Do not check
   - Manual screenshot comparison and native tray interaction checks remain environment-dependent and are intentionally left unchecked in Phase 9.
 - [x] Runner pool deletion conflict fix — commit `6855786` (`fix(controlplane): Explain runner pool delete conflicts`)
   - Result: backend and frontend regression tests pass; referenced pools now return a safe `runner pool is still in use` message, while stale-data refresh remains limited to actions that request it.
+- [x] Runner deletion conflict fix — commit `0fe15e1` (`fix(controlplane): Explain runner history conflicts`)
+  - Result: foreign-key failures from retained execution attempts now return `runner is referenced by execution history`; API regression tests pass.
 
 ## Non-negotiable constraints
 
