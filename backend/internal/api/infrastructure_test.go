@@ -16,8 +16,16 @@ import (
 
 	"github.com/VBenevides/Glyphflow/backend/internal/protocol"
 	"github.com/VBenevides/Glyphflow/backend/internal/queue"
+	"github.com/VBenevides/Glyphflow/backend/internal/store"
 	"github.com/VBenevides/Glyphflow/backend/internal/worker"
 )
+
+type runnerRepositoryWithDeleteError struct {
+	store.RunnerRepository
+	err error
+}
+
+func (r runnerRepositoryWithDeleteError) DeletePool(context.Context, string) error { return r.err }
 
 func TestEnrollmentExpiresAndIsSingleUse(t *testing.T) {
 	s := NewInfrastructureService()
@@ -245,6 +253,16 @@ func TestRunnerDeleteRemovesRunnerAndEnrollments(t *testing.T) {
 	}
 	if _, ok := s.enrollments["token"]; ok {
 		t.Fatal("runner enrollment was not deleted")
+	}
+}
+
+func TestRunnerPoolDeleteReportsWhenPoolIsInUse(t *testing.T) {
+	s := NewInfrastructureService()
+	s.runnerRepository = runnerRepositoryWithDeleteError{err: store.ErrRunnerPoolInUse}
+	response := httptest.NewRecorder()
+	s.poolPath(response, httptest.NewRequest(http.MethodDelete, "/api/v1/runners/pools/pool-1", nil))
+	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), `"error":"runner pool is still in use"`) {
+		t.Fatalf("delete pool response = %d: %s", response.Code, response.Body.String())
 	}
 }
 
