@@ -34,6 +34,9 @@ This file is an implementation handoff. Complete the work in order. Do not check
 - [x] Role table readability and affected-user counts — commits `2c763fa` and `906c5d3`
   - Result: role listings count distinct assigned users (including a default user assigned to multiple roles), and Role/Source columns have minimum widths while Permissions has a maximum width.
   - Verification: `cd backend && GOCACHE=/tmp/glyphflow-go-cache go test ./...` passed; `cd frontend && npm test` (30 files, 58 tests), `npm run typecheck`, and `npm run lint` passed; `git diff --check` passed.
+- [x] Reconcile overdue dispatched runs — commit `7d8a287`
+  - Result: dispatched, accepted, or running attempts become `UNKNOWN` after their task timeout plus 10 minutes without a terminal event. Runner capacity and resource leases are released, and pending execute orders are stopped from publishing.
+  - Verification: `cd backend && GOCACHE=/tmp/glyphflow-go-cache go test ./...` passed; `git diff --check` passed.
 
 ## Non-negotiable constraints
 
