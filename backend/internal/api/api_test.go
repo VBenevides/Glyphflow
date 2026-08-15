@@ -166,6 +166,28 @@ func TestInMemoryTaskAndScheduleDeletion(t *testing.T) {
 	}
 }
 
+func TestScheduleEnableDisableDoesNotCreateVersion(t *testing.T) {
+	permissions := map[string]bool{"tasks.manage": true, "tasks.read": true}
+	h := (Server{Auth: func(*http.Request) (Claims, bool) { return Claims{Roles: permissions}, true }}).Handler()
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		h.ServeHTTP(response, httptest.NewRequest(method, path, bytes.NewBufferString(body)))
+		return response
+	}
+	if response := request(http.MethodPost, "/api/v1/tasks", `{"name":"Nightly","command":["echo","ok"],"runner_pool":"default"}`); response.Code != http.StatusCreated {
+		t.Fatalf("task creation returned %d", response.Code)
+	}
+	if response := request(http.MethodPost, "/api/v1/schedules", `{"name":"Hourly","task_id":"task-1","expression":"0 * * * *","timezone":"UTC"}`); response.Code != http.StatusCreated {
+		t.Fatalf("schedule creation returned %d", response.Code)
+	}
+	if response := request(http.MethodPost, "/api/v1/schedules/schedule-1/disable", ""); response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"state":"DISABLED"`)) {
+		t.Fatalf("schedule disable returned %d: %s", response.Code, response.Body.String())
+	}
+	if response := request(http.MethodGet, "/api/v1/schedules/schedule-1", ""); response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"expression":"0 * * * *"`)) {
+		t.Fatalf("schedule definition changed: %d %s", response.Code, response.Body.String())
+	}
+}
+
 func TestManagementRoutesFailClosedUntilBackedByStorage(t *testing.T) {
 	h := (Server{Auth: func(*http.Request) (Claims, bool) {
 		return Claims{Roles: map[string]bool{"run.read": true, "event.read": true, "runner.read": true, "runners.read": true, "run.cancel": true}}, true
