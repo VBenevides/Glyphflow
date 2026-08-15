@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 )
 
@@ -44,6 +45,13 @@ func TestRunActionsAndResumableLogs(t *testing.T) {
 	runs.path(conflict, httptest.NewRequest(http.MethodPost, "/api/v1/runs/"+run.ID+"/retry", bytes.NewBufferString(`{"reason":"repeat"}`)))
 	if conflict.Code != http.StatusConflict {
 		t.Fatalf("illegal retry status = %d", conflict.Code)
+	}
+}
+
+func TestRunCollectionMatchesRunnerExactly(t *testing.T) {
+	items := filterRuns([]RunRecord{{ID: "one", Runner: "runner-1"}, {ID: "ten", Runner: "runner-10"}}, url.Values{"runner": []string{"runner-1"}})
+	if len(items) != 1 || items[0].ID != "one" {
+		t.Fatalf("runner filter = %#v", items)
 	}
 }
 

@@ -190,6 +190,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	infrastructure.SetRunnerCapacityPublisher(jetstream, signingKey)
 	defer func() { jetstream.Close(); db.Close() }()
 	go func() {
 		for ctx.Err() == nil {

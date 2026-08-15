@@ -51,3 +51,7 @@ func EncodeOrderPayload(payload OrderPayload) ([]byte, error) {
 func EncodeEventPayload(payload EventPayload) ([]byte, error) {
 	return encodePayloadFrame(payload)
 }
+
+func EncodeRunnerControlPayload(payload RunnerControlPayload) ([]byte, error) {
+	return encodePayloadFrame(payload)
+}

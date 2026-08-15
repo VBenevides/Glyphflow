@@ -14,7 +14,7 @@ import (
 
 type RunnerRecord struct {
 	ID, Name, PoolID, Pool, DesiredState, ObservedState, Platform, Architecture string
-	Capacity, ActiveCount                                                       int
+	Capacity, CurrentCapacity, ActiveCount                                      int
 	HeartbeatAt                                                                 *time.Time
 }
 
@@ -39,6 +39,7 @@ type RunnerRepository interface {
 	List(context.Context) ([]RunnerRecord, error)
 	Find(context.Context, string) (RunnerRecord, bool, error)
 	SetDesiredState(context.Context, string, string) (RunnerRecord, bool, error)
+	UpdateCapacity(context.Context, string, int) (RunnerRecord, bool, error)
 	Delete(context.Context, string) (bool, error)
 	CreateEnrollment(context.Context, RunnerRecord, RunnerEnrollmentRecord) error
 	ConsumeEnrollment(context.Context, string, time.Time) (RunnerRecord, error)
@@ -111,7 +112,7 @@ func (s *RunnerStore) DeletePool(ctx context.Context, id string) error {
 	return nil
 }
 
-const runnerQuery = `SELECT r.id, r.name, p.id, p.name, r.desired_state, r.observed_state, r.capacity, r.active_count, r.last_seen_at, COALESCE(r.capabilities->>'platform', ''), COALESCE(r.capabilities->>'architecture', '') FROM runners r JOIN runner_pools p ON p.id = r.pool_id`
+const runnerQuery = `SELECT r.id, r.name, p.id, p.name, r.desired_state, r.observed_state, r.capacity, COALESCE((SELECT current_capacity FROM runner_sessions WHERE runner_id = r.id AND disconnected_at IS NULL ORDER BY last_heartbeat_at DESC LIMIT 1), 0), r.active_count, r.last_seen_at, COALESCE(r.capabilities->>'platform', ''), COALESCE(r.capabilities->>'architecture', '') FROM runners r JOIN runner_pools p ON p.id = r.pool_id`
 
 func (s *RunnerStore) List(ctx context.Context) ([]RunnerRecord, error) {
 	rows, err := s.pool.Query(ctx, runnerQuery+` ORDER BY r.id`)
@@ -140,7 +141,7 @@ func (s *RunnerStore) Find(ctx context.Context, id string) (RunnerRecord, bool, 
 
 func scanRunner(row interface{ Scan(...any) error }) (RunnerRecord, error) {
 	var item RunnerRecord
-	if err := row.Scan(&item.ID, &item.Name, &item.PoolID, &item.Pool, &item.DesiredState, &item.ObservedState, &item.Capacity, &item.ActiveCount, &item.HeartbeatAt, &item.Platform, &item.Architecture); err != nil {
+	if err := row.Scan(&item.ID, &item.Name, &item.PoolID, &item.Pool, &item.DesiredState, &item.ObservedState, &item.Capacity, &item.CurrentCapacity, &item.ActiveCount, &item.HeartbeatAt, &item.Platform, &item.Architecture); err != nil {
 		return RunnerRecord{}, err
 	}
 	return item, nil
@@ -163,6 +164,17 @@ func (s *RunnerStore) SetDesiredState(ctx context.Context, id, state string) (Ru
 	}
 	item, found, err := s.Find(ctx, id)
 	return item, found, err
+}
+
+func (s *RunnerStore) UpdateCapacity(ctx context.Context, id string, capacity int) (RunnerRecord, bool, error) {
+	if capacity < 1 {
+		return RunnerRecord{}, false, errors.New("runner capacity must be at least 1")
+	}
+	result, err := s.pool.Exec(ctx, `UPDATE runners SET capacity = $2, updated_at = now() WHERE id = $1`, id, capacity)
+	if err != nil || result.RowsAffected() == 0 {
+		return RunnerRecord{}, result.RowsAffected() > 0, err
+	}
+	return s.Find(ctx, id)
 }
 
 func (s *RunnerStore) Delete(ctx context.Context, id string) (bool, error) {
@@ -285,6 +297,10 @@ func (s *RunnerStore) Heartbeat(ctx context.Context, runnerID string, now time.T
 }
 
 func (s *RunnerStore) HeartbeatWithKey(ctx context.Context, runnerID, bootID string, now time.Time, keyID string, publicKey []byte) error {
+	return s.HeartbeatWithKeyAndCapacity(ctx, runnerID, bootID, now, 0, keyID, publicKey)
+}
+
+func (s *RunnerStore) HeartbeatWithKeyAndCapacity(ctx context.Context, runnerID, bootID string, now time.Time, capacity int, keyID string, publicKey []byte) error {
 	if runnerID == "" || bootID == "" || keyID == "" || len(publicKey) != ed25519.PublicKeySize {
 		return errors.New("runner heartbeat key is incomplete")
 	}
@@ -296,7 +312,11 @@ func (s *RunnerStore) HeartbeatWithKey(ctx context.Context, runnerID, bootID str
 	if _, err := tx.Exec(ctx, `UPDATE runner_sessions SET disconnected_at = $2 WHERE runner_id = $1 AND disconnected_at IS NULL AND boot_id <> $3`, runnerID, now, bootID); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO runner_sessions (id, runner_id, boot_id, last_heartbeat_at) VALUES ($1, $2, $3, $4) ON CONFLICT (runner_id, boot_id) DO UPDATE SET last_heartbeat_at = EXCLUDED.last_heartbeat_at, disconnected_at = NULL`, runnerID+"/"+bootID, runnerID, bootID, now); err != nil {
+	if capacity > 0 {
+		if _, err := tx.Exec(ctx, `INSERT INTO runner_sessions (id, runner_id, boot_id, last_heartbeat_at, current_capacity) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (runner_id, boot_id) DO UPDATE SET last_heartbeat_at = EXCLUDED.last_heartbeat_at, disconnected_at = NULL, current_capacity = EXCLUDED.current_capacity`, runnerID+"/"+bootID, runnerID, bootID, now, capacity); err != nil {
+			return err
+		}
+	} else if _, err := tx.Exec(ctx, `INSERT INTO runner_sessions (id, runner_id, boot_id, last_heartbeat_at) VALUES ($1, $2, $3, $4) ON CONFLICT (runner_id, boot_id) DO UPDATE SET last_heartbeat_at = EXCLUDED.last_heartbeat_at, disconnected_at = NULL`, runnerID+"/"+bootID, runnerID, bootID, now); err != nil {
 		return err
 	}
 	var boundRunner string

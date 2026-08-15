@@ -12,27 +12,31 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/VBenevides/Glyphflow/backend/internal/platform"
+	"github.com/VBenevides/Glyphflow/backend/internal/protocol"
+	"github.com/VBenevides/Glyphflow/backend/internal/queue"
 	"github.com/VBenevides/Glyphflow/backend/internal/store"
 	"github.com/VBenevides/Glyphflow/backend/internal/worker"
 )
 
 type RunnerRecord struct {
-	ID            string `json:"id"`
-	Name          string `json:"name"`
-	PoolID        string `json:"poolId,omitempty"`
-	DesiredState  string `json:"desiredState"`
-	ObservedState string `json:"observedState"`
-	Pool          string `json:"pool"`
-	Capacity      int    `json:"capacity"`
-	ActiveCount   int    `json:"activeCount"`
-	HeartbeatAt   string `json:"heartbeatAt,omitempty"`
-	Platform      string `json:"platform,omitempty"`
-	Architecture  string `json:"architecture,omitempty"`
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	PoolID          string `json:"poolId,omitempty"`
+	DesiredState    string `json:"desiredState"`
+	ObservedState   string `json:"observedState"`
+	Pool            string `json:"pool"`
+	Capacity        int    `json:"capacity"`
+	CurrentCapacity int    `json:"currentCapacity,omitempty"`
+	ActiveCount     int    `json:"activeCount"`
+	HeartbeatAt     string `json:"heartbeatAt,omitempty"`
+	Platform        string `json:"platform,omitempty"`
+	Architecture    string `json:"architecture,omitempty"`
 }
 type RunnerPoolRecord struct {
 	ID          string `json:"id"`
@@ -60,19 +64,21 @@ type runnerKey struct {
 	Public ed25519.PublicKey
 }
 type InfrastructureService struct {
-	mu                    sync.RWMutex
-	runners               map[string]RunnerRecord
-	pools                 map[string]RunnerPoolRecord
-	resources             map[string]ResourceRecord
-	enrollments           map[string]*enrollment
-	runnerKeys            map[string]runnerKey
-	next                  int
-	runnerRepository      store.RunnerRepository
-	resourceRepository    store.ResourceRepository
-	runnerBinaryDir       string
-	runnerNATSURL         string
-	runnerMaxMessageBytes int
-	controlPlanePublicKey string
+	mu                       sync.RWMutex
+	runners                  map[string]RunnerRecord
+	pools                    map[string]RunnerPoolRecord
+	resources                map[string]ResourceRecord
+	enrollments              map[string]*enrollment
+	runnerKeys               map[string]runnerKey
+	next                     int
+	runnerRepository         store.RunnerRepository
+	resourceRepository       store.ResourceRepository
+	runnerBinaryDir          string
+	runnerNATSURL            string
+	runnerMaxMessageBytes    int
+	controlPlanePublicKey    string
+	runnerCapacityPublisher  queue.Publisher
+	runnerCapacitySigningKey protocol.SigningKey
 }
 
 func NewInfrastructureService() *InfrastructureService {
@@ -117,12 +123,19 @@ func (s *InfrastructureService) SetControlPlanePublicKey(publicKey string) {
 	s.mu.Unlock()
 }
 
+func (s *InfrastructureService) SetRunnerCapacityPublisher(publisher queue.Publisher, signingKey protocol.SigningKey) {
+	s.mu.Lock()
+	s.runnerCapacityPublisher = publisher
+	s.runnerCapacitySigningKey = signingKey
+	s.mu.Unlock()
+}
+
 func runnerRecordFromStore(runner store.RunnerRecord) RunnerRecord {
 	heartbeat := ""
 	if runner.HeartbeatAt != nil {
 		heartbeat = runner.HeartbeatAt.UTC().Format(time.RFC3339)
 	}
-	return RunnerRecord{ID: runner.ID, Name: runner.Name, PoolID: runner.PoolID, DesiredState: runner.DesiredState, ObservedState: runner.ObservedState, Pool: runner.Pool, Capacity: runner.Capacity, ActiveCount: runner.ActiveCount, HeartbeatAt: heartbeat, Platform: runner.Platform, Architecture: runner.Architecture}
+	return RunnerRecord{ID: runner.ID, Name: runner.Name, PoolID: runner.PoolID, DesiredState: runner.DesiredState, ObservedState: runner.ObservedState, Pool: runner.Pool, Capacity: runner.Capacity, CurrentCapacity: runner.CurrentCapacity, ActiveCount: runner.ActiveCount, HeartbeatAt: heartbeat, Platform: runner.Platform, Architecture: runner.Architecture}
 }
 
 func runnerPoolRecordFromStore(pool store.RunnerPoolRecord) RunnerPoolRecord {
@@ -385,6 +398,70 @@ func (s *InfrastructureService) runnerPath(w http.ResponseWriter, r *http.Reques
 		writeJSON(w, 200, item)
 		return
 	}
+	if len(parts) == 4 && r.Method == http.MethodPut {
+		var input struct {
+			Capacity int `json:"capacity"`
+		}
+		if json.NewDecoder(r.Body).Decode(&input) != nil || input.Capacity < 1 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "capacity must be at least 1"})
+			return
+		}
+		s.mu.RLock()
+		repository, publisher, signingKey := s.runnerRepository, s.runnerCapacityPublisher, s.runnerCapacitySigningKey
+		s.mu.RUnlock()
+		var item RunnerRecord
+		if repository != nil {
+			updated, found, err := repository.UpdateCapacity(r.Context(), parts[3], input.Capacity)
+			if err != nil {
+				writeError(w, http.StatusConflict, "runner capacity update failed", err)
+				return
+			}
+			if !found {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "runner not found"})
+				return
+			}
+			item = runnerRecordFromStore(updated)
+		} else {
+			s.mu.Lock()
+			var found bool
+			item, found = s.runners[parts[3]]
+			if found {
+				item.Capacity = input.Capacity
+				s.runners[parts[3]] = item
+			}
+			s.mu.Unlock()
+			if !found {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "runner not found"})
+				return
+			}
+		}
+		if publisher != nil {
+			var err error
+			if len(signingKey.Private) != ed25519.PrivateKeySize {
+				err = errors.New("runner capacity signing key is unavailable")
+			} else {
+				payload, encodeErr := protocol.EncodeRunnerControlPayload(protocol.RunnerControlPayload{Version: protocol.ProtocolVersion, Type: protocol.RunnerControlCapacity, RunnerID: parts[3], Capacity: input.Capacity, IssuedAt: time.Now().UTC()})
+				err = encodeErr
+				if err == nil {
+					envelope, signErr := signingKey.SignEvent(payload)
+					err = signErr
+					if err == nil {
+						raw, encodeErr := protocol.EncodeEnvelope(envelope)
+						err = encodeErr
+						if err == nil {
+							err = publisher.Publish(r.Context(), queue.Message{Subject: queue.Subject("control", parts[3]), ID: "runner-capacity:" + parts[3] + ":" + strconv.FormatInt(time.Now().UnixNano(), 10), Data: raw})
+						}
+					}
+				}
+			}
+			if err != nil {
+				writeError(w, http.StatusServiceUnavailable, "runner capacity command failed", err)
+				return
+			}
+		}
+		writeJSON(w, http.StatusOK, item)
+		return
+	}
 	if len(parts) == 5 && r.Method == http.MethodPost {
 		s.mu.RLock()
 		repository := s.runnerRepository
@@ -492,7 +569,7 @@ func (s *InfrastructureService) enrollRunner(w http.ResponseWriter, r *http.Requ
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "runner enrollment belongs to a different runner"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"runner_id": runner.ID, "nats_url": natsURL, "max_message_bytes": maxMessageBytes})
+	writeJSON(w, http.StatusOK, map[string]any{"runner_id": runner.ID, "nats_url": natsURL, "max_message_bytes": maxMessageBytes, "capacity": runner.Capacity})
 }
 
 func (s *InfrastructureService) deleteRunner(w http.ResponseWriter, r *http.Request, id string) {

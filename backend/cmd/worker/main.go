@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/VBenevides/Glyphflow/backend/internal/config"
 	"github.com/VBenevides/Glyphflow/backend/internal/protocol"
 	"github.com/VBenevides/Glyphflow/backend/internal/queue"
+	"github.com/VBenevides/Glyphflow/backend/internal/store"
 	"github.com/VBenevides/Glyphflow/backend/internal/worker"
 )
 
@@ -155,8 +157,19 @@ func main() {
 		os.Exit(1)
 	}
 	defer jetstream.Close()
+	capacity := connection.Capacity
+	if capacity < 1 {
+		capacity = store.DefaultRunnerCapacity
+	}
+	var currentCapacity atomic.Int64
+	currentCapacity.Store(int64(capacity))
 	runtime := worker.OrderRuntime{Store: localStore, Publisher: jetstream, RunnerID: cfg.RunnerID, ExecutorBootID: bootID, ProcessID: int64(os.Getpid()), ControlPublicKey: ed25519.PublicKey(controlPublicKey), SigningKey: workerKey, Active: &worker.ActiveOrders{}, Executor: worker.Executor{Roots: []string{cfg.DataDir, "."}, MaxOutputBytes: cfg.MaxOutputBytes}}
 	consumer, err := jetstream.Consumer(ctx, "runner-"+cfg.RunnerID, queue.Subject("orders", cfg.RunnerID), queue.UnlimitedPending)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	controlConsumer, err := jetstream.Consumer(ctx, "runner-control-"+cfg.RunnerID, queue.Subject("control", cfg.RunnerID), 10)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -190,16 +203,27 @@ func main() {
 	background.Add(1)
 	go func() {
 		defer background.Done()
-		workerHeartbeat(ctx, jetstream, cfg.RunnerID, bootID, workerKey)
+		workerHeartbeat(ctx, jetstream, cfg.RunnerID, bootID, workerKey, &currentCapacity)
+	}()
+	background.Add(1)
+	go func() {
+		defer background.Done()
+		for ctx.Err() == nil {
+			if err := jetstream.ConsumeOne(ctx, controlConsumer, func(handlerCtx context.Context, message queue.Message) error {
+				return worker.ApplyRunnerControl(handlerCtx, message, cfg.RunnerID, ed25519.PublicKey(controlPublicKey), &currentCapacity)
+			}); err != nil && ctx.Err() == nil {
+				time.Sleep(time.Second)
+			}
+		}
 	}()
 	fmt.Printf("Glyphflow worker v%s\n", backend.Version)
 	<-ctx.Done()
 	background.Wait()
 }
 
-func workerHeartbeat(ctx context.Context, jetstream *queue.JetStream, runnerID, bootID string, signingKey protocol.SigningKey) {
+func workerHeartbeat(ctx context.Context, jetstream *queue.JetStream, runnerID, bootID string, signingKey protocol.SigningKey, capacity *atomic.Int64) {
 	publish := func(now time.Time) {
-		payload, _ := json.Marshal(map[string]string{"runner_id": runnerID, "boot_id": bootID, "at": now.UTC().Format(time.RFC3339Nano)})
+		payload, _ := json.Marshal(map[string]any{"runner_id": runnerID, "boot_id": bootID, "at": now.UTC().Format(time.RFC3339Nano), "capacity": capacity.Load()})
 		envelope, err := signingKey.SignEvent(payload)
 		if err != nil {
 			return

@@ -8,6 +8,9 @@ import (
 
 type OrderType string
 type EventType string
+type RunnerControlType string
+
+const RunnerControlCapacity RunnerControlType = "capacity"
 
 type ResourceLimits struct {
 	MaxOutputBytes uint64 `json:"max_output_bytes"`
@@ -65,6 +68,14 @@ type EventPayload struct {
 	EventChannel    string           `json:"event_channel,omitempty"`
 }
 
+type RunnerControlPayload struct {
+	Version  uint8             `json:"version"`
+	Type     RunnerControlType `json:"type"`
+	RunnerID string            `json:"runner_id"`
+	Capacity int               `json:"capacity"`
+	IssuedAt time.Time         `json:"issued_at"`
+}
+
 func DecodeOrderPayload(raw []byte) (OrderPayload, error) {
 	framed, err := decodePayloadFrame(raw)
 	if err != nil {
@@ -97,6 +108,24 @@ func DecodeEventPayload(raw []byte) (EventPayload, error) {
 	}
 	if !payload.Type.Valid() && !(payload.Type == EventUnknown && payload.EventID != "" && payload.OrderID != "" && payload.RunnerID != "" && payload.Attempt > 0 && payload.Sequence > 0) {
 		return EventPayload{}, errors.New("unsupported event type")
+	}
+	return payload, nil
+}
+
+func DecodeRunnerControlPayload(raw []byte) (RunnerControlPayload, error) {
+	framed, err := decodePayloadFrame(raw)
+	if err != nil {
+		return RunnerControlPayload{}, err
+	}
+	var payload RunnerControlPayload
+	if err := json.Unmarshal(framed, &payload); err != nil {
+		return RunnerControlPayload{}, err
+	}
+	if payload.Version != ProtocolVersion {
+		return RunnerControlPayload{}, errors.New("unsupported runner control payload version")
+	}
+	if payload.Type != RunnerControlCapacity || payload.RunnerID == "" || payload.Capacity < 1 || payload.IssuedAt.IsZero() {
+		return RunnerControlPayload{}, errors.New("invalid runner control payload")
 	}
 	return payload, nil
 }

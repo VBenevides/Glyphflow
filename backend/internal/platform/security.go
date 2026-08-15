@@ -77,5 +77,5 @@ func canonicalPath(path string) (string, error) {
 	}
 }
 func AllowedSubject(subject, runnerID string) bool {
-	return subject == "glyphflow.orders."+runnerID || subject == "glyphflow.events."+runnerID
+	return subject == "glyphflow.orders."+runnerID || subject == "glyphflow.events."+runnerID || subject == "glyphflow.control."+runnerID
 }

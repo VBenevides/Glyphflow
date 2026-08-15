@@ -67,3 +67,15 @@ func TestEventPayloadContainsLifecycleData(t *testing.T) {
 		t.Fatalf("event fields were not preserved: %#v", got)
 	}
 }
+
+func TestRunnerControlPayloadContainsCapacity(t *testing.T) {
+	want := RunnerControlPayload{Version: ProtocolVersion, Type: RunnerControlCapacity, RunnerID: "runner-1", Capacity: 42, IssuedAt: time.Unix(300, 0).UTC()}
+	raw, err := EncodeRunnerControlPayload(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := DecodeRunnerControlPayload(raw)
+	if err != nil || got != want {
+		t.Fatalf("runner control payload = %#v, err=%v", got, err)
+	}
+}

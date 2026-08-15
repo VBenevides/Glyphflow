@@ -34,6 +34,7 @@ type RunnerConnection struct {
 	RunnerID         string `json:"runner_id"`
 	NATSURL          string `json:"nats_url"`
 	MaxMessageBytes  int    `json:"max_message_bytes"`
+	Capacity         int    `json:"capacity"`
 	ControlPublicKey string `json:"control_public_key,omitempty"`
 }
 
@@ -110,6 +111,7 @@ func (b Bootstrap) Enroll(ctx context.Context) (RunnerConnection, error) {
 		RunnerID        string `json:"runner_id"`
 		NATSURL         string `json:"nats_url"`
 		MaxMessageBytes int    `json:"max_message_bytes"`
+		Capacity        int    `json:"capacity"`
 		Error           string `json:"error"`
 	}
 	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&result); err != nil {
@@ -124,7 +126,7 @@ func (b Bootstrap) Enroll(ctx context.Context) (RunnerConnection, error) {
 	if result.RunnerID == "" || result.NATSURL == "" || result.MaxMessageBytes <= 0 {
 		return RunnerConnection{}, errors.New("runner enrollment returned incomplete connection data")
 	}
-	return RunnerConnection{RunnerID: result.RunnerID, NATSURL: result.NATSURL, MaxMessageBytes: result.MaxMessageBytes, ControlPublicKey: b.ControlPublicKey}, nil
+	return RunnerConnection{RunnerID: result.RunnerID, NATSURL: result.NATSURL, MaxMessageBytes: result.MaxMessageBytes, Capacity: result.Capacity, ControlPublicKey: b.ControlPublicKey}, nil
 }
 
 func DefaultDataDir() string {

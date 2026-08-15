@@ -68,7 +68,7 @@ func connectJetStream(url string, options ...nats.Option) (*JetStream, error) {
 		conn.Close()
 		return nil, err
 	}
-	stream, err := js.CreateOrUpdateStream(context.Background(), jetstream.StreamConfig{Name: "GLYPHFLOW", Subjects: []string{"glyphflow.orders.>", "glyphflow.events.>", "glyphflow.deadletter.>"}, Storage: jetstream.FileStorage, Retention: jetstream.LimitsPolicy, MaxMsgSize: 1 << 20})
+	stream, err := js.CreateOrUpdateStream(context.Background(), jetstream.StreamConfig{Name: "GLYPHFLOW", Subjects: []string{"glyphflow.orders.>", "glyphflow.events.>", "glyphflow.control.>", "glyphflow.deadletter.>"}, Storage: jetstream.FileStorage, Retention: jetstream.LimitsPolicy, MaxMsgSize: 1 << 20})
 	if err != nil {
 		conn.Close()
 		return nil, err
@@ -231,10 +231,10 @@ type WorkerPermissionsConfig struct {
 func WorkerPermissions(runnerID string) WorkerPermissionsConfig {
 	return WorkerPermissionsConfig{
 		Publish:   SubjectPermissions{Allow: []string{Subject("events", runnerID)}},
-		Subscribe: SubjectPermissions{Allow: []string{Subject("orders", runnerID)}},
+		Subscribe: SubjectPermissions{Allow: []string{Subject("orders", runnerID), Subject("control", runnerID)}},
 	}
 }
 
 func AllowedWorkerSubject(subject, runnerID string) bool {
-	return subject == Subject("orders", runnerID) || subject == Subject("events", runnerID)
+	return subject == Subject("orders", runnerID) || subject == Subject("events", runnerID) || subject == Subject("control", runnerID)
 }

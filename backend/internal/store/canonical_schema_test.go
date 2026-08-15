@@ -63,6 +63,22 @@ func TestRunnerCapacityDefaultMigration(t *testing.T) {
 	}
 }
 
+func TestRunnerCurrentCapacityMigration(t *testing.T) {
+	migrations, err := LoadMigrations(filepath.Join("..", "..", "migrations"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var currentCapacity Migration
+	for _, migration := range migrations {
+		if migration.Name == "runner_current_capacity" {
+			currentCapacity = migration
+		}
+	}
+	if currentCapacity.Version != 11 || !strings.Contains(strings.ToLower(currentCapacity.SQL), "add column current_capacity") {
+		t.Fatalf("runner current capacity migration = %#v", currentCapacity)
+	}
+}
+
 func TestGlobalVariableMigration(t *testing.T) {
 	migrations, err := LoadMigrations(filepath.Join("..", "..", "migrations"))
 	if err != nil {

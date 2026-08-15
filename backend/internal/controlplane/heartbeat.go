@@ -22,6 +22,10 @@ type RunnerSessionHeartbeatRepository interface {
 	HeartbeatWithKey(context.Context, string, string, time.Time, string, []byte) error
 }
 
+type RunnerCapacityHeartbeatRepository interface {
+	HeartbeatWithKeyAndCapacity(context.Context, string, string, time.Time, int, string, []byte) error
+}
+
 func RunRunnerHeartbeatMonitor(ctx context.Context, events *queue.JetStream, repository RunnerHeartbeatRepository, staleAfter, checkInterval time.Duration) error {
 	if events == nil || repository == nil || staleAfter <= 0 || checkInterval <= 0 {
 		return errors.New("runner heartbeat monitor is not configured")
@@ -78,6 +82,7 @@ func recordRunnerHeartbeatForSubject(ctx context.Context, repository RunnerHeart
 		BootID   string `json:"boot_id"`
 		At       string `json:"at"`
 		KeyID    string `json:"key_id"`
+		Capacity int    `json:"capacity"`
 	}
 	if err := json.Unmarshal(payload, &heartbeat); err != nil {
 		return fmt.Errorf("invalid runner heartbeat: %w", err)
@@ -108,6 +113,9 @@ func recordRunnerHeartbeatForSubject(ctx context.Context, repository RunnerHeart
 	now := time.Now().UTC()
 	if at.Before(now.Add(-30*time.Second)) || at.After(now.Add(30*time.Second)) {
 		return errors.New("runner heartbeat timestamp is outside the allowed window")
+	}
+	if sessionRepository, ok := repository.(RunnerCapacityHeartbeatRepository); ok {
+		return sessionRepository.HeartbeatWithKeyAndCapacity(ctx, heartbeat.RunnerID, heartbeat.BootID, at.UTC(), heartbeat.Capacity, envelope.KeyID, publicKey)
 	}
 	if sessionRepository, ok := repository.(RunnerSessionHeartbeatRepository); ok {
 		return sessionRepository.HeartbeatWithKey(ctx, heartbeat.RunnerID, heartbeat.BootID, at.UTC(), envelope.KeyID, publicKey)

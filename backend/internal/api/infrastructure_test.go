@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -13,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/VBenevides/Glyphflow/backend/internal/protocol"
+	"github.com/VBenevides/Glyphflow/backend/internal/queue"
 	"github.com/VBenevides/Glyphflow/backend/internal/worker"
 )
 
@@ -242,5 +245,37 @@ func TestRunnerDeleteRemovesRunnerAndEnrollments(t *testing.T) {
 	}
 	if _, ok := s.enrollments["token"]; ok {
 		t.Fatal("runner enrollment was not deleted")
+	}
+}
+
+func TestRunnerCapacityUpdatePublishesControlMessage(t *testing.T) {
+	s := NewInfrastructureService()
+	s.runners["runner-1"] = RunnerRecord{ID: "runner-1", Name: "runner-1", Capacity: 1}
+	publisher := queue.NewMemory()
+	key, err := protocol.GenerateSigningKey("control-plane", time.Now().UTC(), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetRunnerCapacityPublisher(publisher, key)
+	response := httptest.NewRecorder()
+	s.runnerPath(response, httptest.NewRequest(http.MethodPut, "/api/v1/runners/runner-1", bytes.NewBufferString(`{"capacity":42}`)))
+	if response.Code != http.StatusOK || s.runners["runner-1"].Capacity != 42 {
+		t.Fatalf("capacity update = %d %s", response.Code, response.Body.String())
+	}
+	message, err := publisher.Consume(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := protocol.DecodeEnvelope(message.Data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawPayload, err := envelope.PayloadBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := protocol.DecodeRunnerControlPayload(rawPayload)
+	if err != nil || payload.Capacity != 42 || payload.RunnerID != "runner-1" {
+		t.Fatalf("control payload = %#v, err=%v", payload, err)
 	}
 }

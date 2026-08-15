@@ -112,7 +112,7 @@ func filterRuns(items []RunRecord, query url.Values) []RunRecord {
 			match = match && (strings.Contains(strings.ToLower(item.TaskID), task) || strings.Contains(strings.ToLower(item.TaskName), task))
 		}
 		if runner != "" {
-			match = match && strings.Contains(strings.ToLower(item.Runner), runner)
+			match = match && strings.EqualFold(item.Runner, runner)
 		}
 		if trigger != "" {
 			match = match && strings.EqualFold(item.Trigger, trigger)
