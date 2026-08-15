@@ -34,6 +34,9 @@ All items below have runnable test evidence.
 
 ## Bugs
 
+- [x] **High: Authorize task mutations for plural system-user permissions**
+  - Test: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./internal/api -run TestPluralTaskManagePermissionAuthorizesTaskMutations -count=1` — PASS; `tasks.manage` authorizes task creation, version publishing, and deletion.
+  - Commit: `a9fed2c`.
 - [x] **High: Keep waiting runs dispatchable with JSON environment values**
   - Test: `GOCACHE=/tmp/glyphflow-gocache DATABASE_URL=<PostgreSQL URL> go test ./internal/store -run TestRunRepositoryClaimsWaitingRunWithStoredEnvironment -count=1` — PASS; numeric JSON environment values are normalized and the run claims to `RUNNING`.
   - Commit: `b791d94`.
