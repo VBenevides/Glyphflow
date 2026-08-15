@@ -239,5 +239,6 @@ a {
 .gf-log-toolbar span { color: var(--gf-muted); font-size: 0.82rem; }
 .gf-secret-reference { color: var(--gf-muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .gf-environment-field { display: grid; gap: 0.25rem; padding: 0.55rem 0; border-bottom: 1px solid var(--gf-border); }
+.gf-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 @keyframes gf-spin { to { transform: rotate(360deg); } }
 @media (max-width: 720px) { .gf-audit-meta, .gf-audit-grid { grid-template-columns: 1fr; } }
