@@ -14,6 +14,10 @@ This file is an implementation handoff. Complete the work in order. Do not check
   - Closing or minimizing the window hides it back to the tray. It must not stop the worker.
   - Only the tray menu's **Exit** action stops the worker and closes the application.
   - The window shows the redacted NATS JetStream endpoint, the live parallel-execution capacity, and a scrollable read-only log terminal with **All** and **Stderr** filters.
+- [x] **Worker: fall back to a normal window when Linux has no tray host**
+  - Probe the Linux StatusNotifier watcher before creating the Wails tray.
+  - If the probe fails, show the worker window normally so the taskbar can minimize and restore it.
+  - Keep the tray-first behavior unchanged when a tray host is available.
 
 ## Implementation record
 
@@ -24,6 +28,9 @@ This file is an implementation handoff. Complete the work in order. Do not check
   - Result: passed `go test ./...`, `go test -race ./cmd/worker ./internal/worker ./internal/queue`, `go test -race -tags workerui ./cmd/worker`, `go vet ./...`, `bash -n backend/build_runner_binaries.sh`, and `git diff --check`.
   - Build result: `backend/build_runner_binaries.sh` produced Linux/Windows desktop and headless artifacts; desktop builds use the pinned Wails v3 dependency with the `workerui` tag and embedded assets.
   - Manual screenshot comparison and native tray interaction checks remain environment-dependent and are intentionally left unchecked in Phase 9.
+- [x] Worker tray fallback — commit `52d9813` (`fix(worker): Fall back to regular window without tray`)
+  - Result: Linux checks for Wails' `org.kde.StatusNotifierWatcher`; without an owner, the app skips tray registration, starts a visible native window, and leaves normal taskbar minimize/restore and close behavior available. Tray behavior is unchanged when the watcher exists.
+  - Verification: `cd backend && GOCACHE=/tmp/glyphflow-go-cache go test -race -tags workerui ./cmd/worker` passed (GTK deprecation warnings only); `cd backend && GOCACHE=/tmp/glyphflow-go-cache go test ./...` passed; `git diff --check` passed.
 - [x] Runner pool deletion conflict fix — commit `6855786` (`fix(controlplane): Explain runner pool delete conflicts`)
   - Result: backend and frontend regression tests pass; referenced pools now return a safe `runner pool is still in use` message, while stale-data refresh remains limited to actions that request it.
 - [x] Task-version pool deletion conflict clarification — commit `d755b5a` (`fix(controlplane): Explain task references on pool deletion`)
