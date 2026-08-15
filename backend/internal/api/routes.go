@@ -70,7 +70,7 @@ var routeDefinitions = []RouteDefinition{
 	{Pattern: "/api/v1/global-variables", Access: RoutePermission, Permission: "tasks.read|tasks.manage"},
 	{Pattern: "/api/v1/global-variables/", Access: RoutePermission, Permission: "tasks.read|tasks.manage"},
 	{Pattern: "/api/v1/schedules/", Access: RoutePermission, Permission: "tasks.read|tasks.manage"},
-	{Pattern: "/api/v1/tasks/", Access: RoutePermission, Permission: "runs.cancel|runs.retry"},
+	{Pattern: "/api/v1/tasks/", Access: RoutePermission, Permission: "tasks.read|tasks.manage"},
 	{Pattern: "/api/v1/runs", Access: RoutePermission, Permission: "runs.read"},
 	{Pattern: "/api/v1/runs/execute", Access: RoutePermission, Permission: "runs.execute"},
 	{Pattern: "/api/v1/runs/retry", Access: RoutePermission, Permission: "runs.retry"},

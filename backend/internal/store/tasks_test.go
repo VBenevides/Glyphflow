@@ -38,6 +38,10 @@ func TestTaskRepositoryKeepsImmutableVersionsAndPointer(t *testing.T) {
 	if err != nil || updated.ActiveVersion != 2 || updated.Command[1] != "two" {
 		t.Fatalf("updated task = %#v, err = %v", updated, err)
 	}
+	versions, err := repository.ListVersions(ctx, taskID)
+	if err != nil || len(versions) != 2 || versions[0].Version != 2 || versions[1].Version != 1 {
+		t.Fatalf("task versions = %#v, err = %v", versions, err)
+	}
 	if _, err := pool.Exec(ctx, `UPDATE task_versions SET working_directory = '/tmp' WHERE task_id = $1`, taskID); err == nil {
 		t.Fatal("immutable task version was updated")
 	}

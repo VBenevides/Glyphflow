@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from './auth'
-import { api, type Page, type Task } from './api'
+import { api, type Page, type Task, type TaskVersion } from './api'
 import { DangerousAction } from './actions'
 import { Button, DataTable, EmptyState, Input, MetricCard, PageHeader, Pagination, StatusPill } from './components'
 import { QueryState, useDebouncedValue } from './query'
@@ -25,7 +25,7 @@ export function TaskInventoryPage() {
 }
 
 export function taskDetailLinks(taskId: string) {
-  return { schedules: `/schedules?task=${encodeURIComponent(taskId)}`, runs: `/runs?task=${encodeURIComponent(taskId)}`, audit: `/audit?target=${encodeURIComponent(taskId)}` }
+  return { schedules: `/schedules?task=${encodeURIComponent(taskId)}`, runs: `/runs?task=${encodeURIComponent(taskId)}`, audit: `/audit?target=${encodeURIComponent(taskId)}`, versions: `/api/v1/tasks/${encodeURIComponent(taskId)}/versions` }
 }
 
 export function TaskDetailPage() {
@@ -34,6 +34,7 @@ export function TaskDetailPage() {
   const navigate = useNavigate()
   const query = useQuery({ queryKey: ['task', taskId], queryFn: ({ signal }) => api.get<Task>(`/api/v1/tasks/${encodeURIComponent(taskId)}`, undefined, signal), enabled: Boolean(taskId) })
   const links = useMemo(() => taskDetailLinks(taskId), [taskId])
+  const versionsQuery = useQuery({ queryKey: ['task-versions', taskId], queryFn: ({ signal }) => api.get<TaskVersion[]>(links.versions, undefined, signal), enabled: Boolean(taskId) })
   const canManage = hasPermission(permissions, 'tasks.manage')
-  return <main className="gf-content"><QueryState query={query}>{(task) => <><PageHeader title={task.name} description="Immutable task versions and execution policy." action={canManage && <Button onClick={() => navigate(`/tasks/${taskId}/edit`)}>Edit version</Button>} /><div className="gf-metric-grid"><MetricCard label="Active version" value={task.activeVersion ?? '—'} /><MetricCard label="Runner pool" value={task.pool ?? '—'} /><MetricCard label="Timeout" value={task.timeoutSeconds ? `${task.timeoutSeconds}s` : '—'} /></div><section className="gf-card-panel"><h2>Related records</h2><nav className="gf-related-links"><Link to={links.schedules}>Schedules</Link><Link to={links.runs}>Runs</Link><Link to={links.audit}>Audit events</Link></nav></section><section className="gf-card-panel"><h2>Version history</h2><p className="gf-muted">Versions are immutable after publication. Select a version to review its diff.</p></section>{canManage && <DangerousAction label="Delete task" warning="Permanently deletes this task and its versions. Existing execution history may block deletion." onConfirm={() => api.delete(`/api/v1/tasks/${encodeURIComponent(taskId)}`).then(() => navigate('/tasks'))} />}</>}</QueryState></main>
+  return <main className="gf-content"><QueryState query={query}>{(task) => <><PageHeader title={task.name} description="Immutable task versions and execution policy." action={canManage && <Button onClick={() => navigate(`/tasks/${taskId}/edit`)}>Edit version</Button>} /><div className="gf-metric-grid"><MetricCard label="Active version" value={task.activeVersion ?? '—'} /><MetricCard label="Runner pool" value={task.pool ?? '—'} /><MetricCard label="Timeout" value={task.timeoutSeconds ? `${task.timeoutSeconds}s` : '—'} /></div><section className="gf-card-panel"><h2>Related records</h2><nav className="gf-related-links"><Link to={links.schedules}>Schedules</Link><Link to={links.runs}>Runs</Link><Link to={links.audit}>Audit events</Link></nav></section><section className="gf-card-panel"><h2>Version history</h2><QueryState query={versionsQuery} empty="No published versions.">{(versions) => <DataTable caption="Task versions" rows={versions} columns={[{ key: 'version', label: 'Version', render: (version) => `v${version.version}${version.version === task.activeVersion ? ' (active)' : ''}` }, { key: 'command', label: 'Command', render: (version) => version.command?.join(' ') ?? '—' }, { key: 'pool', label: 'Runner pool' }, { key: 'createdAt', label: 'Published', render: (version) => version.createdAt ? new Date(version.createdAt).toLocaleString() : '—' }]} />}</QueryState></section>{canManage && <DangerousAction label="Delete task" warning="Permanently deletes this task and its versions. Existing execution history may block deletion." onConfirm={() => api.delete(`/api/v1/tasks/${encodeURIComponent(taskId)}`).then(() => navigate('/tasks'))} />}</>}</QueryState></main>
 }

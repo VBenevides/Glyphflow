@@ -34,6 +34,21 @@ type TaskRecord struct {
 	LatestRun          *RunRecord     `json:"latestRun,omitempty"`
 }
 
+type TaskVersionRecord struct {
+	ID                  string   `json:"id"`
+	Version             int      `json:"version"`
+	Pool                string   `json:"pool"`
+	PinnedRunner        string   `json:"pinnedRunner,omitempty"`
+	Command             []string `json:"command,omitempty"`
+	WorkingDirectory    string   `json:"workingDirectory,omitempty"`
+	TimeoutSeconds      int      `json:"timeoutSeconds"`
+	MaxOutputBytes      int64    `json:"maxOutputBytes"`
+	MaxAttempts         int      `json:"maxAttempts"`
+	AmbiguityPolicy     string   `json:"ambiguityPolicy,omitempty"`
+	ExecutionSpecDigest string   `json:"executionSpecDigest,omitempty"`
+	CreatedAt           string   `json:"createdAt,omitempty"`
+}
+
 type ScheduleRecord struct {
 	ID                string `json:"id"`
 	Name              string `json:"name"`
@@ -86,6 +101,14 @@ func taskRecordFromStore(task store.TaskRecord) TaskRecord {
 		latestRun = &mapped
 	}
 	return TaskRecord{ID: task.ID, Name: task.Name, Enabled: task.Enabled, ActiveVersion: task.ActiveVersion, Pool: task.RunnerPoolID, PinnedRunner: task.PinnedRunnerID, Command: append([]string(nil), task.Command...), WorkingDirectory: task.WorkingDirectory, PlacementSelectors: task.PlacementSelectors, Environment: task.Environment, SecretReferences: task.SecretReferences, TimeoutSeconds: task.TimeoutSeconds, MaxOutputBytes: task.MaxOutputBytes, MaxAttempts: task.MaxAttempts, AmbiguityPolicy: task.AmbiguityPolicy, LatestRun: latestRun}
+}
+
+func taskVersionRecordFromStore(version store.TaskVersionRecord) TaskVersionRecord {
+	createdAt := ""
+	if !version.CreatedAt.IsZero() {
+		createdAt = version.CreatedAt.UTC().Format(time.RFC3339)
+	}
+	return TaskVersionRecord{ID: version.ID, Version: version.Version, Pool: version.RunnerPoolID, PinnedRunner: version.PinnedRunnerID, Command: append([]string(nil), version.Command...), WorkingDirectory: version.WorkingDirectory, TimeoutSeconds: version.TimeoutSeconds, MaxOutputBytes: version.MaxOutputBytes, MaxAttempts: version.MaxAttempts, AmbiguityPolicy: version.AmbiguityPolicy, ExecutionSpecDigest: version.ExecutionSpecDigest, CreatedAt: createdAt}
 }
 
 type taskInput struct {
@@ -192,6 +215,30 @@ func (o *OperationsService) taskPath(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := parts[3]
+	if len(parts) == 5 && parts[4] == "versions" && r.Method == http.MethodGet {
+		o.mu.RLock()
+		repository := o.repository
+		o.mu.RUnlock()
+		if repository != nil {
+			versions, err := repository.ListVersions(r.Context(), id)
+			if err != nil {
+				writeError(w, http.StatusServiceUnavailable, "task version storage unavailable", err)
+				return
+			}
+			result := make([]TaskVersionRecord, 0, len(versions))
+			for _, version := range versions {
+				result = append(result, taskVersionRecordFromStore(version))
+			}
+			writeJSON(w, http.StatusOK, result)
+			return
+		}
+		if _, ok := o.task(id); !ok {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})
+			return
+		}
+		writeJSON(w, http.StatusOK, []TaskVersionRecord{})
+		return
+	}
 	if len(parts) == 4 && r.Method == http.MethodGet {
 		o.mu.RLock()
 		repository := o.repository

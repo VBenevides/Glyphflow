@@ -6,5 +6,6 @@ describe('task pages', () => {
     expect(taskQuery('nightly', 'enabled', 2)).toEqual({ search: 'nightly', state: 'enabled', page: 2 })
     expect(taskQuery('', '', 1)).toEqual({ search: undefined, state: undefined, page: 1 })
     expect(taskDetailLinks('task/1').runs).toBe('/runs?task=task%2F1')
+    expect(taskDetailLinks('task/1').versions).toBe('/api/v1/tasks/task%2F1/versions')
   })
 })
