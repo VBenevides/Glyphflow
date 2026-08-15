@@ -27,6 +27,10 @@ type runnerRepositoryWithDeleteError struct {
 
 func (r runnerRepositoryWithDeleteError) DeletePool(context.Context, string) error { return r.err }
 
+func (r runnerRepositoryWithDeleteError) Delete(context.Context, string) (bool, error) {
+	return false, r.err
+}
+
 func TestEnrollmentExpiresAndIsSingleUse(t *testing.T) {
 	s := NewInfrastructureService()
 	expires := time.Now().Add(15 * time.Minute)
@@ -253,6 +257,16 @@ func TestRunnerDeleteRemovesRunnerAndEnrollments(t *testing.T) {
 	}
 	if _, ok := s.enrollments["token"]; ok {
 		t.Fatal("runner enrollment was not deleted")
+	}
+}
+
+func TestRunnerDeleteReportsExecutionHistoryConflict(t *testing.T) {
+	s := NewInfrastructureService()
+	s.runnerRepository = runnerRepositoryWithDeleteError{err: store.ErrRunnerHasExecutionHistory}
+	response := httptest.NewRecorder()
+	s.deleteRunner(response, httptest.NewRequest(http.MethodDelete, "/api/v1/runners/runner-1", nil), "runner-1")
+	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), `"error":"runner is referenced by execution history"`) {
+		t.Fatalf("delete runner response = %d: %s", response.Code, response.Body.String())
 	}
 }
 

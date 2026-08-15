@@ -584,6 +584,10 @@ func (s *InfrastructureService) deleteRunner(w http.ResponseWriter, r *http.Requ
 		deleted, err := repository.Delete(r.Context(), id)
 		if err != nil {
 			recordRequestError(r, err)
+			if errors.Is(err, store.ErrRunnerHasExecutionHistory) {
+				writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+				return
+			}
 			writeError(w, http.StatusConflict, "runner deletion failed", err)
 			return
 		}

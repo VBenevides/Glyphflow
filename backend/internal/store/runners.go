@@ -55,7 +55,10 @@ type RunnerStore struct{ pool *pgxpool.Pool }
 
 const DefaultRunnerCapacity = 10
 
-var ErrRunnerPoolInUse = errors.New("runner pool is still in use")
+var (
+	ErrRunnerPoolInUse           = errors.New("runner pool is still in use")
+	ErrRunnerHasExecutionHistory = errors.New("runner is referenced by execution history")
+)
 
 func NewRunnerRepository(pool *pgxpool.Pool) *RunnerStore { return &RunnerStore{pool: pool} }
 
@@ -185,6 +188,12 @@ func (s *RunnerStore) UpdateCapacity(ctx context.Context, id string, capacity in
 
 func (s *RunnerStore) Delete(ctx context.Context, id string) (bool, error) {
 	result, err := s.pool.Exec(ctx, `DELETE FROM runners WHERE id = $1`, id)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			return false, ErrRunnerHasExecutionHistory
+		}
+	}
 	return result.RowsAffected() > 0, err
 }
 
