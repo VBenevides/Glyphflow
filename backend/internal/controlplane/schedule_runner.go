@@ -37,7 +37,7 @@ func scheduleDueRuns(ctx context.Context, schedules ScheduleRepository) error {
 	now := time.Now().UTC()
 	for range 100 {
 		_, changed, err := schedules.CreateDueRun(ctx, now, func(schedule store.DueScheduleRecord) (time.Time, error) {
-			return NextFire(schedule.ScheduleType, schedule.Expression, schedule.Timezone, schedule.NextFireAt)
+			return NextFire(schedule.Expression, schedule.Timezone, schedule.NextFireAt)
 		})
 		if err != nil {
 			return err

@@ -34,7 +34,6 @@ type ScheduleRecord struct {
 	NextFireAt        string `json:"nextFireAt,omitempty"`
 	State             string `json:"state"`
 	Timezone          string `json:"timezone"`
-	ScheduleType      string `json:"scheduleType"`
 	Expression        string `json:"expression"`
 	MisfirePolicy     string `json:"misfirePolicy"`
 	CatchupLimit      int    `json:"catchupLimit"`
@@ -105,12 +104,12 @@ func scheduleRecordFromStore(schedule store.ScheduleRecord) ScheduleRecord {
 	if schedule.NextFireAt != nil {
 		nextFireAt = schedule.NextFireAt.UTC().Format(time.RFC3339)
 	}
-	return ScheduleRecord{ID: schedule.ID, Name: schedule.Name, TaskID: schedule.TaskID, Enabled: schedule.Enabled, NextFireAt: nextFireAt, State: schedule.State, Timezone: schedule.Timezone, ScheduleType: schedule.ScheduleType, Expression: schedule.Expression, MisfirePolicy: schedule.MisfirePolicy, CatchupLimit: schedule.CatchupLimit, DeadlineSeconds: schedule.DeadlineSeconds, ConcurrencyPolicy: schedule.ConcurrencyPolicy, MaxConcurrentRuns: schedule.MaxConcurrentRuns}
+	return ScheduleRecord{ID: schedule.ID, Name: schedule.Name, TaskID: schedule.TaskID, Enabled: schedule.Enabled, NextFireAt: nextFireAt, State: schedule.State, Timezone: schedule.Timezone, Expression: schedule.Expression, MisfirePolicy: schedule.MisfirePolicy, CatchupLimit: schedule.CatchupLimit, DeadlineSeconds: schedule.DeadlineSeconds, ConcurrencyPolicy: schedule.ConcurrencyPolicy, MaxConcurrentRuns: schedule.MaxConcurrentRuns}
 }
 
 func scheduleDefinition(id string, input scheduleInput) (store.ScheduleDefinition, error) {
-	definition := store.ScheduleDefinition{ID: id, Name: input.Name, TaskID: input.TaskID, ScheduleType: input.ScheduleType, Expression: input.Expression, Timezone: input.Timezone, Enabled: true, MisfirePolicy: input.MisfirePolicy, CatchupLimit: input.CatchupLimit, DeadlineSeconds: input.DeadlineSeconds, ConcurrencyPolicy: input.ConcurrencyPolicy, MaxConcurrentRuns: input.MaxConcurrentRuns}
-	next, err := controlplane.NextFire(input.ScheduleType, input.Expression, input.Timezone, time.Now().UTC())
+	definition := store.ScheduleDefinition{ID: id, Name: input.Name, TaskID: input.TaskID, Expression: input.Expression, Timezone: input.Timezone, Enabled: true, MisfirePolicy: input.MisfirePolicy, CatchupLimit: input.CatchupLimit, DeadlineSeconds: input.DeadlineSeconds, ConcurrencyPolicy: input.ConcurrencyPolicy, MaxConcurrentRuns: input.MaxConcurrentRuns}
+	next, err := controlplane.NextFire(input.Expression, input.Timezone, time.Now().UTC())
 	if err != nil {
 		return store.ScheduleDefinition{}, err
 	}
@@ -418,7 +417,7 @@ func (o *OperationsService) preview(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "schedule expression is required"})
 		return
 	}
-	next, err := controlplane.NextFire(input.ScheduleType, input.Expression, input.Timezone, time.Now().UTC())
+	next, err := controlplane.NextFire(input.Expression, input.Timezone, time.Now().UTC())
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
@@ -429,7 +428,6 @@ func (o *OperationsService) preview(w http.ResponseWriter, r *http.Request) {
 type scheduleInput struct {
 	Name              string `json:"name"`
 	TaskID            string `json:"task_id"`
-	ScheduleType      string `json:"schedule_type"`
 	Expression        string `json:"expression"`
 	Timezone          string `json:"timezone"`
 	MisfirePolicy     string `json:"misfire_policy"`
@@ -497,9 +495,6 @@ func (o *OperationsService) saveSchedule(input scheduleInput, id string) (Schedu
 	if strings.TrimSpace(input.TaskID) == "" || strings.TrimSpace(input.Name) == "" || strings.TrimSpace(input.Expression) == "" || strings.TrimSpace(input.Timezone) == "" {
 		return ScheduleRecord{}, errors.New("task, name, expression, and timezone are required")
 	}
-	if input.ScheduleType == "" {
-		input.ScheduleType = "cron"
-	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if id == "" {
@@ -509,7 +504,7 @@ func (o *OperationsService) saveSchedule(input scheduleInput, id string) (Schedu
 	if existing, ok := o.schedules[id]; ok && input.Name == "" {
 		input.Name = existing.Name
 	}
-	schedule := ScheduleRecord{ID: id, Name: input.Name, TaskID: input.TaskID, Enabled: true, State: "ACTIVE", Timezone: input.Timezone, ScheduleType: input.ScheduleType, Expression: input.Expression, MisfirePolicy: input.MisfirePolicy, CatchupLimit: input.CatchupLimit, DeadlineSeconds: input.DeadlineSeconds, ConcurrencyPolicy: input.ConcurrencyPolicy, MaxConcurrentRuns: input.MaxConcurrentRuns}
+	schedule := ScheduleRecord{ID: id, Name: input.Name, TaskID: input.TaskID, Enabled: true, State: "ACTIVE", Timezone: input.Timezone, Expression: input.Expression, MisfirePolicy: input.MisfirePolicy, CatchupLimit: input.CatchupLimit, DeadlineSeconds: input.DeadlineSeconds, ConcurrencyPolicy: input.ConcurrencyPolicy, MaxConcurrentRuns: input.MaxConcurrentRuns}
 	o.schedules[id] = schedule
 	return schedule, nil
 }

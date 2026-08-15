@@ -14,14 +14,7 @@ type Schedule struct {
 	Timezone string
 }
 
-func NextFire(scheduleType, expression, timezone string, now time.Time) (time.Time, error) {
-	if strings.EqualFold(strings.TrimSpace(scheduleType), "interval") {
-		interval, err := time.ParseDuration(strings.TrimSpace(expression))
-		if err != nil || interval <= 0 {
-			return time.Time{}, errors.New("schedule interval is invalid")
-		}
-		return now.UTC().Add(interval), nil
-	}
+func NextFire(expression, timezone string, now time.Time) (time.Time, error) {
 	return (Schedule{Cron: expression, Timezone: timezone}).Next(now)
 }
 

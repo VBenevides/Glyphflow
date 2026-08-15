@@ -69,6 +69,22 @@ func TestGlobalVariableMigration(t *testing.T) {
 	}
 }
 
+func TestCronOnlyMigration(t *testing.T) {
+	migrations, err := LoadMigrations(filepath.Join("..", "..", "migrations"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cronMigration Migration
+	for _, migration := range migrations {
+		if migration.Name == "cron_only" {
+			cronMigration = migration
+		}
+	}
+	if cronMigration.Version != 7 || !strings.Contains(strings.ToLower(cronMigration.SQL), "drop column schedule_type") {
+		t.Fatalf("cron-only migration = %#v", cronMigration)
+	}
+}
+
 func TestCanonicalMigrationContainsTargetTables(t *testing.T) {
 	sql := canonicalMigrationSQL(t)
 	for _, table := range []string{
