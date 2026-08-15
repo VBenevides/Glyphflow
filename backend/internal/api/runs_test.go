@@ -15,26 +15,33 @@ func TestRunActionsAndResumableLogs(t *testing.T) {
 	if created.Code != http.StatusCreated {
 		t.Fatalf("execute status = %d", created.Code)
 	}
+	var run RunRecord
+	if err := json.NewDecoder(created.Body).Decode(&run); err != nil {
+		t.Fatal(err)
+	}
+	if len(run.ID) != len("run-")+128 {
+		t.Fatalf("run ID length = %d", len(run.ID))
+	}
 	if err := func() error {
 		runs.mu.Lock()
 		defer runs.mu.Unlock()
-		runs.logs["run-1"]["stdout"] = []LogChunk{{Sequence: 1, Text: "hello\n"}, {Sequence: 2, Text: "world\n"}}
+		runs.logs[run.ID]["stdout"] = []LogChunk{{Sequence: 1, Text: "hello\n"}, {Sequence: 2, Text: "world\n"}}
 		return nil
 	}(); err != nil {
 		t.Fatal(err)
 	}
 	cancel := httptest.NewRecorder()
-	runs.path(cancel, httptest.NewRequest(http.MethodPost, "/api/v1/runs/run-1/cancel", bytes.NewBufferString(`{"reason":"stop"}`)))
+	runs.path(cancel, httptest.NewRequest(http.MethodPost, "/api/v1/runs/"+run.ID+"/cancel", bytes.NewBufferString(`{"reason":"stop"}`)))
 	if cancel.Code != http.StatusOK {
 		t.Fatalf("cancel status = %d", cancel.Code)
 	}
 	logs := httptest.NewRecorder()
-	runs.path(logs, httptest.NewRequest(http.MethodGet, "/api/v1/runs/run-1/logs?stream=stdout&after=1", nil))
+	runs.path(logs, httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+run.ID+"/logs?stream=stdout&after=1", nil))
 	if logs.Code != http.StatusOK || !bytes.Contains(logs.Body.Bytes(), []byte(`"sequence":2`)) || bytes.Contains(logs.Body.Bytes(), []byte(`"sequence":1`)) {
 		t.Fatalf("resumed logs: %d %s", logs.Code, logs.Body.String())
 	}
 	conflict := httptest.NewRecorder()
-	runs.path(conflict, httptest.NewRequest(http.MethodPost, "/api/v1/runs/run-1/retry", bytes.NewBufferString(`{"reason":"repeat"}`)))
+	runs.path(conflict, httptest.NewRequest(http.MethodPost, "/api/v1/runs/"+run.ID+"/retry", bytes.NewBufferString(`{"reason":"repeat"}`)))
 	if conflict.Code != http.StatusConflict {
 		t.Fatalf("illegal retry status = %d", conflict.Code)
 	}

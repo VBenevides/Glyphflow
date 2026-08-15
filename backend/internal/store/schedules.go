@@ -14,6 +14,7 @@ import (
 type ScheduleDefinition struct {
 	ID, Name, TaskID, ScheduleType, Expression, Timezone string
 	Enabled                                              bool
+	NextFireAt                                           *time.Time
 	MisfirePolicy, ConcurrencyPolicy                     string
 	CatchupLimit, DeadlineSeconds, MaxConcurrentRuns     int
 }
@@ -33,6 +34,13 @@ type ScheduleRepository interface {
 	Create(context.Context, ScheduleDefinition) (ScheduleRecord, error)
 	Update(context.Context, string, ScheduleDefinition) (ScheduleRecord, error)
 	Delete(context.Context, string) (bool, error)
+	CreateDueRun(context.Context, time.Time, func(DueScheduleRecord) (time.Time, error)) (string, bool, error)
+}
+
+type DueScheduleRecord struct {
+	ID, TaskID, TaskVersionID, ScheduleVersionID string
+	ScheduleType, Expression, Timezone           string
+	NextFireAt                                   time.Time
 }
 
 type ScheduleStore struct{ pool *pgxpool.Pool }
@@ -93,7 +101,7 @@ func (s *ScheduleStore) Create(ctx context.Context, definition ScheduleDefinitio
 	if err := tx.QueryRow(ctx, `SELECT current_version_id FROM tasks WHERE id = $1 FOR SHARE`, definition.TaskID).Scan(&taskVersionID); err != nil {
 		return ScheduleRecord{}, err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO schedules (id, task_id, name, enabled) VALUES ($1, $2, $3, $4)`, definition.ID, definition.TaskID, definition.Name, definition.Enabled); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO schedules (id, task_id, name, enabled, next_fire_at) VALUES ($1, $2, $3, $4, $5)`, definition.ID, definition.TaskID, definition.Name, definition.Enabled, definition.NextFireAt); err != nil {
 		return ScheduleRecord{}, err
 	}
 	if err := insertScheduleVersion(ctx, tx, definition.ID, definition.TaskID, 1, taskVersionID, definition); err != nil {
@@ -144,7 +152,7 @@ func (s *ScheduleStore) Update(ctx context.Context, id string, definition Schedu
 		return ScheduleRecord{}, err
 	}
 	versionID := id + "-v" + strconv.Itoa(version)
-	if _, err := tx.Exec(ctx, `UPDATE schedules SET task_id = $2, name = $3, enabled = $4, current_version_id = $5, updated_at = now() WHERE id = $1`, id, definition.TaskID, definition.Name, definition.Enabled, versionID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE schedules SET task_id = $2, name = $3, enabled = $4, current_version_id = $5, next_fire_at = $6, updated_at = now() WHERE id = $1`, id, definition.TaskID, definition.Name, definition.Enabled, versionID, definition.NextFireAt); err != nil {
 		return ScheduleRecord{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -163,6 +171,66 @@ func (s *ScheduleStore) Update(ctx context.Context, id string, definition Schedu
 func (s *ScheduleStore) Delete(ctx context.Context, id string) (bool, error) {
 	result, err := s.pool.Exec(ctx, `DELETE FROM schedules WHERE id = $1`, id)
 	return result.RowsAffected() > 0, err
+}
+
+func (s *ScheduleStore) CreateDueRun(ctx context.Context, now time.Time, next func(DueScheduleRecord) (time.Time, error)) (string, bool, error) {
+	if next == nil {
+		return "", false, errors.New("schedule next-fire function is required")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return "", false, err
+	}
+	defer tx.Rollback(ctx)
+	var due DueScheduleRecord
+	var storedNext *time.Time
+	err = tx.QueryRow(ctx, `SELECT s.id, s.task_id, sv.task_version_id, s.current_version_id, sv.schedule_type, sv.expression, sv.timezone, s.next_fire_at FROM schedules s JOIN schedule_versions sv ON sv.id = s.current_version_id WHERE s.enabled AND (s.next_fire_at IS NULL OR s.next_fire_at <= $1) ORDER BY COALESCE(s.next_fire_at, $1), s.id FOR UPDATE OF s SKIP LOCKED LIMIT 1`, now).Scan(&due.ID, &due.TaskID, &due.TaskVersionID, &due.ScheduleVersionID, &due.ScheduleType, &due.Expression, &due.Timezone, &storedNext)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	initialized := storedNext == nil
+	if initialized {
+		due.NextFireAt = now
+	} else {
+		due.NextFireAt = storedNext.UTC()
+	}
+	nextFire, err := next(due)
+	if err != nil {
+		return "", false, err
+	}
+	if !nextFire.After(due.NextFireAt) {
+		return "", false, errors.New("schedule next fire did not advance")
+	}
+	if initialized {
+		if _, err := tx.Exec(ctx, `UPDATE schedules SET next_fire_at = $2, updated_at = now() WHERE id = $1`, due.ID, nextFire); err != nil {
+			return "", false, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return "", false, err
+		}
+		return "", true, nil
+	}
+	runID, err := NewRunID()
+	if err != nil {
+		return "", false, err
+	}
+	idempotencyKey := due.ID + ":" + due.NextFireAt.UTC().Format(time.RFC3339Nano)
+	if nextFire.IsZero() {
+		return "", false, errors.New("schedule next fire is empty")
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO runs (id, task_id, task_version_id, schedule_version_id, trigger_type, scheduled_for, state, idempotency_key) VALUES ($1, $2, $3, $4, 'SCHEDULE', $5, 'WAITING', $6) ON CONFLICT (idempotency_key) DO NOTHING`, runID, due.TaskID, due.TaskVersionID, due.ScheduleVersionID, due.NextFireAt, idempotencyKey); err != nil {
+		return "", false, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE schedules SET next_fire_at = $2, updated_at = now() WHERE id = $1`, due.ID, nextFire); err != nil {
+		return "", false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", false, err
+	}
+	return runID, true, nil
 }
 
 func normalizeScheduleDefinition(definition ScheduleDefinition) ScheduleDefinition {

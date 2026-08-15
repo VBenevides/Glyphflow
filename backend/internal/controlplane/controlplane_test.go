@@ -46,3 +46,11 @@ func TestScheduleSupportsWholeHourUTCOffsets(t *testing.T) {
 		t.Fatalf("offset = %d, want %d", offset, 23*60*60)
 	}
 }
+
+func TestNextFireSupportsIntervals(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	next, err := NextFire("interval", "5m", "UTC", now)
+	if err != nil || !next.Equal(now.Add(5*time.Minute)) {
+		t.Fatalf("interval next fire = %v, err=%v", next, err)
+	}
+}

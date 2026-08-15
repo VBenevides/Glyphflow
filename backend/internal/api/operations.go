@@ -108,8 +108,14 @@ func scheduleRecordFromStore(schedule store.ScheduleRecord) ScheduleRecord {
 	return ScheduleRecord{ID: schedule.ID, Name: schedule.Name, TaskID: schedule.TaskID, Enabled: schedule.Enabled, NextFireAt: nextFireAt, State: schedule.State, Timezone: schedule.Timezone, ScheduleType: schedule.ScheduleType, Expression: schedule.Expression, MisfirePolicy: schedule.MisfirePolicy, CatchupLimit: schedule.CatchupLimit, DeadlineSeconds: schedule.DeadlineSeconds, ConcurrencyPolicy: schedule.ConcurrencyPolicy, MaxConcurrentRuns: schedule.MaxConcurrentRuns}
 }
 
-func scheduleDefinition(id string, input scheduleInput) store.ScheduleDefinition {
-	return store.ScheduleDefinition{ID: id, Name: input.Name, TaskID: input.TaskID, ScheduleType: input.ScheduleType, Expression: input.Expression, Timezone: input.Timezone, Enabled: true, MisfirePolicy: input.MisfirePolicy, CatchupLimit: input.CatchupLimit, DeadlineSeconds: input.DeadlineSeconds, ConcurrencyPolicy: input.ConcurrencyPolicy, MaxConcurrentRuns: input.MaxConcurrentRuns}
+func scheduleDefinition(id string, input scheduleInput) (store.ScheduleDefinition, error) {
+	definition := store.ScheduleDefinition{ID: id, Name: input.Name, TaskID: input.TaskID, ScheduleType: input.ScheduleType, Expression: input.Expression, Timezone: input.Timezone, Enabled: true, MisfirePolicy: input.MisfirePolicy, CatchupLimit: input.CatchupLimit, DeadlineSeconds: input.DeadlineSeconds, ConcurrencyPolicy: input.ConcurrencyPolicy, MaxConcurrentRuns: input.MaxConcurrentRuns}
+	next, err := controlplane.NextFire(input.ScheduleType, input.Expression, input.Timezone, time.Now().UTC())
+	if err != nil {
+		return store.ScheduleDefinition{}, err
+	}
+	definition.NextFireAt = &next
+	return definition, nil
 }
 
 func (o *OperationsService) taskCollection(w http.ResponseWriter, r *http.Request) {
@@ -299,7 +305,12 @@ func (o *OperationsService) scheduleCollection(w http.ResponseWriter, r *http.Re
 			writeError(w, http.StatusServiceUnavailable, "schedule creation failed", err)
 			return
 		}
-		created, err := repository.Create(r.Context(), scheduleDefinition("schedule-"+id, input))
+		definition, err := scheduleDefinition("schedule-"+id, input)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "schedule creation failed", err)
+			return
+		}
+		created, err := repository.Create(r.Context(), definition)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
@@ -376,7 +387,12 @@ func (o *OperationsService) schedulePath(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if repository != nil {
-		updated, err := repository.Update(r.Context(), id, scheduleDefinition(id, input))
+		definition, err := scheduleDefinition(id, input)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "schedule update failed", err)
+			return
+		}
+		updated, err := repository.Update(r.Context(), id, definition)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
@@ -402,14 +418,10 @@ func (o *OperationsService) preview(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "schedule expression is required"})
 		return
 	}
-	next := time.Now().UTC().Add(time.Minute)
-	if input.ScheduleType == "cron" {
-		value, err := (controlplane.Schedule{Cron: input.Expression, Timezone: input.Timezone}).Next(time.Now())
-		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-			return
-		}
-		next = value
+	next, err := controlplane.NextFire(input.ScheduleType, input.Expression, input.Timezone, time.Now().UTC())
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
 	}
 	writeJSON(w, http.StatusOK, map[string][]string{"occurrences": {next.Format(time.RFC3339)}})
 }

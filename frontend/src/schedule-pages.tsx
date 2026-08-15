@@ -30,9 +30,9 @@ const scheduleInfo = {
   task: 'Select the task to run.\nValues: every available task, shown as Name (ID).\nThe task active version is used.',
   name: 'Human-readable schedule name.\nValue: required and unique, case-insensitive.\nExample: Every 5 minutes.',
   timezone: 'UTC offset used for calendar schedules.\nValues: whole hours from -23 to +23.\n0 = UTC; -3 = UTC-03:00; +2 = UTC+02:00.',
-  type: 'How the schedule repeats.\nCron: calendar-based five-field expression.\nInterval: fixed duration such as 5m or 1h.\nInterval scheduling is not yet supported by control-plane preview/dispatch.',
+  type: 'How the schedule repeats.\nCron: calendar-based five-field expression.\nInterval: fixed duration such as 5m or 1h.',
   cronExpression: 'Cron fields, in order: minute (0-59), hour (0-23), day (1-31), month (1-12), weekday (0-6; Sunday=0).\nUse * for any value, */n for steps, and comma/range lists.\nExample: */5 * * * * = every 5 minutes.',
-  intervalExpression: 'Fixed duration between runs.\nValues use Go duration syntax, such as 30s, 5m, or 1h.\nInterval scheduling is not yet supported by control-plane preview/dispatch.',
+  intervalExpression: 'Fixed duration between runs.\nValues use Go duration syntax, such as 30s, 5m, or 1h.',
   misfire: 'What happens when occurrences are missed.\nSKIP_ALL: discard missed occurrences.\nRUN_LATEST: run only the latest missed occurrence.\nRUN_ALL: run every missed occurrence.\nRUN_UP_TO_N: run at most Catch-up limit occurrences.\nFAIL_AND_ALERT: mark the missed schedule as failed.',
   catchup: 'Maximum missed occurrences replayed by RUN_UP_TO_N.\nValues: 0 or a positive whole number.\n0 = no explicit catch-up limit.',
   deadline: 'Maximum delay allowed after the scheduled time for a run to start.\nValues: 0 or a positive number of seconds.\n0 = no start deadline.',
@@ -64,7 +64,7 @@ export function previewPayload(draft: ScheduleDraft) {
 
 export function ScheduleInventoryPage() {
   const { permissions } = useAuth(); const navigate = useNavigate(); const [page, setPage] = useState(1); const [task, setTask] = useState(''); const debouncedTask = useDebouncedValue(task)
-  const query = useQuery({ queryKey: ['schedules', page, debouncedTask], queryFn: ({ signal }) => api.get<Page<Schedule>>('/api/v1/schedules', { page, task: debouncedTask || undefined }, signal) })
+  const query = useQuery({ queryKey: ['schedules', page, debouncedTask], queryFn: ({ signal }) => api.get<Page<Schedule>>('/api/v1/schedules', { page, task: debouncedTask || undefined }, signal), refetchInterval: 5_000 })
   return <main className="gf-content"><PageHeader title="Schedules" description="Versioned triggers with explicit UTC offset and misfire policy." action={permissions.includes('tasks.manage') && <Button onClick={() => navigate('/schedules/new')}>Create schedule</Button>} /><div className="gf-filter-bar"><TaskPicker value={task} onChange={(value) => { setTask(value); setPage(1) }} label="Task" /></div><QueryState query={query} empty="Create a schedule to trigger a task.">{(data) => data.items.length ? <><DataTable caption="Schedules" rows={data.items} columns={[{ key: 'name', label: 'Schedule', render: (schedule) => <Link to={`/schedules/${schedule.id}/edit`}>{schedule.name}</Link> }, { key: 'taskId', label: 'Task' }, { key: 'timezone', label: 'UTC offset', render: (schedule) => utcOffsetFromTimezone(schedule.timezone ?? 'UTC') }, { key: 'nextFireAt', label: 'Next fire' }, { key: 'enabled', label: 'State', render: (schedule) => <StatusPill status={schedule.enabled === false ? 'disabled' : 'enabled'} /> }, { key: 'actions', label: 'Actions', render: (schedule) => permissions.includes('tasks.manage') && <DangerousAction label="Delete" warning="Permanently deletes this schedule and its versions. Existing execution history may block deletion." onConfirm={() => api.delete(`/api/v1/schedules/${encodeURIComponent(schedule.id)}`).then(() => { void query.refetch() })} /> }]} /><Pagination page={data.page} pages={data.pages ?? 1} onChange={setPage} /></> : <EmptyState title="No schedules">Create a schedule to trigger a task.</EmptyState>}</QueryState></main>
 }
 

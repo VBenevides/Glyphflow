@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { eligibleRunActions, hasActiveRuns, runQuery, runStatusLabel } from './run-pages'
+import { isTerminalRunState } from './run-logs'
 
 describe('run inventory', () => {
   it('builds server-side filters and keeps terminal labels distinct', () => {
@@ -11,5 +12,7 @@ describe('run inventory', () => {
     expect(eligibleRunActions('RUNNING').cancel).toBe(true)
     expect(hasActiveRuns({ items: [{ id: 'r1', state: 'RUNNING' }], page: 1, limit: 20 })).toBe(true)
     expect(hasActiveRuns({ items: [{ id: 'r2', state: 'SUCCEEDED' }], page: 1, limit: 20 })).toBe(false)
+    expect(isTerminalRunState('SUCCEEDED')).toBe(true)
+    expect(isTerminalRunState('RUNNING')).toBe(false)
   })
 })

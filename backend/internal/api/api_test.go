@@ -178,6 +178,12 @@ func TestFrontendResourceAndRunPathsReachClassifiedHandlers(t *testing.T) {
 	if createRun.Code != http.StatusCreated {
 		t.Fatalf("seed run: %d", createRun.Code)
 	}
+	var run struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(createRun.Body).Decode(&run); err != nil || run.ID == "" {
+		t.Fatalf("seed run response: %s", createRun.Body.String())
+	}
 	requests := []struct {
 		method string
 		path   string
@@ -188,9 +194,9 @@ func TestFrontendResourceAndRunPathsReachClassifiedHandlers(t *testing.T) {
 		{http.MethodGet, "/api/v1/schedules/schedule-1"},
 		{http.MethodGet, "/api/v1/resources/resource-1"},
 		{http.MethodPost, "/api/v1/runners/enrollments"},
-		{http.MethodPost, "/api/v1/runs/run-1/cancel"},
-		{http.MethodGet, "/api/v1/runs/run-1/logs"},
-		{http.MethodGet, "/api/v1/runs/run-1/logs/download"},
+		{http.MethodPost, "/api/v1/runs/" + run.ID + "/cancel"},
+		{http.MethodGet, "/api/v1/runs/" + run.ID + "/logs"},
+		{http.MethodGet, "/api/v1/runs/" + run.ID + "/logs/download"},
 	}
 	for _, item := range requests {
 		response := httptest.NewRecorder()

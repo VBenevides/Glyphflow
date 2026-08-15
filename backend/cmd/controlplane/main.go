@@ -141,7 +141,8 @@ func main() {
 	}
 	operations := api.NewOperationsService()
 	operations.SetTaskRepository(store.NewTaskRepository(db))
-	operations.SetScheduleRepository(store.NewScheduleRepository(db))
+	scheduleRepository := store.NewScheduleRepository(db)
+	operations.SetScheduleRepository(scheduleRepository)
 	runs := api.NewRunService()
 	runRepository := store.NewRunRepository(db)
 	runs.SetRepository(runRepository)
@@ -201,6 +202,18 @@ func main() {
 		for ctx.Err() == nil {
 			if err := controlplane.RunDispatcher(ctx, jetstream, runRepository, runnerRepository, signingKey, 500*time.Millisecond); err != nil && ctx.Err() == nil {
 				fmt.Fprintln(os.Stderr, "run dispatcher:", err)
+				select {
+				case <-time.After(time.Second):
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+	}()
+	go func() {
+		for ctx.Err() == nil {
+			if err := controlplane.RunScheduler(ctx, scheduleRepository, 500*time.Millisecond); err != nil && ctx.Err() == nil {
+				fmt.Fprintln(os.Stderr, "schedule runner:", err)
 				select {
 				case <-time.After(time.Second):
 				case <-ctx.Done():

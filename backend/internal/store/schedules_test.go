@@ -24,7 +24,11 @@ func TestScheduleRepositoryKeepsImmutableVersionsAndPointer(t *testing.T) {
 	schedules := NewScheduleRepository(pool)
 	suffix := time.Now().UTC().Format("20060102150405.000000000")
 	poolID, taskID, scheduleID := "schedule-pool-"+suffix, "schedule-task-"+suffix, "schedule-"+suffix
+	var scheduledRunID string
 	t.Cleanup(func() {
+		if scheduledRunID != "" {
+			_, _ = pool.Exec(ctx, `DELETE FROM runs WHERE id = $1`, scheduledRunID)
+		}
 		_, _ = pool.Exec(ctx, `DELETE FROM schedules WHERE id = $1`, scheduleID)
 		_, _ = pool.Exec(ctx, `DELETE FROM tasks WHERE id = $1`, taskID)
 		_, _ = pool.Exec(ctx, `DELETE FROM runner_pools WHERE id = $1`, poolID)
@@ -53,6 +57,22 @@ func TestScheduleRepositoryKeepsImmutableVersionsAndPointer(t *testing.T) {
 	if err != nil || !found || current.ActiveVersion != 2 {
 		t.Fatalf("failed schedule update moved pointer: %#v, found=%t, err=%v", current, found, err)
 	}
+	if _, err := pool.Exec(ctx, `UPDATE schedules SET next_fire_at = now() WHERE id = $1`, scheduleID); err != nil {
+		t.Fatal(err)
+	}
+	scheduledRunID, changed, err := schedules.CreateDueRun(ctx, time.Now().UTC(), func(due DueScheduleRecord) (time.Time, error) {
+		return due.NextFireAt.Add(time.Minute), nil
+	})
+	if err != nil || !changed || scheduledRunID == "" {
+		t.Fatalf("scheduled run = %q, changed=%t, err=%v", scheduledRunID, changed, err)
+	}
+	if next, found, err := schedules.Find(ctx, scheduleID); err != nil || !found || next.NextFireAt == nil {
+		t.Fatalf("schedule next fire = %#v, found=%t, err=%v", next.NextFireAt, found, err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM runs WHERE id = $1`, scheduledRunID); err != nil {
+		t.Fatal(err)
+	}
+	scheduledRunID = ""
 	if _, err := schedules.Create(ctx, ScheduleDefinition{ID: scheduleID + "-bad", Name: "Bad timezone", TaskID: taskID, ScheduleType: "cron", Expression: "0 * * * *", Timezone: "Not/AZone", Enabled: true}); err == nil {
 		t.Fatal("invalid timezone was accepted")
 	}

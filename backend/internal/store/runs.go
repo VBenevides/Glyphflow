@@ -39,6 +39,14 @@ type RunLogChunkRecord struct {
 	Checksum           string
 }
 
+func NewRunID() (string, error) {
+	raw := make([]byte, 64)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	return "run-" + hex.EncodeToString(raw), nil
+}
+
 type ExecutionAttemptDefinition struct {
 	ID, RunID, RunnerID, RunnerSessionID, LeaseToken, ExecutionSpecDigest string
 	AttemptNumber                                                         int

@@ -34,7 +34,6 @@ type RunService struct {
 	mu         sync.RWMutex
 	runs       map[string]RunRecord
 	logs       map[string]map[string][]LogChunk
-	next       int
 	repository store.RunRepository
 }
 
@@ -135,7 +134,7 @@ func (s *RunService) execute(w http.ResponseWriter, r *http.Request) {
 	repository := s.repository
 	s.mu.RUnlock()
 	if repository != nil {
-		id, err := randomID()
+		id, err := store.NewRunID()
 		if err != nil {
 			writeError(w, http.StatusServiceUnavailable, "run creation failed", err)
 			return
@@ -144,7 +143,7 @@ func (s *RunService) execute(w http.ResponseWriter, r *http.Request) {
 		if idempotencyKey == "" {
 			idempotencyKey = r.Header.Get("Idempotency-Key")
 		}
-		created, err := repository.Create(r.Context(), store.RunDefinition{ID: "run-" + id, TaskID: input.TaskID, TriggerType: "MANUAL", IdempotencyKey: idempotencyKey, ScheduledFor: time.Now().UTC()})
+		created, err := repository.Create(r.Context(), store.RunDefinition{ID: id, TaskID: input.TaskID, TriggerType: "MANUAL", IdempotencyKey: idempotencyKey, ScheduledFor: time.Now().UTC()})
 		if err != nil {
 			writeError(w, http.StatusConflict, "run creation failed", err)
 			return
@@ -152,9 +151,13 @@ func (s *RunService) execute(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusCreated, runRecordFromStore(created))
 		return
 	}
+	id, err := store.NewRunID()
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "run creation failed", err)
+		return
+	}
 	s.mu.Lock()
-	s.next++
-	run := RunRecord{ID: "run-" + strconv.Itoa(s.next), TaskID: input.TaskID, State: "WAITING", Attempt: 1, Trigger: "MANUAL"}
+	run := RunRecord{ID: id, TaskID: input.TaskID, State: "WAITING", Attempt: 1, Trigger: "MANUAL"}
 	s.runs[run.ID] = run
 	s.logs[run.ID] = map[string][]LogChunk{"stdout": {}, "stderr": {}}
 	s.mu.Unlock()
