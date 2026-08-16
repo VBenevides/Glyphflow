@@ -25,7 +25,7 @@ The live review used `./dev_run.sh`, Chromium, PostgreSQL, NATS, and the API at 
 - Dialog Escape behavior and focus return.
 - Focused PostgreSQL repository tests against fresh migrated databases.
 
-The review did not run the native desktop tray matrix. The automated desktop build passed, but window, tray, long-log, and active-exit behavior still need a supported desktop session.
+The review did not complete the native desktop tray matrix. Worker UI race tests, headless race tests, and the four-artifact build passed, but window, tray, long-log, and active-exit behavior still need a supported desktop session.
 
 ## TODO-2 baseline and reference capture
 
@@ -41,6 +41,25 @@ The pre-edit worktree was clean on `version/v0.1.0`. The current baseline passes
 | `cd backend && GOCACHE=/tmp/glyphflow-gocache go vet ./...` | PASS |
 
 All seven reference screenshots were opened at their native sizes: `overview.png` (1911×935), `platform-configuration.png` (1654×930), `roles.png` (1652×926), `settings-ui.png` (427×301), `settings-user.png` (439×472), `system_events.png` (1656×930), and `users.png` (1655×935). Repeated patterns are a pale-lilac page, thin bordered light sidebar, purple primary/active controls, compact headings and muted descriptions, low-shadow cards, compact tables with status pills and pagination, grouped navigation with indented children, and consistent 20–24 px desktop spacing (16 px on mobile).
+
+## TODO-2 acceptance execution record
+
+### Frontend
+
+The previously recorded Chromium audit covered 91 authenticated routes at 1440 px and 390 px (182 checks), plus public authentication, registration, dialogs, and mobile navigation. It found no actionable overflow, unnamed controls, duplicate IDs, or console errors. A new `./dev_run.sh`/`npm run test:browser` attempt could not establish an independent stack because ports 8080/5173 were occupied; reusing the existing endpoint returned `401 invalid credentials` and `400 registration failed`. Therefore screenshot comparison, 320/768/1024/1650–1910 px coverage, 200% zoom, and long-value coverage remain open.
+
+### Worker desktop
+
+The following support checks passed:
+
+| Check | Result |
+|---|---|
+| `cd backend && GOCACHE=/tmp/glyphflow-workerui-race-cache go test -race -tags workerui ./cmd/worker` | PASS |
+| `cd backend && GOCACHE=/tmp/glyphflow-headless-race-cache go test -race ./cmd/worker ./internal/worker ./internal/queue` | PASS |
+| `RUNNER_BINARIES_DIR=/tmp/glyphflow-runner-matrix bash backend/build_runner_binaries.sh` | PASS; four non-empty Linux/Windows desktop/headless artifacts |
+| Linux headless launch | PASS; starts without GUI dependencies and stops on expected missing enrollment/control key |
+
+Native tray acceptance is blocked: the DBus StatusNotifier probe returns `Operation not permitted`, GTK cannot open a display, and Windows WebView2/tray execution is unavailable. The GTK3 build tag is also intentionally unresolved because the repository names no supported distro requiring legacy GTK3; current Wails/host support uses GTK4.
 
 ## Previous v2 status
 
