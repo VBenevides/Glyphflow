@@ -43,6 +43,7 @@ Items are ordered by severity within each category. Each item maps to `REPORT.md
   - Verification: `cd frontend && npm test -- --run`; `cd frontend && npm run build`
   - Result: PASS — all task-editor key/value tables reuse `.gf-table-wrap`.
   - Implementation commit: `3eeecc575c82452e3683ac6502ea4486bb01ac3d`
+  - Follow-up implementation commit: `5923c8b7f4d53e5c20ddb967089de9237488e28d`
 - [x] **Medium — BUG-06: Give schedule controls accessible names**
   - Verification: `cd frontend && npm test -- --run`; `cd frontend && npm run typecheck`
   - Result: PASS — schedule controls use explicit labels and TaskPicker exposes valid combobox/listbox relationships.
@@ -58,17 +59,26 @@ Items are ordered by severity within each category. Each item maps to `REPORT.md
 
 ## New Features
 
-- [ ] **Medium — FEATURE-01: Show the placement blocker for waiting runs**
-  - Reuse the dispatcher reason on run details.
+- [x] **Medium — FEATURE-01: Show the placement blocker for waiting runs**
+  - Verification: `GOFLAGS=-buildvcs=false ./scripts/release-check.sh`; `cd frontend && npm test -- --run src/run-pages.test.ts`; `cd frontend && npm run typecheck`
+  - Result: PASS — waiting run list/detail records now expose a read-time blocker derived from current pool, selector, heartbeat, capacity, and resource state; terminal runs omit it.
+  - Implementation commit: `b8d2d2c10e07434dd77e165f4aaa9caad9367547`
 
 ## Enhancements
 
-- [ ] **High — ENH-01: Add a focused browser acceptance suite**
-  - Cover authentication, role routes, mobile navigation, task editing, run logs, and accessible names.
-- [ ] **Medium — ENH-02: Gate releases on a migrated PostgreSQL suite**
-  - Run it after unit tests in one clean database.
+- [x] **High — ENH-01: Add a focused browser acceptance suite**
+  - Verification: `./dev_run.sh`; `cd frontend && npm run test:browser`
+  - Result: PASS — all seven checks pass against `http://localhost:5173`: login/session bootstrap, logout-login CSRF, admin route, 390px navigation, 320px task editor, schedule accessible names, and run logs.
+  - Implementation commit: `240cd6efc0a0d2971c4a28e65656b1fef9482228`
+  - Follow-up implementation commit: `4dbf696359ef33ccf9836d3562cbcd62d968167e`
+  - Follow-up implementation commit: `5923c8b7f4d53e5c20ddb967089de9237488e28d`
+- [x] **Medium — ENH-02: Gate releases on a migrated PostgreSQL suite**
+  - Verification: `GOFLAGS=-buildvcs=false ./scripts/release-check.sh`
+  - Result: PASS — release checks run unit tests, apply every migration to a clean PostgreSQL database, execute the PostgreSQL suite, and tear the database down.
+  - Implementation commit: `522859380f74699a97736e9aef80d0b3b1274122`
 - [ ] **Medium — ENH-03: Complete the existing desktop tray matrix**
   - Test supported Linux and Windows environments from `internal/v2/TODO-2.md`.
+  - Blocked: full acceptance requires Windows WebView2 and a supported Linux StatusNotifierWatcher with valid enrollment; this sandbox reports DBus `Operation not permitted`. Compile-only checks remain available, but the environment cannot verify the native tray lifecycle.
 - [x] **Low — ENH-04: Remove deprecated Vite transform options**
   - Verification: `cd frontend && npm test -- --run`; `cd frontend && npm run build`
   - Result: PASS — Vitest no longer loads the React transform plugin, and test/build output is warning-free.
