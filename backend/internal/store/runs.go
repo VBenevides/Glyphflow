@@ -25,6 +25,7 @@ type RunDefinition struct {
 type RunRecord struct {
 	ID, TaskID, TaskName, State, TriggerType string
 	Runner                                   string
+	PlacementBlocker                         string
 	Attempt                                  int
 	ExitCode                                 *int
 	ExitCodeMeaning                          string
@@ -146,6 +147,9 @@ func (s *RunStore) List(ctx context.Context) ([]RunRecord, error) {
 		if err != nil {
 			return nil, err
 		}
+		if item.State == "WAITING" {
+			item.PlacementBlocker = s.placementBlocker(ctx, item.ID)
+		}
 		items = append(items, item)
 	}
 	return items, rows.Err()
@@ -156,7 +160,59 @@ func (s *RunStore) Find(ctx context.Context, id string) (RunRecord, bool, error)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RunRecord{}, false, nil
 	}
+	if err == nil && item.State == "WAITING" {
+		item.PlacementBlocker = s.placementBlocker(ctx, item.ID)
+	}
 	return item, err == nil, err
+}
+
+func (s *RunStore) placementBlocker(ctx context.Context, runID string) string {
+	var blocker *string
+	err := s.pool.QueryRow(ctx, `
+WITH task AS (
+	SELECT r.id, tv.id AS version_id, tv.runner_pool_id, tv.pinned_runner_id,
+	       COALESCE(tv.placement_selectors, '{}'::jsonb) AS selectors
+	FROM runs r
+	JOIN task_versions tv ON tv.id = r.task_version_id
+	WHERE r.id = $1 AND r.state = 'WAITING'
+), candidates AS (
+	SELECT rr.id, rr.active_count, rr.capacity,
+	       rr.capabilities @> task.selectors AS selector_match,
+	       EXISTS (
+		SELECT 1 FROM runner_sessions rs
+		WHERE rs.runner_id = rr.id
+		  AND rs.disconnected_at IS NULL
+		  AND rs.last_heartbeat_at >= now() - interval '30 seconds'
+	       ) AS online,
+	       NOT EXISTS (
+		SELECT 1
+		FROM task_resource_requirements req
+		JOIN resources resource ON resource.id = req.resource_id
+		LEFT JOIN resource_leases lease ON lease.resource_id = resource.id
+		  AND lease.state = 'ACTIVE' AND lease.expires_at > now()
+		WHERE req.task_version_id = task.version_id
+		  AND (NOT resource.enabled OR lease.id IS NOT NULL)
+	       ) AS resource_available
+	FROM task
+	JOIN runner_pools pool ON pool.id = task.runner_pool_id AND NOT pool.is_deleted AND pool.enabled
+	JOIN runners rr ON rr.pool_id = pool.id
+	  AND NOT rr.is_archived AND NOT rr.is_deleted
+	  AND rr.desired_state = 'ENABLED'
+	  AND (task.pinned_runner_id IS NULL OR task.pinned_runner_id = rr.id)
+)
+SELECT CASE
+	WHEN NOT EXISTS (SELECT 1 FROM candidates) THEN 'No enabled runner is configured for the task pool.'
+	WHEN NOT EXISTS (SELECT 1 FROM candidates WHERE selector_match) THEN 'No runner matches the task selectors.'
+	WHEN NOT EXISTS (SELECT 1 FROM candidates WHERE selector_match AND online) THEN 'All matching runners are offline.'
+	WHEN EXISTS (SELECT 1 FROM candidates WHERE selector_match AND online AND active_count < capacity AND NOT resource_available) THEN 'A required resource is unavailable.'
+	WHEN NOT EXISTS (SELECT 1 FROM candidates WHERE selector_match AND online AND active_count < capacity) THEN 'All matching runners are at capacity.'
+	ELSE 'Waiting for an eligible runner.'
+END
+FROM task`, runID).Scan(&blocker)
+	if err != nil || blocker == nil {
+		return ""
+	}
+	return *blocker
 }
 
 func scanRun(row interface{ Scan(...any) error }) (RunRecord, error) {

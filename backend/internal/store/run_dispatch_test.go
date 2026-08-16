@@ -135,3 +135,52 @@ func TestRunRepositoryReconcilesStaleCancellation(t *testing.T) {
 		t.Fatalf("event kind = %q", eventKind)
 	}
 }
+
+func TestRunRepositoryReportsWaitingPlacementBlocker(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set DATABASE_URL to run PostgreSQL repository tests")
+	}
+	ctx := context.Background()
+	db, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(db.Close)
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	poolID, runnerID := "blocker-pool-"+suffix, "blocker-runner-"+suffix
+	taskID, runID := "blocker-task-"+suffix, "blocker-run-"+suffix
+	t.Cleanup(func() {
+		if _, err := db.Exec(ctx, `DELETE FROM runs WHERE id = $1`, runID); err != nil {
+			t.Errorf("cleanup run: %v", err)
+		}
+		if _, err := NewTaskRepository(db).Delete(ctx, taskID); err != nil {
+			t.Errorf("cleanup task: %v", err)
+		}
+		if _, err := db.Exec(ctx, `DELETE FROM runners WHERE id = $1`, runnerID); err != nil {
+			t.Errorf("cleanup runner: %v", err)
+		}
+		if _, err := db.Exec(ctx, `UPDATE runner_pools SET enabled = false, is_deleted = true WHERE id = $1`, poolID); err != nil {
+			t.Errorf("cleanup pool: %v", err)
+		}
+	})
+	if _, err := db.Exec(ctx, `INSERT INTO runner_pools (id, name) VALUES ($1, $1)`, poolID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO runners (id, pool_id, name, desired_state, capabilities) VALUES ($1, $2, $1, 'ENABLED', '{}'::jsonb)`, runnerID, poolID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewTaskRepository(db).Create(ctx, TaskDefinition{ID: taskID, Name: taskID, RunnerPoolID: poolID, Command: []string{"echo", "ok"}, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewRunRepository(db).Create(ctx, RunDefinition{ID: runID, TaskID: taskID, TriggerType: "MANUAL", IdempotencyKey: "blocker-idempotency-" + suffix}); err != nil {
+		t.Fatal(err)
+	}
+	run, found, err := NewRunRepository(db).Find(ctx, runID)
+	if err != nil || !found {
+		t.Fatalf("find waiting run = %#v, found=%t, err=%v", run, found, err)
+	}
+	if run.PlacementBlocker != "All matching runners are offline." {
+		t.Fatalf("placement blocker = %q", run.PlacementBlocker)
+	}
+}

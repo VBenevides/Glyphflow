@@ -2,7 +2,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
-import { canReadRunLogs, eligibleRunActions, hasActiveRuns, runQuery, runStatusLabel, RunIDCell, RunTimeline } from './run-pages'
+import { canReadRunLogs, eligibleRunActions, hasActiveRuns, runQuery, runStatusLabel, RunIDCell, RunTimeline, waitingRunMessage } from './run-pages'
 import { isTerminalRunState } from './run-logs'
 
 describe('run inventory', () => {
@@ -31,6 +31,11 @@ describe('run inventory', () => {
       logGaps: [{ stream: 'stdout', fromSequence: 3, toSequence: 4 }],
     } }))
     for (const value of ['Attempt timeline', 'runner-1', 'started', 'session-1', 'ACTIVE', 'operator stop', 'stdout', '3–4']) expect(markup).toContain(value)
+  })
+
+  it('renders a placement blocker for waiting runs', () => {
+    expect(waitingRunMessage({ state: 'WAITING', placementBlocker: 'All matching runners are offline.' })).toBe('All matching runners are offline.')
+    expect(waitingRunMessage({ state: 'SUCCEEDED', placementBlocker: 'stale' })).toBe('')
   })
 
   it('keeps compact run IDs hoverable and copyable', () => {
