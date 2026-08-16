@@ -14,8 +14,10 @@ Items are ordered by severity within each category. Each item maps to `REPORT.md
   - Verification: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./...`; `cd backend && GOCACHE=/tmp/glyphflow-gocache go vet ./...`
   - Result: PASS — default users retain read and run execution access; infrastructure mutation permissions move to the seeded operator role.
   - Implementation commit: `fcbe016c9f826e74e9e40768a3296fa5d0b0596a`
-- [ ] **Low — SEC-04: Add Go and npm vulnerability scans to the security gate**
-  - Reuse `govulncheck` and `npm audit --omit=dev`.
+- [x] **Low — SEC-04: Add Go and npm vulnerability scans to the security gate**
+  - Verification: `GOVULNCHECK_BIN=/tmp/glyphflow-tools/govulncheck ./scripts/security-check.sh`
+  - Result: PASS — Go vulnerability scan reports zero vulnerabilities and npm audit reports zero vulnerabilities.
+  - Implementation commit: `946ef4ebc1f0f88e2f06ec39b2b66d86d6b18bb7`
 
 ## Bugs
 
@@ -33,8 +35,10 @@ Items are ordered by severity within each category. Each item maps to `REPORT.md
   - Use explicit labels and valid combobox relationships.
 - [ ] **Medium — BUG-07: Isolate PostgreSQL test data**
   - Fix cleanup order, assert cleanup errors, and use a fresh database.
-- [ ] **Low — BUG-08: Repair the README roadmap link**
-  - Link to `internal/v2-review/TODO.md`.
+- [x] **Low — BUG-08: Repair the README roadmap link**
+  - Verification: `test -f internal/v2-review/TODO.md`; `git diff --check`
+  - Result: PASS — README now links to the active v2 review TODO.
+  - Implementation commit: `02fcaff863703da0e4d71390af8ad38fdcb4a014`
 
 ## New Features
 
