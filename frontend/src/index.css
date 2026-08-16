@@ -200,6 +200,8 @@ a {
 .gf-dashboard-links { display: flex; flex-wrap: wrap; gap: 1rem; margin-top: 1.5rem; }
 .gf-stale-warning { color: var(--gf-warning); font-weight: 700; }
 .gf-editor-form { display: grid; gap: 1rem; max-width: 60rem; padding: 1.25rem; background: var(--gf-card); border: 1px solid var(--gf-border); border-radius: var(--gf-radius); }
+.gf-editor-form fieldset { min-width: 0; }
+.gf-editor-form .gf-table { min-width: 0; }
 .gf-editor-form label { display: grid; gap: 0.35rem; color: var(--gf-text); font-weight: 650; }
 .gf-editor-form label small { color: var(--gf-muted); font-weight: 400; }
 .gf-form-field { display: grid; gap: 0.35rem; min-width: 0; color: var(--gf-text); font-weight: 650; }

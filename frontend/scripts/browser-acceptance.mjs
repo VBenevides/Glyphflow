@@ -142,6 +142,11 @@ function assert(condition, message) {
 }
 
 async function login(page) {
+  await page.navigate('/')
+  if (await page.evaluate(() => Boolean(document.querySelector('button[aria-label="Sign out"]')))) {
+    await page.click('button[aria-label="Sign out"]')
+    await page.waitFor(() => location.pathname === '/login')
+  }
   await page.navigate('/login')
   await page.waitFor(() => Boolean(document.querySelector('#email')))
   await page.fill('#email', email)
