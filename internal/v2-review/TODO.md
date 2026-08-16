@@ -8,8 +8,10 @@ Items are ordered by severity within each category. Each item maps to `REPORT.md
   - Verification: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./...`; `cd backend && GOCACHE=/tmp/glyphflow-gocache go vet ./...`; `cd backend && /tmp/glyphflow-tools/govulncheck ./...`
   - Result: PASS — backend tests, vet, and vulnerability scan report no vulnerabilities.
   - Implementation commit: `00e97d0d857aa49c7c95b76ab835df6ab73c2940`
-- [ ] **Medium — SEC-02: Signal audit persistence failures**
-  - Use the existing structured logger and metrics. Add one failure-path test.
+- [x] **Medium — SEC-02: Signal audit persistence failures**
+  - Verification: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./...`; `cd backend && GOCACHE=/tmp/glyphflow-gocache go vet ./...`
+  - Result: PASS — append failures return to callers and production wiring emits structured logs with an error counter.
+  - Implementation commit: `bf42d24ac5f24c121d0c0ee756f88ee93964f8a9`
 - [x] **Medium — SEC-03: Reduce the system `user` role to least privilege**
   - Verification: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./...`; `cd backend && GOCACHE=/tmp/glyphflow-gocache go vet ./...`
   - Result: PASS — default users retain read and run execution access; infrastructure mutation permissions move to the seeded operator role.
@@ -25,8 +27,10 @@ Items are ordered by severity within each category. Each item maps to `REPORT.md
   - Verification: `cd frontend && npm test -- --run`; `cd frontend && npm run typecheck`; `cd frontend && npm run build`
   - Result: PASS — the duplicate hide rule was removed and frontend tests, typecheck, and build pass.
   - Implementation commit: `3eeecc575c82452e3683ac6502ea4486bb01ac3d`
-- [ ] **High — BUG-02: Allow parent-cascade deletion of schedule versions**
-  - Add a migration that rejects version updates, not parent-driven deletes.
+- [x] **High — BUG-02: Allow parent-cascade deletion of schedule versions**
+  - Verification: `GOFLAGS=-buildvcs=false ./scripts/release-check.sh`; `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./internal/store -run 'Schedule|Canonical'`
+  - Result: PASS — migration 016 keeps updates immutable and allows parent schedule deletion.
+  - Implementation commit: `bf42d24ac5f24c121d0c0ee756f88ee93964f8a9`
 - [x] **Medium — BUG-03: Restore CSRF state after logout**
   - Verification: `cd frontend && npm test -- --run`; `cd frontend && npm run typecheck`
   - Result: PASS — logout triggers authentication bootstrap before the next login.
@@ -43,8 +47,10 @@ Items are ordered by severity within each category. Each item maps to `REPORT.md
   - Verification: `cd frontend && npm test -- --run`; `cd frontend && npm run typecheck`
   - Result: PASS — schedule controls use explicit labels and TaskPicker exposes valid combobox/listbox relationships.
   - Implementation commit: `3eeecc575c82452e3683ac6502ea4486bb01ac3d`
-- [ ] **Medium — BUG-07: Isolate PostgreSQL test data**
-  - Fix cleanup order, assert cleanup errors, and use a fresh database.
+- [x] **Medium — BUG-07: Isolate PostgreSQL test data**
+  - Verification: `GOFLAGS=-buildvcs=false ./scripts/release-check.sh`; `cd backend && GOCACHE=/tmp/glyphflow-gocache go test -race ./...`
+  - Result: PASS — the release gate creates a clean migrated database, fixture cleanup is ordered and asserted, and the PostgreSQL suite passes.
+  - Implementation commit: `bf42d24ac5f24c121d0c0ee756f88ee93964f8a9`
 - [x] **Low — BUG-08: Repair the README roadmap link**
   - Verification: `test -f internal/v2-review/TODO.md`; `git diff --check`
   - Result: PASS — README now links to the active v2 review TODO.
