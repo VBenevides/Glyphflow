@@ -22,8 +22,8 @@ export function InfoTooltip({ text }: { text: string }) {
   return <span className="gf-info-tooltip"><button type="button" className="gf-info-tooltip-trigger" aria-label="More information">i</button><span className="gf-info-tooltip-content" role="tooltip">{text}</span></span>
 }
 
-export function FieldLabel({ children, info }: { children: ReactNode; info?: string }) {
-  return <span className="gf-field-label">{children}{info && <InfoTooltip text={info} />}</span>
+export function FieldLabel({ children, info, htmlFor }: { children: ReactNode; info?: string; htmlFor?: string }) {
+  return <span className="gf-field-label">{htmlFor ? <label htmlFor={htmlFor}>{children}</label> : children}{info && <InfoTooltip text={info} />}</span>
 }
 
 export function Dialog({ open, title, children, onClose, className }: { open: boolean; title: string; children: ReactNode; onClose: () => void; className?: string }) {

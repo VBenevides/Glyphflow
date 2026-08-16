@@ -2,7 +2,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
-import { eligibleRunActions, hasActiveRuns, runQuery, runStatusLabel, RunIDCell, RunTimeline } from './run-pages'
+import { canReadRunLogs, eligibleRunActions, hasActiveRuns, runQuery, runStatusLabel, RunIDCell, RunTimeline } from './run-pages'
 import { isTerminalRunState } from './run-logs'
 
 describe('run inventory', () => {
@@ -15,6 +15,8 @@ describe('run inventory', () => {
     expect(eligibleRunActions('RUNNING').cancel).toBe(true)
     expect(hasActiveRuns({ items: [{ id: 'r1', state: 'RUNNING' }], page: 1, limit: 20 })).toBe(true)
     expect(hasActiveRuns({ items: [{ id: 'r2', state: 'SUCCEEDED' }], page: 1, limit: 20 })).toBe(false)
+    expect(canReadRunLogs(['runs.read'])).toBe(false)
+    expect(canReadRunLogs(['runs.read', 'logs.read'])).toBe(true)
     expect(isTerminalRunState('SUCCEEDED')).toBe(true)
     expect(isTerminalRunState('RUNNING')).toBe(false)
   })
