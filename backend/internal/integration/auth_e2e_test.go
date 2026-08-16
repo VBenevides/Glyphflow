@@ -26,7 +26,7 @@ func TestAuthenticationModesAndImmediatePermissionChanges(t *testing.T) {
 		}
 	}
 	seed, err := platform.SeedRoles()
-	if err != nil || len(seed) != 2 || !seed[0].System {
+	if err != nil || len(seed) != 3 || !seed[0].System {
 		t.Fatalf("seed catalog: %#v %v", seed, err)
 	}
 	granted := false

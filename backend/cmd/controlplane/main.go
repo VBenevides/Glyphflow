@@ -119,6 +119,10 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	if err := authService.AddRole("operator", platform.OperatorPermissionCatalog...); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	if err := authService.SetDefaultRoleID(cfg.DefaultRoleID); err != nil {
 		db.Close()
 		fmt.Fprintln(os.Stderr, err)
@@ -135,6 +139,10 @@ func main() {
 		os.Exit(1)
 	}
 	if err := roles.Seed("user", platform.UserPermissionCatalog); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if err := roles.Seed("operator", platform.OperatorPermissionCatalog); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

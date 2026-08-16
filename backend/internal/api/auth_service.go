@@ -300,7 +300,7 @@ func (s *AuthService) AddRole(role string, permissions ...string) error {
 		return err
 	}
 	roleID := systemRoleID(role)
-	if err := s.roles.Ensure(context.Background(), roleID, platform.NormalizeIdentityKey(role), "", role == "admin" || role == "user", permissions); err != nil {
+	if err := s.roles.Ensure(context.Background(), roleID, platform.NormalizeIdentityKey(role), "", role == "admin" || role == "user" || role == "operator", permissions); err != nil {
 		return err
 	}
 	s.mu.Lock()

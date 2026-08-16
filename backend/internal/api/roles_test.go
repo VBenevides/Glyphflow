@@ -109,3 +109,41 @@ func TestRoleListCountsDistinctAffectedUsers(t *testing.T) {
 		t.Fatalf("affected users = %#v", counts)
 	}
 }
+
+func TestDefaultUserRoleCannotManageInfrastructure(t *testing.T) {
+	auth, err := NewAuthService("01234567890123456789012345678901", true, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.AddRole("user", platform.UserPermissionCatalog...); err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.AddRole("operator", platform.OperatorPermissionCatalog...); err != nil {
+		t.Fatal(err)
+	}
+	auth.SetDefaultRole("user")
+	user, err := auth.Register("regular@example.com", "correct horse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	permissions := auth.Permissions(Claims{UserID: user.ID})
+	for _, permission := range []string{"tasks.manage", "resources.manage", "runners.manage"} {
+		if permissions[permission] {
+			t.Fatalf("default user role grants %s", permission)
+		}
+	}
+	for _, permission := range []string{"tasks.read", "runs.read", "runs.execute", "resources.read", "runners.read"} {
+		if !permissions[permission] {
+			t.Fatalf("default user role is missing %s", permission)
+		}
+	}
+	server := Server{Auth: func(*http.Request) (Claims, bool) { return Claims{UserID: user.ID}, true }, Permissions: auth.Permissions}
+	for _, path := range []string{"/api/v1/tasks", "/api/v1/resources", "/api/v1/runners"} {
+		request := httptest.NewRequest(http.MethodPost, path, nil)
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, request)
+		if response.Code != http.StatusForbidden {
+			t.Fatalf("default user can mutate %s: %d", path, response.Code)
+		}
+	}
+}

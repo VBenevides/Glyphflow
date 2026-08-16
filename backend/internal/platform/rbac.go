@@ -13,6 +13,11 @@ var PermissionCatalog = []string{
 }
 
 var UserPermissionCatalog = []string{
+	"tasks.read", "runs.read", "runs.execute",
+	"resources.read", "runners.read",
+}
+
+var OperatorPermissionCatalog = []string{
 	"tasks.read", "tasks.manage", "runs.read", "runs.execute",
 	"resources.read", "resources.manage", "runners.read", "runners.manage",
 }
@@ -36,5 +41,6 @@ func SeedRoles() ([]SeedRole, error) {
 	return []SeedRole{
 		{Key: "admin", ID: StableID("role:admin"), Permissions: append([]string(nil), PermissionCatalog...), System: true},
 		{Key: "user", ID: StableID("role:user"), Permissions: append([]string(nil), UserPermissionCatalog...), System: true},
+		{Key: "operator", ID: StableID("role:operator"), Permissions: append([]string(nil), OperatorPermissionCatalog...), System: true},
 	}, nil
 }
