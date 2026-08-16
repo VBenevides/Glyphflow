@@ -101,7 +101,10 @@ The implementation handoff in [`internal/v2/TODO-2.md`](../v2/TODO-2.md) is now 
 
 ### Remaining TODO-2 acceptance improvements
 
-- [ ] **Baseline and reference capture (TODO-2 Phase 1):** record frontend/worker baselines, screenshot pattern notes, and the pre-edit worktree check.
+- [x] **Baseline and reference capture (TODO-2 Phase 1):** record frontend/worker baselines, screenshot pattern notes, and the pre-edit worktree check.
+  - Verification: `npm test -- --run`; `npm run typecheck`; `npm run lint`; `npm run build`; `GOCACHE=/tmp/glyphflow-gocache go test ./cmd/worker ./internal/worker ./internal/config ./internal/queue`; `GOCACHE=/tmp/glyphflow-gocache go vet ./...`; opened all seven reference screenshots.
+  - Result: PASS — frontend tests (30 files, 60 tests), typecheck, lint, build, focused worker tests, and vet passed; screenshot sizes and recurring visual patterns are recorded in `REPORT.md`.
+  - Implementation commit: `acf9d69a60db314bd848befa9a168d0009fbe4f2`
 - [ ] **Full frontend acceptance (TODO-2 Phase 4.4 and 9.2):** compare all visible routes against screenshots at 100% zoom and 1650–1910, 1024, 768, 390, and 320 px; verify Light/Dark/Neon plus loading, empty, error/retry, forbidden, not-found, login, registration, dialogs, and live-log states; verify 320 px containment, 200% zoom, keyboard/focus/drawer behavior, long values, and Glyphflow-only labels/data.
 - [ ] **Linux build portability (TODO-2 Phase 8):** encode the legacy GTK3 build tag when the supported distro requires it.
 - [ ] **Native desktop tray matrix (TODO-2 Phase 9.3 / ENH-03):** on supported Linux and Windows, verify hidden startup, tray Open, minimize, close, endpoint redaction, live capacity changes, ordered All/Stderr logs, 5,000-line retention, invalid configuration handling, idle/active Exit shutdown, and headless launch without GUI dependencies.
