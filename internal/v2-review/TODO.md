@@ -5,7 +5,7 @@ Items are ordered by severity within each category. Each item maps to `REPORT.md
 ## Security
 
 - [x] **Medium — SEC-01: Upgrade `golang.org/x/text` to v0.39.0 or later**
-  - Verification: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./...`; `cd backend && GOCACHE=/tmp/glyphflow-gocache go vet ./...`; `govulncheck ./...`
+  - Verification: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./...`; `cd backend && GOCACHE=/tmp/glyphflow-gocache go vet ./...`; `cd backend && /tmp/glyphflow-tools/govulncheck ./...`
   - Result: PASS — backend tests, vet, and vulnerability scan report no vulnerabilities.
   - Implementation commit: `00e97d0d857aa49c7c95b76ab835df6ab73c2940`
 - [ ] **Medium — SEC-02: Signal audit persistence failures**
