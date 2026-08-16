@@ -78,8 +78,9 @@ Items are ordered by severity within each category. Each item maps to `REPORT.md
   - Implementation commit: `522859380f74699a97736e9aef80d0b3b1274122`
 - [ ] **Medium — ENH-03: Complete the existing desktop tray matrix**
   - Test supported Linux and Windows environments from `internal/v2/TODO-2.md`.
-  - Verification: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test -race -tags workerui ./cmd/worker`
-  - Result: PASS — worker UI compiles and tests on Linux; blocked: full acceptance requires Windows WebView2 and a supported Linux StatusNotifierWatcher with valid enrollment, while this sandbox reports DBus `Operation not permitted`.
+  - Verification: `cd backend && GOCACHE=/tmp/glyphflow-workerui-race-cache go test -race -tags workerui ./cmd/worker`; `cd backend && GOCACHE=/tmp/glyphflow-headless-race-cache go test -race ./cmd/worker ./internal/worker ./internal/queue`; `RUNNER_BINARIES_DIR=/tmp/glyphflow-runner-matrix bash backend/build_runner_binaries.sh`
+  - Result: PASS — worker UI/headless race suites and all four desktop/headless artifacts pass. Blocked: native tray acceptance requires Windows WebView2 and a Linux StatusNotifierWatcher/display; DBus returns `Operation not permitted` here.
+  - Implementation commit: `10d185709d142f9b5511252093e4954d3d0f756f`
 - [x] **Low — ENH-04: Remove deprecated Vite transform options**
   - Verification: `cd frontend && npm test -- --run`; `cd frontend && npm run build`
   - Result: PASS — Vitest no longer loads the React transform plugin, and test/build output is warning-free.
@@ -106,6 +107,16 @@ The implementation handoff in [`internal/v2/TODO-2.md`](../v2/TODO-2.md) is now 
   - Result: PASS — frontend tests (30 files, 60 tests), typecheck, lint, build, focused worker tests, and vet passed; screenshot sizes and recurring visual patterns are recorded in `REPORT.md`.
   - Implementation commit: `acf9d69a60db314bd848befa9a168d0009fbe4f2`
 - [ ] **Full frontend acceptance (TODO-2 Phase 4.4 and 9.2):** compare all visible routes against screenshots at 100% zoom and 1650–1910, 1024, 768, 390, and 320 px; verify Light/Dark/Neon plus loading, empty, error/retry, forbidden, not-found, login, registration, dialogs, and live-log states; verify 320 px containment, 200% zoom, keyboard/focus/drawer behavior, long values, and Glyphflow-only labels/data.
+  - [x] Existing Chromium audit: 91 authenticated routes at 1440/390 px plus public auth, registration, dialogs, and mobile states; no actionable overflow, unnamed controls, duplicate IDs, or console errors.
+  - [ ] Remaining screenshot comparison, 320/768/1024/1650–1910 px matrix, 200% zoom, long-value cases, and a fresh authenticated browser run. Blocked in this run because `./dev_run.sh` could not start on occupied ports and the existing endpoint rejected the configured admin (`401`) and disposable registration (`400`).
+  - Implementation commit: `10d185709d142f9b5511252093e4954d3d0f756f`
 - [ ] **Linux build portability (TODO-2 Phase 8):** encode the legacy GTK3 build tag when the supported distro requires it.
+  - [x] `go test -tags workerui ./cmd/worker` and `go build -tags 'workerui,gtk3' ./cmd/worker` pass on the current GTK4 host.
+  - [ ] Select a supported distro that requires GTK3 before changing the release command. No supported distro is named in the repository, so adding the tag globally would be an unverified compatibility regression.
+  - Blocked: platform decision required.
 - [ ] **Native desktop tray matrix (TODO-2 Phase 9.3 / ENH-03):** on supported Linux and Windows, verify hidden startup, tray Open, minimize, close, endpoint redaction, live capacity changes, ordered All/Stderr logs, 5,000-line retention, invalid configuration handling, idle/active Exit shutdown, and headless launch without GUI dependencies.
+  - [x] Worker UI/headless race suites, four artifact builds, and GUI-free headless launch passed.
+  - [ ] Native tray/window, long-log, capacity, and active-exit checks remain blocked by DBus/display restrictions and unavailable Windows WebView2.
+  - Implementation commit: `10d185709d142f9b5511252093e4954d3d0f756f`
 - [ ] **Close-out (TODO-2 Phase 9.4):** check the source handoff's parent completion boxes only after every relevant acceptance item above passes.
+  - Blocked until the frontend matrix, GTK3 platform decision, and native tray matrix are complete.
