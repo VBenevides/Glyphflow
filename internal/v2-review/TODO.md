@@ -78,7 +78,8 @@ Items are ordered by severity within each category. Each item maps to `REPORT.md
   - Implementation commit: `522859380f74699a97736e9aef80d0b3b1274122`
 - [ ] **Medium — ENH-03: Complete the existing desktop tray matrix**
   - Test supported Linux and Windows environments from `internal/v2/TODO-2.md`.
-  - Blocked: full acceptance requires Windows WebView2 and a supported Linux StatusNotifierWatcher with valid enrollment; this sandbox reports DBus `Operation not permitted`. Compile-only checks remain available, but the environment cannot verify the native tray lifecycle.
+  - Verification: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test -race -tags workerui ./cmd/worker`
+  - Result: PASS — worker UI compiles and tests on Linux; blocked: full acceptance requires Windows WebView2 and a supported Linux StatusNotifierWatcher with valid enrollment, while this sandbox reports DBus `Operation not permitted`.
 - [x] **Low — ENH-04: Remove deprecated Vite transform options**
   - Verification: `cd frontend && npm test -- --run`; `cd frontend && npm run build`
   - Result: PASS — Vitest no longer loads the React transform plugin, and test/build output is warning-free.
