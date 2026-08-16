@@ -46,7 +46,7 @@ All seven reference screenshots were opened at their native sizes: `overview.png
 
 ### Frontend
 
-The previously recorded Chromium audit covered 91 authenticated routes at 1440 px and 390 px (182 checks), plus public authentication, registration, dialogs, and mobile navigation. It found no actionable overflow, unnamed controls, duplicate IDs, or console errors. A new `./dev_run.sh`/`npm run test:browser` attempt could not establish an independent stack because ports 8080/5173 were occupied; reusing the existing endpoint returned `401 invalid credentials` and `400 registration failed`. Therefore screenshot comparison, 320/768/1024/1650–1910 px coverage, 200% zoom, and long-value coverage remain open.
+The previously recorded Chromium audit covered 91 authenticated routes at 1440 px and 390 px (182 checks), plus public authentication, registration, dialogs, and mobile navigation. It found no actionable overflow, unnamed controls, duplicate IDs, or console errors. After stopping a stale development process, a clean `./dev_run.sh` stack started successfully and `cd frontend && npm run test:browser` passed all seven checks: login/session bootstrap, logout-login CSRF, admin route, 390 px navigation, 320 px task editor, schedule accessible names, and run logs. Screenshot comparison, 768/1024/1650–1910 px coverage, 200% zoom, and long-value coverage remain open.
 
 ### Worker desktop
 
