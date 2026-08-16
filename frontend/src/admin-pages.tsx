@@ -8,6 +8,7 @@ import { QueryState } from './query'
 import { hasPermission, PERMISSIONS } from './permissions'
 import { useAuth } from './auth'
 import { useUnsavedChanges } from './unsaved'
+import { formatDateTime } from './format'
 
 type GroupRoleMapping = { group: string; role: string }
 
@@ -24,7 +25,7 @@ function asPage(value: Page<UserRecord> | UserRecord[]): Page<UserRecord> {
 }
 
 function sessionLabel(session: AuthSession): string {
-  return `${session.current ? 'Current session' : session.userAgent ?? 'Session'}${session.lastSeenAt ? ` · ${session.lastSeenAt}` : ''}`
+  return `${session.current ? 'Current session' : session.userAgent ?? 'Session'}${session.lastSeenAt ? ` · ${formatDateTime(session.lastSeenAt)}` : ''}`
 }
 
 function InlinePills({ values }: { values?: string[] }) {
@@ -52,7 +53,7 @@ export function UserManagementPage() {
         { key: 'actions', label: 'Actions', render: (user) => manage && <div className="gf-dialog-actions">{!user.systemAdmin && <DangerousAction label="Disable" onConfirm={() => disable(user)} />}<Link to={`/admin/users/${encodeURIComponent(user.id)}`}>Details</Link></div> },
       ]} />
       <Pagination page={data.page ?? page} pages={data.pages ?? 1} onChange={setPage} />
-      {data.items.map((user) => user.sessions?.length ? <section className="gf-card-panel" key={`${user.id}-sessions`}><h2>{user.username} sessions</h2><ul className="gf-dashboard-list">{user.sessions.map((session) => <li key={session.id}><span>{sessionLabel(session)}<br /><small>{session.expiresAt ? `Expires ${session.expiresAt}` : 'Expiry unavailable'}</small></span>{manage && !session.current && <Button variant="danger" onClick={() => void revoke(session)}>Revoke</Button>}</li>)}</ul></section> : null)}
+      {data.items.map((user) => user.sessions?.length ? <section className="gf-card-panel" key={`${user.id}-sessions`}><h2>{user.username} sessions</h2><ul className="gf-dashboard-list">{user.sessions.map((session) => <li key={session.id}><span>{sessionLabel(session)}<br /><small>{session.expiresAt ? `Expires ${formatDateTime(session.expiresAt)}` : 'Expiry unavailable'}</small></span>{manage && !session.current && <Button variant="danger" onClick={() => void revoke(session)}>Revoke</Button>}</li>)}</ul></section> : null)}
     </> }}</QueryState>
   </main>
 }

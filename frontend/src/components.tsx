@@ -89,15 +89,15 @@ export function MetricCard({ label, value, detail, icon: Icon, tone = 'default' 
   return <section className={`gf-metric gf-metric-${tone}`}><div className="gf-metric-heading"><span>{label}</span>{Icon && <span className="gf-metric-icon" aria-hidden="true"><Icon size={16} /></span>}</div><strong>{value}</strong>{detail && <small>{detail}</small>}</section>
 }
 
-export type Column<T> = { key: string; label: string; render?: (row: T) => ReactNode }
+export type Column<T> = { key: string; label: string; className?: string; render?: (row: T) => ReactNode }
 
-export function DataTable<T extends { id?: string | number }>({ columns, rows, caption }: { columns: Column<T>[]; rows: T[]; caption: string }) {
+export function DataTable<T extends { id?: string | number }>({ columns, rows, caption, className }: { columns: Column<T>[]; rows: T[]; caption: string; className?: string }) {
   return (
     <div className="gf-table-wrap">
-      <table className="gf-table">
+      <table className={`gf-table${className ? ` ${className}` : ''}`}>
         <caption className="gf-visually-hidden">{caption}</caption>
-        <thead><tr>{columns.map((column) => <th key={column.key} scope="col">{column.label}</th>)}</tr></thead>
-        <tbody>{rows.map((row, index) => <tr key={row.id ?? index}>{columns.map((column) => <td key={column.key}>{column.render ? column.render(row) : String((row as Record<string, unknown>)[column.key] ?? '—')}</td>)}</tr>)}</tbody>
+        <thead><tr>{columns.map((column) => <th className={column.className} key={column.key} scope="col">{column.label}</th>)}</tr></thead>
+        <tbody>{rows.map((row, index) => <tr key={row.id ?? index}>{columns.map((column) => <td className={column.className} key={column.key}>{column.render ? column.render(row) : String((row as Record<string, unknown>)[column.key] ?? '—')}</td>)}</tr>)}</tbody>
       </table>
     </div>
   )

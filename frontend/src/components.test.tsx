@@ -8,12 +8,14 @@ describe('shared components', () => {
     const html = renderToStaticMarkup(
       <>
         <StatusPill status="UNKNOWN" />
-        <DataTable caption="Runs" columns={[{ key: 'name', label: 'Name' }]} rows={[{ id: 'r1', name: 'Nightly' }]} />
+        <DataTable className="gf-audit-table" caption="Runs" columns={[{ key: 'name', label: 'Name', className: 'gf-cell-nowrap' }]} rows={[{ id: 'r1', name: 'Nightly' }]} />
       </>,
     )
     expect(html).toContain('UNKNOWN')
     expect(html).toContain('scope="col"')
     expect(html).toContain('Nightly')
+    expect(html).toContain('gf-audit-table')
+    expect(html).toContain('gf-cell-nowrap')
   })
 
   it('keeps empty states explicit', () => {

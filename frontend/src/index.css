@@ -312,7 +312,13 @@ body { background-image: none; }
 .gf-table-wrap, .gf-card-panel, .gf-editor-form, .gf-dashboard-widget { box-shadow: none; }
 .gf-table th { text-transform: none; letter-spacing: 0; font-size: 0.75rem; font-weight: 550; background: color-mix(in oklab, var(--gf-surface), transparent 32%); }
 .gf-table th, .gf-table td { padding: 0.65rem 0.8rem; }
-.gf-table td { overflow-wrap: anywhere; }
+.gf-table td { overflow-wrap: normal; word-break: normal; }
+.gf-table .gf-cell-nowrap { white-space: nowrap; }
+.gf-table .gf-cell-actor { max-width: 14rem; }
+.gf-table .gf-cell-actor a { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gf-table .gf-cell-endpoint { max-width: 34rem; }
+.gf-table .gf-cell-endpoint a { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gf-table.gf-audit-table { min-width: 72rem; }
 .gf-pagination { margin-top: 0; padding: 0.6rem 0.8rem; background: color-mix(in oklab, var(--gf-card), transparent 20%); border: 1px solid var(--gf-border); border-top: 0; border-radius: 0 0 var(--gf-radius) var(--gf-radius); font-size: 0.8rem; }
 .gf-filter-bar { gap: 0.6rem; padding: 0.75rem; background: color-mix(in oklab, var(--gf-card), transparent 20%); border: 1px solid var(--gf-border); border-radius: var(--gf-radius); }
 .gf-filter-bar label, .gf-filter-bar .gf-task-picker { min-width: 10rem; font-size: 0.78rem; font-weight: 550; }

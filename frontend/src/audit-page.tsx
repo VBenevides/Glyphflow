@@ -7,6 +7,7 @@ import { Button, DataTable, Dialog, EmptyState, Input, PageHeader, Pagination, S
 import { QueryState, useDebouncedValue } from './query'
 import { hasPermission } from './permissions'
 import { useAuth } from './auth'
+import { formatDateTime } from './format'
 
 export function auditQuery(filters: { actor: string; action: string; target: string; result: string; correlation: string; from: string; to: string; excludeAuditReads?: boolean; excludeRunLogs?: boolean }, page: number) {
   return { actor: filters.actor || undefined, action: filters.action || undefined, target: filters.target || undefined, result: filters.result || undefined, correlation_id: filters.correlation || undefined, from: filters.from || undefined, to: filters.to || undefined, exclude_target: filters.excludeAuditReads === false ? undefined : '/api/v1/audit', exclude_run_logs: filters.excludeRunLogs === false ? undefined : true, page }
@@ -15,7 +16,7 @@ export function auditQuery(filters: { actor: string; action: string; target: str
 function AuditMetadata({ event }: { event: AuditEvent }) {
   const actor = event.actorName ?? event.actor ?? '—'
   return <dl className="gf-audit-meta">
-    <div><dt>Timestamp</dt><dd>{event.createdAt ?? '—'}</dd></div>
+    <div><dt>Timestamp</dt><dd><time dateTime={event.createdAt}>{formatDateTime(event.createdAt)}</time></dd></div>
     <div><dt>Actor</dt><dd>{actor}</dd></div>
     <div><dt>Actor email</dt><dd>{event.actorEmail ?? '—'}</dd></div>
     <div><dt>Description</dt><dd>{event.description ?? '—'}</dd></div>
@@ -41,14 +42,14 @@ export function AuditPage() {
   return <main className="gf-content">
     <PageHeader title="Audit events" description="Trace security and scheduler changes with redacted values." />
     <div className="gf-filter-bar"><label>Actor<Input value={filters.actor} onChange={(event) => update('actor', event.target.value)} /></label><label>Action<Input value={filters.action} onChange={(event) => update('action', event.target.value)} /></label><label>Target<Input value={filters.target} onChange={(event) => update('target', event.target.value)} /></label><label>Result<select className="gf-input" value={filters.result} onChange={(event) => update('result', event.target.value)}><option value="">All</option><option>success</option><option>failure</option></select></label><label>Correlation ID<Input value={filters.correlation} onChange={(event) => update('correlation', event.target.value)} /></label><label><input type="checkbox" checked={filters.excludeAuditReads} onChange={(event) => { setFilters((current) => ({ ...current, excludeAuditReads: event.target.checked })); setPage(1) }} /> Exclude audit reads</label><label><input type="checkbox" checked={filters.excludeRunLogs} onChange={(event) => { setFilters((current) => ({ ...current, excludeRunLogs: event.target.checked })); setPage(1) }} /> Exclude run logs</label></div>
-    <QueryState query={query} empty="No audit events match these filters.">{(data) => data.items.length ? <><DataTable caption="Audit events" rows={data.items} columns={[
-      { key: 'createdAt', label: 'Time' },
-      { key: 'actor', label: 'Actor', render: (event) => { const name = event.actorName ?? event.actor ?? '—'; return event.actor && (canOpenUsers || event.actor === profile?.id) ? <Link to={`/admin/users/${encodeURIComponent(event.actor)}`}>{name}</Link> : name } },
+    <QueryState query={query} empty="No audit events match these filters.">{(data) => data.items.length ? <><DataTable className="gf-audit-table" caption="Audit events" rows={data.items} columns={[
+      { key: 'createdAt', label: 'Time', className: 'gf-cell-nowrap', render: (event) => <time dateTime={event.createdAt}>{formatDateTime(event.createdAt)}</time> },
+      { key: 'actor', label: 'Actor', className: 'gf-cell-actor', render: (event) => { const name = event.actorName ?? event.actor ?? '—'; return event.actor && (canOpenUsers || event.actor === profile?.id) ? <Link to={`/admin/users/${encodeURIComponent(event.actor)}`} title={name}>{name}</Link> : name } },
       { key: 'description', label: 'Description', render: (event) => event.description ?? '—' },
-      { key: 'action', label: 'Method' },
-      { key: 'target', label: 'Endpoint', render: (event) => event.target ? <SafeLink href={event.target}>{event.target}</SafeLink> : '—' },
-      { key: 'result', label: 'Result', render: (event) => <StatusPill status={event.result ?? '—'} /> },
-      { key: 'details', label: 'Details', render: (event) => <Button variant="secondary" onClick={() => setDetails(event)}>Details</Button> },
+      { key: 'action', label: 'Method', className: 'gf-cell-nowrap' },
+      { key: 'target', label: 'Endpoint', className: 'gf-cell-endpoint', render: (event) => event.target ? <SafeLink href={event.target}><span title={event.target}>{event.target}</span></SafeLink> : '—' },
+      { key: 'result', label: 'Result', className: 'gf-cell-nowrap', render: (event) => <StatusPill status={event.result ?? '—'} /> },
+      { key: 'details', label: 'Details', className: 'gf-cell-nowrap', render: (event) => <Button variant="secondary" onClick={() => setDetails(event)}>Details</Button> },
     ]} /><Pagination page={data.page} pages={data.pages ?? 1} onChange={setPage} /></> : <EmptyState title="No audit events">Try a wider time range or remove a filter.</EmptyState>}</QueryState>
     <Dialog open={details !== null} title="Audit event details" className="gf-audit-dialog" onClose={() => setDetails(null)}>{details && <div className="gf-audit-details">
       <AuditMetadata event={details} />
