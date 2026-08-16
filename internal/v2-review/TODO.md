@@ -113,6 +113,10 @@ The implementation handoff in [`internal/v2/TODO-2.md`](../v2/TODO-2.md) is now 
     - Verification: `npm test -- --run` (31 files, 62 tests); `npm run typecheck`; `npm run lint`; `npm run build`; clean `./dev_run.sh` + `npm run test:browser` (7 checks); Chromium audit-table probe.
     - Result: PASS — Chromium rendered `Aug 16, 2026, 1:11:16 PM` from the ISO UTC value; table cells reported `overflowWrap: normal` and `wordBreak: normal`; long endpoints retained ellipsis/tooltips.
     - Implementation commit: `9de5dc0f25d09aae4462bc9f2fb85323ecf3225a`
+  - [x] Fix audit detail input/output contrast: fixed dark value panels use a light foreground so JSON and empty placeholders remain visible in every theme.
+    - Verification: `npm test -- --run` (31 files, 62 tests); `npm run typecheck`; `npm run lint`; `npm run build`; clean `./dev_run.sh` + `npm run test:browser` (7 checks); Chromium audit-detail probe.
+    - Result: PASS — all audit panels computed `rgb(248, 250, 252)` on `rgb(7, 16, 31)` for 18.2:1 contrast.
+    - Implementation commit: `cd92243518507cf02b80cc26e045170bcc3090cf`
   - [ ] Remaining screenshot comparison, 768/1024/1650–1910 px matrix, 200% zoom, and long-value cases.
   - Implementation commit: `d60356241fdcdb394d8134cd9f5ff04195003155`
 - [ ] **Linux build portability (TODO-2 Phase 8):** encode the legacy GTK3 build tag when the supported distro requires it.

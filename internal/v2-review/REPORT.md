@@ -52,6 +52,8 @@ The previously recorded Chromium audit covered 91 authenticated routes at 1440 p
 
 The audit table and related account/resource/task timestamp surfaces now use a shared local date/time formatter instead of displaying raw ISO UTC strings. Shared table cells no longer use `overflow-wrap: anywhere`; audit timestamps, methods, results, and actions stay intact, while long actor and endpoint values ellipsize with the full value available as a tooltip. A Chromium probe confirmed a readable local timestamp and `overflowWrap: normal`/`wordBreak: normal` on the rendered cells.
 
+Audit detail value panels now use a light foreground against their fixed dark code background, including empty-value placeholders. Chromium computed `rgb(248, 250, 252)` on `rgb(7, 16, 31)` (18.2:1 contrast) for every panel.
+
 ### Worker desktop
 
 The following support checks passed:
