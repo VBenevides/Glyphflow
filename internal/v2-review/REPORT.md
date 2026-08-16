@@ -27,6 +27,21 @@ The live review used `./dev_run.sh`, Chromium, PostgreSQL, NATS, and the API at 
 
 The review did not run the native desktop tray matrix. The automated desktop build passed, but window, tray, long-log, and active-exit behavior still need a supported desktop session.
 
+## TODO-2 baseline and reference capture
+
+The pre-edit worktree was clean on `version/v0.1.0`. The current baseline passes:
+
+| Check | Result |
+|---|---|
+| `cd frontend && npm test -- --run` | PASS; 30 files, 60 tests |
+| `cd frontend && npm run typecheck` | PASS |
+| `cd frontend && npm run lint` | PASS |
+| `cd frontend && npm run build` | PASS |
+| `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./cmd/worker ./internal/worker ./internal/config ./internal/queue` | PASS |
+| `cd backend && GOCACHE=/tmp/glyphflow-gocache go vet ./...` | PASS |
+
+All seven reference screenshots were opened at their native sizes: `overview.png` (1911×935), `platform-configuration.png` (1654×930), `roles.png` (1652×926), `settings-ui.png` (427×301), `settings-user.png` (439×472), `system_events.png` (1656×930), and `users.png` (1655×935). Repeated patterns are a pale-lilac page, thin bordered light sidebar, purple primary/active controls, compact headings and muted descriptions, low-shadow cards, compact tables with status pills and pagination, grouped navigation with indented children, and consistent 20–24 px desktop spacing (16 px on mobile).
+
 ## Previous v2 status
 
 `internal/v2/REPORT.md` is now historical. Its high-risk execution, protocol, authentication, and integration defects have corresponding completed items in `internal/v2/TODO.md`.
