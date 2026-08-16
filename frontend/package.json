@@ -8,6 +8,7 @@
     "typecheck": "tsc -b --pretty false",
     "build": "npm run typecheck && vite build",
     "test": "vitest run --passWithNoTests",
+    "test:browser": "node scripts/browser-acceptance.mjs",
     "lint": "npm run typecheck && node scripts/check-quality.mjs",
     "preview": "vite preview"
   },
