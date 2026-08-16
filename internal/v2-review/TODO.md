@@ -4,12 +4,16 @@ Items are ordered by severity within each category. Each item maps to `REPORT.md
 
 ## Security
 
-- [ ] **Medium — SEC-01: Upgrade `golang.org/x/text` to v0.39.0 or later**
-  - Run `govulncheck ./...` and the complete backend suite.
+- [x] **Medium — SEC-01: Upgrade `golang.org/x/text` to v0.39.0 or later**
+  - Verification: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./...`; `cd backend && GOCACHE=/tmp/glyphflow-gocache go vet ./...`; `govulncheck ./...`
+  - Result: PASS — backend tests, vet, and vulnerability scan report no vulnerabilities.
+  - Implementation commit: `00e97d0d857aa49c7c95b76ab835df6ab73c2940`
 - [ ] **Medium — SEC-02: Signal audit persistence failures**
   - Use the existing structured logger and metrics. Add one failure-path test.
-- [ ] **Medium — SEC-03: Reduce the system `user` role to least privilege**
-  - Move task, resource, and runner management into an explicit operator role.
+- [x] **Medium — SEC-03: Reduce the system `user` role to least privilege**
+  - Verification: `cd backend && GOCACHE=/tmp/glyphflow-gocache go test ./...`; `cd backend && GOCACHE=/tmp/glyphflow-gocache go vet ./...`
+  - Result: PASS — default users retain read and run execution access; infrastructure mutation permissions move to the seeded operator role.
+  - Implementation commit: `fcbe016c9f826e74e9e40768a3296fa5d0b0596a`
 - [ ] **Low — SEC-04: Add Go and npm vulnerability scans to the security gate**
   - Reuse `govulncheck` and `npm audit --omit=dev`.
 
