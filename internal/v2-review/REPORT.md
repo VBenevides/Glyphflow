@@ -48,6 +48,10 @@ All seven reference screenshots were opened at their native sizes: `overview.png
 
 The previously recorded Chromium audit covered 91 authenticated routes at 1440 px and 390 px (182 checks), plus public authentication, registration, dialogs, and mobile navigation. It found no actionable overflow, unnamed controls, duplicate IDs, or console errors. After stopping a stale development process, a clean `./dev_run.sh` stack started successfully and `cd frontend && npm run test:browser` passed all seven checks: login/session bootstrap, logout-login CSRF, admin route, 390 px navigation, 320 px task editor, schedule accessible names, and run logs. Screenshot comparison, 768/1024/1650–1910 px coverage, 200% zoom, and long-value coverage remain open.
 
+### Follow-up UI fixes
+
+The audit table and related account/resource/task timestamp surfaces now use a shared local date/time formatter instead of displaying raw ISO UTC strings. Shared table cells no longer use `overflow-wrap: anywhere`; audit timestamps, methods, results, and actions stay intact, while long actor and endpoint values ellipsize with the full value available as a tooltip. A Chromium probe confirmed a readable local timestamp and `overflowWrap: normal`/`wordBreak: normal` on the rendered cells.
+
 ### Worker desktop
 
 The following support checks passed:

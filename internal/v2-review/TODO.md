@@ -109,6 +109,10 @@ The implementation handoff in [`internal/v2/TODO-2.md`](../v2/TODO-2.md) is now 
 - [ ] **Full frontend acceptance (TODO-2 Phase 4.4 and 9.2):** compare all visible routes against screenshots at 100% zoom and 1650–1910, 1024, 768, 390, and 320 px; verify Light/Dark/Neon plus loading, empty, error/retry, forbidden, not-found, login, registration, dialogs, and live-log states; verify 320 px containment, 200% zoom, keyboard/focus/drawer behavior, long values, and Glyphflow-only labels/data.
   - [x] Existing Chromium audit: 91 authenticated routes at 1440/390 px plus public auth, registration, dialogs, and mobile states; no actionable overflow, unnamed controls, duplicate IDs, or console errors.
   - [x] Clean `./dev_run.sh` plus `npm run test:browser`: all seven browser checks passed (session bootstrap, logout-login CSRF, admin route, mobile navigation, 320 px task editor, schedule names, and run logs).
+  - [x] Fix raw UTC timestamps and audit-table word wrap: shared local date/time formatting now renders `<time>` values, while audit cells keep timestamps/status/actions intact and ellipsize long actor/endpoint values without breaking words.
+    - Verification: `npm test -- --run` (31 files, 62 tests); `npm run typecheck`; `npm run lint`; `npm run build`; clean `./dev_run.sh` + `npm run test:browser` (7 checks); Chromium audit-table probe.
+    - Result: PASS — Chromium rendered `Aug 16, 2026, 1:11:16 PM` from the ISO UTC value; table cells reported `overflowWrap: normal` and `wordBreak: normal`; long endpoints retained ellipsis/tooltips.
+    - Implementation commit: `9de5dc0f25d09aae4462bc9f2fb85323ecf3225a`
   - [ ] Remaining screenshot comparison, 768/1024/1650–1910 px matrix, 200% zoom, and long-value cases.
   - Implementation commit: `d60356241fdcdb394d8134cd9f5ff04195003155`
 - [ ] **Linux build portability (TODO-2 Phase 8):** encode the legacy GTK3 build tag when the supported distro requires it.
