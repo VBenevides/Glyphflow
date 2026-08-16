@@ -244,7 +244,7 @@ The review changed development data as requested. Password registration remains 
 | `cd backend && GOCACHE=/tmp/glyphflow-gocache go vet ./...` | PASS |
 | `cd backend && GOCACHE=/tmp/glyphflow-gocache go test -race ./...` | PASS |
 | `cd backend && GOCACHE=/tmp/glyphflow-gocache go test -tags=integration ./internal/integration` | PASS; external TLS NATS and PostgreSQL cases skipped without their variables. |
-| `cd frontend && npm test` | PASS; 30 files and 58 tests. |
+| `cd frontend && npm test` | PASS; 30 files and 60 tests. |
 | `cd frontend && npm run lint` | PASS |
 | `cd frontend && npm run build` | PASS; main JavaScript 356.78 kB, 106.78 kB gzip. |
 | `./scripts/security-check.sh` | PASS |
