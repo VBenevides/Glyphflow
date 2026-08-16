@@ -149,7 +149,7 @@ internal/   Design documents, migration notes, and project roadmap
 
 ## Roadmap
 
-The complete implementation plan is in [`internal/TODO.md`](internal/TODO.md).
+The complete implementation plan is in [`internal/v2-review/TODO.md`](internal/v2-review/TODO.md).
 
 The roadmap follows the network scheduler migration design from the local script scheduler.
 
