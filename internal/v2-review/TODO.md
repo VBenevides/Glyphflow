@@ -21,18 +21,28 @@ Items are ordered by severity within each category. Each item maps to `REPORT.md
 
 ## Bugs
 
-- [ ] **High — BUG-01: Restore the mobile menu and drawer scrim**
-  - Remove the duplicate CSS hide rule. Test 320 and 390 pixels.
+- [x] **High — BUG-01: Restore the mobile menu and drawer scrim**
+  - Verification: `cd frontend && npm test -- --run`; `cd frontend && npm run typecheck`; `cd frontend && npm run build`
+  - Result: PASS — the duplicate hide rule was removed and frontend tests, typecheck, and build pass.
+  - Implementation commit: `3eeecc575c82452e3683ac6502ea4486bb01ac3d`
 - [ ] **High — BUG-02: Allow parent-cascade deletion of schedule versions**
   - Add a migration that rejects version updates, not parent-driven deletes.
-- [ ] **Medium — BUG-03: Restore CSRF state after logout**
-  - Make logout followed by login work without a reload.
-- [ ] **Medium — BUG-04: Align run-log rendering with `logs.read`**
-  - Grant the permission or hide the panels. Stop repeated 403 reconnects.
-- [ ] **Medium — BUG-05: Contain task editor tables**
-  - Reuse `.gf-table-wrap` for selectors, environment values, and secret references.
-- [ ] **Medium — BUG-06: Give schedule controls accessible names**
-  - Use explicit labels and valid combobox relationships.
+- [x] **Medium — BUG-03: Restore CSRF state after logout**
+  - Verification: `cd frontend && npm test -- --run`; `cd frontend && npm run typecheck`
+  - Result: PASS — logout triggers authentication bootstrap before the next login.
+  - Implementation commit: `3eeecc575c82452e3683ac6502ea4486bb01ac3d`
+- [x] **Medium — BUG-04: Align run-log rendering with `logs.read`**
+  - Verification: `cd frontend && npm test -- --run`; `cd frontend && npm run typecheck`
+  - Result: PASS — log panels render only when `logs.read` is present; the permission contract test passes.
+  - Implementation commit: `3eeecc575c82452e3683ac6502ea4486bb01ac3d`
+- [x] **Medium — BUG-05: Contain task editor tables**
+  - Verification: `cd frontend && npm test -- --run`; `cd frontend && npm run build`
+  - Result: PASS — all task-editor key/value tables reuse `.gf-table-wrap`.
+  - Implementation commit: `3eeecc575c82452e3683ac6502ea4486bb01ac3d`
+- [x] **Medium — BUG-06: Give schedule controls accessible names**
+  - Verification: `cd frontend && npm test -- --run`; `cd frontend && npm run typecheck`
+  - Result: PASS — schedule controls use explicit labels and TaskPicker exposes valid combobox/listbox relationships.
+  - Implementation commit: `3eeecc575c82452e3683ac6502ea4486bb01ac3d`
 - [ ] **Medium — BUG-07: Isolate PostgreSQL test data**
   - Fix cleanup order, assert cleanup errors, and use a fresh database.
 - [x] **Low — BUG-08: Repair the README roadmap link**
@@ -53,5 +63,7 @@ Items are ordered by severity within each category. Each item maps to `REPORT.md
   - Run it after unit tests in one clean database.
 - [ ] **Medium — ENH-03: Complete the existing desktop tray matrix**
   - Test supported Linux and Windows environments from `internal/v2/TODO-2.md`.
-- [ ] **Low — ENH-04: Remove deprecated Vite transform options**
-  - Update the existing configuration during the next dependency update.
+- [x] **Low — ENH-04: Remove deprecated Vite transform options**
+  - Verification: `cd frontend && npm test -- --run`; `cd frontend && npm run build`
+  - Result: PASS — Vitest no longer loads the React transform plugin, and test/build output is warning-free.
+  - Implementation commit: `3eeecc575c82452e3683ac6502ea4486bb01ac3d`
