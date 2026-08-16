@@ -61,7 +61,7 @@ class CDPPage {
 
   async navigate(path) {
     await this.command('Page.navigate', { url: `${baseURL}${path}` })
-    await this.waitFor(() => document.readyState === 'complete' && location.origin === new URL(baseURL).origin)
+    await this.waitFor(() => document.readyState === 'complete')
   }
 
   async setViewport(width, height = 900) {
