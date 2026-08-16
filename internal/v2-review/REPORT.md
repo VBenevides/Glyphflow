@@ -31,7 +31,7 @@ The review did not run the native desktop tray matrix. The automated desktop bui
 
 `internal/v2/REPORT.md` is now historical. Its high-risk execution, protocol, authentication, and integration defects have corresponding completed items in `internal/v2/TODO.md`.
 
-`internal/v2/TODO-2.md` accurately records the remaining manual work. This review completed broad route, theme, viewport, registration, and role checks. It did not complete 200% zoom, every keyboard path, screenshot comparison, or the desktop tray matrix.
+`internal/v2/TODO-2.md` accurately records the remaining manual work, and `internal/v2-review/TODO.md` now carries its implementation improvements and open acceptance work forward by phase. This review completed broad route, theme, viewport, registration, and role checks. It did not complete 200% zoom, every keyboard path, screenshot comparison, or the desktop tray matrix.
 
 ## Available features
 

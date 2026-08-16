@@ -84,3 +84,25 @@ Items are ordered by severity within each category. Each item maps to `REPORT.md
   - Verification: `cd frontend && npm test -- --run`; `cd frontend && npm run build`
   - Result: PASS — Vitest no longer loads the React transform plugin, and test/build output is warning-free.
   - Implementation commit: `3eeecc575c82452e3683ac6502ea4486bb01ac3d`
+
+## TODO-2 improvement carry-forward
+
+The implementation handoff in [`internal/v2/TODO-2.md`](../v2/TODO-2.md) is now part of this review plan. The grouped entries below preserve every product improvement from that handoff; the source file remains the detailed acceptance checklist.
+
+### Completed implementation improvements
+
+- [x] **Frontend visual system (TODO-2 Phases 2–4):** Light, Dark, and Neon tokens; AI Platform-inspired cards, tables, forms, dialogs, status pills, pagination, loading/empty/error states, responsive 248/64 px grouped sidebar, Scheduler badge, workspace groups, permission-aware counts, active-route treatment, collapsed tooltips, account footer, three-choice Appearance dialog, mobile drawer focus handling, overview metrics/activity/quick links, admin users and roles, audit, settings/editor, and account tab layouts.
+- [x] **Worker lifecycle (TODO-2 Phase 5):** Shared cancellable runner, headless entry point, safe stdout/stderr writer plumbing, preserved enrollment/recovery/consumer/heartbeat/shutdown behavior, and stage-labelled startup errors.
+- [x] **Bounded worker status/log model (TODO-2 Phase 6):** Redacted endpoint, live configured capacity, ordered stdout/stderr entries, partial-line and CRLF handling, blank-line preservation, concurrency safety, 5,000-line retention, reset semantics, and text-only rendering.
+- [x] **Tray-first desktop worker (TODO-2 Phase 7):** Wails worker UI, embedded Glyphflow assets, hidden startup window, Open/Exit tray menu, close/minimize-to-tray state machine, explicit one-shot shutdown, read-only snapshot API, accessible All/Stderr filters, polling/visibility handling, near-bottom auto-follow, and narrow-window layout.
+- [x] **Desktop fallback and branding:** Linux StatusNotifierWatcher fallback to a normal window, platform-relative Wails asset route, runner identity display, and embedded Glyphflow icon.
+- [x] **Release and compatibility work (TODO-2 Phase 8):** Pinned Wails dependency, desktop and headless artifacts with stable enrollment names, release compile checks, and documented WebView2/GTK/WebKit/headless requirements.
+- [x] **Control-plane reliability improvements recorded by TODO-2:** runner/task-version deletion conflict messages, task soft deletion and retry blocking, pool archival, runner archival/cancellation and unique enrollment IDs, role count/table readability, and overdue dispatched-run reconciliation.
+
+### Remaining TODO-2 acceptance improvements
+
+- [ ] **Baseline and reference capture (TODO-2 Phase 1):** record frontend/worker baselines, screenshot pattern notes, and the pre-edit worktree check.
+- [ ] **Full frontend acceptance (TODO-2 Phase 4.4 and 9.2):** compare all visible routes against screenshots at 100% zoom and 1650–1910, 1024, 768, 390, and 320 px; verify Light/Dark/Neon plus loading, empty, error/retry, forbidden, not-found, login, registration, dialogs, and live-log states; verify 320 px containment, 200% zoom, keyboard/focus/drawer behavior, long values, and Glyphflow-only labels/data.
+- [ ] **Linux build portability (TODO-2 Phase 8):** encode the legacy GTK3 build tag when the supported distro requires it.
+- [ ] **Native desktop tray matrix (TODO-2 Phase 9.3 / ENH-03):** on supported Linux and Windows, verify hidden startup, tray Open, minimize, close, endpoint redaction, live capacity changes, ordered All/Stderr logs, 5,000-line retention, invalid configuration handling, idle/active Exit shutdown, and headless launch without GUI dependencies.
+- [ ] **Close-out (TODO-2 Phase 9.4):** check the source handoff's parent completion boxes only after every relevant acceptance item above passes.
