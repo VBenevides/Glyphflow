@@ -19,15 +19,24 @@ func TestResourceRepositoryFencesTransactionalLeases(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer pool.Close()
 	suffix := time.Now().UTC().Format("20060102150405.000000000")
 	poolID, runnerID, sessionID, taskID, runID, attemptID, resourceID := "resource-pool-"+suffix, "resource-runner-"+suffix, "resource-session-"+suffix, "resource-task-"+suffix, "resource-run-"+suffix, "resource-attempt-"+suffix, "resource-"+suffix
 	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM resources WHERE id = $1`, resourceID)
-		_, _ = pool.Exec(ctx, `DELETE FROM runs WHERE id = $1`, runID)
-		_, _ = pool.Exec(ctx, `DELETE FROM tasks WHERE id = $1`, taskID)
-		_, _ = pool.Exec(ctx, `DELETE FROM runners WHERE id = $1`, runnerID)
-		_, _ = pool.Exec(ctx, `DELETE FROM runner_pools WHERE id = $1`, poolID)
+		for _, cleanup := range []struct {
+			name  string
+			query string
+			id    string
+		}{
+			{"run", `DELETE FROM runs WHERE id = $1`, runID},
+			{"resource", `DELETE FROM resources WHERE id = $1`, resourceID},
+		} {
+			if _, err := pool.Exec(ctx, cleanup.query, cleanup.id); err != nil {
+				t.Errorf("cleanup %s: %v", cleanup.name, err)
+			}
+		}
+		// Task versions are immutable history. This repository test runs in a
+		// fresh database in the release gate, so retain its task and pool rows.
+		pool.Close()
 	})
 	if _, err := pool.Exec(ctx, `INSERT INTO runner_pools (id, name) VALUES ($1, $1)`, poolID); err != nil {
 		t.Fatal(err)

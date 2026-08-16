@@ -19,10 +19,10 @@ func TestAuditRepositoryPersistsFiltersAndAppendOnlyRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer pool.Close()
 	repository := NewAuditRepository(pool)
 	id := "audit-test-" + time.Now().UTC().Format("20060102150405.000000000")
-	if err := repository.Append(ctx, AuditEventRecord{ID: id, ActorID: "actor", Method: "POST", Description: "Create task", Endpoint: "/api/v1/tasks", Target: "task-1", Result: "success", RequestInput: map[string]any{"name": "task"}, CorrelationID: "corr", CreatedAt: time.Now().UTC()}); err != nil {
+	t.Cleanup(pool.Close)
+	if err := repository.Append(ctx, AuditEventRecord{ID: id, ActorName: "actor", Method: "POST", Description: "Create task", Endpoint: "/api/v1/tasks", Target: "task-1", Result: "success", RequestInput: map[string]any{"name": "task"}, CorrelationID: "corr", CreatedAt: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
 	}
 	events, total, err := repository.Query(ctx, AuditFilter{Actor: "actor", CorrelationID: "corr", Page: 1, Limit: 10})

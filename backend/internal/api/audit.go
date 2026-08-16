@@ -197,9 +197,10 @@ func auditDescription(method, path string) string {
 }
 
 type AuditQueryService struct {
-	mu         sync.RWMutex
-	events     []AuditEvent
-	repository store.AuditRepository
+	mu                   sync.RWMutex
+	events               []AuditEvent
+	repository           store.AuditRepository
+	appendFailureHandler func(AuditEvent, error)
 }
 
 func NewAuditQueryService() *AuditQueryService { return &AuditQueryService{} }
@@ -210,6 +211,14 @@ func (s *AuditQueryService) SetRepository(repository store.AuditRepository) {
 		s.repository = repository
 		s.mu.Unlock()
 	}
+}
+
+// SetAppendFailureHandler registers the operator signal for durable audit
+// write failures. The callback must not block request handling.
+func (s *AuditQueryService) SetAppendFailureHandler(handler func(AuditEvent, error)) {
+	s.mu.Lock()
+	s.appendFailureHandler = handler
+	s.mu.Unlock()
 }
 
 func auditEventFromStore(event store.AuditEventRecord) AuditEvent {
@@ -234,7 +243,7 @@ func toAuditMap(value any) map[string]any {
 	return map[string]any{"value": value}
 }
 
-func (s *AuditQueryService) Add(event AuditEvent) {
+func (s *AuditQueryService) Add(event AuditEvent) error {
 	if event.ID == "" {
 		event.ID = time.Now().UTC().Format("20060102150405.000000000")
 	}
@@ -261,15 +270,20 @@ func (s *AuditQueryService) Add(event AuditEvent) {
 	event.Output = redactAuditValue(event.Output)
 	s.mu.RLock()
 	repository := s.repository
+	appendFailureHandler := s.appendFailureHandler
 	s.mu.RUnlock()
 	if repository != nil {
 		createdAt, _ := time.Parse(time.RFC3339Nano, event.CreatedAt)
-		_ = repository.Append(context.Background(), store.AuditEventRecord{ID: event.ID, ActorID: event.Actor, ActorName: event.ActorName, ActorEmail: event.ActorEmail, Method: event.Action, Description: event.Description, Endpoint: endpoint, Target: event.Target, Result: event.Result, RequestInput: event.Input, ResponseOutput: event.Output, BeforeValue: event.Before, AfterValue: event.After, Traceback: event.Traceback, CorrelationID: event.CorrelationID, CreatedAt: createdAt})
-		return
+		err := repository.Append(context.Background(), store.AuditEventRecord{ID: event.ID, ActorID: event.Actor, ActorName: event.ActorName, ActorEmail: event.ActorEmail, Method: event.Action, Description: event.Description, Endpoint: endpoint, Target: event.Target, Result: event.Result, RequestInput: event.Input, ResponseOutput: event.Output, BeforeValue: event.Before, AfterValue: event.After, Traceback: event.Traceback, CorrelationID: event.CorrelationID, CreatedAt: createdAt})
+		if err != nil && appendFailureHandler != nil {
+			appendFailureHandler(event, err)
+		}
+		return err
 	}
 	s.mu.Lock()
 	s.events = append(s.events, event)
 	s.mu.Unlock()
+	return nil
 }
 
 func (s *AuditQueryService) query(w http.ResponseWriter, r *http.Request) {

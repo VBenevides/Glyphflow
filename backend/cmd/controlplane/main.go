@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -169,6 +170,12 @@ func main() {
 	infrastructure.SetControlPlanePublicKey(base64.RawStdEncoding.EncodeToString(signingKey.Public.PublicKey))
 	audit := api.NewAuditQueryService()
 	audit.SetRepository(store.NewAuditRepository(db))
+	metrics := new(platform.Metrics)
+	logger := &platform.Logger{Out: os.Stderr}
+	audit.SetAppendFailureHandler(func(event api.AuditEvent, err error) {
+		metrics.AuditAppendErrors.Add(1)
+		_ = logger.Event("audit.append_failed", map[string]string{"id": event.ID, "actor": event.Actor, "error": err.Error(), "count": strconv.FormatUint(metrics.AuditAppendErrors.Load(), 10)})
+	})
 	application := api.Server{AuthService: authService, AuthAdmin: &api.AuthAdminService{Auth: authService, OIDC: oidcService, Sessions: authService.SessionManager()}, Sessions: authService.SessionManager(), OIDC: oidcService, Roles: roles, Auth: authService.Authenticator(), Permissions: authService.Permissions, CSRFOrigin: cfg.WebOrigin, Operations: operations, Runs: runs, Infrastructure: infrastructure, AuditQuery: audit, ExitCodes: store.NewExitCodeRepository(db), GlobalVariables: globalVariables, Ready: func(ctx context.Context) error {
 		if err := db.Ping(ctx); err != nil {
 			return err

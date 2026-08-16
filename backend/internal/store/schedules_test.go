@@ -19,7 +19,6 @@ func TestScheduleRepositoryKeepsImmutableVersionsAndPointer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer pool.Close()
 	tasks := NewTaskRepository(pool)
 	schedules := NewScheduleRepository(pool)
 	suffix := time.Now().UTC().Format("20060102150405.000000000")
@@ -27,11 +26,16 @@ func TestScheduleRepositoryKeepsImmutableVersionsAndPointer(t *testing.T) {
 	var scheduledRunID string
 	t.Cleanup(func() {
 		if scheduledRunID != "" {
-			_, _ = pool.Exec(ctx, `DELETE FROM runs WHERE id = $1`, scheduledRunID)
+			if _, err := pool.Exec(ctx, `DELETE FROM runs WHERE id = $1`, scheduledRunID); err != nil {
+				t.Errorf("cleanup scheduled run: %v", err)
+			}
 		}
-		_, _ = pool.Exec(ctx, `DELETE FROM schedules WHERE id = $1`, scheduleID)
-		_, _ = pool.Exec(ctx, `DELETE FROM tasks WHERE id = $1`, taskID)
-		_, _ = pool.Exec(ctx, `DELETE FROM runner_pools WHERE id = $1`, poolID)
+		if _, err := pool.Exec(ctx, `DELETE FROM schedules WHERE id = $1`, scheduleID); err != nil {
+			t.Errorf("cleanup schedule: %v", err)
+		}
+		// Task versions are immutable history. This repository test runs in a
+		// fresh database in the release gate, so retain its task and pool rows.
+		pool.Close()
 	})
 	if _, err := pool.Exec(ctx, `INSERT INTO runner_pools (id, name) VALUES ($1, $1)`, poolID); err != nil {
 		t.Fatal(err)

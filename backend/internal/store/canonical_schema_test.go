@@ -96,6 +96,23 @@ func TestTaskDeletionMigrationKeepsVersionsImmutableButDeletable(t *testing.T) {
 	}
 }
 
+func TestScheduleDeletionMigrationKeepsVersionsImmutableButDeletable(t *testing.T) {
+	migrations, err := LoadMigrations(filepath.Join("..", "..", "migrations"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var scheduleDeletion Migration
+	for _, migration := range migrations {
+		if migration.Name == "schedule_version_deletion" {
+			scheduleDeletion = migration
+		}
+	}
+	sql := strings.ToLower(scheduleDeletion.SQL)
+	if scheduleDeletion.Version != 16 || !strings.Contains(sql, "drop trigger if exists schedule_versions_immutable") || !strings.Contains(sql, "before update on schedule_versions") || strings.Contains(sql, "before update or delete on schedule_versions") {
+		t.Fatalf("schedule deletion migration = %#v", scheduleDeletion)
+	}
+}
+
 func TestTaskArchivalMigrationAddsDeletionFlag(t *testing.T) {
 	migrations, err := LoadMigrations(filepath.Join("..", "..", "migrations"))
 	if err != nil {

@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -9,7 +10,33 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/VBenevides/Glyphflow/backend/internal/store"
 )
+
+type failingAuditRepository struct{ err error }
+
+func (r failingAuditRepository) Append(context.Context, store.AuditEventRecord) error { return r.err }
+func (r failingAuditRepository) Query(context.Context, store.AuditFilter) ([]store.AuditEventRecord, int, error) {
+	return nil, 0, r.err
+}
+
+func TestAuditAppendFailureIsSignalled(t *testing.T) {
+	want := errors.New("audit database unavailable")
+	audit := NewAuditQueryService()
+	audit.SetRepository(failingAuditRepository{err: want})
+	var signalled AuditEvent
+	var got error
+	audit.SetAppendFailureHandler(func(event AuditEvent, err error) {
+		signalled, got = event, err
+	})
+	if err := audit.Add(AuditEvent{ID: "audit-failure", Actor: "user-1", Action: http.MethodPost, Target: "/api/v1/tasks"}); !errors.Is(err, want) {
+		t.Fatalf("append error = %v, want %v", err, want)
+	}
+	if !errors.Is(got, want) || signalled.ID != "audit-failure" {
+		t.Fatalf("failure signal = %#v, %v", signalled, got)
+	}
+}
 
 func TestAuditQueryFiltersRedactsAndPaginates(t *testing.T) {
 	audit := NewAuditQueryService()
