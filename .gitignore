@@ -36,3 +36,4 @@ local/
 /backend/runner-binaries/
 .tokensave/
 /build/*.tar.gz
+internal/**/*.png
