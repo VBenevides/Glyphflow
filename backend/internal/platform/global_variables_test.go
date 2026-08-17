@@ -12,6 +12,13 @@ func TestResolveGlobalVariables(t *testing.T) {
 	}
 }
 
+func TestResolveEnvironment(t *testing.T) {
+	resolved, err := ResolveEnvironment(map[string]string{"$ENV:TARGET_NAME": "$ENV:TARGET_VALUE"}, map[string]string{"TARGET_NAME": "APP_HOME", "TARGET_VALUE": "/srv/app"})
+	if err != nil || resolved["APP_HOME"] != "/srv/app" {
+		t.Fatalf("resolved environment = %#v, err = %v", resolved, err)
+	}
+}
+
 func TestGlobalVariableName(t *testing.T) {
 	if !GlobalVariableName("CACHE_PATH") || !GlobalVariableName("VARIABLE1_OK") || GlobalVariableName("cache_path") || GlobalVariableName("CACHE PATH") || GlobalVariableName("") {
 		t.Fatal("global variable name validation failed")

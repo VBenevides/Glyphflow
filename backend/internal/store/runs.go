@@ -339,11 +339,9 @@ func (s *RunStore) ClaimWaiting(ctx context.Context, build func(DispatchCandidat
 	if err != nil {
 		return DispatchCandidate{}, false, err
 	}
-	for name, value := range candidate.Environment {
-		candidate.Environment[name], err = platform.ResolveGlobalVariables(value, globals)
-		if err != nil {
-			return DispatchCandidate{}, false, err
-		}
+	candidate.Environment, err = platform.ResolveEnvironment(candidate.Environment, globals)
+	if err != nil {
+		return DispatchCandidate{}, false, err
 	}
 	candidate.ExecutionSpecDigest, err = resolvedExecutionDigest(candidate)
 	if err != nil {

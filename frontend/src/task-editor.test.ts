@@ -31,8 +31,9 @@ describe('task version editor', () => {
 		expect(environmentRows({ ZED: '2', APP_HOME: '/app' })).toEqual([{ name: 'APP_HOME', value: '/app' }, { name: 'ZED', value: '2' }])
 		expect(environmentObject([{ name: ' APP_HOME ', value: '/app' }, { name: '', value: 'ignored' }])).toEqual({ APP_HOME: '/app' })
 		const errors = validateTaskDraft({ ...emptyTaskDraft, name: 'Nightly', command: 'echo', pool: 'default', environment: [{ name: 'BAD-NAME', value: 'x' }, { name: 'BAD-NAME', value: 'y' }] })
-		expect(errors['environment.0.name']).toContain('letters')
+		expect(errors['environment.0.name']).toContain('valid name')
 		expect(errors['environment.1.name']).toContain('unique')
+		expect(validateTaskDraft({ ...emptyTaskDraft, name: 'Nightly', command: 'echo', pool: 'default', environment: [{ name: '$ENV:NAME', value: '$ENV:VALUE' }] })).toEqual({})
 	})
 
 	it('maps selector and secret rows without raw JSON fields', () => {
