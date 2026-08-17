@@ -131,7 +131,8 @@ func main() {
 	authService.SetRoleRepository(roleRepository)
 	authService.SetConfigStore(configStore)
 	authService.SetLockdownScheduler(cfg.LockdownScheduler)
-	authService.SetSessionRepository(store.NewSessionRepository(db))
+	sessionRepository := store.NewSessionRepository(db)
+	authService.SetSessionRepository(sessionRepository)
 	authService.SetSSORepository(store.NewOIDCProviderRepository(db))
 	if err := authService.AddRole("admin", platform.PermissionCatalog...); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -237,6 +238,25 @@ func main() {
 	}
 	infrastructure.SetRunnerCapacityPublisher(jetstream, signingKey)
 	defer func() { jetstream.Close(); db.Close() }()
+	go func() {
+		const sessionRetention = 14 * 24 * time.Hour
+		cleanup := func() {
+			if err := sessionRepository.DeleteOlderThan(ctx, time.Now().UTC().Add(-sessionRetention)); err != nil && ctx.Err() == nil {
+				fmt.Fprintln(os.Stderr, "session cleanup:", err)
+			}
+		}
+		cleanup()
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				cleanup()
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 	go func() {
 		for ctx.Err() == nil {
 			if err := controlplane.RunRunnerHeartbeatMonitor(ctx, jetstream, runnerRepository, 30*time.Second, 10*time.Second); err != nil && ctx.Err() == nil {

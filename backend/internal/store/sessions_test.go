@@ -46,4 +46,17 @@ func TestSessionRepositoryRotationAndReplayRevocation(t *testing.T) {
 	if err != nil || active {
 		t.Fatalf("replacement active after family replay = %v, %v", active, err)
 	}
+	old := SessionRecord{ID: "session-old-" + suffix, UserID: userID, RefreshTokenHash: platform.HashToken("old-cleanup-" + suffix), AccessExpiresAt: now.Add(time.Minute), RefreshExpiresAt: now.Add(time.Hour), SessionFamilyID: "family-old-" + suffix, LastSeenAt: now}
+	if err := repository.Create(ctx, old); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE auth_sessions SET created_at = $2 WHERE id = $1`, old.ID, now.Add(-15*24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.DeleteOlderThan(ctx, now.Add(-14*24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err := repository.Get(ctx, old.ID); err != nil || found {
+		t.Fatalf("old session found after cleanup = %v, %v", found, err)
+	}
 }
