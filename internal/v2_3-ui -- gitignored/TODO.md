@@ -33,12 +33,12 @@ Reference UI: `http://localhost:5200/admin`
   - Test Result: PASS — cumulative reference alignment is implemented across the theme, shell, shared surfaces, registries, and overview; `npm test -- --run src/dashboard.test.ts` (1 file, 2 tests) passed and `git diff --check` passed. Direct visual comparison remains limited to the supplied screenshot and host HTML inspection.
   - Commit Hash: `d2eaf866885e7af80a7ee49a46307ee1d7522a8e`, `686353a3b5ad705f74e4895a798ffc9003d35097`, `c6a6b8bc2c83bf64ad102d959c2445cfc9e8e944`, `1862a66142f99f0de2f2bc49d0b807bbc016bb0f`
 
-- [ ] **Medium: Align shared page and component patterns**
+- [x] **Medium: Align shared page and component patterns**
   - Importance Level: Medium
   - Description: Make shared headers, sidebars, tabs, tables, forms, dialogs, empty states, loading states, and feedback messages use the reference UI's consistent patterns.
   - Test Description: Check each shared component in normal, empty, loading, validation-error, and success states across the affected pages.
-  - Test Result: Not run
-  - Commit Hash: Not committed
+  - Test Result: PASS — `npm test -- --run src/components.test.tsx src/layout.test.ts` (2 files, 13 tests); `git diff --check` passed.
+  - Commit Hash: `c6a6b8bc2c83bf64ad102d959c2445cfc9e8e944`
 
 - [ ] **Medium: Use dialogs for create and edit flows**
   - Importance Level: Medium
