@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { createElement } from 'react'
-import { AppearanceChoices, activeGroupName, groupedRoutes } from './shell'
+import { AppearanceChoices, activeGroupName, activeRoutePath, groupedRoutes, navigationLabel } from './shell'
 import { ROUTES, visibleRoutes } from './permissions'
 
 describe('application shell navigation', () => {
@@ -11,6 +11,17 @@ describe('application shell navigation', () => {
     expect(groups[0].routes.map((route) => route.path)).toContain('/runs')
     expect(activeGroupName('/admin/roles')).toBe('Administration')
     expect(activeGroupName('/unknown')).toBeUndefined()
+  })
+
+  it('activates only the most specific route for nested pages', () => {
+    expect(activeRoutePath('/runners/pools', ROUTES)).toBe('/runners/pools')
+    expect(activeRoutePath('/runners/runner-1', ROUTES)).toBe('/runners')
+    expect(activeRoutePath('/tasks/new', ROUTES)).toBe('/tasks')
+  })
+
+  it('uses contextual labels for compact navigation items', () => {
+    expect(navigationLabel(ROUTES.find((route) => route.path === '/runners/pools')!)).toBe('Runner pools')
+    expect(navigationLabel(ROUTES.find((route) => route.path === '/admin/sso')!)).toBe('Single sign-on')
   })
 
   it('counts only permitted routes in each group', () => {

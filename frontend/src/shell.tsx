@@ -10,7 +10,7 @@ import { BrandMark } from './feedback'
 
 export const SIDEBAR_KEY = 'glyphflow:sidebar-collapsed'
 type Group = { name: string; icon: typeof LayoutDashboard; paths: string[] }
-const groups: Group[] = [
+export const NAVIGATION_GROUPS: Group[] = [
   { name: 'Operations', icon: LayoutDashboard, paths: ['/', '/tasks', '/schedules', '/runs'] },
   { name: 'Infrastructure', icon: Server, paths: ['/runners', '/runners/pools', '/resources', '/admin/execution-status'] },
   { name: 'Security', icon: Shield, paths: ['/audit'] },
@@ -18,16 +18,34 @@ const groups: Group[] = [
 ]
 
 export function groupedRoutes(routes: RouteRule[]): Array<{ group: Group; routes: RouteRule[] }> {
-  return groups.map((group) => ({ group, routes: group.paths.map((path) => routes.find((route) => route.path === path)).filter((route): route is RouteRule => Boolean(route)) })).filter(({ routes }) => routes.length > 0)
+  return NAVIGATION_GROUPS.map((group) => ({ group, routes: group.paths.map((path) => routes.find((route) => route.path === path)).filter((route): route is RouteRule => Boolean(route)) })).filter(({ routes }) => routes.length > 0)
 }
 
 export function activeGroupName(path: string): string | undefined {
-  return groups.find((group) => group.paths.includes(path) || (path !== '/' && group.paths.some((candidate) => path.startsWith(`${candidate}/`))))?.name
+  return NAVIGATION_GROUPS.find((group) => group.paths.includes(path) || (path !== '/' && group.paths.some((candidate) => path.startsWith(`${candidate}/`))))?.name
+}
+
+export function activeRoutePath(path: string, routes: RouteRule[]): string | undefined {
+  return routes.filter((route) => route.path === '/' ? path === '/' : path === route.path || path.startsWith(`${route.path}/`)).sort((left, right) => right.path.length - left.path.length)[0]?.path
+}
+
+const navigationLabels: Record<string, string> = {
+  '/runners/pools': 'Runner pools',
+  '/admin/sso': 'Single sign-on',
+  '/admin/auth': 'Authentication settings',
+}
+
+export function navigationLabel(route: RouteRule): string {
+  return navigationLabels[route.path] ?? route.label
 }
 
 function routeIcon(path: string) {
+  if (path === '/') return LayoutDashboard
   if (path === '/runs') return Activity
-  if (path.startsWith('/admin')) return path === '/admin/roles' ? KeyRound : Users
+  if (path === '/audit' || path === '/admin/sso') return Shield
+  if (path === '/resources' || path === '/global-variables' || path === '/admin/roles' || path === '/admin/auth') return KeyRound
+  if (path === '/admin/execution-status') return Activity
+  if (path.startsWith('/admin')) return Users
   if (path === '/tasks' || path === '/schedules') return FolderKanban
   return Server
 }
@@ -49,6 +67,7 @@ export function Shell({ children }: { children: ReactNode }) {
   const sidebarRef = useRef<HTMLElement>(null)
   const visible = useMemo(() => visibleRoutes(permissions), [permissions])
   const grouped = groupedRoutes(visible)
+  const activePath = activeRoutePath(location.pathname, visible)
   useEffect(() => { window.localStorage.setItem(SIDEBAR_KEY, String(collapsed)) }, [collapsed])
   useEffect(() => { setMobileOpen(false) }, [location.pathname])
   useEffect(() => {
@@ -58,6 +77,7 @@ export function Shell({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!mobileOpen) return
     const previous = document.activeElement as HTMLElement | null
+    const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     const focusable = () => [...(sidebarRef.current?.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])') ?? [])]
     focusable()[0]?.focus()
@@ -70,12 +90,12 @@ export function Shell({ children }: { children: ReactNode }) {
       if (!event.shiftKey && document.activeElement === items[items.length - 1]) { event.preventDefault(); items[0].focus() }
     }
     document.addEventListener('keydown', onKeyDown)
-    return () => { document.body.style.overflow = ''; document.removeEventListener('keydown', onKeyDown); previous?.focus() }
+    return () => { document.body.style.overflow = previousOverflow; document.removeEventListener('keydown', onKeyDown); previous?.focus() }
   }, [mobileOpen])
   const logout = async () => { try { await api.post('/api/v1/auth/logout') } finally { setProfile(null); restore(); navigate('/login', { replace: true }) } }
   const selectTheme = (next: Theme) => { applyTheme(next); setTheme(next) }
-  const navigation = <nav className="gf-sidebar-nav" aria-label="Primary navigation"><p className="gf-sidebar-eyebrow">Workspace</p>{grouped.map(({ group, routes }) => { const Icon = group.icon; const expanded = openGroups[group.name] ?? true; return <section key={group.name} className="gf-nav-group"><button className={`gf-nav-group-button${activeGroupName(location.pathname) === group.name ? ' is-active' : ''}`} title={`${expanded ? 'Collapse' : 'Expand'} ${group.name}`} aria-expanded={expanded} onClick={() => setOpenGroups((current) => ({ ...current, [group.name]: !expanded }))}>{expanded ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}<Icon size={16} aria-hidden="true" /><span>{group.name}</span><small>{routes.length}</small></button>{expanded && <div className="gf-nav-children">{routes.map((route) => { const RouteIcon = routeIcon(route.path); return <NavLink key={route.path} to={route.path} end={route.path === '/'} className={({ isActive }) => `gf-nav-link${isActive ? ' is-active' : ''}`} title={collapsed && !mobileOpen ? route.label : undefined}><RouteIcon size={16} aria-hidden="true" /><span>{route.label}</span></NavLink> })}</div>}</section> })}</nav>
-  const sidebar = <aside ref={sidebarRef} className={`gf-sidebar${collapsed ? ' is-collapsed' : ''}${mobileOpen ? ' is-mobile-open' : ''}`} aria-label="Glyphflow sidebar"><div className="gf-sidebar-brand"><BrandMark /><div className="gf-sidebar-brand-copy"><strong>Glyphflow</strong><small>Scheduler console</small></div><Button className="gf-sidebar-collapse" variant="ghost" aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} onClick={() => setCollapsed((value) => !value)}>{collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}</Button>{mobileOpen && <Button variant="ghost" aria-label="Close navigation" onClick={() => setMobileOpen(false)}><X size={18} /></Button>}</div><div className="gf-module-badge"><LayoutDashboard size={15} aria-hidden="true" /><span>Scheduler</span></div>{navigation}<div className="gf-sidebar-footer"><Link className="gf-user-card" to="/account"><Users size={18} aria-hidden="true" /><span><strong>{profile?.displayName ?? profile?.username}</strong><small>{profile?.username}</small></span></Link><div className="gf-sidebar-actions"><Button variant="ghost" aria-label="Appearance" onClick={() => setAppearanceOpen(true)}><Sun size={17} /><span>Appearance</span></Button><Button variant="ghost" aria-label="Sign out" onClick={logout}><LogOut size={17} /></Button></div></div></aside>
+  const navigation = <nav className="gf-sidebar-nav" aria-label="Primary navigation"><p className="gf-sidebar-eyebrow">Workspace</p>{grouped.map(({ group, routes }) => { const Icon = group.icon; const expanded = openGroups[group.name] ?? true; return <section key={group.name} className="gf-nav-group"><button type="button" className={`gf-nav-group-button${activeGroupName(location.pathname) === group.name ? ' is-active' : ''}`} title={`${expanded ? 'Collapse' : 'Expand'} ${group.name}`} aria-label={`${expanded ? 'Collapse' : 'Expand'} ${group.name}`} aria-expanded={expanded} onClick={() => setOpenGroups((current) => ({ ...current, [group.name]: !expanded }))}>{expanded ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}<Icon size={16} aria-hidden="true" /><span>{group.name}</span><small>{routes.length}</small></button>{expanded && <div className="gf-nav-children">{routes.map((route) => { const RouteIcon = routeIcon(route.path); const label = navigationLabel(route); const isCurrent = route.path === activePath; const end = !isCurrent || location.pathname === route.path; return <NavLink key={route.path} to={route.path} end={end} className={() => `gf-nav-link${isCurrent ? ' is-active' : ''}`} title={collapsed && !mobileOpen ? label : undefined} aria-label={label}><RouteIcon size={16} aria-hidden="true" /><span>{label}</span></NavLink> })}</div>}</section> })}</nav>
+  const sidebar = <aside ref={sidebarRef} className={`gf-sidebar${collapsed ? ' is-collapsed' : ''}${mobileOpen ? ' is-mobile-open' : ''}`} aria-label="Glyphflow sidebar"><div className="gf-sidebar-brand"><BrandMark /><div className="gf-sidebar-brand-copy"><strong>Glyphflow</strong><small>Scheduler console</small></div><Button className="gf-sidebar-collapse" variant="ghost" aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} onClick={() => setCollapsed((value) => !value)}>{collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}</Button>{mobileOpen && <Button variant="ghost" aria-label="Close navigation" onClick={() => setMobileOpen(false)}><X size={18} /></Button>}</div><div className="gf-module-badge" title="Scheduler"><LayoutDashboard size={15} aria-hidden="true" /><span>Scheduler</span></div>{navigation}<div className="gf-sidebar-footer"><Link className="gf-user-card" to="/account"><Users size={18} aria-hidden="true" /><span><strong>{profile?.displayName ?? profile?.username}</strong><small>{profile?.username}</small></span></Link><div className="gf-sidebar-actions"><Button variant="ghost" aria-label="Appearance" onClick={() => setAppearanceOpen(true)}><Sun size={17} /><span>Appearance</span></Button><Button variant="ghost" aria-label="Sign out" onClick={logout}><LogOut size={17} /></Button></div></div></aside>
   return <div className={`gf-app-shell${collapsed ? ' is-sidebar-collapsed' : ''}`}><Button ref={menuButtonRef} className="gf-mobile-menu" variant="secondary" aria-label="Open navigation" onClick={() => setMobileOpen(true)}><Menu size={18} /></Button>{mobileOpen && <button className="gf-drawer-scrim" title="Close navigation" aria-label="Close navigation" onClick={() => setMobileOpen(false)} />}{sidebar}<main id="app-main" className="gf-main" tabIndex={-1}>{children}</main><Dialog open={appearanceOpen} title="Appearance" onClose={() => setAppearanceOpen(false)}><AppearanceChoices theme={theme} onSelect={selectTheme} /><div className="gf-dialog-actions"><Button onClick={() => setAppearanceOpen(false)}>Done</Button></div></Dialog></div>
 }
 
