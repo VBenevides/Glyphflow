@@ -6,7 +6,10 @@ Based on [`findings.md`](./findings.md).
 
 - [ ] Add admin UI to create users, create/promote admins, and assign or revoke roles.
 - [ ] Fix mobile task-editor layout at widths below 768px: closed drawer, full-width content, no horizontal clipping.
-- [ ] Show useful metadata on `/account/sessions` such as device/user agent and last-seen or expiry time.
+- [x] Show useful metadata on `/account/sessions` such as device/user agent and last-seen or expiry time.
+  - Verification: `npm test -- src/account-pages.test.ts`
+  - Result: PASS — 3 tests passed.
+  - Implementation commit: `b197564675ee53ea8ec91498e34f480a39f42a0c`
 - [ ] Add confirmation before deleting global variables, including reference/impact information.
 
 ## P2
