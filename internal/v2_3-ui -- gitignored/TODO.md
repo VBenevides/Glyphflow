@@ -12,12 +12,12 @@ Reference UI: `http://localhost:5200/admin`
   - Test Result: PASS — host-network request to `http://127.0.0.1:5200/admin` returned HTTP 200; inventory written and validated as a non-empty file. Browser automation was unavailable.
   - Commit Hash: `204a5b335ed55e3dcf4942a71b2780341df56b65`
 
-- [ ] **High: Apply the reference theme**
+- [x] **High: Apply the reference theme**
   - Importance Level: High
   - Description: Adapt the project colors, typography, spacing, surfaces, controls, and visual hierarchy to match the polished reference UI.
   - Test Description: Review representative pages side by side and verify consistent theme tokens, contrast, spacing, and component states.
-  - Test Result: Not run
-  - Commit Hash: Not committed
+  - Test Result: PASS — `npm test -- --run src/theme.test.ts src/theme-prepaint.test.ts` (2 files, 5 tests); `git diff --check` passed.
+  - Commit Hash: `d2eaf866885e7af80a7ee49a46307ee1d7522a8e`
 
 - [ ] **High: Reorganize tabs and pages**
   - Importance Level: High
