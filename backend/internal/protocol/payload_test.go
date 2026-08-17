@@ -12,6 +12,8 @@ func TestOrderPayloadContainsExecutionData(t *testing.T) {
 		OrderID:        "order-1",
 		RunID:          "run-1",
 		TaskID:         "task-1",
+		TaskName:       "Example task",
+		TaskVersion:    2,
 		Attempt:        1,
 		LeaseToken:     "lease-1",
 		RunnerID:       "worker-1",
@@ -33,7 +35,7 @@ func TestOrderPayloadContainsExecutionData(t *testing.T) {
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.OrderID != want.OrderID || got.RunID != want.RunID || got.RunnerID != want.RunnerID || got.TimeoutSeconds != want.TimeoutSeconds {
+	if got.OrderID != want.OrderID || got.RunID != want.RunID || got.RunnerID != want.RunnerID || got.TaskName != want.TaskName || got.TaskVersion != want.TaskVersion || got.TimeoutSeconds != want.TimeoutSeconds {
 		t.Fatalf("payload fields were not preserved: %#v", got)
 	}
 }

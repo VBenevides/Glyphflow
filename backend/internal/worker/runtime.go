@@ -126,7 +126,11 @@ func (r OrderRuntime) Handle(ctx context.Context, message queue.Message) error {
 	if err := r.Store.MarkProcessStarted(payload.OrderID); err != nil {
 		return err
 	}
-	r.logf("%s - Started Run %q\n", time.Now().UTC().Format("2006-01-02 15:04 MST"), payload.RunID)
+	taskName := payload.TaskName
+	if taskName == "" {
+		taskName = payload.TaskID
+	}
+	r.logf("> %s - Started Task %q v%d - ID %q - Run %q\n", time.Now().UTC().Format("2006-01-02 15:04 MST"), taskName, payload.TaskVersion, payload.TaskID, payload.RunID)
 	if err := r.publishEvent(ctx, payload, protocol.EventStarted, 2, "", "", nil, nil); err != nil {
 		return err
 	}
@@ -171,16 +175,25 @@ func (r OrderRuntime) Handle(ctx context.Context, message queue.Message) error {
 		genericError := 1
 		exitCode = &genericError
 	}
+	timedOut := errors.Is(executionContext.Err(), context.DeadlineExceeded)
+	if timedOut {
+		timeoutCode := 6
+		exitCode = &timeoutCode
+		runErr = errors.New("Timeout")
+	}
 	finishedCode := -1
 	if exitCode != nil {
 		finishedCode = *exitCode
 	}
-	r.logf("%s - Finished Run %q - %d\n", time.Now().UTC().Format("2006-01-02 15:04 MST"), payload.RunID, finishedCode)
+	r.logf("> %s - Finished Task %q v%d - ID %q - Run %q - %d\n", time.Now().UTC().Format("2006-01-02 15:04 MST"), taskName, payload.TaskVersion, payload.TaskID, payload.RunID, finishedCode)
 	eventType := protocol.EventCompleted
+	if timedOut {
+		eventType = protocol.EventTimedOut
+	}
 	if active != nil && active.cancelled.Load() {
 		eventType = protocol.EventCancelled
 	}
-	if runErr != nil && (active == nil || !active.cancelled.Load()) {
+	if runErr != nil && !timedOut && (active == nil || !active.cancelled.Load()) {
 		eventType = protocol.EventFailed
 	}
 	errorText := ""

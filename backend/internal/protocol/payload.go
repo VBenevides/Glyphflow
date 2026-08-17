@@ -23,6 +23,8 @@ type OrderPayload struct {
 	OrderID             string            `json:"order_id"`
 	RunID               string            `json:"run_id"`
 	TaskID              string            `json:"task_id"`
+	TaskName            string            `json:"task_name,omitempty"`
+	TaskVersion         uint32            `json:"task_version,omitempty"`
 	Attempt             uint32            `json:"attempt"`
 	LeaseToken          string            `json:"lease_token"`
 	RunnerID            string            `json:"runner_id"`
