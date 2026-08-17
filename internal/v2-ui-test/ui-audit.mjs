@@ -190,7 +190,7 @@ async function main() {
     if (variables.status === 200 && !variableItems.some((item) => item.name === 'PYTHON_PATH_LINUX')) {
       await api(page, '/api/v1/global-variables', { method: 'POST', body: { name: 'PYTHON_PATH_LINUX', value: '/usr/sbin/python' } })
     }
-    report.setup.admin = { note: 'Bootstrap admin used for this audit; the UI exposes no create-admin or role-assignment flow.' }
+    report.setup.admin = { note: 'Bootstrap admin used for this audit; the admin UI workflow is exercised below.' }
 
     const routes = ['/', '/tasks', '/tasks/new', '/schedules', '/schedules/new', '/runs', '/runs/execute', '/runners', '/runners/pools', '/runners/enroll', '/resources', '/audit', '/global-variables', '/admin/users', '/admin/roles', '/admin/sso', '/admin/auth', '/admin/execution-status', '/account', '/account/password', '/account/identities', '/account/sessions', '/tasks/missing', '/runs/missing', '/runners/missing', '/resources/missing', '/admin/users/missing']
     await page.evaluate(() => window.localStorage.removeItem('glyphflow:sidebar-collapsed'))
@@ -216,6 +216,29 @@ async function main() {
     await page.click('form button[type="submit"]')
     await sleep(300)
     report.interactions.push({ name: 'create custom role', result: await page.summary('/admin/roles#created') })
+
+    await page.navigate('/admin/users')
+    await page.clickText('Create user')
+    const uiUserEmail = `ui-audit-ui-${suffix}@example.com`
+    await page.fill('#admin-user-email', uiUserEmail)
+    await page.fill('#admin-user-password', 'ui-audit-ui-password-123')
+    await page.clickText('Create user')
+    await page.waitFor((emailValue) => document.body.textContent?.includes(`Manage access for ${emailValue}`), uiUserEmail)
+    const roleID = report.setup.role.body?.id
+    if (!roleID) throw new Error('Admin audit role was not created')
+    await page.evaluate((value) => {
+      const select = document.querySelector('#admin-user-role')
+      if (!select) return false
+      select.value = value
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+      return true
+    }, roleID)
+    await page.clickText('Assign role')
+    await sleep(300)
+    report.interactions.push({ name: 'create user and assign role', result: await page.summary('/admin/users#create-and-assign') })
+    await page.clickText('Revoke')
+    report.interactions.push({ name: 'role revoke confirmation', result: await page.summary('/admin/users#revoke') })
+    await page.clickText('Cancel')
 
     await page.navigate('/account')
     await page.click('button[aria-label="Appearance"]')
@@ -299,6 +322,8 @@ async function main() {
     })
     await page.screenshot('task-env-autocomplete')
     await page.setViewport(320, 900)
+    await page.evaluate(() => window.scrollTo(0, 0))
+    await sleep(250)
     report.interactions.push({ name: 'task editor narrow layout', result: await page.summary('/tasks/new#320') })
     await page.screenshot('task-new-320')
     await page.setViewport(1440, 1000)
