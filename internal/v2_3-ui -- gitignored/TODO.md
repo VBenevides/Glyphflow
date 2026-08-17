@@ -19,12 +19,12 @@ Reference UI: `http://localhost:5200/admin`
   - Test Result: PASS — `npm test -- --run src/theme.test.ts src/theme-prepaint.test.ts` (2 files, 5 tests); `git diff --check` passed.
   - Commit Hash: `d2eaf866885e7af80a7ee49a46307ee1d7522a8e`
 
-- [ ] **High: Reorganize tabs and pages**
+- [x] **High: Reorganize tabs and pages**
   - Importance Level: High
   - Description: Restructure the project navigation, tabs, and page grouping to follow the reference UI's organization while preserving existing capabilities.
   - Test Description: Navigate every primary route and verify that each existing capability remains reachable through the new organization.
-  - Test Result: Not run
-  - Commit Hash: Not committed
+  - Test Result: PASS — `npm test -- --run src/shell.test.ts src/routes.test.tsx src/App.test.tsx` (3 files, 8 tests); `git diff --check` passed.
+  - Commit Hash: `686353a3b5ad705f74e4895a798ffc9003d35097`
 
 - [ ] **High: Bring the project UI closer to the reference project**
   - Importance Level: High
