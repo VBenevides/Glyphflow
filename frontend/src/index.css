@@ -350,6 +350,8 @@ body { background-image: none; }
 .gf-dashboard-widget { padding: 1rem; }
 .gf-dashboard-widget h2 { font-size: 0.9rem; }
 .gf-dashboard-list li { padding: 0.45rem 0; }
+.gf-session-details { display: grid; gap: 0.2rem; min-width: 0; }
+.gf-session-details small { display: block; }
 .gf-dashboard-links a, .gf-related-links a { color: var(--gf-action); font-weight: 600; }
 .gf-permission-grid { gap: 0.45rem; }
 .gf-permission-grid label { display: inline-flex; align-items: center; gap: 0.35rem; min-width: 0; padding: 0.35rem 0.5rem; color: var(--gf-muted); background: var(--gf-surface); border: 1px solid var(--gf-border); border-radius: 0.4rem; font-size: 0.8rem; overflow-wrap: anywhere; }
