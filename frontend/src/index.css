@@ -406,6 +406,15 @@ body { background-image: none; }
 .gf-content { max-width: 100rem; padding: 1.5rem; }
 .gf-collapse-button { display: none; }
 
+/* Keep compact controls and collection states consistent across pages. */
+.gf-editor-form label:has(> input[type='checkbox']) { display: inline-flex; align-items: center; gap: 0.5rem; }
+.gf-editor-form label:has(> input[type='checkbox']) input[type='checkbox'], .gf-filter-bar label:has(> input[type='checkbox']) input[type='checkbox'] { width: 1rem; height: 1rem; flex: 0 0 auto; margin: 0; }
+.gf-editor-form label:has(> select#default-role) { display: flex; align-items: center; gap: 0.75rem; }
+.gf-editor-form label:has(> select#default-role) > select { width: 12rem; flex: 0 0 12rem; }
+.gf-filter-bar > label, .gf-filter-bar > .gf-task-picker { min-width: 10rem; flex: 1 1 10rem; }
+.gf-filter-bar > label:has(> input[type='datetime-local']) { min-width: 11rem; flex-basis: 11rem; }
+.gf-state.gf-empty { min-height: 7rem; padding: 1.25rem; }
+
 @media (max-width: 1024px) {
   .gf-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -426,4 +435,12 @@ body { background-image: none; }
   .gf-sidebar.is-mobile-open .gf-sidebar-collapse { display: none; }
   .gf-metric-grid, .gf-dashboard-grid { grid-template-columns: 1fr; }
   .gf-filter-bar label, .gf-filter-bar .gf-task-picker { min-width: min(100%, 14rem); flex: 1 1 14rem; }
+  .gf-app-shell, .gf-main { width: 100%; max-width: 100%; overflow-x: hidden; }
+  .gf-sidebar.is-collapsed { width: min(18rem, 88vw); }
+  .gf-content, .gf-editor-form { width: 100%; max-width: none; }
+  .gf-editor-form { padding: 0.75rem; }
+  .gf-editor-form fieldset, .gf-editor-form .gf-table-wrap { min-width: 0; max-width: 100%; }
+  .gf-editor-form .gf-table { width: 100%; min-width: 0; }
+  .gf-editor-form label:has(> select#default-role) { align-items: stretch; flex-direction: column; gap: 0.35rem; }
+  .gf-editor-form label:has(> select#default-role) > select { width: 100%; flex-basis: auto; }
 }
