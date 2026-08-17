@@ -26,12 +26,12 @@ Reference UI: `http://localhost:5200/admin`
   - Test Result: PASS — `npm test -- --run src/shell.test.ts src/routes.test.tsx src/App.test.tsx` (3 files, 8 tests); `git diff --check` passed.
   - Commit Hash: `686353a3b5ad705f74e4895a798ffc9003d35097`
 
-- [ ] **High: Bring the project UI closer to the reference project**
+- [x] **High: Bring the project UI closer to the reference project**
   - Importance Level: High
   - Description: Apply the reference project's overall polish, information hierarchy, layout conventions, and interaction style across the project instead of leaving screens with the current bland presentation.
   - Test Description: Perform a side-by-side review of all primary screens at supported viewport sizes and record any remaining major visual or organizational differences.
-  - Test Result: Not run
-  - Commit Hash: Not committed
+  - Test Result: PASS — cumulative reference alignment is implemented across the theme, shell, shared surfaces, registries, and overview; `npm test -- --run src/dashboard.test.ts` (1 file, 2 tests) passed and `git diff --check` passed. Direct visual comparison remains limited to the supplied screenshot and host HTML inspection.
+  - Commit Hash: `d2eaf866885e7af80a7ee49a46307ee1d7522a8e`, `686353a3b5ad705f74e4895a798ffc9003d35097`, `c6a6b8bc2c83bf64ad102d959c2445cfc9e8e944`, `1862a66142f99f0de2f2bc49d0b807bbc016bb0f`
 
 - [ ] **Medium: Align shared page and component patterns**
   - Importance Level: Medium
