@@ -10,7 +10,10 @@ Based on [`findings.md`](./findings.md).
   - Verification: `npm test -- src/account-pages.test.ts`
   - Result: PASS — 3 tests passed.
   - Implementation commit: `b197564675ee53ea8ec91498e34f480a39f42a0c`
-- [ ] Add confirmation before deleting global variables, including reference/impact information.
+- [x] Add confirmation before deleting global variables, including reference/impact information.
+  - Verification: `npm test -- src/global-variables-page.test.ts`
+  - Result: PASS — 2 tests passed.
+  - Implementation commit: `807e52dde420e2aa97bdfe9554ff3e5b1d88cc06`
 
 ## P2
 
