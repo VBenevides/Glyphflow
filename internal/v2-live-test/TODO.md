@@ -71,6 +71,13 @@ No security items were identified in `ERRORS.md`.
 
 ## Bug Fixes
 
+- [x] Prevent stale dispatched orders from starting after `Start Failure`
+  - Importance Level: Critical
+  - Description: Require a signed NATS start claim and atomically transition the run and attempt to `RUNNING` before the worker starts execution. Reject stale orders after timeout reconciliation and keep late lifecycle events idempotent.
+  - Test Description: Verify signed start grants, worker refusal after rejection, successful and rejected PostgreSQL claims, and the full backend race/test suites.
+  - Test Result: PASS — `GOCACHE=/tmp/glyphflow-go-cache go test ./...`; `GOCACHE=/tmp/glyphflow-race-cache go test -race ./...`; `GOCACHE=/tmp/glyphflow-go-cache go vet ./...`; PostgreSQL claim tests were included but skipped because `DATABASE_URL` was unset.
+  - Commit Hash: `e08bce0429342091f2c96a4ee89633b100e74461`
+
 - [x] Fix unreadable Light Theme logs
   - Importance Level: High
   - Description: Fix Light Theme stdout/stderr colors so log text remains readable against its background.
