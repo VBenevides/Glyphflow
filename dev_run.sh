@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+project_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+backend_pid=''
+frontend_pid=''
+
+cleanup() {
+  trap - EXIT INT TERM
+  [[ -n "$frontend_pid" ]] && kill "$frontend_pid" 2>/dev/null || true
+  [[ -n "$backend_pid" ]] && kill "$backend_pid" 2>/dev/null || true
+  wait 2>/dev/null || true
+  docker compose down >/dev/null 2>&1 || true
+}
+trap cleanup EXIT INT TERM
+
+cd "$project_root"
+docker compose up -d postgres nats
+
+if [[ ! -d "$project_root/frontend/node_modules" ]]; then
+  (cd "$project_root/frontend" && npm ci)
+fi
+
+mkdir -p "${DATA_DIR:-$project_root/.dev-data}"
+bash "$project_root/backend/build_runner_binaries.sh"
+
+(
+  cd "$project_root/backend"
+  DATABASE_URL="${DATABASE_URL:-postgres://glyphflow:glyphflow@0.0.0.0:5432/glyphflow?sslmode=disable}" \
+  NATS_URL="${NATS_URL:-nats://0.0.0.0:4222}" \
+  ACCESS_TOKEN_SECRET="${ACCESS_TOKEN_SECRET:-development-secret-at-least-32-characters}" \
+  PASSWORD_PEPPER="${PASSWORD_PEPPER:-development-password-pepper-at-least-16}" \
+  WEB_ORIGIN="${WEB_ORIGIN:-http://${FRONTEND_HOST:-0.0.0.0}:5173}" \
+  CSRF_ORIGINS="${CSRF_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173,http://${FRONTEND_HOST:-0.0.0.0}:5173}" \
+  CORS_ORIGIN="${CORS_ORIGIN:-*}" \
+  RUNNER_NATS_URL="${RUNNER_NATS_URL:-nats://${FRONTEND_HOST:-0.0.0.0}:4222}" \
+  RUNNER_CONTROL_PLANE_URL="${RUNNER_CONTROL_PLANE_URL:-http://${FRONTEND_HOST:-0.0.0.0}:5173}" \
+  ENVIRONMENT="${ENVIRONMENT:-development}" \
+  ALLOW_INSECURE_TRANSPORT="${ALLOW_INSECURE_TRANSPORT:-true}" \
+  DATA_DIR="${DATA_DIR:-$project_root/.dev-data}" \
+  MAX_MESSAGE_BYTES="${MAX_MESSAGE_BYTES:-1048576}" \
+  GLYPHFLOW_BOOTSTRAP_EMAIL="${GLYPHFLOW_BOOTSTRAP_EMAIL:-admin@example_domain.com}" \
+  GLYPHFLOW_BOOTSTRAP_PASSWORD="${GLYPHFLOW_BOOTSTRAP_PASSWORD:-admin-password-123}" \
+  GLYPHFLOW_SYSTEM_ADMINS="${GLYPHFLOW_SYSTEM_ADMINS:-admin@example_domain.com}" \
+  ENABLE_PASSWORD_LOGIN="${ENABLE_PASSWORD_LOGIN:-true}" \
+  ENABLE_PASSWORD_REGISTRATION="${ENABLE_PASSWORD_REGISTRATION:-true}" \
+  DEFAULT_ROLE_ID="${DEFAULT_ROLE_ID:-system-user}" \
+  RUNNER_BINARIES_DIR="${RUNNER_BINARIES_DIR:-$project_root/backend/runner-binaries}" \
+  go run ./cmd/controlplane
+) &
+backend_pid=$!
+
+(
+  cd "$project_root/frontend"
+  VITE_BACKEND_URL="${VITE_BACKEND_URL:-http://0.0.0.0:8080}" \
+  npm run dev -- --host "${FRONTEND_HOST:-0.0.0.0}"
+) &
+frontend_pid=$!
+
+echo "Frontend: http://${FRONTEND_HOST:-0.0.0.0}:5173"
+echo "Backend:  http://0.0.0.0:8080"
+echo "Press Ctrl-C to stop both processes and Docker dependencies."
+
+wait -n "$backend_pid" "$frontend_pid"

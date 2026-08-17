@@ -1,0 +1,175 @@
+package controlplane
+
+import (
+	"errors"
+	"strconv"
+	"strings"
+	"time"
+)
+
+type Schedule struct {
+	Manual   bool
+	At       *time.Time
+	Cron     string
+	Timezone string
+}
+
+func NextFire(expression, timezone string, now time.Time) (time.Time, error) {
+	return (Schedule{Cron: expression, Timezone: timezone}).Next(now)
+}
+
+func (s Schedule) Next(now time.Time) (time.Time, error) {
+	if s.Manual {
+		return now, nil
+	}
+	location := time.UTC
+	if s.Timezone != "" {
+		var err error
+		location, err = scheduleLocation(s.Timezone)
+		if err != nil {
+			return time.Time{}, err
+		}
+	}
+	if s.At != nil {
+		at := s.At.In(location)
+		if at.After(now.In(location)) {
+			return at, nil
+		}
+		return time.Time{}, errors.New("fixed schedule is in the past")
+	}
+	if len(splitFields(s.Cron)) == 5 {
+		return nextCronMinute(now.In(location), s.Cron)
+	}
+	return time.Time{}, errors.New("schedule must be manual, fixed-time, or five-field cron")
+}
+
+func scheduleLocation(value string) (*time.Location, error) {
+	if len(value) >= 5 && strings.HasPrefix(value, "UTC") && (value[3] == '+' || value[3] == '-') {
+		parts := strings.Split(strings.TrimPrefix(value[3:], "+"), ":")
+		if value[3] == '-' {
+			parts = strings.Split(strings.TrimPrefix(value[3:], "-"), ":")
+		}
+		hours, err := strconv.Atoi(parts[0])
+		if err != nil || hours > 23 || len(parts) > 2 {
+			return nil, errors.New("UTC offset is invalid")
+		}
+		minutes := 0
+		if len(parts) == 2 {
+			minutes, err = strconv.Atoi(parts[1])
+			if err != nil || minutes != 0 {
+				return nil, errors.New("UTC offset must use whole hours")
+			}
+		}
+		seconds := hours*60*60 + minutes*60
+		if value[3] == '-' {
+			seconds = -seconds
+		}
+		return time.FixedZone(value, seconds), nil
+	}
+	return time.LoadLocation(value)
+}
+
+func nextCronMinute(now time.Time, expression string) (time.Time, error) {
+	fields := splitFields(expression)
+	if len(fields) != 5 {
+		return time.Time{}, errors.New("cron requires five fields")
+	}
+	if _, err := parseCronField(fields[0], 0, 59); err != nil {
+		return time.Time{}, err
+	}
+	if _, err := parseCronField(fields[1], 0, 23); err != nil {
+		return time.Time{}, err
+	}
+	if _, err := parseCronField(fields[2], 1, 31); err != nil {
+		return time.Time{}, err
+	}
+	if _, err := parseCronField(fields[3], 1, 12); err != nil {
+		return time.Time{}, err
+	}
+	if _, err := parseCronField(fields[4], 0, 6); err != nil {
+		return time.Time{}, err
+	}
+	domAny := fields[2] == "*"
+	dowAny := fields[4] == "*"
+	for i := 1; i <= 24*60*370; i++ {
+		candidate := now.Truncate(time.Minute).Add(time.Duration(i) * time.Minute)
+		minute, _ := parseCronField(fields[0], 0, 59)
+		hour, _ := parseCronField(fields[1], 0, 23)
+		dom, _ := parseCronField(fields[2], 1, 31)
+		month, _ := parseCronField(fields[3], 1, 12)
+		dow, _ := parseCronField(fields[4], 0, 6)
+		dayMatch := dom[candidate.Day()] || dow[int(candidate.Weekday())]
+		if domAny {
+			dayMatch = dow[int(candidate.Weekday())]
+		} else if dowAny {
+			dayMatch = dom[candidate.Day()]
+		}
+		if minute[candidate.Minute()] && hour[candidate.Hour()] && dayMatch && month[int(candidate.Month())] {
+			return candidate, nil
+		}
+	}
+	return time.Time{}, errors.New("cron has no occurrence in search window")
+}
+
+func splitFields(value string) []string {
+	return strings.Fields(value)
+}
+
+func parseCronField(field string, min, max int) (map[int]bool, error) {
+	values := make(map[int]bool)
+	for _, part := range splitComma(field) {
+		if part == "" {
+			return nil, errors.New("cron contains an empty field")
+		}
+		step := 1
+		base := part
+		if slash := strings.IndexByte(part, '/'); slash >= 0 {
+			base = part[:slash]
+			parsed, err := strconv.Atoi(part[slash+1:])
+			if err != nil || parsed <= 0 {
+				return nil, errors.New("cron step must be positive")
+			}
+			step = parsed
+		}
+		start, end := min, max
+		if base != "*" {
+			if dash := strings.IndexByte(base, '-'); dash >= 0 {
+				var err error
+				start, err = strconv.Atoi(base[:dash])
+				if err != nil {
+					return nil, errors.New("cron range is invalid")
+				}
+				end, err = strconv.Atoi(base[dash+1:])
+				if err != nil || end < start {
+					return nil, errors.New("cron range is invalid")
+				}
+			} else {
+				var err error
+				start, err = strconv.Atoi(base)
+				if err != nil {
+					return nil, errors.New("cron value is invalid")
+				}
+				end = start
+			}
+		}
+		if start < min || end > max {
+			return nil, errors.New("cron value is outside its field range")
+		}
+		for value := start; value <= end; value += step {
+			values[value] = true
+		}
+	}
+	return values, nil
+}
+
+func splitComma(value string) []string {
+	var parts []string
+	start := 0
+	for i := 0; i <= len(value); i++ {
+		if i == len(value) || value[i] == ',' {
+			parts = append(parts, value[start:i])
+			start = i + 1
+		}
+	}
+	return parts
+}

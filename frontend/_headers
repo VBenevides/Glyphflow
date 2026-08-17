@@ -1,0 +1,9 @@
+/*
+  Deploy this file with the SPA (Cloudflare Pages and compatible static hosts).
+  The console uses same-origin API and OIDC routes.
+*/
+  Content-Security-Policy: default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()

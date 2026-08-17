@@ -1,0 +1,133 @@
+package store
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+var (
+	ErrSessionInvalid = errors.New("session is invalid")
+	ErrSessionReplay  = errors.New("refresh token replay detected")
+)
+
+type SessionRecord struct {
+	ID, UserID, RefreshTokenHash, SessionFamilyID string
+	AccessExpiresAt, RefreshExpiresAt, LastSeenAt time.Time
+	UserAgent, IPAddress                          string
+	RevokedAt                                     *time.Time
+}
+
+type SessionRepository interface {
+	Create(context.Context, SessionRecord) error
+	Get(context.Context, string) (SessionRecord, bool, error)
+	Rotate(context.Context, string, string, SessionRecord) error
+	Active(context.Context, string, string) (bool, error)
+	Revoke(context.Context, string) error
+	RevokeFamily(context.Context, string) error
+	RevokeUser(context.Context, string) error
+	List(context.Context, string) ([]SessionRecord, error)
+}
+
+type SessionStore struct{ pool *pgxpool.Pool }
+
+func NewSessionRepository(pool *pgxpool.Pool) *SessionStore { return &SessionStore{pool: pool} }
+
+func (s *SessionStore) Create(ctx context.Context, session SessionRecord) error {
+	_, err := s.pool.Exec(ctx, `INSERT INTO auth_sessions (id, user_id, refresh_token_hash, access_expires_at, refresh_expires_at, session_family_id, user_agent, ip_address, last_seen_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`, session.ID, session.UserID, session.RefreshTokenHash, session.AccessExpiresAt, session.RefreshExpiresAt, session.SessionFamilyID, session.UserAgent, session.IPAddress, session.LastSeenAt)
+	return err
+}
+
+func (s *SessionStore) Get(ctx context.Context, id string) (SessionRecord, bool, error) {
+	return s.get(ctx, `WHERE id = $1`, id)
+}
+
+func (s *SessionStore) get(ctx context.Context, clause string, value string) (SessionRecord, bool, error) {
+	var session SessionRecord
+	err := s.pool.QueryRow(ctx, `SELECT id, user_id, refresh_token_hash, access_expires_at, refresh_expires_at, session_family_id, user_agent, ip_address, last_seen_at, revoked_at FROM auth_sessions `+clause, value).Scan(&session.ID, &session.UserID, &session.RefreshTokenHash, &session.AccessExpiresAt, &session.RefreshExpiresAt, &session.SessionFamilyID, &session.UserAgent, &session.IPAddress, &session.LastSeenAt, &session.RevokedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return SessionRecord{}, false, nil
+	}
+	if err != nil {
+		return SessionRecord{}, false, err
+	}
+	return session, true, nil
+}
+
+func (s *SessionStore) Rotate(ctx context.Context, id, refreshTokenHash string, replacement SessionRecord) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var current SessionRecord
+	err = tx.QueryRow(ctx, `SELECT id, user_id, refresh_token_hash, access_expires_at, refresh_expires_at, session_family_id, user_agent, ip_address, last_seen_at, revoked_at FROM auth_sessions WHERE id = $1 FOR UPDATE`, id).Scan(&current.ID, &current.UserID, &current.RefreshTokenHash, &current.AccessExpiresAt, &current.RefreshExpiresAt, &current.SessionFamilyID, &current.UserAgent, &current.IPAddress, &current.LastSeenAt, &current.RevokedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrSessionInvalid
+	}
+	if err != nil {
+		return err
+	}
+	if current.RevokedAt != nil || !time.Now().Before(current.RefreshExpiresAt) {
+		_, _ = tx.Exec(ctx, `UPDATE auth_sessions SET revoked_at = COALESCE(revoked_at, now()) WHERE session_family_id = $1`, current.SessionFamilyID)
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		return ErrSessionReplay
+	}
+	if current.RefreshTokenHash != refreshTokenHash {
+		_, _ = tx.Exec(ctx, `UPDATE auth_sessions SET revoked_at = COALESCE(revoked_at, now()) WHERE session_family_id = $1`, current.SessionFamilyID)
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		return ErrSessionReplay
+	}
+	if _, err := tx.Exec(ctx, `UPDATE auth_sessions SET revoked_at = now(), last_seen_at = now() WHERE id = $1`, id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO auth_sessions (id, user_id, refresh_token_hash, access_expires_at, refresh_expires_at, session_family_id, user_agent, ip_address, last_seen_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`, replacement.ID, current.UserID, replacement.RefreshTokenHash, replacement.AccessExpiresAt, replacement.RefreshExpiresAt, current.SessionFamilyID, current.UserAgent, current.IPAddress, replacement.LastSeenAt); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *SessionStore) Active(ctx context.Context, id, userID string) (bool, error) {
+	var active bool
+	err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM auth_sessions WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL AND access_expires_at > now())`, id, userID).Scan(&active)
+	return active, err
+}
+
+func (s *SessionStore) Revoke(ctx context.Context, id string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE auth_sessions SET revoked_at = COALESCE(revoked_at, now()), last_seen_at = now() WHERE id = $1`, id)
+	return err
+}
+
+func (s *SessionStore) RevokeFamily(ctx context.Context, familyID string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE auth_sessions SET revoked_at = COALESCE(revoked_at, now()), last_seen_at = now() WHERE session_family_id = $1`, familyID)
+	return err
+}
+
+func (s *SessionStore) RevokeUser(ctx context.Context, userID string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE auth_sessions SET revoked_at = COALESCE(revoked_at, now()), last_seen_at = now() WHERE user_id = $1`, userID)
+	return err
+}
+
+func (s *SessionStore) List(ctx context.Context, userID string) ([]SessionRecord, error) {
+	rows, err := s.pool.Query(ctx, `SELECT id, user_id, refresh_token_hash, access_expires_at, refresh_expires_at, session_family_id, user_agent, ip_address, last_seen_at, revoked_at FROM auth_sessions WHERE user_id = $1 AND revoked_at IS NULL ORDER BY created_at DESC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []SessionRecord{}
+	for rows.Next() {
+		var session SessionRecord
+		if err := rows.Scan(&session.ID, &session.UserID, &session.RefreshTokenHash, &session.AccessExpiresAt, &session.RefreshExpiresAt, &session.SessionFamilyID, &session.UserAgent, &session.IPAddress, &session.LastSeenAt, &session.RevokedAt); err != nil {
+			return nil, err
+		}
+		result = append(result, session)
+	}
+	return result, rows.Err()
+}

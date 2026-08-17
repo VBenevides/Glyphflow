@@ -1,10 +1,39 @@
+<p align="center">
+  <img src="assets/glyphflow.png" alt="Glyphflow logo" width="160">
+</p>
+
 # Glyphflow
 
 Glyphflow is an open-source platform for script orchestration across servers and virtual machines.
 
 The platform has one central control plane and many remote workers. The control plane schedules work. Workers execute the work.
 
-Glyphflow is in the design phase. The repository does not contain a production implementation yet.
+Glyphflow is an alpha application. The repository contains the Go control plane, Go workers, React frontend, PostgreSQL persistence, and NATS JetStream integration.
+
+## Quick start
+
+Requirements: Docker Compose, Go, Node.js, and npm.
+
+Run the local environment:
+
+```bash
+./dev_run.sh
+```
+
+The script starts PostgreSQL and NATS, builds the Linux and Windows AMD64 worker binaries, and starts the frontend and control plane.
+
+- Frontend: <http://localhost:5173>
+- Control plane: <http://localhost:8080>
+- Default email: `admin@example_domain.com`
+- Default password: `admin-password-123`
+
+Press `Ctrl-C` to stop the development processes. Docker volumes keep PostgreSQL and NATS data between runs.
+
+## MVP boundary
+
+The first release is one control-plane executable, one NATS JetStream deployment, and any number of outbound-only workers. PostgreSQL remains private to the control plane. Scheduler, dispatcher, event ingestion, HTTP API, housekeeping, and notifications run in the same control-plane process.
+
+Service splitting is deferred until measured scaling, deployment, or ownership needs justify it.
 
 ## Goals
 
@@ -37,6 +66,14 @@ flowchart LR
 PostgreSQL is the source of truth. NATS JetStream delivers orders and worker events.
 
 The frontend communicates only with the Go API. Workers do not communicate with the frontend or PostgreSQL.
+
+## Authentication environment
+
+The bootstrap administrator is created only when both `GLYPHFLOW_BOOTSTRAP_EMAIL` (an email address) and `GLYPHFLOW_BOOTSTRAP_PASSWORD` are set. If either is missing, no bootstrap administrator is created.
+
+`GLYPHFLOW_SYSTEM_ADMINS` accepts unique administrator emails separated by spaces, commas, or semicolons. Matching users receive the immutable `admin` role and cannot be disabled or demoted.
+
+`./dev_run.sh` defaults to `admin@example_domain.com` with password `admin-password-123` and includes that email in `GLYPHFLOW_SYSTEM_ADMINS`.
 
 ## Components
 
@@ -112,7 +149,7 @@ internal/   Design documents, migration notes, and project roadmap
 
 ## Roadmap
 
-The complete implementation plan is in [`internal/TODO.md`](internal/TODO.md).
+The complete implementation plan is in [`internal/v2-review/TODO.md`](internal/v2-review/TODO.md).
 
 The roadmap follows the network scheduler migration design from the local script scheduler.
 

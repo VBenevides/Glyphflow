@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "key_id": "control-plane-1",
+  "payload": "eyJvcmRlcl9pZCI6Im9yZGVyLTEiLCJydW5faWQiOiJydW4tMSJ9",
+  "signature": "lngLyyLkqd+o2RbTlKZotcj4XkuCdbartMaa2hKa931OcIH9Qxh/UV7mIR4dcoI87llkuC9AEBaXkwKIosUlDA==",
+  "public_key": "F17D6XVMCvqH3oGEmnlGbQAWjePyFce9Cuv8aooqMik="
+}

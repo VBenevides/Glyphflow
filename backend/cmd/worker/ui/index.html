@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Glyphflow Worker</title>
+  <style>
+    :root { color-scheme: light; font: 14px system-ui, sans-serif; color: #322b45; background: #f3f0ff; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 24px; }
+    header { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; }
+    header img { width: 36px; height: 36px; }
+    h1 { font-size: 20px; margin: 0; }
+    header p { color: #766e87; margin: 3px 0 0; }
+    .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .identity { margin-bottom: 14px; }
+    .identity .card { grid-column: 1 / -1; }
+    .card, .terminal { background: #fff; border: 1px solid #ded8ed; border-radius: .75rem; }
+    .card { padding: 16px; }
+    .label, .terminal-title { color: #766e87; font-size: 12px; }
+    .value { margin-top: 8px; font-size: 17px; overflow-wrap: anywhere; }
+    .terminal { margin-top: 18px; overflow: hidden; }
+    .terminal-head { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #ded8ed; padding: 12px 14px; }
+    .filters { display: flex; gap: 6px; }
+    button { border: 1px solid #c9c0de; border-radius: 6px; background: #fff; color: #443762; cursor: pointer; padding: 6px 10px; }
+    button[aria-pressed="true"] { border-color: #7654d6; background: #7654d6; color: #fff; }
+    pre { margin: 0; padding: 14px; min-height: 290px; max-height: calc(100vh - 235px); overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .stderr { color: #a22766; }
+    @media (max-width: 640px) { body { padding: 16px; } .cards { grid-template-columns: 1fr; } pre { max-height: calc(100vh - 300px); } }
+  </style>
+</head>
+<body>
+  <header><img src="/assets/glyphflow.png" alt=""><div><h1>Glyphflow Worker</h1><p>Runs in the system tray</p></div></header>
+  <section class="cards identity" aria-label="Worker identity">
+    <div class="card"><div class="label">Runner ID</div><div class="value" id="runner-id">—</div></div>
+  </section>
+  <section class="cards" aria-label="Worker status">
+    <div class="card"><div class="label">NATS JetStream endpoint</div><div class="value" id="endpoint">Connecting…</div></div>
+    <div class="card"><div class="label">Parallel executions</div><div class="value" id="capacity">—</div></div>
+  </section>
+  <section class="terminal" aria-label="Logs">
+    <div class="terminal-head"><span class="terminal-title">Logs</span><div class="filters"><button type="button" data-stream="all" aria-pressed="true">All</button><button type="button" data-stream="stderr" aria-pressed="false">Stderr</button></div></div>
+    <pre id="logs" tabindex="0" aria-live="polite"></pre>
+  </section>
+  <script>
+    (() => {
+      const runnerID = document.querySelector('#runner-id');
+      const endpoint = document.querySelector('#endpoint');
+      const capacity = document.querySelector('#capacity');
+      const logs = document.querySelector('#logs');
+      let entries = [], after = 0, filter = 'all', polling;
+      const nearBottom = () => logs.scrollHeight - logs.scrollTop - logs.clientHeight < 32;
+      const render = () => {
+        const follow = nearBottom();
+        logs.replaceChildren();
+        entries.filter(e => filter === 'all' || e.stream === 'stderr').forEach(e => {
+          const line = document.createElement('div');
+          line.className = e.stream === 'stderr' ? 'stderr' : '';
+          line.textContent = `${e.timestamp} ${e.text}`;
+          logs.append(line);
+        });
+        if (follow) logs.scrollTop = logs.scrollHeight;
+      };
+      const poll = async () => {
+        if (document.hidden) return;
+        try {
+          const response = await fetch(`/api/snapshot?after=${after}`, { cache: 'no-store' });
+          if (!response.ok) return;
+          const snapshot = await response.json();
+          runnerID.textContent = snapshot.runnerId || '—';
+          endpoint.textContent = snapshot.natsEndpoint || '—';
+          capacity.textContent = snapshot.parallelExecutions;
+          if (snapshot.reset) entries = snapshot.entries || [];
+          else entries.push(...(snapshot.entries || []));
+          entries = entries.slice(-5000);
+          if (entries.length) after = entries[entries.length - 1].sequence;
+          render();
+        } catch (_) { /* worker may still be starting */ }
+      };
+      document.querySelectorAll('[data-stream]').forEach(button => button.addEventListener('click', () => {
+        filter = button.dataset.stream;
+        document.querySelectorAll('[data-stream]').forEach(item => item.setAttribute('aria-pressed', item === button ? 'true' : 'false'));
+        render();
+      }));
+      const startPolling = () => { if (!polling) { poll(); polling = setInterval(poll, 750); } };
+      const stopPolling = () => { if (polling) { clearInterval(polling); polling = undefined; } };
+      document.addEventListener('visibilitychange', () => document.hidden ? stopPolling() : startPolling());
+      startPolling();
+      window.addEventListener('beforeunload', stopPolling);
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,246 @@
+package config
+
+import (
+	"crypto/ed25519"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"net/url"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+
+	"github.com/VBenevides/Glyphflow/backend/internal/platform"
+)
+
+type Role string
+
+const (
+	ControlPlane Role = "control-plane"
+	Worker       Role = "worker"
+)
+
+type Config struct {
+	Role                          Role
+	DatabaseURL                   string
+	NATSURL                       string
+	NATSCertFile                  string
+	NATSKeyFile                   string
+	NATSCAFile                    string
+	AccessTokenSecret             string
+	ControlPlaneSigningPrivateKey string
+	PasswordPepper                string
+	WebOrigin                     string
+	CORSOrigins                   []string
+	CSRFOrigins                   []string
+	PasswordLoginEnabled          bool
+	PasswordRegistrationEnabled   bool
+	DefaultRoleID                 string
+	BootstrapUsername             string
+	BootstrapPassword             string
+	BootstrapOIDCProvider         string
+	BootstrapOIDCSubject          string
+	SystemAdminEmails             []string
+	Environment                   string
+	AllowInsecureTransport        bool
+	DataDir                       string
+	RunnerID                      string
+	MaxMessageBytes               int
+	MaxOutputBytes                int
+}
+
+func FromEnv(role Role) (Config, error) {
+	systemAdminEmails, err := platform.ParseEmailList(os.Getenv("GLYPHFLOW_SYSTEM_ADMINS"))
+	if err != nil {
+		return Config{}, fmt.Errorf("GLYPHFLOW_SYSTEM_ADMINS: %w", err)
+	}
+	passwordLogin, err := envBoolAlias("ENABLE_PASSWORD_LOGIN", "PASSWORD_LOGIN_ENABLED", true)
+	if err != nil {
+		return Config{}, err
+	}
+	passwordRegistration, err := envBoolAlias("ENABLE_PASSWORD_REGISTRATION", "PASSWORD_REGISTRATION_ENABLED", true)
+	if err != nil {
+		return Config{}, err
+	}
+	csrfOrigins := parseOrigins(os.Getenv("CSRF_ORIGINS"))
+	if len(csrfOrigins) == 0 {
+		csrfOrigins = parseOrigins(os.Getenv("WEB_ORIGIN"))
+	}
+	config := Config{
+		Role:                          role,
+		DatabaseURL:                   os.Getenv("DATABASE_URL"),
+		NATSURL:                       os.Getenv("NATS_URL"),
+		NATSCertFile:                  os.Getenv("NATS_CERT_FILE"),
+		NATSKeyFile:                   os.Getenv("NATS_KEY_FILE"),
+		NATSCAFile:                    os.Getenv("NATS_CA_FILE"),
+		AccessTokenSecret:             os.Getenv("ACCESS_TOKEN_SECRET"),
+		ControlPlaneSigningPrivateKey: strings.TrimSpace(os.Getenv("CONTROL_PLANE_SIGNING_PRIVATE_KEY")),
+		PasswordPepper:                os.Getenv("PASSWORD_PEPPER"),
+		WebOrigin:                     os.Getenv("WEB_ORIGIN"),
+		CORSOrigins:                   parseOrigins(os.Getenv("CORS_ORIGIN")),
+		CSRFOrigins:                   csrfOrigins,
+		PasswordLoginEnabled:          passwordLogin,
+		PasswordRegistrationEnabled:   passwordRegistration,
+		DefaultRoleID:                 strings.TrimSpace(envStringDefault("DEFAULT_ROLE_ID", "system-user")),
+		BootstrapUsername:             strings.TrimSpace(os.Getenv("GLYPHFLOW_BOOTSTRAP_EMAIL")),
+		BootstrapPassword:             os.Getenv("GLYPHFLOW_BOOTSTRAP_PASSWORD"),
+		BootstrapOIDCProvider:         strings.TrimSpace(os.Getenv("GLYPHFLOW_BOOTSTRAP_OIDC_PROVIDER")),
+		BootstrapOIDCSubject:          strings.TrimSpace(os.Getenv("GLYPHFLOW_BOOTSTRAP_OIDC_SUBJECT")),
+		SystemAdminEmails:             systemAdminEmails,
+		Environment:                   strings.ToLower(strings.TrimSpace(os.Getenv("ENVIRONMENT"))),
+		DataDir:                       os.Getenv("DATA_DIR"),
+		RunnerID:                      os.Getenv("RUNNER_ID"),
+	}
+	if config.AllowInsecureTransport, err = envBool("ALLOW_INSECURE_TRANSPORT", false); err != nil {
+		return Config{}, err
+	}
+	if config.MaxMessageBytes, err = envInt("MAX_MESSAGE_BYTES"); err != nil {
+		return Config{}, err
+	}
+	if role == Worker {
+		if config.MaxOutputBytes, err = envInt("MAX_OUTPUT_BYTES"); err != nil {
+			return Config{}, err
+		}
+	}
+	if err := config.Validate(); err != nil {
+		return Config{}, err
+	}
+	return config, nil
+}
+
+func parseOrigins(value string) []string {
+	var origins []string
+	for _, origin := range strings.Split(value, ",") {
+		if origin = strings.TrimSpace(origin); origin != "" {
+			origins = append(origins, origin)
+		}
+	}
+	return origins
+}
+
+func (c Config) Validate() error {
+	if c.Role != ControlPlane && c.Role != Worker {
+		return fmt.Errorf("role must be %q or %q", ControlPlane, Worker)
+	}
+	for _, email := range c.SystemAdminEmails {
+		if _, err := platform.NormalizeEmail(email); err != nil {
+			return fmt.Errorf("system admin email: %w", err)
+		}
+	}
+	if err := requireURL("NATS_URL", c.NATSURL, "nats", "tls"); err != nil {
+		return err
+	}
+	if !filepath.IsAbs(c.DataDir) {
+		return errors.New("DATA_DIR must be an absolute path")
+	}
+	if c.MaxMessageBytes <= 0 {
+		return errors.New("MAX_MESSAGE_BYTES must be greater than zero")
+	}
+	if c.Role == ControlPlane {
+		if len([]byte(c.AccessTokenSecret)) < 32 {
+			return errors.New("ACCESS_TOKEN_SECRET must contain at least 32 bytes")
+		}
+		if c.PasswordLoginEnabled && len([]byte(c.PasswordPepper)) < 16 {
+			return errors.New("PASSWORD_PEPPER must contain at least 16 bytes when password login is enabled")
+		}
+		if err := requireURL("WEB_ORIGIN", c.WebOrigin, "http", "https"); err != nil {
+			return err
+		}
+		if !c.AllowInsecureTransport || c.Environment != "development" {
+			if err := requireURL("WEB_ORIGIN", c.WebOrigin, "https"); err != nil {
+				return err
+			}
+			if !strings.HasPrefix(c.NATSURL, "tls://") {
+				return errors.New("NATS_URL must use TLS outside development")
+			}
+		}
+		if c.Environment != "development" && c.ControlPlaneSigningPrivateKey == "" {
+			return errors.New("CONTROL_PLANE_SIGNING_PRIVATE_KEY is required outside development")
+		}
+		if c.ControlPlaneSigningPrivateKey != "" {
+			raw, err := base64.RawStdEncoding.DecodeString(c.ControlPlaneSigningPrivateKey)
+			if err != nil || len(raw) != ed25519.PrivateKeySize {
+				return errors.New("CONTROL_PLANE_SIGNING_PRIVATE_KEY is invalid")
+			}
+		}
+		if c.Environment == "production" && (c.NATSCertFile == "" || c.NATSKeyFile == "" || c.NATSCAFile == "") {
+			return errors.New("production requires NATS client certificate, key, and CA files")
+		}
+		return requireURL("DATABASE_URL", c.DatabaseURL, "postgres", "postgresql")
+	}
+	if !runnerIDPattern.MatchString(c.RunnerID) {
+		return errors.New("RUNNER_ID must contain only letters, digits, dot, underscore, or hyphen")
+	}
+	if c.MaxOutputBytes <= 0 || c.MaxOutputBytes > c.MaxMessageBytes {
+		return errors.New("MAX_OUTPUT_BYTES must be greater than zero and no larger than MAX_MESSAGE_BYTES")
+	}
+	if c.Environment == "production" && (c.NATSCertFile == "" || c.NATSKeyFile == "" || c.NATSCAFile == "") {
+		return errors.New("production requires NATS client certificate, key, and CA files")
+	}
+	return nil
+}
+
+var runnerIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
+func envInt(name string) (int, error) {
+	value := os.Getenv(name)
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be an integer", name)
+	}
+	return parsed, nil
+}
+
+func envBoolDefault(name string, fallback bool) bool {
+	value, ok := os.LookupEnv(name)
+	if !ok || strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func envBool(name string, fallback bool) (bool, error) {
+	value, ok := os.LookupEnv(name)
+	if !ok || strings.TrimSpace(value) == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return false, fmt.Errorf("%s must be a boolean", name)
+	}
+	return parsed, nil
+}
+
+func envBoolAlias(primary, legacy string, fallback bool) (bool, error) {
+	if _, ok := os.LookupEnv(primary); ok {
+		return envBool(primary, fallback)
+	}
+	return envBool(legacy, fallback)
+}
+
+func envStringDefault(name, fallback string) string {
+	value, ok := os.LookupEnv(name)
+	if !ok || strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
+}
+
+func requireURL(name, value string, schemes ...string) error {
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Host == "" {
+		return fmt.Errorf("%s must be a URL with a host", name)
+	}
+	for _, scheme := range schemes {
+		if parsed.Scheme == scheme {
+			return nil
+		}
+	}
+	return fmt.Errorf("%s has unsupported scheme %q", name, parsed.Scheme)
+}
