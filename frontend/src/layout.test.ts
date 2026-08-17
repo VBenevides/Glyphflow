@@ -33,4 +33,20 @@ describe('UI layout contracts', () => {
     expect(css).toContain('.gf-sidebar.is-collapsed .gf-sidebar-actions { display: grid; justify-items: center; }')
     expect(css).not.toContain(":root[data-theme='neon']")
   })
+
+  it('keeps shared surfaces hierarchical and usable on small screens', () => {
+    expect(css).toContain('--gf-page-glow:')
+    expect(css).toContain('.gf-card-panel, .gf-dashboard-widget, .gf-editor-form, .gf-table-wrap { box-shadow: var(--gf-shadow-soft); }')
+    expect(css).toContain('.gf-table tbody tr:hover td')
+    expect(css).toContain('.gf-dialog-backdrop { background: rgb(5 12 25 / 68%); backdrop-filter: blur(4px); }')
+    expect(css).toContain('.gf-page-header-actions { margin-left: 0; justify-content: flex-start; }')
+  })
+
+  it('keeps the registry theme compact and lavender', () => {
+    expect(css).toContain('--gf-page: oklch(0.965 0.018 285);')
+    expect(css).toContain('.gf-app-shell { grid-template-columns: 18rem 1fr; }')
+    expect(css).toContain('.gf-sidebar.is-collapsed .gf-nav-link.is-active')
+    expect(css).toContain('.gf-role-table .gf-table { min-width: 58rem; }')
+    expect(css).toContain('border-radius: 999px; font-size: 0.72rem; line-height: 1.25;')
+  })
 })

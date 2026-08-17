@@ -1,4 +1,4 @@
-import { Children, forwardRef, useEffect, useRef, type ButtonHTMLAttributes, type ComponentType, type InputHTMLAttributes, type ReactNode } from 'react'
+import { Children, forwardRef, useEffect, useId, useRef, type ButtonHTMLAttributes, type ComponentType, type InputHTMLAttributes, type ReactNode } from 'react'
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: 'primary' | 'secondary' | 'danger' | 'ghost'
@@ -8,14 +8,15 @@ type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button({ variant = 'primary', busy = false, disabled, children, className, title, ...props }, ref) {
   const tooltip = title ?? props['aria-label'] ?? (Children.toArray(children).filter((child) => typeof child === 'string' || typeof child === 'number').join(' ').trim() || undefined)
   return (
-    <button ref={ref} title={tooltip} className={`gf-button gf-button-${variant}${className ? ` ${className}` : ''}`} disabled={disabled || busy} {...props}>
+    <button ref={ref} {...props} title={tooltip} className={`gf-button gf-button-${variant}${className ? ` ${className}` : ''}`} disabled={disabled || busy} aria-busy={busy || undefined}>
       {busy ? 'Working…' : children}
     </button>
   )
 })
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input(props, ref) {
-  return <input ref={ref} className="gf-input" {...props} />
+  const { className, ...inputProps } = props
+  return <input ref={ref} {...inputProps} className={`gf-input${className ? ` ${className}` : ''}`} />
 })
 
 export function InfoTooltip({ text }: { text: string }) {
@@ -28,6 +29,7 @@ export function FieldLabel({ children, info, htmlFor }: { children: ReactNode; i
 
 export function Dialog({ open, title, children, onClose, className }: { open: boolean; title: string; children: ReactNode; onClose: () => void; className?: string }) {
   const dialogRef = useRef<HTMLDivElement>(null)
+  const titleId = useId()
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
   useEffect(() => {
@@ -63,9 +65,9 @@ export function Dialog({ open, title, children, onClose, className }: { open: bo
   if (!open) return null
   return (
     <div className="gf-dialog-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <div ref={dialogRef} className={`gf-dialog${className ? ` ${className}` : ''}`} role="dialog" aria-modal="true" aria-labelledby="gf-dialog-title">
+      <div ref={dialogRef} className={`gf-dialog${className ? ` ${className}` : ''}`} role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <div className="gf-dialog-header">
-          <h2 id="gf-dialog-title">{title}</h2>
+          <h2 id={titleId}>{title}</h2>
           <Button variant="ghost" aria-label="Close dialog" onClick={onClose}>×</Button>
         </div>
         {children}
