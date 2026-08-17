@@ -4,7 +4,10 @@ Based on [`findings.md`](./findings.md).
 
 ## P1
 
-- [ ] Add admin UI to create users, create/promote admins, and assign or revoke roles.
+- [x] Add admin UI to create users, create/promote admins, and assign or revoke roles.
+  - Verification: `npm test -- src/admin-pages.test.ts`; `env GOCACHE=/tmp/glyphflow-go-cache go test ./internal/api`
+  - Result: PASS — 3 frontend tests and the backend API package passed.
+  - Implementation commit: `c2afd67a4f3b5aa688a1a1ed701c938a35cab774`
 - [x] Fix mobile task-editor layout at widths below 768px: closed drawer, full-width content, no horizontal clipping.
   - Verification: `npm test -- src/layout.test.ts`
   - Result: PASS — 3 layout contract tests passed; desktop/mobile geometry checks passed during implementation.
