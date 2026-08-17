@@ -36,4 +36,13 @@ describe('theme', () => {
       expect(window.localStorage.getItem(THEME_KEY)).toBe(theme)
     }
   })
+
+  it('keeps the active theme when storage is unavailable', () => {
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: { setItem: () => { throw new Error('storage disabled') } },
+    })
+    applyTheme('dark')
+    expect(currentTheme()).toBe('dark')
+  })
 })

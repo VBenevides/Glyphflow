@@ -2,31 +2,34 @@
 :root[data-theme='light'] {
   color-scheme: light;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --gf-page: oklch(0.985 0.004 280);
+  --gf-page: oklch(0.965 0.018 285);
+  --gf-page-glow: radial-gradient(at 0% 0%, oklch(0.92 0.06 285 / 30%) 0, transparent 46%), radial-gradient(at 100% 100%, oklch(0.94 0.05 320 / 22%) 0, transparent 44%);
   --gf-card: oklch(1 0 0);
-  --gf-surface: oklch(0.94 0.012 280);
-  --gf-text: oklch(0.19 0.025 280);
-  --gf-muted: oklch(0.50 0.025 280);
-  --gf-border: oklch(0.88 0.014 280);
+  --gf-surface: oklch(0.945 0.022 285);
+  --gf-text: oklch(0.22 0.035 270);
+  --gf-muted: oklch(0.52 0.035 285);
+  --gf-border: oklch(0.88 0.025 285);
   --gf-action: oklch(0.56 0.20 285);
   --gf-action-contrast: oklch(0.99 0.01 280);
-  --gf-sidebar: oklch(0.97 0.006 280);
-  --gf-sidebar-text: oklch(0.22 0.025 280);
+  --gf-sidebar: oklch(0.975 0.018 285);
+  --gf-sidebar-text: oklch(0.22 0.035 270);
   --gf-sidebar-action: oklch(0.56 0.20 285);
   --gf-sidebar-action-text: oklch(0.99 0.01 280);
-  --gf-sidebar-accent: oklch(0.93 0.018 280);
-  --gf-sidebar-border: oklch(0.88 0.014 280);
+  --gf-sidebar-accent: oklch(0.91 0.05 285);
+  --gf-sidebar-border: oklch(0.88 0.025 285);
   --gf-success: oklch(0.52 0.14 165);
   --gf-warning: oklch(0.52 0.15 70);
   --gf-danger: oklch(0.58 0.22 25);
   --gf-info: oklch(0.52 0.13 220);
   --gf-radius: 0.75rem;
+  --gf-shadow-soft: 0 1px 2px oklch(0.22 0.035 270 / 6%), 0 12px 32px -24px oklch(0.56 0.20 285 / 35%);
   --gf-shadow: 0 10px 40px -22px oklch(0.56 0.20 285 / 25%);
 }
 
 :root[data-theme='dark'] {
   color-scheme: dark;
   --gf-page: oklch(0.145 0.012 280);
+  --gf-page-glow: radial-gradient(at 15% 0%, oklch(0.30 0.10 285 / 20%) 0, transparent 48%), radial-gradient(at 85% 100%, oklch(0.30 0.08 320 / 15%) 0, transparent 48%);
   --gf-card: oklch(0.19 0.014 280);
   --gf-surface: oklch(0.24 0.012 280);
   --gf-text: oklch(0.96 0.006 280);
@@ -44,7 +47,12 @@
   --gf-warning: oklch(0.78 0.14 70);
   --gf-danger: oklch(0.72 0.16 25);
   --gf-info: oklch(0.78 0.12 220);
+  --gf-shadow-soft: 0 1px 2px rgb(0 0 0 / 30%), 0 12px 32px -24px rgb(0 0 0 / 70%);
   --gf-shadow: 0 10px 40px -18px rgb(0 0 0 / 50%);
+}
+
+html {
+  background: var(--gf-page);
 }
 
 body {
@@ -52,6 +60,9 @@ body {
   min-width: 320px;
   color: var(--gf-text);
   background: var(--gf-page);
+  background-image: var(--gf-page-glow);
+  background-attachment: fixed;
+  line-height: 1.5;
   transition: background-color 160ms ease, color 160ms ease;
 }
 
@@ -73,6 +84,16 @@ a {
   -webkit-tap-highlight-color: transparent;
 }
 
+h1,
+h2,
+h3 {
+  line-height: 1.2;
+}
+
+a {
+  color: var(--gf-action);
+}
+
 :focus-visible {
   outline: 3px solid var(--gf-action);
   outline-offset: 2px;
@@ -90,19 +111,29 @@ a {
 }
 
 .gf-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
   border: 1px solid transparent;
   border-radius: 0.55rem;
   cursor: pointer;
   min-height: 2.5rem;
   padding: 0.55rem 0.85rem;
   font-weight: 650;
+  line-height: 1.25;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
 }
+.gf-button:hover:not(:disabled) { transform: translateY(-1px); }
+.gf-button:active:not(:disabled) { transform: translateY(0); }
 .gf-button:disabled { cursor: not-allowed; opacity: 0.55; }
 .gf-button-primary { color: var(--gf-action-contrast); background: var(--gf-action); }
 .gf-button-secondary { color: var(--gf-text); background: var(--gf-card); border-color: var(--gf-border); }
 .gf-button-danger { color: #fff; background: var(--gf-danger); }
 .gf-button-ghost { color: var(--gf-muted); background: transparent; }
-.gf-input { width: 100%; min-height: 2.5rem; padding: 0.5rem 0.7rem; color: var(--gf-text); background: var(--gf-card); border: 1px solid var(--gf-border); border-radius: 0.55rem; }
+.gf-input { display: block; width: 100%; min-height: 2.5rem; padding: 0.5rem 0.7rem; color: var(--gf-text); background: var(--gf-card); border: 1px solid var(--gf-border); border-radius: 0.55rem; transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease; }
+.gf-input::placeholder { color: var(--gf-muted); opacity: 0.8; }
+.gf-input:disabled { cursor: not-allowed; opacity: 0.65; }
 .gf-task-picker-control { position: relative; }
 .gf-env-variable-picker { position: relative; }
 .gf-env-variable-tooltip { position: absolute; right: 0; bottom: calc(100% + 0.35rem); z-index: 6; max-width: min(28rem, calc(100vw - 2rem)); padding: 0.55rem 0.7rem; color: var(--gf-text); background: var(--gf-card); border: 1px solid var(--gf-border); border-radius: 0.45rem; box-shadow: var(--gf-shadow); white-space: pre-line; visibility: hidden; opacity: 0; pointer-events: none; transition: opacity 120ms ease, visibility 120ms ease; }
@@ -279,9 +310,9 @@ a {
 @media (max-width: 720px) { .gf-audit-meta, .gf-audit-grid { grid-template-columns: 1fr; } }
 
 /* Reference application finish: compact borders, lilac surfaces, and token-only sidebar. */
-body { background-image: none; }
+body { background-image: var(--gf-page-glow); }
 :root[data-theme='dark'] body {
-  background-image: radial-gradient(at 15% 0%, oklch(0.30 0.10 285 / 16%) 0, transparent 48%), radial-gradient(at 85% 100%, oklch(0.30 0.08 320 / 12%) 0, transparent 48%);
+  background-image: var(--gf-page-glow);
   background-attachment: fixed;
 }
 .gf-button { min-height: 2.25rem; border-radius: 0.5rem; transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease, transform 120ms ease; }
@@ -427,4 +458,58 @@ body { background-image: none; }
   .gf-editor-form .gf-table { width: 100%; min-width: 0; }
   .gf-editor-form label:has(> select#default-role) { align-items: stretch; flex-direction: column; gap: 0.35rem; }
   .gf-editor-form label:has(> select#default-role) > select { width: 100%; flex-basis: auto; }
+}
+
+/* Shared polish: improve hierarchy without changing page markup or selectors. */
+.gf-content { padding: clamp(1rem, 2.5vw, 1.75rem); }
+.gf-page-header { align-items: center; gap: 1.5rem; }
+.gf-page-header > div:first-child { flex: 1 1 auto; }
+.gf-page-header-actions { margin-left: auto; justify-content: flex-end; }
+.gf-card-panel, .gf-dashboard-widget, .gf-editor-form, .gf-table-wrap { box-shadow: var(--gf-shadow-soft); }
+.gf-metric { position: relative; overflow: hidden; box-shadow: var(--gf-shadow-soft); }
+.gf-metric::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 0.2rem; background: var(--gf-action); }
+.gf-metric-success::before { background: var(--gf-success); }
+.gf-metric-warning::before { background: var(--gf-warning); }
+.gf-metric-danger::before { background: var(--gf-danger); }
+.gf-metric-info::before { background: var(--gf-info); }
+.gf-table tbody tr { transition: background-color 120ms ease; }
+.gf-table tbody tr:hover td { background: color-mix(in oklab, var(--gf-surface), transparent 42%); }
+.gf-table td { line-height: 1.4; }
+.gf-dialog-backdrop { background: rgb(5 12 25 / 68%); backdrop-filter: blur(4px); }
+.gf-dialog { box-shadow: 0 24px 80px -32px rgb(0 0 0 / 65%); }
+.gf-dialog-header { padding-bottom: 0.75rem; border-bottom: 1px solid var(--gf-border); }
+.gf-dialog-header + * { margin-top: 1rem; }
+.gf-dialog-actions { align-items: center; }
+
+@media (max-width: 767px) {
+  .gf-page-header { align-items: stretch; gap: 0.75rem; }
+  .gf-page-header-actions { margin-left: 0; justify-content: flex-start; }
+  .gf-dialog { padding: 1rem; }
+}
+
+@media (max-width: 480px) {
+  .gf-dialog-actions .gf-button { flex: 1 1 auto; }
+}
+
+/* Screenshot finish: compact rail, lavender canvas, and dense registries. */
+.gf-app-shell { grid-template-columns: 18rem 1fr; }
+.gf-sidebar.is-collapsed { background: var(--gf-card); border-right-color: var(--gf-border); }
+.gf-sidebar.is-collapsed .gf-nav-link { min-height: 2.4rem; border: 1px solid transparent; }
+.gf-sidebar.is-collapsed .gf-nav-link.is-active { color: var(--gf-action); background: color-mix(in oklab, var(--gf-action), transparent 88%); border-color: color-mix(in oklab, var(--gf-action), transparent 78%); box-shadow: 0 6px 18px -14px var(--gf-action); }
+.gf-page-header h1, .gf-card-panel h2, .gf-dashboard-widget h2 { color: var(--gf-text); font-weight: 750; }
+.gf-card-panel, .gf-dashboard-widget, .gf-editor-form { border-radius: 0.9rem; border-color: var(--gf-border); }
+.gf-metric { min-height: 6rem; padding: 0.8rem 0.9rem; border-color: var(--gf-border); border-radius: 0.9rem; }
+.gf-metric-icon { width: 1.85rem; height: 1.85rem; border-radius: 0.55rem; }
+.gf-metric-danger .gf-metric-icon { color: var(--gf-danger); background: color-mix(in oklab, var(--gf-danger), transparent 88%); border-color: color-mix(in oklab, var(--gf-danger), transparent 68%); }
+.gf-metric-info .gf-metric-icon { color: var(--gf-info); background: color-mix(in oklab, var(--gf-info), transparent 88%); border-color: color-mix(in oklab, var(--gf-info), transparent 68%); }
+.gf-filter-bar .gf-input { min-height: 2.6rem; border-radius: 0.75rem; background: var(--gf-card); }
+.gf-table-wrap { border-radius: 0.9rem; border-color: var(--gf-border); }
+.gf-role-table .gf-table { min-width: 58rem; }
+.gf-role-table .gf-table th, .gf-role-table .gf-table td { padding: 0.6rem 0.8rem; }
+.gf-pill-list { gap: 0.25rem; }
+.gf-inline-pill { padding: 0.22rem 0.5rem; color: var(--gf-text); background: color-mix(in oklab, var(--gf-action), transparent 93%); border-color: color-mix(in oklab, var(--gf-action), transparent 78%); border-radius: 999px; font-size: 0.72rem; line-height: 1.25; }
+.gf-permission-grid label { border-radius: 999px; }
+
+@media (max-width: 1024px) {
+  .gf-role-table .gf-table { min-width: 48rem; }
 }
