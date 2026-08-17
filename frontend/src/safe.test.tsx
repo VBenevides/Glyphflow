@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { AuditValue, LogOutput, SafeLink, redactAuditValue, safeOutput } from './safe'
+import { AuditValue, LogOutput, SafeLink, prefixLogLines, redactAuditValue, safeOutput } from './safe'
 
 describe('safe output rendering', () => {
   it('keeps markup as text, removes controls, and bounds output', () => {
@@ -9,6 +9,10 @@ describe('safe output rendering', () => {
     expect(html).not.toContain('<script>')
     expect(safeOutput('abcdef', 3)).toBe('abc')
     expect(safeOutput('a\u0000b')).toContain('�')
+  })
+
+  it('prefixes each displayed log line', () => {
+    expect(prefixLogLines('first\n\nsecond\n')).toBe('> first\n> \n> second\n')
   })
 
   it('redacts secret-shaped audit keys and rejects external links', () => {

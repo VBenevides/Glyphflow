@@ -10,8 +10,15 @@ export function SafeText({ value }: { value: string }) {
   return <span>{safeOutput(value)}</span>
 }
 
+export function prefixLogLines(value: string): string {
+  if (!value) return value
+  const lines = value.split('\n')
+  const last = lines.length - 1
+  return lines.map((line, index) => index === last && line === '' ? line : `> ${line}`).join('\n')
+}
+
 export function LogOutput({ stream, value }: { stream: 'stdout' | 'stderr'; value: string }) {
-  return <pre className={`gf-log gf-log-${stream}`} aria-label={`${stream} output`}><SafeText value={value} /></pre>
+  return <pre className={`gf-log gf-log-${stream}`} aria-label={`${stream} output`}><SafeText value={prefixLogLines(safeOutput(value))} /></pre>
 }
 
 export function SecretReference({ value }: { value: string }) {

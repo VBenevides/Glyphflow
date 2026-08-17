@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	logFlushInterval      = 30 * time.Second
+	logFlushInterval      = 10 * time.Second
 	maxEventLogChunkBytes = 64 * 1024
 )
 
