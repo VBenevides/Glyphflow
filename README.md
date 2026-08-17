@@ -8,7 +8,7 @@ Glyphflow is an open-source platform for script orchestration across servers and
 
 The platform has one central control plane and many remote workers. The control plane schedules work. Workers execute the work.
 
-Glyphflow is an alpha application. The repository contains the Go control plane, Go workers, React frontend, PostgreSQL persistence, and NATS JetStream integration.
+Glyphflow is an alpha application. The current version is `0.1.0`. The repository contains the Go control plane, Go workers, React frontend, PostgreSQL persistence, and NATS JetStream integration.
 
 ## Quick start
 
@@ -29,24 +29,21 @@ The script starts PostgreSQL and NATS, builds the Linux and Windows AMD64 worker
 
 Press `Ctrl-C` to stop the development processes. Docker volumes keep PostgreSQL and NATS data between runs.
 
-## MVP boundary
+## Deployment model
 
-The first release is one control-plane executable, one NATS JetStream deployment, and any number of outbound-only workers. PostgreSQL remains private to the control plane. Scheduler, dispatcher, event ingestion, HTTP API, housekeeping, and notifications run in the same control-plane process.
+The current release uses one control-plane executable, one NATS JetStream deployment, and any number of outbound-only workers. PostgreSQL remains private to the control plane. The scheduler, dispatcher, event ingestion, HTTP API, housekeeping, and health metrics run in the same control-plane process.
 
 Service splitting is deferred until measured scaling, deployment, or ownership needs justify it.
 
-## Goals
+## Features
 
-Glyphflow will provide these functions:
-
-- Define scheduled and manual tasks through a web application.
-- Assign each task run to an authorized worker.
-- Deliver tasks through a durable queue.
-- Execute commands on remote virtual machines.
-- Show task state, history, and audit events.
-- Recover safely after database, queue, worker, or network failures.
-- Keep database credentials inside the control plane.
-- Authenticate and sign all control plane and worker communication.
+- Define tasks with immutable versions, cron schedules, environment variables, secret references, selectors, retry policies, resource policies, and ambiguity policies.
+- Run tasks manually or on a schedule. View run attempts, state events, streamed logs, audit events, and task version history.
+- Cancel and retry runs with durable state transitions. Reconcile stale work after worker, queue, database, or network failures.
+- Enroll and manage workers and pools. Set execution capacity, view active runs, archive workers, and manage resource leases.
+- Use password or OIDC authentication with sessions, CSRF protection, RBAC, SSO, account management, and audited administration.
+- Use the responsive React console with light, dark, and neon themes, accessible dialogs, filters, pagination, and permission-aware routes.
+- Run persistent workers with SQLite recovery, signed messages, streamed output, concurrent execution, and headless or tray-based desktop builds.
 
 ## Architecture
 
@@ -86,9 +83,7 @@ The bootstrap administrator is created only when both `GLYPHFLOW_BOOTSTRAP_EMAIL
 | Worker | Go executable | Verify orders, execute commands, and publish signed lifecycle events. |
 | Worker state | SQLite | Store accepted orders and events that await publication. |
 
-The first release will use one control plane executable. Separate services can be added only when operational needs require them.
-
-The frontend will start from the default TypeScript and React project structure. It will not require a custom frontend framework.
+The frontend uses TypeScript, React, React Router, TanStack Query, Vite, Vitest, and Lucide. The project does not require a second frontend framework.
 
 ## Task flow
 
@@ -105,39 +100,39 @@ The frontend will start from the default TypeScript and React project structure.
 
 ## Delivery model
 
-Glyphflow will use at-least-once delivery. A queue or service restart can deliver the same message again.
+Glyphflow uses at-least-once delivery. A queue or service restart can deliver the same message again.
 
-Each order will have a unique message identifier. Each event will have a unique event identifier.
+Each order has a unique message identifier. Each event has a unique event identifier.
 
-Workers will store accepted message identifiers. The control plane will store accepted event identifiers.
+Workers store accepted message identifiers. The control plane stores accepted event identifiers.
 
-Glyphflow will not promise exactly-once command execution. Arbitrary commands can create external effects that the platform cannot reverse.
+Glyphflow does not promise exactly-once command execution. Arbitrary commands can create external effects that the platform cannot reverse.
 
-Automatic retry will require an explicit retry-safe policy. A retry will use a new attempt number and lease token.
+Automatic retry requires an explicit retry-safe policy. Each retry uses a new attempt number and lease token.
 
 ## Security model
 
-- Workers will make outbound network connections only.
-- Workers will not contain PostgreSQL credentials or a PostgreSQL client.
-- Mutual TLS will protect queue connections.
-- Queue permissions will limit each worker to its own subjects.
-- Ed25519 signatures will protect orders and events end to end.
-- The worker will verify an order before it parses or executes the payload.
-- Each worker will generate its private keys on its target machine.
-- A one-use enrollment token will expire after 15 minutes by default.
-- Commands will use argument arrays instead of shell command strings.
-- Workers will restrict working directories, process resources, and output size.
-- Logs will not contain private keys, tokens, or secret values.
+- Workers make outbound network connections only.
+- Workers do not contain PostgreSQL credentials or a PostgreSQL client.
+- Mutual TLS protects queue connections.
+- Queue permissions limit each worker to its own subjects.
+- Ed25519 signatures protect orders and events end to end.
+- The worker verifies an order before it parses or executes the payload.
+- Each worker generates and persists its private keys on its target machine.
+- A one-use enrollment token expires after 15 minutes by default.
+- Commands use argument arrays instead of shell command strings.
+- Workers restrict working directories, process resources, and output size.
+- Logs do not contain private keys, tokens, or secret values.
 
 A valid signature proves the message source. It does not prove that a compromised worker reports correct results.
 
 ## Open-source policy
 
-Glyphflow will use open-source components with approved licenses. The preferred license is MIT.
+Glyphflow uses open-source components with approved licenses. The preferred license is MIT.
 
-The project will also permit Apache-2.0, BSD, ISC, the PostgreSQL License, and public-domain software.
+The project also permits Apache-2.0, BSD, ISC, the PostgreSQL License, and public-domain software.
 
-Each release will include SPDX license information and a software bill of materials. The required deployment will not depend on proprietary services.
+Each release includes SPDX license information and a software bill of materials. The required deployment does not depend on proprietary services.
 
 ## Project structure
 
@@ -147,11 +142,11 @@ frontend/   Default TypeScript and React application
 internal/   Design documents, migration notes, and project roadmap
 ```
 
-## Roadmap
+## Development notes
 
-The complete implementation plan is in [`internal/v2-review/TODO.md`](internal/v2-review/TODO.md).
+Implementation and verification records are in [`internal/v2/TODO.md`](internal/v2/TODO.md) and [`internal/v2/TODO-2.md`](internal/v2/TODO-2.md).
 
-The roadmap follows the network scheduler migration design from the local script scheduler.
+The design records in `internal/` describe the migration from the local script scheduler.
 
 ## License
 
