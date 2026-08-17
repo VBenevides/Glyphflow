@@ -35,3 +35,4 @@ go.work.sum
 local/
 /backend/runner-binaries/
 .tokensave/
+/build/*.tar.gz

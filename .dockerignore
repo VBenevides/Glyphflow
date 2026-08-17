@@ -1,0 +1,8 @@
+.git
+.tokensave
+.dev-data
+frontend/node_modules
+frontend/dist
+backend/runner-binaries
+build/*.tar
+build/*.tar.gz
