@@ -1,6 +1,6 @@
-export type Theme = 'light' | 'dark' | 'neon'
+export type Theme = 'light' | 'dark'
 
-export const THEMES: Theme[] = ['light', 'dark', 'neon']
+export const THEMES: Theme[] = ['light', 'dark']
 
 export const THEME_KEY = 'glyphflow:theme'
 

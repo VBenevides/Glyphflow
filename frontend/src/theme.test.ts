@@ -19,7 +19,8 @@ describe('theme', () => {
   it('resolves only supported saved themes before system preference', () => {
     expect(resolveTheme('light', true)).toBe('light')
     expect(resolveTheme('dark', false)).toBe('dark')
-    expect(resolveTheme('neon', false)).toBe('neon')
+    expect(resolveTheme('neon', false)).toBe('light')
+    expect(resolveTheme('neon', true)).toBe('dark')
     expect(resolveTheme(null, true)).toBe('dark')
     expect(resolveTheme('other', false)).toBe('light')
     expect(resolveTheme('other', true)).toBe('dark')
@@ -29,7 +30,7 @@ describe('theme', () => {
     applyTheme('dark')
     expect(currentTheme()).toBe('dark')
     expect(window.localStorage.getItem(THEME_KEY)).toBe('dark')
-    for (const theme of ['light', 'neon'] as const) {
+    for (const theme of ['light'] as const) {
       applyTheme(theme)
       expect(currentTheme()).toBe(theme)
       expect(window.localStorage.getItem(THEME_KEY)).toBe(theme)

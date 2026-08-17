@@ -22,4 +22,15 @@ describe('UI layout contracts', () => {
     expect(css).toContain('.gf-content, .gf-editor-form { width: 100%; max-width: none; }')
     expect(css).toContain('.gf-editor-form .gf-table { width: 100%; min-width: 0; }')
   })
+
+  it('keeps light-theme logs readable on the dark log surface', () => {
+    expect(css).toContain('.gf-log, .gf-audit-value { max-width: 100%; overflow: auto; padding: 1rem; color: #f8fafc; background: #07101f;')
+  })
+
+  it('keeps collapsed sidebar controls visible and aligned', () => {
+    expect(css).toContain('.gf-sidebar.is-collapsed .gf-sidebar-brand .gf-brand-mark { display: none; }')
+    expect(css).toContain('.gf-sidebar.is-collapsed .gf-sidebar-collapse { width: 100%; min-width: 0; margin: 0; padding-inline: 0; }')
+    expect(css).toContain('.gf-sidebar.is-collapsed .gf-sidebar-actions { display: grid; justify-items: center; }')
+    expect(css).not.toContain(":root[data-theme='neon']")
+  })
 })

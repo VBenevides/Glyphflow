@@ -33,7 +33,7 @@ function routeIcon(path: string) {
 }
 
 export function AppearanceChoices({ theme, onSelect }: { theme: Theme; onSelect: (theme: Theme) => void }) {
-  return <div className="gf-theme-choices" role="group" aria-label="Theme"><button type="button" className={theme === 'light' ? 'is-selected' : ''} aria-pressed={theme === 'light'} onClick={() => onSelect('light')}>Light</button><button type="button" className={theme === 'dark' ? 'is-selected' : ''} aria-pressed={theme === 'dark'} onClick={() => onSelect('dark')}>Dark</button><button type="button" className={theme === 'neon' ? 'is-selected' : ''} aria-pressed={theme === 'neon'} onClick={() => onSelect('neon')}>Neon</button></div>
+  return <div className="gf-theme-choices" role="group" aria-label="Theme"><button type="button" className={theme === 'light' ? 'is-selected' : ''} aria-pressed={theme === 'light'} onClick={() => onSelect('light')}>Light</button><button type="button" className={theme === 'dark' ? 'is-selected' : ''} aria-pressed={theme === 'dark'} onClick={() => onSelect('dark')}>Dark</button></div>
 }
 
 export function Shell({ children }: { children: ReactNode }) {

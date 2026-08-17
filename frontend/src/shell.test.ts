@@ -20,10 +20,10 @@ describe('application shell navigation', () => {
   })
 
   it('renders all appearance choices with accessible pressed state', () => {
-    const html = renderToStaticMarkup(createElement(AppearanceChoices, { theme: 'neon', onSelect: () => undefined }))
+    const html = renderToStaticMarkup(createElement(AppearanceChoices, { theme: 'dark', onSelect: () => undefined }))
     expect(html).toContain('>Light<')
     expect(html).toContain('>Dark<')
-    expect(html).toContain('>Neon<')
+    expect(html).not.toContain('>Neon<')
     expect(html).toContain('aria-pressed="true"')
   })
 })
