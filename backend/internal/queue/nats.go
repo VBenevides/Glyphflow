@@ -100,6 +100,42 @@ func (j *JetStream) Publish(ctx context.Context, message Message) error {
 	return err
 }
 
+func (j *JetStream) Request(ctx context.Context, message Message, timeout time.Duration) (Message, error) {
+	if j == nil || j.conn == nil || message.Subject == "" || len(message.Data) == 0 || timeout <= 0 {
+		return Message{}, errors.New("request and timeout are required")
+	}
+	requestCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	response, err := j.conn.RequestWithContext(requestCtx, message.Subject, message.Data)
+	if err != nil {
+		return Message{}, err
+	}
+	return Message{Subject: response.Subject, Data: response.Data}, nil
+}
+
+type RequestHandler func(context.Context, Message) Message
+
+func (j *JetStream) ServeRequests(ctx context.Context, subject string, handler RequestHandler) error {
+	if j == nil || j.conn == nil || subject == "" || handler == nil {
+		return errors.New("request server is not configured")
+	}
+	subscription, err := j.conn.Subscribe(subject, func(message *nats.Msg) {
+		response := handler(ctx, Message{Subject: message.Subject, Data: message.Data})
+		if len(response.Data) > 0 {
+			_ = message.Respond(response.Data)
+		}
+	})
+	if err != nil {
+		return err
+	}
+	defer subscription.Unsubscribe()
+	if err := j.conn.Flush(); err != nil {
+		return err
+	}
+	<-ctx.Done()
+	return nil
+}
+
 func (j *JetStream) Consumer(ctx context.Context, durable, subject string, maxPending int) (jetstream.Consumer, error) {
 	if j == nil || j.stream == nil || durable == "" || subject == "" || maxPending == 0 || maxPending < UnlimitedPending {
 		return nil, errors.New("consumer configuration is invalid")
@@ -224,6 +260,8 @@ func (j *JetStream) processMessage(ctx context.Context, message jetstream.Msg, h
 
 func Subject(kind, runnerID string) string { return fmt.Sprintf("glyphflow.%s.%s", kind, runnerID) }
 
+func StartClaimSubject(runnerID string) string { return "glyphflow.start." + runnerID }
+
 type SubjectPermissions struct{ Allow []string }
 
 type WorkerPermissionsConfig struct {
@@ -233,11 +271,11 @@ type WorkerPermissionsConfig struct {
 
 func WorkerPermissions(runnerID string) WorkerPermissionsConfig {
 	return WorkerPermissionsConfig{
-		Publish:   SubjectPermissions{Allow: []string{Subject("events", runnerID)}},
+		Publish:   SubjectPermissions{Allow: []string{Subject("events", runnerID), StartClaimSubject(runnerID)}},
 		Subscribe: SubjectPermissions{Allow: []string{Subject("orders", runnerID), Subject("control", runnerID)}},
 	}
 }
 
 func AllowedWorkerSubject(subject, runnerID string) bool {
-	return subject == Subject("orders", runnerID) || subject == Subject("events", runnerID) || subject == Subject("control", runnerID)
+	return subject == Subject("orders", runnerID) || subject == Subject("events", runnerID) || subject == Subject("control", runnerID) || subject == StartClaimSubject(runnerID)
 }

@@ -279,6 +279,18 @@ func main() {
 	}()
 	go func() {
 		for ctx.Err() == nil {
+			if err := controlplane.RunStartClaimServer(ctx, jetstream, runRepository, runnerRepository, signingKey); err != nil && ctx.Err() == nil {
+				fmt.Fprintln(os.Stderr, "start claim server:", err)
+				select {
+				case <-time.After(time.Second):
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+	}()
+	go func() {
+		for ctx.Err() == nil {
 			if err := controlplane.RunScheduler(ctx, scheduleRepository, 500*time.Millisecond); err != nil && ctx.Err() == nil {
 				fmt.Fprintln(os.Stderr, "schedule runner:", err)
 				select {

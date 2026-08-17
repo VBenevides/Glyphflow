@@ -6,9 +6,10 @@ import (
 )
 
 const (
-	SignatureAlgorithm   = "Ed25519"
-	OrderSignatureDomain = "glyphflow/order/v1"
-	EventSignatureDomain = "glyphflow/event/v1"
+	SignatureAlgorithm        = "Ed25519"
+	OrderSignatureDomain      = "glyphflow/order/v1"
+	EventSignatureDomain      = "glyphflow/event/v1"
+	StartClaimSignatureDomain = "glyphflow/start-claim/v1"
 )
 
 func (e *Envelope) SignOrder(privateKey ed25519.PrivateKey) error {

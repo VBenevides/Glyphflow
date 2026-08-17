@@ -23,6 +23,7 @@ const (
 type OrderRuntime struct {
 	Store            *LocalStore
 	Publisher        queue.Publisher
+	StartClaimer     StartClaimer
 	RunnerID         string
 	ExecutorBootID   string
 	ProcessID        int64
@@ -78,7 +79,7 @@ func (a *ActiveOrders) cancel(id string) bool {
 }
 
 func (r OrderRuntime) Handle(ctx context.Context, message queue.Message) error {
-	if r.Store == nil || r.Publisher == nil || r.RunnerID == "" || len(r.ControlPublicKey) != ed25519.PublicKeySize || len(r.SigningKey.Private) != ed25519.PrivateKeySize {
+	if r.Store == nil || r.Publisher == nil || r.StartClaimer == nil || r.RunnerID == "" || len(r.ControlPublicKey) != ed25519.PublicKeySize || len(r.SigningKey.Private) != ed25519.PrivateKeySize {
 		return errors.New("worker order runtime is not configured")
 	}
 	envelope, err := protocol.DecodeEnvelope(message.Data)
@@ -110,12 +111,22 @@ func (r OrderRuntime) Handle(ctx context.Context, message queue.Message) error {
 		}
 		return nil
 	}
-	payload, err := r.Store.AcceptOrder(message.Data, protocol.Keyring{"control-plane": {ID: "control-plane", PublicKey: r.ControlPublicKey}}, time.Now().UTC(), r.RunnerID, order.RunID, order.Attempt, order.LeaseToken, time.Second)
+	payload, err := protocol.VerifyOrder(message.Data, protocol.Keyring{"control-plane": {ID: "control-plane", PublicKey: r.ControlPublicKey}}, time.Now().UTC(), r.RunnerID, order.RunID, order.Attempt, order.LeaseToken, time.Second, nil)
 	if err != nil {
 		return err
 	}
 	if payload.Type != protocol.OrderExecute {
 		return errors.New("unsupported worker order type")
+	}
+	if err := r.StartClaimer.ClaimStart(ctx, protocol.StartClaimPayload{Version: protocol.ProtocolVersion, RequestID: payload.OrderID, RunID: payload.RunID, RunnerID: payload.RunnerID, RunnerSessionID: payload.RunnerSessionID, LeaseToken: payload.LeaseToken, Attempt: payload.Attempt, FencingToken: payload.FencingToken, ExecutionSpecDigest: payload.ExecutionSpecDigest, IssuedAt: time.Now().UTC()}); err != nil {
+		if errors.Is(err, ErrStartRejected) {
+			return nil
+		}
+		return err
+	}
+	payload, err = r.Store.AcceptOrder(message.Data, protocol.Keyring{"control-plane": {ID: "control-plane", PublicKey: r.ControlPublicKey}}, time.Now().UTC(), r.RunnerID, order.RunID, order.Attempt, order.LeaseToken, time.Second)
+	if err != nil {
+		return err
 	}
 	if err := r.Store.ClaimOrder(payload.OrderID, r.ExecutorBootID, r.ProcessID); err != nil {
 		return nil

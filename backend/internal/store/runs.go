@@ -128,6 +128,16 @@ type RetryRepository interface {
 	Retry(context.Context, string, string) (RunRecord, bool, error)
 }
 
+type StartClaimInput struct {
+	RunID, RunnerID, RunnerSessionID, LeaseToken, ExecutionSpecDigest string
+	Attempt                                                           int
+	FencingToken                                                      int64
+}
+
+type StartClaimRepository interface {
+	ClaimStart(context.Context, StartClaimInput) (time.Time, bool, error)
+}
+
 type RunStore struct{ pool *pgxpool.Pool }
 
 const defaultStartDelay = time.Minute
@@ -171,6 +181,46 @@ func (s *RunStore) Find(ctx context.Context, id string) (RunRecord, bool, error)
 		item.PlacementBlocker = s.placementBlocker(ctx, item.ID)
 	}
 	return item, err == nil, err
+}
+
+func (s *RunStore) ClaimStart(ctx context.Context, input StartClaimInput) (time.Time, bool, error) {
+	if input.RunID == "" || input.RunnerID == "" || input.RunnerSessionID == "" || input.LeaseToken == "" || input.ExecutionSpecDigest == "" || input.Attempt <= 0 || input.FencingToken <= 0 {
+		return time.Time{}, false, errors.New("start claim is incomplete")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	defer tx.Rollback(ctx)
+	var runState, attemptState, runnerID, sessionID, leaseToken, digest string
+	var fencingToken int64
+	var leaseNotAfter, startDeadline, now time.Time
+	err = tx.QueryRow(ctx, `SELECT r.state, a.state, a.runner_id, a.runner_session_id, a.lease_token, a.fencing_token, a.execution_spec_digest, a.lease_not_after, COALESCE(r.start_deadline_at, a.dispatched_at + $3 * interval '1 second'), now() FROM runs r JOIN execution_attempts a ON a.run_id = r.id WHERE r.id = $1 AND a.attempt_number = $2 FOR UPDATE OF r, a`, input.RunID, input.Attempt, int64(defaultStartDelay/time.Second)).Scan(&runState, &attemptState, &runnerID, &sessionID, &leaseToken, &fencingToken, &digest, &leaseNotAfter, &startDeadline, &now)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return time.Time{}, false, nil
+	}
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	if runnerID != input.RunnerID || sessionID != input.RunnerSessionID || leaseToken != input.LeaseToken || fencingToken != input.FencingToken || digest != input.ExecutionSpecDigest {
+		return time.Time{}, false, nil
+	}
+	if attemptState == "RUNNING" && runState == "RUNNING" {
+		return now.UTC(), true, tx.Commit(ctx)
+	}
+	if runState != "DISPATCHED" || (attemptState != "DISPATCHED" && attemptState != "ACCEPTED") || !now.Before(startDeadline) || !now.Before(leaseNotAfter) {
+		return time.Time{}, false, nil
+	}
+	if _, err := tx.Exec(ctx, `UPDATE execution_attempts SET state = 'RUNNING', accepted_at = COALESCE(accepted_at, $2), started_at = COALESCE(started_at, $2), last_applied_state_sequence = GREATEST(last_applied_state_sequence, 1), state_version = state_version + 1, updated_at = now() WHERE id = (SELECT a.id FROM execution_attempts a WHERE a.run_id = $1 AND a.attempt_number = $3)`, input.RunID, now, input.Attempt); err != nil {
+		return time.Time{}, false, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE runs SET state = 'RUNNING', state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state = 'DISPATCHED'`, input.RunID); err != nil {
+		return time.Time{}, false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return time.Time{}, false, err
+	}
+	return now.UTC(), true, nil
 }
 
 func (s *RunStore) placementBlocker(ctx context.Context, runID string) string {
@@ -746,7 +796,7 @@ func (s *RunStore) ApplyRunEvent(ctx context.Context, event RunEventInput) error
 	}
 	switch event.EventType {
 	case "accepted":
-		_, err = tx.Exec(ctx, `UPDATE execution_attempts SET state = 'ACCEPTED', accepted_at = COALESCE(accepted_at, $2), updated_at = now() WHERE id = $1`, attemptID, event.ReportedAt)
+		_, err = tx.Exec(ctx, `UPDATE execution_attempts SET state = CASE WHEN state = 'RUNNING' THEN state ELSE 'ACCEPTED' END, accepted_at = COALESCE(accepted_at, $2), updated_at = now() WHERE id = $1`, attemptID, event.ReportedAt)
 	case "started":
 		_, err = tx.Exec(ctx, `UPDATE execution_attempts SET state = 'RUNNING', started_at = COALESCE(started_at, $2), updated_at = now() WHERE id = $1`, attemptID, event.ReportedAt)
 		if err == nil {
@@ -878,9 +928,9 @@ func shouldRetry(event RunEventInput, maxAttempts int, exitCodes, reasons []byte
 func legalAttemptTransition(state, eventType string) bool {
 	switch eventType {
 	case "accepted":
-		return state == "DISPATCHED"
+		return state == "DISPATCHED" || state == "RUNNING"
 	case "started":
-		return state == "ACCEPTED" || state == "DISPATCHED"
+		return state == "ACCEPTED" || state == "DISPATCHED" || state == "RUNNING"
 	case "heartbeat":
 		return state == "ACCEPTED" || state == "RUNNING"
 	case "completed", "failed", "timed_out", "cancelled":
