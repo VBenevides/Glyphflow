@@ -29,6 +29,7 @@ type RunRecord struct {
 	Attempt                                  int
 	ExitCode                                 *int
 	ExitCodeMeaning                          string
+	Error                                    string
 	ScheduledFor                             time.Time
 }
 
@@ -133,7 +134,7 @@ const (
 
 func NewRunRepository(pool *pgxpool.Pool) *RunStore { return &RunStore{pool: pool} }
 
-const runQuery = `SELECT r.id, r.task_id, t.name, r.state, r.trigger_type, r.scheduled_for, COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = r.id), 1), COALESCE(latest.runner_id, ''), latest.exit_code, COALESCE(ec.meaning, '') FROM runs r JOIN tasks t ON t.id = r.task_id LEFT JOIN LATERAL (SELECT runner_id, exit_code FROM execution_attempts WHERE run_id = r.id ORDER BY attempt_number DESC LIMIT 1) latest ON true LEFT JOIN exit_code ec ON ec.code = latest.exit_code`
+const runQuery = `SELECT r.id, r.task_id, t.name, r.state, r.trigger_type, r.scheduled_for, COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = r.id), 1), COALESCE(latest.runner_id, ''), latest.exit_code, COALESCE(ec.meaning, ''), COALESCE(latest.termination_reason, '') FROM runs r JOIN tasks t ON t.id = r.task_id LEFT JOIN LATERAL (SELECT runner_id, exit_code, termination_reason FROM execution_attempts WHERE run_id = r.id ORDER BY attempt_number DESC LIMIT 1) latest ON true LEFT JOIN exit_code ec ON ec.code = latest.exit_code`
 
 func (s *RunStore) List(ctx context.Context) ([]RunRecord, error) {
 	rows, err := s.pool.Query(ctx, runQuery+` ORDER BY r.created_at DESC, r.id`)
@@ -217,7 +218,7 @@ FROM task`, runID).Scan(&blocker)
 
 func scanRun(row interface{ Scan(...any) error }) (RunRecord, error) {
 	var item RunRecord
-	if err := row.Scan(&item.ID, &item.TaskID, &item.TaskName, &item.State, &item.TriggerType, &item.ScheduledFor, &item.Attempt, &item.Runner, &item.ExitCode, &item.ExitCodeMeaning); err != nil {
+	if err := row.Scan(&item.ID, &item.TaskID, &item.TaskName, &item.State, &item.TriggerType, &item.ScheduledFor, &item.Attempt, &item.Runner, &item.ExitCode, &item.ExitCodeMeaning, &item.Error); err != nil {
 		return RunRecord{}, err
 	}
 	return item, nil

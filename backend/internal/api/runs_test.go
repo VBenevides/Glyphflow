@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
+
+	"github.com/VBenevides/Glyphflow/backend/internal/store"
 )
 
 func TestRunActionsAndResumableLogs(t *testing.T) {
@@ -45,6 +47,13 @@ func TestRunActionsAndResumableLogs(t *testing.T) {
 	runs.path(conflict, httptest.NewRequest(http.MethodPost, "/api/v1/runs/"+run.ID+"/retry", bytes.NewBufferString(`{"reason":"repeat"}`)))
 	if conflict.Code != http.StatusConflict {
 		t.Fatalf("illegal retry status = %d", conflict.Code)
+	}
+}
+
+func TestRunRecordIncludesExecutionError(t *testing.T) {
+	run := runRecordFromStore(store.RunRecord{ID: "run-1", Error: "exec: file not found"})
+	if run.Error != "exec: file not found" {
+		t.Fatalf("run error = %q", run.Error)
 	}
 }
 

@@ -22,6 +22,7 @@ type RunRecord struct {
 	Attempt          int    `json:"attempt"`
 	ExitCode         *int   `json:"exitCode,omitempty"`
 	ExitCodeMeaning  string `json:"exitCodeMeaning"`
+	Error            string `json:"error,omitempty"`
 	Runner           string `json:"runner,omitempty"`
 	Trigger          string `json:"trigger"`
 	ScheduledFor     string `json:"scheduledFor,omitempty"`
@@ -56,7 +57,7 @@ func runRecordFromStore(run store.RunRecord) RunRecord {
 	if !run.ScheduledFor.IsZero() {
 		scheduledFor = run.ScheduledFor.UTC().Format(time.RFC3339)
 	}
-	return RunRecord{ID: run.ID, TaskID: run.TaskID, TaskName: run.TaskName, State: run.State, PlacementBlocker: run.PlacementBlocker, Attempt: run.Attempt, ExitCode: run.ExitCode, ExitCodeMeaning: run.ExitCodeMeaning, Runner: run.Runner, Trigger: run.TriggerType, ScheduledFor: scheduledFor}
+	return RunRecord{ID: run.ID, TaskID: run.TaskID, TaskName: run.TaskName, State: run.State, PlacementBlocker: run.PlacementBlocker, Attempt: run.Attempt, ExitCode: run.ExitCode, ExitCodeMeaning: run.ExitCodeMeaning, Error: run.Error, Runner: run.Runner, Trigger: run.TriggerType, ScheduledFor: scheduledFor}
 }
 
 func (s *RunService) collection(w http.ResponseWriter, r *http.Request) {
