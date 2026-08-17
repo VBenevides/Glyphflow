@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { commandArguments, emptyTaskDraft, environmentObject, environmentRows, keyValueObject, keyValueRows, taskDraftFromRecord, validateTaskDraft } from './task-editor'
+import { commandArgumentLabels, commandArguments, emptyTaskDraft, environmentObject, environmentRows, finalCommand, keyValueObject, keyValueRows, resolveGlobalVariableReferences, taskDraftFromRecord, validateTaskDraft } from './task-editor'
 
 describe('task version editor', () => {
   it('keeps command arguments separate from shell parsing', () => {
     expect(commandArguments('python\nscript.py\n--name\nhello world')).toEqual(['python', 'script.py', '--name', 'hello world'])
+  })
+
+  it('labels only non-empty command lines and resolves global values', () => {
+    expect(commandArgumentLabels('python\n\n$ENV:CACHE_PATH')).toEqual(['Arg 1:', '', 'Arg 2:'])
+    expect(resolveGlobalVariableReferences('$ENV:CACHE_PATH/bin', [{ id: '1', name: 'CACHE_PATH', value: '/tmp/cache' }])).toBe('/tmp/cache/bin')
+    expect(finalCommand('python\n$ENV:CACHE_PATH\nhello world', [{ id: '1', name: 'CACHE_PATH', value: '/tmp/cache' }])).toBe('"python" "/tmp/cache" "hello world"')
   })
 
 	it('validates required fields and JSON policies', () => {

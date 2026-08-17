@@ -23,6 +23,14 @@ func TestActiveOrdersCancelAfterCompletionIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestMemoryStatsSamplesCurrentProcess(t *testing.T) {
+	stats := &MemoryStats{}
+	stats.Sample(int32(os.Getpid()))
+	if stats.MaxBytes == 0 || stats.AverageBytes == 0 {
+		t.Fatalf("memory sample = max %d, average %d", stats.MaxBytes, stats.AverageBytes)
+	}
+}
+
 func TestExecutorRejectsUntrustedDirectory(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()

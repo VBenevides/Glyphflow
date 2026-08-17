@@ -359,7 +359,7 @@ func validateScheduleDefinition(definition ScheduleDefinition) error {
 	if definition.ID == "" || definition.Name == "" || definition.TaskID == "" || definition.Expression == "" {
 		return errors.New("schedule id, task, name, and expression are required")
 	}
-	if _, err := scheduleLocation(definition.Timezone); err != nil {
+	if _, err := scheduleLocation(definition.Timezone); err != nil && globalVariableReferencePattern.FindString(definition.Timezone) != definition.Timezone {
 		return errors.New("schedule timezone is invalid")
 	}
 	return nil

@@ -59,7 +59,7 @@ export function AppRoutes() {
     <Route path="/resources" element={<PermissionRoute permission="resources.read|resources.manage"><ResourceInventoryPage /></PermissionRoute>} />
     <Route path="/resources/:resourceId" element={<PermissionRoute permission="resources.read|resources.manage"><ResourceDetailPage /></PermissionRoute>} />
     <Route path="/audit" element={<PermissionRoute permission="audit.read"><AuditPage /></PermissionRoute>} />
-    <Route path="/global-variables" element={<PermissionRoute permission="tasks.read|tasks.manage"><GlobalVariablesPage /></PermissionRoute>} />
+	<Route path="/global-variables" element={<PermissionRoute permission="users.manage"><GlobalVariablesPage /></PermissionRoute>} />
     <Route path="/admin/users" element={<PermissionRoute permission="users.read|users.manage"><UserManagementPage /></PermissionRoute>} />
     <Route path="/admin/users/:userId" element={<UserDetailsRoute />} />
     <Route path="/admin/roles" element={<PermissionRoute permission="roles.read|roles.manage"><RoleManagementPage /></PermissionRoute>} />

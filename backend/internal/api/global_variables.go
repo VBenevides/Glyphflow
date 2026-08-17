@@ -63,7 +63,7 @@ func (s *GlobalVariableService) collection(w http.ResponseWriter, r *http.Reques
 	}
 	name := strings.TrimSpace(input.Name)
 	if !platform.GlobalVariableName(name) {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "variable name must use letters, numbers, and underscores"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "variable name must use uppercase letters, numbers, and underscores"})
 		return
 	}
 	id, err := randomID()

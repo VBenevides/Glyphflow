@@ -18,7 +18,7 @@ export const ROUTES: RouteRule[] = [
   { path: '/runners/pools', label: 'Pools', access: 'permission', permission: 'runners.read' },
   { path: '/resources', label: 'Resources', access: 'permission', permission: 'resources.read|resources.manage' },
   { path: '/audit', label: 'Audit', access: 'permission', permission: 'audit.read' },
-  { path: '/global-variables', label: 'Global Variables', access: 'permission', permission: 'tasks.read|tasks.manage' },
+	{ path: '/global-variables', label: 'Global Variables', access: 'permission', permission: 'users.manage' },
   { path: '/admin/users', label: 'Users', access: 'permission', permission: 'users.read|users.manage' },
   { path: '/admin/roles', label: 'Roles', access: 'permission', permission: 'roles.read|roles.manage' },
   { path: '/admin/sso', label: 'SSO', access: 'permission', permission: 'sso.read|sso.manage' },

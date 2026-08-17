@@ -6,9 +6,10 @@ import (
 	"strings"
 )
 
-var globalVariablePattern = regexp.MustCompile(`\$\(([A-Za-z_][A-Za-z0-9_]*)\)`)
+var globalVariablePattern = regexp.MustCompile(`\$ENV:([A-Z_][A-Z0-9_]*)`)
+var globalVariableNamePattern = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
 
-// ResolveGlobalVariables expands the supported $(VAR_NAME) form once.
+// ResolveGlobalVariables expands the supported $ENV:VAR_NAME form once.
 func ResolveGlobalVariables(value string, variables map[string]string) (string, error) {
 	var missing string
 	resolved := globalVariablePattern.ReplaceAllStringFunc(value, func(match string) string {
@@ -26,5 +27,5 @@ func ResolveGlobalVariables(value string, variables map[string]string) (string, 
 }
 
 func GlobalVariableName(value string) bool {
-	return strings.TrimSpace(value) != "" && regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`).MatchString(strings.TrimSpace(value))
+	return globalVariableNamePattern.MatchString(strings.TrimSpace(value))
 }

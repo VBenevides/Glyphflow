@@ -148,18 +148,9 @@ func (s Server) Handler() http.Handler {
 		return "tasks.manage"
 	}, http.HandlerFunc(s.Operations.scheduleCollection)))
 	mux.Handle("/api/v1/schedules/preview", s.require("tasks.manage", http.HandlerFunc(s.Operations.preview)))
-	mux.Handle("/api/v1/global-variables", s.requireMethodRole(func(r *http.Request) string {
-		if r.Method == http.MethodGet {
-			return "tasks.read"
-		}
-		return "tasks.manage"
-	}, http.HandlerFunc(s.GlobalVariables.collection)))
-	mux.Handle("/api/v1/global-variables/", s.requireMethodRole(func(r *http.Request) string {
-		if r.Method == http.MethodGet {
-			return "tasks.read"
-		}
-		return "tasks.manage"
-	}, http.HandlerFunc(s.GlobalVariables.path)))
+	mux.Handle("/api/v1/global-variables/options", s.require("tasks.read", http.HandlerFunc(s.GlobalVariables.collection)))
+	mux.Handle("/api/v1/global-variables", s.require("users.manage", http.HandlerFunc(s.GlobalVariables.collection)))
+	mux.Handle("/api/v1/global-variables/", s.require("users.manage", http.HandlerFunc(s.GlobalVariables.path)))
 	mux.Handle("/api/v1/resources", s.requireMethodRole(func(r *http.Request) string {
 		if r.Method == http.MethodGet {
 			return "resources.read"

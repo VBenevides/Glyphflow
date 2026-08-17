@@ -214,7 +214,7 @@ func applyRunnerEvent(ctx context.Context, keys RunnerKeyRepository, runs Dispat
 	return runs.ApplyRunEvent(ctx, store.RunEventInput{
 		EventID: payload.EventID, OrderID: payload.OrderID, RunID: payload.RunID, TaskID: payload.TaskID,
 		RunnerID: payload.RunnerID, RunnerSessionID: payload.RunnerSessionID, LeaseToken: payload.LeaseToken,
-		EventType: string(payload.Type), Subject: message.Subject, Error: payload.Error, Result: payload.Result,
+		EventType: string(payload.Type), Subject: message.Subject, Error: payload.Error, Result: payload.Result, Metrics: payload.Metrics,
 		EventChannel: payload.EventChannel, ExitCode: payload.ExitCode,
 		Attempt: int64(payload.Attempt), Sequence: int64(payload.Sequence), FencingToken: int64(payload.FencingToken),
 		ReportedAt: payload.ObservedAt, Envelope: message.Data,

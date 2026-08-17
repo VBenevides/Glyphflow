@@ -23,14 +23,15 @@ type RunDefinition struct {
 }
 
 type RunRecord struct {
-	ID, TaskID, TaskName, State, TriggerType string
-	Runner                                   string
-	PlacementBlocker                         string
-	Attempt                                  int
-	ExitCode                                 *int
-	ExitCodeMeaning                          string
-	Error                                    string
-	ScheduledFor                             time.Time
+	ID, TaskID, TaskName, State, TriggerType   string
+	Runner                                     string
+	PlacementBlocker                           string
+	Attempt                                    int
+	ExitCode                                   *int
+	ExitCodeMeaning                            string
+	Error                                      string
+	ScheduledFor                               time.Time
+	MaxMemoryUsedBytes, AverageMemoryUsedBytes int64
 }
 
 type RunLogChunkRecord struct {
@@ -97,6 +98,7 @@ type CancellationCandidate struct {
 type RunEventInput struct {
 	EventID, OrderID, RunID, TaskID, RunnerID, RunnerSessionID, LeaseToken string
 	EventType, EventChannel, Subject, Error, Result                        string
+	Metrics                                                                map[string]int64
 	ExitCode                                                               *int
 	Attempt, Sequence, FencingToken                                        int64
 	ReportedAt                                                             time.Time
@@ -134,7 +136,7 @@ const (
 
 func NewRunRepository(pool *pgxpool.Pool) *RunStore { return &RunStore{pool: pool} }
 
-const runQuery = `SELECT r.id, r.task_id, t.name, r.state, r.trigger_type, r.scheduled_for, COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = r.id), 1), COALESCE(latest.runner_id, ''), latest.exit_code, COALESCE(ec.meaning, ''), COALESCE(latest.termination_reason, '') FROM runs r JOIN tasks t ON t.id = r.task_id LEFT JOIN LATERAL (SELECT runner_id, exit_code, termination_reason FROM execution_attempts WHERE run_id = r.id ORDER BY attempt_number DESC LIMIT 1) latest ON true LEFT JOIN exit_code ec ON ec.code = latest.exit_code`
+const runQuery = `SELECT r.id, r.task_id, t.name, r.state, r.trigger_type, r.scheduled_for, COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = r.id), 1), COALESCE(latest.runner_id, ''), latest.exit_code, COALESCE(ec.meaning, ''), COALESCE(latest.termination_reason, ''), COALESCE(latest.max_memory_used_bytes, 0), COALESCE(latest.average_memory_used_bytes, 0) FROM runs r JOIN tasks t ON t.id = r.task_id LEFT JOIN LATERAL (SELECT runner_id, exit_code, termination_reason, max_memory_used_bytes, average_memory_used_bytes FROM execution_attempts WHERE run_id = r.id ORDER BY attempt_number DESC LIMIT 1) latest ON true LEFT JOIN exit_code ec ON ec.code = latest.exit_code`
 
 func (s *RunStore) List(ctx context.Context) ([]RunRecord, error) {
 	rows, err := s.pool.Query(ctx, runQuery+` ORDER BY r.created_at DESC, r.id`)
@@ -218,7 +220,7 @@ FROM task`, runID).Scan(&blocker)
 
 func scanRun(row interface{ Scan(...any) error }) (RunRecord, error) {
 	var item RunRecord
-	if err := row.Scan(&item.ID, &item.TaskID, &item.TaskName, &item.State, &item.TriggerType, &item.ScheduledFor, &item.Attempt, &item.Runner, &item.ExitCode, &item.ExitCodeMeaning, &item.Error); err != nil {
+	if err := row.Scan(&item.ID, &item.TaskID, &item.TaskName, &item.State, &item.TriggerType, &item.ScheduledFor, &item.Attempt, &item.Runner, &item.ExitCode, &item.ExitCodeMeaning, &item.Error, &item.MaxMemoryUsedBytes, &item.AverageMemoryUsedBytes); err != nil {
 		return RunRecord{}, err
 	}
 	return item, nil
@@ -717,6 +719,9 @@ func (s *RunStore) ApplyRunEvent(ctx context.Context, event RunEventInput) error
 	if event.ExitCode != nil {
 		payloadValue["exit_code"] = *event.ExitCode
 	}
+	if len(event.Metrics) > 0 {
+		payloadValue["metrics"] = event.Metrics
+	}
 	payload, _ := json.Marshal(payloadValue)
 	if _, err := tx.Exec(ctx, `INSERT INTO run_events (event_id, execution_attempt_id, state_sequence, event_kind, reported_at, payload) VALUES ($1, $2, $3, $4, $5, $6::jsonb)`, event.EventID, attemptID, event.Sequence, event.EventType, event.ReportedAt, payload); err != nil {
 		return err
@@ -735,7 +740,14 @@ func (s *RunStore) ApplyRunEvent(ctx context.Context, event RunEventInput) error
 		_, err = tx.Exec(ctx, `UPDATE execution_attempts SET last_heartbeat_at = $2, updated_at = now() WHERE id = $1`, attemptID, event.ReportedAt)
 	case "completed", "failed", "timed_out", "cancelled":
 		state := map[string]string{"completed": "SUCCEEDED", "failed": "FAILED", "timed_out": "FAILED", "cancelled": "CANCELLED"}[event.EventType]
-		_, err = tx.Exec(ctx, `UPDATE execution_attempts SET state = $2, finished_at = COALESCE(finished_at, $3), termination_reason = NULLIF($4, ''), exit_code = $5, result = $6::jsonb, updated_at = now() WHERE id = $1`, attemptID, state, event.ReportedAt, event.Error, event.ExitCode, payload)
+		var maxMemory, averageMemory *int64
+		if value, ok := event.Metrics["max_memory_bytes"]; ok {
+			maxMemory = &value
+		}
+		if value, ok := event.Metrics["average_memory_bytes"]; ok {
+			averageMemory = &value
+		}
+		_, err = tx.Exec(ctx, `UPDATE execution_attempts SET state = $2, finished_at = COALESCE(finished_at, $3), termination_reason = NULLIF($4, ''), exit_code = $5, result = $6::jsonb, max_memory_used_bytes = COALESCE($7, max_memory_used_bytes), average_memory_used_bytes = COALESCE($8, average_memory_used_bytes), updated_at = now() WHERE id = $1`, attemptID, state, event.ReportedAt, event.Error, event.ExitCode, payload, maxMemory, averageMemory)
 		if err == nil {
 			if event.EventType == "failed" || event.EventType == "timed_out" {
 				var maxAttempts, initialBackoff, maxBackoff int

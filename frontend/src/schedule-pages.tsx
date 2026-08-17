@@ -2,16 +2,18 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from './auth'
-import { api, type Page, type Schedule } from './api'
+import { api, type GlobalVariable, type Page, type Schedule } from './api'
 import { DangerousAction } from './actions'
 import { Button, DataTable, EmptyState, FieldLabel, Input, PageHeader, Pagination, StatusPill } from './components'
 import { QueryState, useDebouncedValue } from './query'
 import { describeError, FieldError } from './errors'
 import { useUnsavedChanges } from './unsaved'
 import { TaskPicker } from './task-picker'
+import { GlobalVariableInput } from './global-variable-input'
 
 export type ScheduleDraft = { taskId: string; name: string; expression: string; timezone: string; misfirePolicy: string; catchupLimit: string; deadlineSeconds: string; concurrencyPolicy: string; maxConcurrentRuns: string }
 export const emptyScheduleDraft: ScheduleDraft = { taskId: '', name: '', expression: '0 * * * *', timezone: '0', misfirePolicy: 'SKIP_ALL', catchupLimit: '0', deadlineSeconds: '0', concurrencyPolicy: 'QUEUE', maxConcurrentRuns: '0' }
+const globalTimezoneReference = /^\$ENV:[A-Z_][A-Z0-9_]*$/
 
 export function utcOffsetFromTimezone(value: string) {
   if (value === 'UTC') return '0'
@@ -49,7 +51,7 @@ export function validateScheduleDraft(draft: ScheduleDraft): Record<string, stri
   if (!draft.expression.trim()) errors.expression = 'Expression is required.'
   const offset = Number(draft.timezone)
   const legacyTimezone = draft.timezone.includes('/') || draft.timezone === 'UTC'
-  if ((!Number.isInteger(offset) || offset < -23 || offset > 23) && !legacyTimezone) errors.timezone = 'UTC offset must be a whole number from -23 to +23.'
+  if ((!Number.isInteger(offset) || offset < -23 || offset > 23) && !legacyTimezone && !globalTimezoneReference.test(draft.timezone.trim())) errors.timezone = 'UTC offset must be a whole number from -23 to +23.'
   if (draft.misfirePolicy === 'RUN_UP_TO_N' && (!Number.isInteger(Number(draft.catchupLimit)) || Number(draft.catchupLimit) < 0)) errors.catchupLimit = 'Use zero or a positive whole number.'
   if (!Number.isInteger(Number(draft.deadlineSeconds)) || Number(draft.deadlineSeconds) < 0) errors.deadlineSeconds = 'Use zero or a positive whole number.'
   if (draft.concurrencyPolicy === 'ALLOW' && (!Number.isInteger(Number(draft.maxConcurrentRuns)) || Number(draft.maxConcurrentRuns) < 1)) errors.maxConcurrentRuns = 'Use one or more concurrent runs.'
@@ -69,6 +71,7 @@ export function ScheduleInventoryPage() {
 export function ScheduleEditorPage() {
   const { scheduleId } = useParams(); const navigate = useNavigate(); const { permissions } = useAuth(); const [draft, setDraft] = useState<ScheduleDraft>(emptyScheduleDraft); const [baseline, setBaseline] = useState<ScheduleDraft>(emptyScheduleDraft); const [errors, setErrors] = useState<Record<string, string>>({}); const [preview, setPreview] = useState<string[]>([]); const [error, setError] = useState(''); const [busy, setBusy] = useState(false)
   const query = useQuery({ queryKey: ['schedule-edit', scheduleId], queryFn: ({ signal }) => api.get<Schedule>(`/api/v1/schedules/${encodeURIComponent(scheduleId ?? '')}`, undefined, signal), enabled: Boolean(scheduleId) })
+  const variablesQuery = useQuery({ queryKey: ['global-variable-options'], queryFn: ({ signal }) => api.get<Page<GlobalVariable>>('/api/v1/global-variables/options', { limit: 100 }, signal) })
   useEffect(() => {
     if (query.data) {
       const next = scheduleDraftFromRecord(query.data)
@@ -91,10 +94,10 @@ export function ScheduleEditorPage() {
         <div className="gf-form-grid">
           <TaskPicker id="schedule-task" value={draft.taskId} onChange={(value) => update('taskId', value)} label="Task" info={scheduleInfo.task} error={errors.taskId} required />
           <div className="gf-form-field"><FieldLabel htmlFor="schedule-name" info={scheduleInfo.name}>Name</FieldLabel><Input id="schedule-name" value={draft.name} onChange={(event) => update('name', event.target.value)} /><FieldError message={errors.name} /></div>
-          <div className="gf-form-field"><FieldLabel htmlFor="schedule-timezone" info={scheduleInfo.timezone}>UTC offset</FieldLabel><Input id="schedule-timezone" type="number" min="-23" max="23" step="1" value={draft.timezone} onChange={(event) => update('timezone', event.target.value)} /><FieldError message={errors.timezone} /></div>
+          <div className="gf-form-field"><FieldLabel htmlFor="schedule-timezone" info={scheduleInfo.timezone}>UTC offset</FieldLabel><GlobalVariableInput id="schedule-timezone" value={draft.timezone} variables={variablesQuery.data?.items ?? []} onChange={(value) => update('timezone', value)} /><FieldError message={errors.timezone} /></div>
         </div>
         <div className="gf-form-grid">
-          <div className="gf-form-field"><FieldLabel htmlFor="schedule-expression" info={scheduleInfo.cronExpression}>Cron expression</FieldLabel><Input id="schedule-expression" value={draft.expression} onChange={(event) => update('expression', event.target.value)} /><FieldError message={errors.expression} /></div>
+          <div className="gf-form-field"><FieldLabel htmlFor="schedule-expression" info={scheduleInfo.cronExpression}>Cron expression</FieldLabel><GlobalVariableInput id="schedule-expression" value={draft.expression} variables={variablesQuery.data?.items ?? []} onChange={(value) => update('expression', value)} /><FieldError message={errors.expression} /></div>
           <div className="gf-form-field"><FieldLabel htmlFor="schedule-misfire" info={scheduleInfo.misfire}>Misfire policy</FieldLabel><select id="schedule-misfire" className="gf-input" value={draft.misfirePolicy} onChange={(event) => setDraft((current) => ({ ...current, misfirePolicy: event.target.value, catchupLimit: event.target.value === 'RUN_UP_TO_N' ? current.catchupLimit : '0' }))}><option>SKIP_ALL</option><option>RUN_LATEST</option><option>RUN_ALL</option><option>RUN_UP_TO_N</option><option>FAIL_AND_ALERT</option></select></div>
         </div>
         <div className="gf-form-grid">

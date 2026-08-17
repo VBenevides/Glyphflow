@@ -14,18 +14,20 @@ import (
 )
 
 type RunRecord struct {
-	ID               string `json:"id"`
-	TaskID           string `json:"taskId"`
-	TaskName         string `json:"taskName,omitempty"`
-	State            string `json:"state"`
-	PlacementBlocker string `json:"placementBlocker,omitempty"`
-	Attempt          int    `json:"attempt"`
-	ExitCode         *int   `json:"exitCode,omitempty"`
-	ExitCodeMeaning  string `json:"exitCodeMeaning"`
-	Error            string `json:"error,omitempty"`
-	Runner           string `json:"runner,omitempty"`
-	Trigger          string `json:"trigger"`
-	ScheduledFor     string `json:"scheduledFor,omitempty"`
+	ID                string `json:"id"`
+	TaskID            string `json:"taskId"`
+	TaskName          string `json:"taskName,omitempty"`
+	State             string `json:"state"`
+	PlacementBlocker  string `json:"placementBlocker,omitempty"`
+	Attempt           int    `json:"attempt"`
+	ExitCode          *int   `json:"exitCode,omitempty"`
+	ExitCodeMeaning   string `json:"exitCodeMeaning"`
+	Error             string `json:"error,omitempty"`
+	Runner            string `json:"runner,omitempty"`
+	Trigger           string `json:"trigger"`
+	ScheduledFor      string `json:"scheduledFor,omitempty"`
+	MaxMemoryUsed     int64  `json:"maxMemoryUsedBytes"`
+	AverageMemoryUsed int64  `json:"averageMemoryUsedBytes"`
 }
 
 type LogChunk struct {
@@ -57,7 +59,7 @@ func runRecordFromStore(run store.RunRecord) RunRecord {
 	if !run.ScheduledFor.IsZero() {
 		scheduledFor = run.ScheduledFor.UTC().Format(time.RFC3339)
 	}
-	return RunRecord{ID: run.ID, TaskID: run.TaskID, TaskName: run.TaskName, State: run.State, PlacementBlocker: run.PlacementBlocker, Attempt: run.Attempt, ExitCode: run.ExitCode, ExitCodeMeaning: run.ExitCodeMeaning, Error: run.Error, Runner: run.Runner, Trigger: run.TriggerType, ScheduledFor: scheduledFor}
+	return RunRecord{ID: run.ID, TaskID: run.TaskID, TaskName: run.TaskName, State: run.State, PlacementBlocker: run.PlacementBlocker, Attempt: run.Attempt, ExitCode: run.ExitCode, ExitCodeMeaning: run.ExitCodeMeaning, Error: run.Error, Runner: run.Runner, Trigger: run.TriggerType, ScheduledFor: scheduledFor, MaxMemoryUsed: run.MaxMemoryUsedBytes, AverageMemoryUsed: run.AverageMemoryUsedBytes}
 }
 
 func (s *RunService) collection(w http.ResponseWriter, r *http.Request) {

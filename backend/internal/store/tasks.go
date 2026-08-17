@@ -392,7 +392,7 @@ func insertTaskVersion(ctx context.Context, tx pgx.Tx, taskID string, version in
 	return recordGlobalVariableReferences(ctx, tx, "task_version", versionID, definition.Command, definition.WorkingDirectory, definition.Environment, definition.PlacementSelectors)
 }
 
-var globalVariableReferencePattern = regexp.MustCompile(`\$\(([A-Za-z_][A-Za-z0-9_]*)\)`)
+var globalVariableReferencePattern = regexp.MustCompile(`\$ENV:([A-Z_][A-Z0-9_]*)`)
 
 func recordGlobalVariableReferences(ctx context.Context, tx pgx.Tx, ownerType, ownerID string, values ...any) error {
 	seen := map[string]bool{}

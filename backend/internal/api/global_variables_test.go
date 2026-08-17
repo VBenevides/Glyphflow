@@ -12,8 +12,8 @@ func TestGlobalVariableCRUD(t *testing.T) {
 	service := NewGlobalVariableService()
 	handler := (Server{
 		GlobalVariables: service,
-		Auth: func(*http.Request) (Claims, bool) { return Claims{UserID: "user-1"}, true },
-		Permissions: func(Claims) map[string]bool { return map[string]bool{"tasks.read": true, "tasks.manage": true} },
+		Auth:            func(*http.Request) (Claims, bool) { return Claims{UserID: "user-1"}, true },
+		Permissions:     func(Claims) map[string]bool { return map[string]bool{"tasks.read": true, "users.manage": true} },
 	}).Handler()
 	create := httptest.NewRecorder()
 	handler.ServeHTTP(create, httptest.NewRequest(http.MethodPost, "/api/v1/global-variables", bytes.NewBufferString(`{"name":"CACHE_PATH","value":"/tmp/cache"}`)))
@@ -38,12 +38,29 @@ func TestGlobalVariableCRUD(t *testing.T) {
 
 func TestGlobalVariableRejectsInvalidName(t *testing.T) {
 	handler := (Server{
-		Auth: func(*http.Request) (Claims, bool) { return Claims{}, true },
-		Permissions: func(Claims) map[string]bool { return map[string]bool{"tasks.manage": true} },
+		Auth:        func(*http.Request) (Claims, bool) { return Claims{}, true },
+		Permissions: func(Claims) map[string]bool { return map[string]bool{"users.manage": true} },
 	}).Handler()
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/global-variables", bytes.NewBufferString(`{"name":"BAD-NAME","value":"x"}`)))
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("invalid name status = %d", response.Code)
+	}
+}
+
+func TestGlobalVariableManagementRequiresAdminPermission(t *testing.T) {
+	handler := (Server{
+		Auth:        func(*http.Request) (Claims, bool) { return Claims{}, true },
+		Permissions: func(Claims) map[string]bool { return map[string]bool{"tasks.read": true} },
+	}).Handler()
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/global-variables", nil))
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("global variable page status = %d", response.Code)
+	}
+	options := httptest.NewRecorder()
+	handler.ServeHTTP(options, httptest.NewRequest(http.MethodGet, "/api/v1/global-variables/options", nil))
+	if options.Code != http.StatusOK {
+		t.Fatalf("global variable options status = %d", options.Code)
 	}
 }

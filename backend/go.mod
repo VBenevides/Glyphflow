@@ -4,6 +4,8 @@ go 1.25.0
 
 require github.com/jackc/pgx/v5 v5.9.2
 
+require github.com/shirou/gopsutil/v4 v4.24.10
+
 require github.com/wailsapp/wails/v3 v3.0.0-alpha2.112
 
 require (
@@ -28,6 +30,9 @@ require (
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
+	github.com/tklauser/go-sysconf v0.3.12 // indirect
+	github.com/tklauser/numcpus v0.6.1 // indirect
+	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	github.com/wailsapp/wails/webview2 v1.0.27 // indirect
 	golang.org/x/exp v0.0.0-20260410095643-746e56fc9e2f // indirect
 	golang.org/x/sync v0.21.0 // indirect

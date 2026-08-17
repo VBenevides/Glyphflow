@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/VBenevides/Glyphflow/backend/internal/platform"
+	"github.com/shirou/gopsutil/v4/process"
 )
 
 var ErrOutputLimit = errors.New("command output exceeds configured limit")
@@ -21,6 +23,34 @@ type Executor struct {
 	AllowedCommands map[string]bool
 	MaxOutputBytes  int
 	Environment     map[string]string
+	Metrics         *MemoryStats
+}
+
+type MemoryStats struct {
+	MaxBytes     uint64
+	AverageBytes uint64
+	samples      uint64
+	average      float64
+}
+
+func (m *MemoryStats) Sample(pid int32) {
+	if m == nil {
+		return
+	}
+	processInfo, err := process.NewProcess(pid)
+	if err != nil {
+		return
+	}
+	memory, err := processInfo.MemoryInfo()
+	if err != nil {
+		return
+	}
+	if memory.RSS > m.MaxBytes {
+		m.MaxBytes = memory.RSS
+	}
+	m.samples++
+	m.average += (float64(memory.RSS) - m.average) / float64(m.samples)
+	m.AverageBytes = uint64(math.Round(m.average))
 }
 
 func (e Executor) Run(ctx context.Context, args []string, dir string) ([]byte, error) {
@@ -92,6 +122,14 @@ func (e Executor) RunStreamingWithExitCode(ctx context.Context, args []string, d
 	}
 	wait := make(chan error, 1)
 	go func() { wait <- cmd.Wait() }()
+	var memoryTicker *time.Ticker
+	var memoryTick <-chan time.Time
+	if e.Metrics != nil {
+		e.Metrics.Sample(int32(cmd.Process.Pid))
+		memoryTicker = time.NewTicker(time.Second)
+		defer memoryTicker.Stop()
+		memoryTick = memoryTicker.C
+	}
 
 	var output boundedBuffer
 	output.limit = e.MaxOutputBytes
@@ -150,7 +188,12 @@ func (e Executor) RunStreamingWithExitCode(ctx context.Context, args []string, d
 			processChunk(chunk)
 		case <-tick:
 			flushAll()
+		case <-memoryTick:
+			e.Metrics.Sample(int32(cmd.Process.Pid))
 		case err := <-wait:
+			if e.Metrics != nil {
+				e.Metrics.Sample(int32(cmd.Process.Pid))
+			}
 			var exitCode *int
 			if cmd.ProcessState != nil {
 				code := cmd.ProcessState.ExitCode()
