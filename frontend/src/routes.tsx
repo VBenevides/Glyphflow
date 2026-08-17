@@ -11,11 +11,10 @@ import { ScheduleEditorPage, ScheduleInventoryPage } from './schedule-pages'
 import { DashboardPage } from './dashboard'
 import { ManualRunPage, RunDetailPage, RunInventoryPage } from './run-pages'
 import { RunnerDetailPage, RunnerInventoryPage } from './runner-pages'
-import { RunnerPoolsPage } from './runner-pools-page'
 import { EnrollmentPage } from './enrollment-page'
 import { ResourceDetailPage, ResourceInventoryPage } from './resource-pages'
 import { AuditPage } from './audit-page'
-import { AuthenticationSettingsPage, ExecutionStatusPage, RoleManagementPage, SsoSettingsPage, UserManagementPage } from './admin-pages'
+import { AuthenticationSettingsPage, ExecutionStatusPage, RoleManagementPage, SessionManagementPage, SsoSettingsPage, UserManagementPage } from './admin-pages'
 import { AccountPage } from './account-pages'
 import { UserDetailsPage } from './user-details-page'
 import { GlobalVariablesPage } from './global-variables-page'
@@ -61,13 +60,14 @@ export function AppRoutes() {
     <Route path="/runs/execute" element={<PermissionRoute permission="runs.execute"><ManualRunPage /></PermissionRoute>} />
     <Route path="/runs/:runId" element={<PermissionRoute permission="runs.read"><RunDetailPage /></PermissionRoute>} />
     <Route path="/runners" element={<PermissionRoute permission="runners.read"><RunnerInventoryPage /></PermissionRoute>} />
-    <Route path="/runners/pools" element={<PermissionRoute permission="runners.read"><RunnerPoolsPage /></PermissionRoute>} />
+    <Route path="/runners/pools" element={<PermissionRoute permission="runners.read"><RunnerInventoryPage view="pools" /></PermissionRoute>} />
     <Route path="/runners/:runnerId" element={<PermissionRoute permission="runners.read"><RunnerDetailPage /></PermissionRoute>} />
     <Route path="/runners/enroll" element={<PermissionRoute permission="runners.manage"><EnrollmentPage /></PermissionRoute>} />
     <Route path="/resources" element={<PermissionRoute permission="resources.read|resources.manage"><ResourceInventoryPage /></PermissionRoute>} />
     <Route path="/resources/:resourceId" element={<PermissionRoute permission="resources.read|resources.manage"><ResourceDetailPage /></PermissionRoute>} />
     <Route path="/audit" element={<PermissionRoute permission="audit.read"><AuditPage /></PermissionRoute>} />
     <Route path="/admin/users" element={<PermissionRoute permission="users.read|users.manage"><UserManagementPage /></PermissionRoute>} />
+    <Route path="/admin/users/sessions" element={<PermissionRoute permission="users.read|users.manage"><SessionManagementPage /></PermissionRoute>} />
     <Route path="/admin/users/:userId" element={<UserDetailsRoute />} />
     <Route path="/admin/roles" element={<PermissionRoute permission="roles.read|roles.manage"><RoleManagementPage /></PermissionRoute>} />
     <Route path="/admin/sso" element={<PermissionRoute permission="sso.read|sso.manage"><SsoSettingsPage /></PermissionRoute>} />

@@ -46,12 +46,13 @@ func recordRequestError(r *http.Request, err error) {
 }
 
 type RuntimeConfig struct {
-	Brand         string `json:"brand"`
-	PasswordLogin bool   `json:"passwordLogin"`
-	Registration  bool   `json:"registration"`
-	OIDC          bool   `json:"oidc"`
-	CSRFCookie    string `json:"csrfCookie"`
-	DefaultRoleID string `json:"defaultRoleId,omitempty"`
+	Brand             string `json:"brand"`
+	PasswordLogin     bool   `json:"passwordLogin"`
+	Registration      bool   `json:"registration"`
+	OIDC              bool   `json:"oidc"`
+	LockdownScheduler bool   `json:"lockdownScheduler"`
+	CSRFCookie        string `json:"csrfCookie"`
+	DefaultRoleID     string `json:"defaultRoleId,omitempty"`
 }
 
 type Server struct {
@@ -251,6 +252,7 @@ func (s Server) Handler() http.Handler {
 		panic(err)
 	}
 	var handler http.Handler = mux
+	handler = s.withLockdown(handler)
 	csrfOrigins := s.CSRFOrigins
 	if len(csrfOrigins) == 0 && s.CSRFOrigin != "" {
 		csrfOrigins = []string{s.CSRFOrigin}
@@ -262,6 +264,27 @@ func (s Server) Handler() http.Handler {
 		handler = s.withCORS(handler)
 	}
 	return s.noStore(s.withCorrelation(s.limitRequestBody(handler)))
+}
+
+func (s Server) withLockdown(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.lockdownScheduler() && isWriteMethod(r.Method) && r.URL.Path != "/api/v1/admin/auth/settings" && !strings.HasPrefix(r.URL.Path, "/api/v1/auth/") {
+			writeJSON(w, http.StatusLocked, map[string]string{"error": "scheduler is in lockdown: only read actions are allowed"})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (s Server) lockdownScheduler() bool {
+	if s.AuthService != nil {
+		return s.AuthService.LockdownScheduler()
+	}
+	return s.Config.LockdownScheduler
+}
+
+func isWriteMethod(method string) bool {
+	return method == http.MethodPost || method == http.MethodPut || method == http.MethodDelete
 }
 
 func (s Server) withCORS(next http.Handler) http.Handler {

@@ -203,6 +203,19 @@ type AuditQueryService struct {
 	appendFailureHandler func(AuditEvent, error)
 }
 
+func auditCounts(events []AuditEvent) store.AuditCounts {
+	counts := store.AuditCounts{Total: len(events)}
+	for _, event := range events {
+		if strings.EqualFold(event.Result, "failure") {
+			counts.Failures++
+		}
+		if strings.EqualFold(event.Action, http.MethodPost) || strings.EqualFold(event.Action, http.MethodPut) || strings.EqualFold(event.Action, http.MethodDelete) {
+			counts.Writes++
+		}
+	}
+	return counts
+}
+
 func NewAuditQueryService() *AuditQueryService { return &AuditQueryService{} }
 
 func (s *AuditQueryService) SetRepository(repository store.AuditRepository) {
@@ -309,7 +322,7 @@ func (s *AuditQueryService) query(w http.ResponseWriter, r *http.Request) {
 	if repository != nil {
 		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-		items, total, err := repository.Query(r.Context(), store.AuditFilter{Actor: filters["actor"], Action: filters["action"], Target: filters["target"], Result: filters["result"], CorrelationID: filters["correlationId"], ExcludeTarget: excludeTarget, ExcludeRunLogs: excludeRunLogs, From: from, To: to, Page: page, Limit: limit})
+		items, counts, err := repository.Query(r.Context(), store.AuditFilter{Actor: filters["actor"], Action: filters["action"], Target: filters["target"], Result: filters["result"], CorrelationID: filters["correlationId"], ExcludeTarget: excludeTarget, ExcludeRunLogs: excludeRunLogs, From: from, To: to, Page: page, Limit: limit})
 		if err != nil {
 			writeError(w, http.StatusServiceUnavailable, "audit storage unavailable", err)
 			return
@@ -324,11 +337,11 @@ func (s *AuditQueryService) query(w http.ResponseWriter, r *http.Request) {
 		if limit < 1 || limit > 100 {
 			limit = 50
 		}
-		pages := (total + limit - 1) / limit
+		pages := (counts.Total + limit - 1) / limit
 		if pages == 0 {
 			pages = 1
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"items": result, "page": page, "limit": limit, "total": total, "pages": pages})
+		writeJSON(w, http.StatusOK, map[string]any{"items": result, "page": page, "limit": limit, "total": counts.Total, "pages": pages, "failureCount": counts.Failures, "writeCount": counts.Writes})
 		return
 	}
 	s.mu.RLock()
@@ -342,7 +355,28 @@ func (s *AuditQueryService) query(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.RUnlock()
 	sort.SliceStable(items, func(i, j int) bool { return items[i].CreatedAt > items[j].CreatedAt })
-	writePage(w, r, items)
+	counts := auditCounts(items)
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit < 1 || limit > 100 {
+		limit = 50
+	}
+	start := (page - 1) * limit
+	if start > len(items) {
+		start = len(items)
+	}
+	end := start + limit
+	if end > len(items) {
+		end = len(items)
+	}
+	pages := (counts.Total + limit - 1) / limit
+	if pages == 0 {
+		pages = 1
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items[start:end], "page": page, "limit": limit, "total": counts.Total, "pages": pages, "failureCount": counts.Failures, "writeCount": counts.Writes})
 }
 
 func isRunLogAudit(paths ...string) bool {

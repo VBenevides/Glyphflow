@@ -60,7 +60,7 @@ type TaskVersionRecord struct {
 }
 
 type TaskRepository interface {
-	List(context.Context) ([]TaskRecord, error)
+	List(context.Context, bool) ([]TaskRecord, error)
 	Find(context.Context, string) (TaskRecord, bool, error)
 	ListVersions(context.Context, string) ([]TaskVersionRecord, error)
 	Create(context.Context, TaskDefinition) (TaskRecord, error)
@@ -72,8 +72,12 @@ type TaskStore struct{ pool *pgxpool.Pool }
 
 func NewTaskRepository(pool *pgxpool.Pool) *TaskStore { return &TaskStore{pool: pool} }
 
-func (s *TaskStore) List(ctx context.Context) ([]TaskRecord, error) {
-	rows, err := s.pool.Query(ctx, taskQuery+` WHERE NOT t.is_deleted ORDER BY lower(t.name), t.id`)
+func (s *TaskStore) List(ctx context.Context, archived bool) ([]TaskRecord, error) {
+	filter := `NOT t.is_deleted`
+	if archived {
+		filter = `t.is_deleted`
+	}
+	rows, err := s.pool.Query(ctx, taskQuery+` WHERE `+filter+` ORDER BY lower(t.name), t.id`)
 	if err != nil {
 		return nil, err
 	}

@@ -37,6 +37,7 @@ type AuthService struct {
 	config                               *store.ConfigStore
 	passwordEnabled, registrationEnabled bool
 	defaultRoleID                        string
+	lockdownScheduler                    bool
 	sessions                             *SessionManager
 	sessionRepository                    store.SessionRepository
 	refresh                              *platform.RefreshSessionManager
@@ -207,7 +208,32 @@ func (s *AuthService) SetDefaultRoleID(roleID string) error {
 func (s *AuthService) AuthSettings() map[string]any {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return map[string]any{"passwordLoginEnabled": s.passwordEnabled, "registration": s.registrationEnabled, "defaultRoleId": s.defaultRoleID}
+	return map[string]any{"passwordLoginEnabled": s.passwordEnabled, "registration": s.registrationEnabled, "defaultRoleId": s.defaultRoleID, "lockdownScheduler": s.lockdownScheduler}
+}
+
+func (s *AuthService) LockdownScheduler() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.lockdownScheduler
+}
+
+func (s *AuthService) SetLockdownScheduler(enabled bool) {
+	s.mu.Lock()
+	s.lockdownScheduler = enabled
+	s.mu.Unlock()
+}
+
+func (s *AuthService) UpdateLockdownScheduler(enabled bool) error {
+	s.mu.RLock()
+	config := s.config
+	s.mu.RUnlock()
+	if config != nil {
+		if err := config.Set(context.Background(), "LOCKDOWN_SCHEDULER", enabled); err != nil {
+			return err
+		}
+	}
+	s.SetLockdownScheduler(enabled)
+	return nil
 }
 
 func (s *AuthService) PasswordLoginEnabled() bool {
@@ -778,6 +804,27 @@ func (s *AuthService) Users() []map[string]any {
 	}
 	sort.Slice(users, func(i, j int) bool { return users[i]["username"].(string) < users[j]["username"].(string) })
 	return users
+}
+
+func (s *AuthService) AdminSessions() []AdminSession {
+	records, err := s.users.List(context.Background())
+	if err != nil {
+		return []AdminSession{}
+	}
+	users := make(map[string]string, len(records))
+	for _, record := range records {
+		users[record.ID] = record.Email
+	}
+	sessions := []AdminSession{}
+	for userID, email := range users {
+		for _, session := range s.sessions.List(userID) {
+			sessions = append(sessions, AdminSession{ID: session.ID, UserID: userID, UserEmail: email, ExpiresAt: session.ExpiresAt, LastSeenAt: session.LastSeenAt, UserAgent: session.UserAgent, IPAddress: session.IPAddress})
+		}
+	}
+	sort.Slice(sessions, func(i, j int) bool {
+		return sessions[i].UserEmail < sessions[j].UserEmail || sessions[i].UserEmail == sessions[j].UserEmail && sessions[i].ID < sessions[j].ID
+	})
+	return sessions
 }
 
 func (s *AuthService) issueTokens(userID string) (AuthTokens, error) {

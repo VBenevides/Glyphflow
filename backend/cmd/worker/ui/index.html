@@ -72,7 +72,7 @@
           capacity.textContent = snapshot.parallelExecutions;
           if (snapshot.reset) entries = snapshot.entries || [];
           else entries.push(...(snapshot.entries || []));
-          entries = entries.slice(-5000);
+          entries = entries.slice(-500);
           if (entries.length) after = entries[entries.length - 1].sequence;
           render();
         } catch (_) { /* worker may still be starting */ }

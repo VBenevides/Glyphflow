@@ -9,9 +9,9 @@ import (
 	"time"
 )
 
-const maxWorkerLogEntries = 5000
+const maxWorkerLogEntries = 500
 
-// ponytail: retain only 5,000 lines; use a persistent log store if operators later need longer history.
+// ponytail: retain only 500 lines; use a persistent log store if operators later need longer history.
 type LogEntry struct {
 	Sequence  uint64 `json:"sequence"`
 	Timestamp string `json:"timestamp"`

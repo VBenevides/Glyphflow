@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { Activity } from 'lucide-react'
-import { Button, DataTable, Dialog, EmptyState, Input, MetricCard, PageHeader, StatusPill } from './components'
+import { Button, DataTable, Dialog, EmptyState, Input, matchingFilterOptions, MetricCard, PageHeader, StatusPill } from './components'
 
 describe('shared components', () => {
   it('renders status text and table headers accessibly', () => {
@@ -31,6 +31,10 @@ describe('shared components', () => {
     expect(html).toContain('class="gf-input compact"')
     expect(html).toContain('aria-busy="true"')
     expect(html).toContain('Working…')
+  })
+
+  it('filters and deduplicates searchable filter values', () => {
+    expect(matchingFilterOptions(['Admin', 'Runner', 'Admin'], 'run')).toEqual(['Runner'])
   })
 
   it('gives each dialog title a unique label target', () => {

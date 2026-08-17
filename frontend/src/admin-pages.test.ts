@@ -1,12 +1,23 @@
 import { describe, expect, it } from 'vitest'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { roleMappingsValue, UserAccessEditor, UserCreationForm } from './admin-pages'
+import { filterAndSortRoles, roleMappingsValue, UserAccessEditor, UserCreationForm } from './admin-pages'
 import type { RoleDefinition, UserRecord } from './api'
 
 describe('role selectors', () => {
   it('sends only complete group-role mappings', () => {
     expect(roleMappingsValue([{ group: ' admins ', role: 'admin' }, { group: '', role: 'user' }, { group: 'users', role: '' }])).toEqual({ admins: 'admin' })
+  })
+
+  it('filters roles and keeps system roles first in alphabetical order', () => {
+    const roles: RoleDefinition[] = [
+      { id: 'z-custom', name: 'zeta', permissions: ['runs.read'] },
+      { id: 'system-operator', name: 'operator', permissions: ['tasks.read'], system: true },
+      { id: 'a-custom', name: 'alpha', permissions: ['runs.read'] },
+      { id: 'system-admin', name: 'admin', permissions: ['tasks.read'], system: true },
+    ]
+    expect(filterAndSortRoles(roles, 'tasks.read').map((role) => role.name)).toEqual(['admin', 'operator'])
+    expect(filterAndSortRoles(roles, 'custom').map((role) => role.name)).toEqual(['alpha', 'zeta'])
   })
 })
 

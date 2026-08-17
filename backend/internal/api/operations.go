@@ -154,11 +154,12 @@ func scheduleDefinition(id string, input scheduleInput) (store.ScheduleDefinitio
 
 func (o *OperationsService) taskCollection(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
+		archived := strings.EqualFold(r.URL.Query().Get("archived"), "true")
 		o.mu.RLock()
 		repository := o.repository
 		o.mu.RUnlock()
 		if repository != nil {
-			items, err := repository.List(r.Context())
+			items, err := repository.List(r.Context(), archived)
 			if err != nil {
 				writeError(w, http.StatusServiceUnavailable, "task storage unavailable", err)
 				return
@@ -167,20 +168,20 @@ func (o *OperationsService) taskCollection(w http.ResponseWriter, r *http.Reques
 			for _, item := range items {
 				result = append(result, taskRecordFromStore(item))
 			}
-			result = filterTasks(result, r.URL.Query().Get("search"))
+			result = filterTasks(result, r.URL.Query())
 			writePage(w, r, result)
 			return
 		}
 		o.mu.RLock()
 		items := make([]TaskRecord, 0, len(o.tasks))
 		for _, task := range o.tasks {
-			if task.IsDeleted {
+			if task.IsDeleted != archived {
 				continue
 			}
 			items = append(items, task)
 		}
 		o.mu.RUnlock()
-		items = filterTasks(items, r.URL.Query().Get("search"))
+		items = filterTasks(items, r.URL.Query())
 		sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 		writePage(w, r, items)
 		return
@@ -637,14 +638,18 @@ func (o *OperationsService) schedule(id string) (ScheduleRecord, bool) {
 	return schedule, ok
 }
 
-func filterTasks(items []TaskRecord, search string) []TaskRecord {
-	search = strings.ToLower(strings.TrimSpace(search))
-	if search == "" {
+func filterTasks(items []TaskRecord, query url.Values) []TaskRecord {
+	search := strings.ToLower(strings.TrimSpace(query.Get("search")))
+	state := strings.ToLower(strings.TrimSpace(query.Get("state")))
+	if search == "" && state != "enabled" && state != "disabled" {
 		return items
 	}
 	filtered := items[:0]
 	for _, item := range items {
 		if strings.Contains(strings.ToLower(item.ID), search) || strings.Contains(strings.ToLower(item.Name), search) || strings.Contains(strings.ToLower(item.Pool), search) {
+			if state == "enabled" && !item.Enabled || state == "disabled" && item.Enabled {
+				continue
+			}
 			filtered = append(filtered, item)
 		}
 	}
@@ -653,13 +658,22 @@ func filterTasks(items []TaskRecord, search string) []TaskRecord {
 
 func filterSchedules(items []ScheduleRecord, query url.Values) []ScheduleRecord {
 	task, due := strings.TrimSpace(query.Get("task")), strings.EqualFold(query.Get("due"), "true")
-	if task == "" && !due {
+	enabled, enabledFilter := false, false
+	if value := strings.TrimSpace(query.Get("enabled")); value != "" {
+		if parsed, err := strconv.ParseBool(value); err == nil {
+			enabled, enabledFilter = parsed, true
+		}
+	}
+	if task == "" && !due && !enabledFilter {
 		return items
 	}
 	filtered := items[:0]
 	now := time.Now().UTC()
 	for _, item := range items {
 		if task != "" && !strings.Contains(strings.ToLower(item.TaskID), strings.ToLower(task)) {
+			continue
+		}
+		if enabledFilter && item.Enabled != enabled {
 			continue
 		}
 		if due {

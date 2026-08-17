@@ -90,7 +90,7 @@ type InfrastructureService struct {
 }
 
 func NewInfrastructureService() *InfrastructureService {
-	return &InfrastructureService{runners: map[string]RunnerRecord{}, pools: map[string]RunnerPoolRecord{"default": {ID: "default", Name: "default", Enabled: true}}, resources: map[string]ResourceRecord{}, enrollments: map[string]*enrollment{}, runnerKeys: map[string]runnerKey{}, runnerBinaryDir: "runner-binaries"}
+	return &InfrastructureService{runners: map[string]RunnerRecord{}, pools: map[string]RunnerPoolRecord{"default": {ID: "default", Name: "default", Description: "Default Runner Pool", Enabled: true}}, resources: map[string]ResourceRecord{}, enrollments: map[string]*enrollment{}, runnerKeys: map[string]runnerKey{}, runnerBinaryDir: "runner-binaries"}
 }
 
 func (s *InfrastructureService) SetRunnerRepository(repository store.RunnerRepository) {
@@ -360,7 +360,7 @@ func (s *InfrastructureService) runnerCollection(w http.ResponseWriter, r *http.
 		for _, item := range items {
 			result = append(result, runnerRecordFromStore(item))
 		}
-		result = filterRunners(result, r.URL.Query().Get("state"), r.URL.Query().Get("search"))
+		result = filterRunners(result, r.URL.Query().Get("state"), r.URL.Query().Get("search"), r.URL.Query().Get("desired_state"))
 		sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 		writePage(w, r, result)
 		return
@@ -374,7 +374,7 @@ func (s *InfrastructureService) runnerCollection(w http.ResponseWriter, r *http.
 		}
 	}
 	s.mu.RUnlock()
-	items = filterRunners(items, r.URL.Query().Get("state"), r.URL.Query().Get("search"))
+	items = filterRunners(items, r.URL.Query().Get("state"), r.URL.Query().Get("search"), r.URL.Query().Get("desired_state"))
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 	writePage(w, r, items)
 }
@@ -382,17 +382,22 @@ func (s *InfrastructureService) runnerCollection(w http.ResponseWriter, r *http.
 func filterRunners(items []RunnerRecord, state string, searchValues ...string) []RunnerRecord {
 	state = strings.TrimSpace(state)
 	search := ""
+	desiredState := ""
 	if len(searchValues) > 0 {
 		search = searchValues[0]
 	}
+	if len(searchValues) > 1 {
+		desiredState = searchValues[1]
+	}
 	search = strings.ToLower(strings.TrimSpace(search))
-	if state == "" && search == "" {
+	desiredState = strings.TrimSpace(desiredState)
+	if state == "" && search == "" && desiredState == "" {
 		return items
 	}
 	filtered := items[:0]
 	for _, item := range items {
 		matchesSearch := search == "" || strings.Contains(strings.ToLower(item.ID), search) || strings.Contains(strings.ToLower(item.Name), search) || strings.Contains(strings.ToLower(item.Pool), search)
-		if (state == "" || strings.EqualFold(item.ObservedState, state)) && matchesSearch {
+		if (state == "" || strings.EqualFold(item.ObservedState, state)) && (desiredState == "" || strings.EqualFold(item.DesiredState, desiredState)) && matchesSearch {
 			filtered = append(filtered, item)
 		}
 	}
@@ -911,6 +916,11 @@ func (s *InfrastructureService) resourceCollection(w http.ResponseWriter, r *htt
 		if strings.TrimSpace(input.Kind) == "" {
 			input.Kind = "exclusive"
 		}
+		input.Kind = strings.ToLower(strings.TrimSpace(input.Kind))
+		if input.Kind != "exclusive" && input.Kind != "non-blocking" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "resource kind must be exclusive or non-blocking"})
+			return
+		}
 		id, err := randomID()
 		if err != nil {
 			writeError(w, http.StatusServiceUnavailable, "resource creation failed", err)
@@ -960,7 +970,7 @@ func (s *InfrastructureService) resourceCollection(w http.ResponseWriter, r *htt
 		for _, item := range items {
 			result = append(result, resourceRecordFromStore(item))
 		}
-		result = filterResources(result, r.URL.Query().Get("search"))
+		result = filterResources(result, r.URL.Query().Get("search"), r.URL.Query().Get("kind"))
 		writePage(w, r, result)
 		return
 	}
@@ -970,19 +980,24 @@ func (s *InfrastructureService) resourceCollection(w http.ResponseWriter, r *htt
 		items = append(items, item)
 	}
 	s.mu.RUnlock()
-	items = filterResources(items, r.URL.Query().Get("search"))
+	items = filterResources(items, r.URL.Query().Get("search"), r.URL.Query().Get("kind"))
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 	writePage(w, r, items)
 }
 
-func filterResources(items []ResourceRecord, search string) []ResourceRecord {
+func filterResources(items []ResourceRecord, search string, kindValues ...string) []ResourceRecord {
 	search = strings.ToLower(strings.TrimSpace(search))
-	if search == "" {
+	kind := ""
+	if len(kindValues) > 0 {
+		kind = strings.ToLower(strings.ReplaceAll(strings.TrimSpace(kindValues[0]), "_", "-"))
+	}
+	if search == "" && kind == "" {
 		return items
 	}
 	filtered := items[:0]
 	for _, item := range items {
-		if strings.Contains(strings.ToLower(item.ID), search) || strings.Contains(strings.ToLower(item.Name), search) {
+		itemKind := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(item.Kind), "_", "-"))
+		if (kind == "" || itemKind == kind) && (strings.Contains(strings.ToLower(item.ID), search) || strings.Contains(strings.ToLower(item.Name), search)) {
 			filtered = append(filtered, item)
 		}
 	}

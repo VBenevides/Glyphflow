@@ -267,6 +267,13 @@ func TestFilterRunnersByObservedState(t *testing.T) {
 	if len(items) != 1 || items[0].ID != "runner-2" {
 		t.Fatalf("offline runners = %#v", items)
 	}
+	disabled := filterRunners([]RunnerRecord{
+		{ID: "runner-1", DesiredState: "ENABLED"},
+		{ID: "runner-2", DesiredState: "DISABLED"},
+	}, "", "", "DISABLED")
+	if len(disabled) != 1 || disabled[0].ID != "runner-2" {
+		t.Fatalf("disabled runners = %#v", disabled)
+	}
 }
 
 func TestResourceDeleteGuardsReferencesAndActiveLease(t *testing.T) {
@@ -287,6 +294,16 @@ func TestResourceDeleteGuardsReferencesAndActiveLease(t *testing.T) {
 	}
 }
 
+func TestFilterResourcesByKind(t *testing.T) {
+	items := filterResources([]ResourceRecord{
+		{ID: "exclusive", Kind: "exclusive"},
+		{ID: "non-blocking", Kind: "non_blocking"},
+	}, "", "exclusive")
+	if len(items) != 1 || items[0].ID != "exclusive" {
+		t.Fatalf("exclusive resources = %#v", items)
+	}
+}
+
 func TestResourceCreate(t *testing.T) {
 	s := NewInfrastructureService()
 	response := httptest.NewRecorder()
@@ -296,6 +313,16 @@ func TestResourceCreate(t *testing.T) {
 	}
 	if len(s.resources) != 1 {
 		t.Fatalf("resources = %d, want 1", len(s.resources))
+	}
+	response = httptest.NewRecorder()
+	s.resourceCollection(response, httptest.NewRequest(http.MethodPost, "/api/v1/resources", bytes.NewBufferString(`{"name":"Telemetry","kind":"non-blocking"}`)))
+	if response.Code != http.StatusCreated || !bytes.Contains(response.Body.Bytes(), []byte(`"kind":"non-blocking"`)) {
+		t.Fatalf("create non-blocking resource returned %d: %s", response.Code, response.Body.String())
+	}
+	response = httptest.NewRecorder()
+	s.resourceCollection(response, httptest.NewRequest(http.MethodPost, "/api/v1/resources", bytes.NewBufferString(`{"name":"Invalid","kind":"shared"}`)))
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("invalid resource kind returned %d", response.Code)
 	}
 }
 

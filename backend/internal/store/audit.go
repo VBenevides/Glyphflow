@@ -22,9 +22,13 @@ type AuditFilter struct {
 	Page, Limit                                                 int
 }
 
+type AuditCounts struct {
+	Total, Failures, Writes int
+}
+
 type AuditRepository interface {
 	Append(context.Context, AuditEventRecord) error
-	Query(context.Context, AuditFilter) ([]AuditEventRecord, int, error)
+	Query(context.Context, AuditFilter) ([]AuditEventRecord, AuditCounts, error)
 }
 
 type AuditStore struct{ pool *pgxpool.Pool }
@@ -55,7 +59,7 @@ func (s *AuditStore) Append(ctx context.Context, event AuditEventRecord) error {
 	return err
 }
 
-func (s *AuditStore) Query(ctx context.Context, filter AuditFilter) ([]AuditEventRecord, int, error) {
+func (s *AuditStore) Query(ctx context.Context, filter AuditFilter) ([]AuditEventRecord, AuditCounts, error) {
 	if filter.Page <= 0 {
 		filter.Page = 1
 	}
@@ -70,14 +74,14 @@ func (s *AuditStore) Query(ctx context.Context, filter AuditFilter) ([]AuditEven
 	if !filter.To.IsZero() {
 		to = filter.To
 	}
-	var total int
-	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM audit_events`+where, filter.Actor, filter.Action, filter.Target, filter.Result, filter.CorrelationID, filter.ExcludeTarget, from, to, filter.ExcludeRunLogs).Scan(&total); err != nil {
-		return nil, 0, err
+	var counts AuditCounts
+	if err := s.pool.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE lower(result) = 'failure'), count(*) FILTER (WHERE upper(method) IN ('POST', 'PUT', 'DELETE')) FROM audit_events`+where, filter.Actor, filter.Action, filter.Target, filter.Result, filter.CorrelationID, filter.ExcludeTarget, from, to, filter.ExcludeRunLogs).Scan(&counts.Total, &counts.Failures, &counts.Writes); err != nil {
+		return nil, AuditCounts{}, err
 	}
 	offset := (filter.Page - 1) * filter.Limit
 	rows, err := s.pool.Query(ctx, `SELECT id, COALESCE(actor_id, ''), actor_name, actor_email, method, description, endpoint, target, result, request_input, response_output, before_value, after_value, COALESCE(traceback, ''), COALESCE(correlation_id, ''), created_at FROM audit_events`+where+` ORDER BY created_at DESC, id DESC LIMIT $10 OFFSET $11`, filter.Actor, filter.Action, filter.Target, filter.Result, filter.CorrelationID, filter.ExcludeTarget, from, to, filter.ExcludeRunLogs, filter.Limit, offset)
 	if err != nil {
-		return nil, 0, err
+		return nil, AuditCounts{}, err
 	}
 	defer rows.Close()
 	events := []AuditEventRecord{}
@@ -85,7 +89,7 @@ func (s *AuditStore) Query(ctx context.Context, filter AuditFilter) ([]AuditEven
 		var event AuditEventRecord
 		var input, output, before, after []byte
 		if err := rows.Scan(&event.ID, &event.ActorID, &event.ActorName, &event.ActorEmail, &event.Method, &event.Description, &event.Endpoint, &event.Target, &event.Result, &input, &output, &before, &after, &event.Traceback, &event.CorrelationID, &event.CreatedAt); err != nil {
-			return nil, 0, err
+			return nil, AuditCounts{}, err
 		}
 		for target, raw := range map[string][]byte{"input": input, "output": output, "before": before, "after": after} {
 			if len(raw) == 0 || string(raw) == "null" {
@@ -93,7 +97,7 @@ func (s *AuditStore) Query(ctx context.Context, filter AuditFilter) ([]AuditEven
 			}
 			var value any
 			if err := json.Unmarshal(raw, &value); err != nil {
-				return nil, 0, err
+				return nil, AuditCounts{}, err
 			}
 			switch target {
 			case "input":
@@ -108,5 +112,5 @@ func (s *AuditStore) Query(ctx context.Context, filter AuditFilter) ([]AuditEven
 		}
 		events = append(events, event)
 	}
-	return events, total, rows.Err()
+	return events, counts, rows.Err()
 }

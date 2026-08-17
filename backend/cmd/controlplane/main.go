@@ -63,6 +63,7 @@ func main() {
 		"ENABLE_PASSWORD_LOGIN":        cfg.PasswordLoginEnabled,
 		"ENABLE_PASSWORD_REGISTRATION": cfg.PasswordRegistrationEnabled,
 		"DEFAULT_ROLE_ID":              cfg.DefaultRoleID,
+		"LOCKDOWN_SCHEDULER":           false,
 	} {
 		if err := configStore.SetIfAbsent(ctx, name, value); err != nil {
 			db.Close()
@@ -90,7 +91,7 @@ func main() {
 			cfg.SystemAdminEmails = storedSystemAdminEmails
 		}
 	}
-	var storedPasswordLogin, storedPasswordRegistration bool
+	var storedPasswordLogin, storedPasswordRegistration, storedLockdownScheduler bool
 	var storedDefaultRoleID string
 	if found, err := configStore.Get(ctx, "ENABLE_PASSWORD_LOGIN", &storedPasswordLogin); err != nil {
 		db.Close()
@@ -113,6 +114,13 @@ func main() {
 	} else if found && strings.TrimSpace(storedDefaultRoleID) != "" {
 		cfg.DefaultRoleID = storedDefaultRoleID
 	}
+	if found, err := configStore.Get(ctx, "LOCKDOWN_SCHEDULER", &storedLockdownScheduler); err != nil {
+		db.Close()
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	} else if found {
+		cfg.LockdownScheduler = storedLockdownScheduler
+	}
 	authService, err := api.NewAuthService(cfg.AccessTokenSecret, cfg.PasswordLoginEnabled, cfg.PasswordRegistrationEnabled, []byte(cfg.PasswordPepper))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -122,6 +130,7 @@ func main() {
 	roleRepository := store.NewRoleRepository(db)
 	authService.SetRoleRepository(roleRepository)
 	authService.SetConfigStore(configStore)
+	authService.SetLockdownScheduler(cfg.LockdownScheduler)
 	authService.SetSessionRepository(store.NewSessionRepository(db))
 	authService.SetSSORepository(store.NewOIDCProviderRepository(db))
 	if err := authService.AddRole("admin", platform.PermissionCatalog...); err != nil {

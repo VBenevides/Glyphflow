@@ -38,6 +38,7 @@ type Config struct {
 	PasswordLoginEnabled          bool
 	PasswordRegistrationEnabled   bool
 	DefaultRoleID                 string
+	LockdownScheduler             bool
 	BootstrapUsername             string
 	BootstrapPassword             string
 	BootstrapOIDCProvider         string

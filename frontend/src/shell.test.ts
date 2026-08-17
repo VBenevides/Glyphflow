@@ -14,13 +14,13 @@ describe('application shell navigation', () => {
   })
 
   it('activates only the most specific route for nested pages', () => {
-    expect(activeRoutePath('/runners/pools', ROUTES)).toBe('/runners/pools')
+    expect(activeRoutePath('/runners/pools', ROUTES)).toBe('/runners')
     expect(activeRoutePath('/runners/runner-1', ROUTES)).toBe('/runners')
     expect(activeRoutePath('/tasks/new', ROUTES)).toBe('/tasks')
   })
 
   it('uses contextual labels for compact navigation items', () => {
-    expect(navigationLabel(ROUTES.find((route) => route.path === '/runners/pools')!)).toBe('Runner pools')
+    expect(navigationLabel(ROUTES.find((route) => route.path === '/runners')!)).toBe('Runners & Pools')
     expect(navigationLabel(ROUTES.find((route) => route.path === '/admin/sso')!)).toBe('Single sign-on')
   })
 

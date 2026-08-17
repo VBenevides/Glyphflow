@@ -88,8 +88,8 @@ func TestLogBufferConcurrentWriters(t *testing.T) {
 		}(stream)
 	}
 	group.Wait()
-	if got := len(buffer.Snapshot(0).Entries); got != 1600 {
-		t.Fatalf("entries = %d, want 1600", got)
+	if got := len(buffer.Snapshot(0).Entries); got != maxWorkerLogEntries {
+		t.Fatalf("entries = %d, want %d", got, maxWorkerLogEntries)
 	}
 }
 

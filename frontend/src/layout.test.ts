@@ -12,8 +12,8 @@ describe('UI layout contracts', () => {
   })
 
   it('keeps run filters flexible and empty states compact', () => {
-    expect(css).toContain('.gf-filter-bar > label, .gf-filter-bar > .gf-task-picker { min-width: 10rem; flex: 1 1 10rem; }')
-    expect(css).toContain(".gf-filter-bar > label:has(> input[type='datetime-local']) { min-width: 11rem; flex-basis: 11rem; }")
+    expect(css).toContain('.gf-filter-bar > label, .gf-filter-bar > .gf-filter-field, .gf-filter-bar > .gf-task-picker { min-width: 10rem; flex: 1 1 10rem; }')
+    expect(css).toContain(".gf-filter-bar > label:has(> input[type='datetime-local']) { min-width: 18rem; flex-basis: 18rem; }")
     expect(css).toContain('.gf-state.gf-empty { min-height: 7rem; padding: 1.25rem; }')
   })
 
@@ -43,7 +43,7 @@ describe('UI layout contracts', () => {
   })
 
   it('keeps the registry theme compact and lavender', () => {
-    expect(css).toContain('--gf-page: oklch(0.965 0.018 285);')
+    expect(css).toContain('--gf-page: oklch(0.985 0.004 280);')
     expect(css).toContain('.gf-app-shell { grid-template-columns: 18rem 1fr; }')
     expect(css).toContain('.gf-sidebar.is-collapsed .gf-nav-link.is-active')
     expect(css).toContain('.gf-role-table .gf-table { min-width: 58rem; }')
