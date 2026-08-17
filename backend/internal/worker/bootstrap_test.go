@@ -16,6 +16,10 @@ func TestBootstrapRoundTrip(t *testing.T) {
 	if err != nil || output == nil || *output != input {
 		t.Fatalf("bootstrap = %#v, err=%v", output, err)
 	}
+	input.NATSURL = ""
+	if _, err := PackBootstrap([]byte("binary"), input); err != nil {
+		t.Fatalf("bootstrap without embedded NATS endpoint: %v", err)
+	}
 	plain, err := UnpackBootstrap([]byte("binary"))
 	if err != nil || plain != nil {
 		t.Fatalf("plain binary = %#v, err=%v", plain, err)

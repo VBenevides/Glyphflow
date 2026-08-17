@@ -166,7 +166,16 @@ func main() {
 	infrastructure.SetRunnerRepository(runnerRepository)
 	infrastructure.SetResourceRepository(store.NewResourceRepository(db))
 	infrastructure.SetRunnerBinaryDirectory(os.Getenv("RUNNER_BINARIES_DIR"))
-	infrastructure.SetRunnerArtifactConfig(cfg.NATSURL, cfg.MaxMessageBytes)
+	runnerNATSURL := strings.TrimSpace(os.Getenv("RUNNER_NATS_URL"))
+	if runnerNATSURL == "" {
+		runnerNATSURL = cfg.NATSURL
+	}
+	runnerControlPlaneURL := strings.TrimSpace(os.Getenv("RUNNER_CONTROL_PLANE_URL"))
+	if runnerControlPlaneURL == "" {
+		runnerControlPlaneURL = cfg.WebOrigin
+	}
+	infrastructure.SetRunnerArtifactConfig(runnerNATSURL, cfg.MaxMessageBytes)
+	infrastructure.SetRunnerControlPlaneURL(runnerControlPlaneURL)
 	infrastructure.SetControlPlanePublicKey(base64.RawStdEncoding.EncodeToString(signingKey.Public.PublicKey))
 	audit := api.NewAuditQueryService()
 	audit.SetRepository(store.NewAuditRepository(db))

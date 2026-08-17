@@ -38,6 +38,7 @@ type RunnerRecord struct {
 	HeartbeatAt     string `json:"heartbeatAt,omitempty"`
 	Platform        string `json:"platform,omitempty"`
 	Architecture    string `json:"architecture,omitempty"`
+	NATSEndpoint    string `json:"natsEndpoint,omitempty"`
 	IsArchived      bool   `json:"isArchived"`
 	IsDeleted       bool   `json:"isDeleted"`
 }
@@ -78,6 +79,7 @@ type InfrastructureService struct {
 	runnerRepository         store.RunnerRepository
 	resourceRepository       store.ResourceRepository
 	runnerBinaryDir          string
+	runnerControlPlaneURL    string
 	runnerNATSURL            string
 	runnerMaxMessageBytes    int
 	controlPlanePublicKey    string
@@ -114,6 +116,12 @@ func (s *InfrastructureService) SetRunnerBinaryDirectory(directory string) {
 	s.mu.Unlock()
 }
 
+func (s *InfrastructureService) SetRunnerControlPlaneURL(url string) {
+	s.mu.Lock()
+	s.runnerControlPlaneURL = strings.TrimRight(strings.TrimSpace(url), "/")
+	s.mu.Unlock()
+}
+
 func (s *InfrastructureService) SetRunnerArtifactConfig(natsURL string, maxMessageBytes int) {
 	s.mu.Lock()
 	s.runnerNATSURL = strings.TrimSpace(natsURL)
@@ -139,7 +147,7 @@ func runnerRecordFromStore(runner store.RunnerRecord) RunnerRecord {
 	if runner.HeartbeatAt != nil {
 		heartbeat = runner.HeartbeatAt.UTC().Format(time.RFC3339)
 	}
-	return RunnerRecord{ID: runner.ID, Name: runner.Name, PoolID: runner.PoolID, DesiredState: runner.DesiredState, ObservedState: runner.ObservedState, Pool: runner.Pool, Capacity: runner.Capacity, CurrentCapacity: runner.CurrentCapacity, ActiveCount: runner.ActiveCount, HeartbeatAt: heartbeat, Platform: runner.Platform, Architecture: runner.Architecture, IsArchived: runner.IsArchived, IsDeleted: runner.IsDeleted}
+	return RunnerRecord{ID: runner.ID, Name: runner.Name, PoolID: runner.PoolID, DesiredState: runner.DesiredState, ObservedState: runner.ObservedState, Pool: runner.Pool, Capacity: runner.Capacity, CurrentCapacity: runner.CurrentCapacity, ActiveCount: runner.ActiveCount, HeartbeatAt: heartbeat, Platform: runner.Platform, Architecture: runner.Architecture, NATSEndpoint: runner.NATSEndpoint, IsArchived: runner.IsArchived, IsDeleted: runner.IsDeleted}
 }
 
 func runnerPoolRecordFromStore(pool store.RunnerPoolRecord) RunnerPoolRecord {
@@ -429,9 +437,18 @@ func (s *InfrastructureService) runnerPath(w http.ResponseWriter, r *http.Reques
 	}
 	if len(parts) == 4 && r.Method == http.MethodPut {
 		var input struct {
-			Capacity int `json:"capacity"`
+			Capacity     *int    `json:"capacity"`
+			NATSEndpoint *string `json:"nats_endpoint"`
 		}
-		if json.NewDecoder(r.Body).Decode(&input) != nil || input.Capacity < 1 {
+		if json.NewDecoder(r.Body).Decode(&input) != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid runner update"})
+			return
+		}
+		if input.Capacity == nil && input.NATSEndpoint == nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "capacity or nats_endpoint is required"})
+			return
+		}
+		if input.Capacity != nil && *input.Capacity < 1 {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "capacity must be at least 1"})
 			return
 		}
@@ -440,16 +457,34 @@ func (s *InfrastructureService) runnerPath(w http.ResponseWriter, r *http.Reques
 		s.mu.RUnlock()
 		var item RunnerRecord
 		if repository != nil {
-			updated, found, err := repository.UpdateCapacity(r.Context(), parts[3], input.Capacity)
-			if err != nil {
-				writeError(w, http.StatusConflict, "runner capacity update failed", err)
-				return
+			var found bool
+			if input.Capacity != nil {
+				updated, exists, err := repository.UpdateCapacity(r.Context(), parts[3], *input.Capacity)
+				if err != nil {
+					writeError(w, http.StatusConflict, "runner capacity update failed", err)
+					return
+				}
+				item, found = runnerRecordFromStore(updated), exists
+			} else {
+				stored, exists, err := repository.Find(r.Context(), parts[3])
+				if err != nil {
+					writeError(w, http.StatusConflict, "runner update failed", err)
+					return
+				}
+				item, found = runnerRecordFromStore(stored), exists
+			}
+			if found && input.NATSEndpoint != nil {
+				updated, exists, err := repository.UpdateNATSEndpoint(r.Context(), parts[3], *input.NATSEndpoint)
+				if err != nil {
+					writeError(w, http.StatusConflict, "runner NATS endpoint update failed", err)
+					return
+				}
+				item, found = runnerRecordFromStore(updated), exists
 			}
 			if !found {
 				writeJSON(w, http.StatusNotFound, map[string]string{"error": "runner not found"})
 				return
 			}
-			item = runnerRecordFromStore(updated)
 		} else {
 			s.mu.Lock()
 			var found bool
@@ -458,7 +493,12 @@ func (s *InfrastructureService) runnerPath(w http.ResponseWriter, r *http.Reques
 				found = false
 			}
 			if found {
-				item.Capacity = input.Capacity
+				if input.Capacity != nil {
+					item.Capacity = *input.Capacity
+				}
+				if input.NATSEndpoint != nil {
+					item.NATSEndpoint = strings.TrimSpace(*input.NATSEndpoint)
+				}
 				s.runners[parts[3]] = item
 			}
 			s.mu.Unlock()
@@ -467,12 +507,12 @@ func (s *InfrastructureService) runnerPath(w http.ResponseWriter, r *http.Reques
 				return
 			}
 		}
-		if publisher != nil {
+		if publisher != nil && input.Capacity != nil {
 			var err error
 			if len(signingKey.Private) != ed25519.PrivateKeySize {
 				err = errors.New("runner capacity signing key is unavailable")
 			} else {
-				payload, encodeErr := protocol.EncodeRunnerControlPayload(protocol.RunnerControlPayload{Version: protocol.ProtocolVersion, Type: protocol.RunnerControlCapacity, RunnerID: parts[3], Capacity: input.Capacity, IssuedAt: time.Now().UTC()})
+				payload, encodeErr := protocol.EncodeRunnerControlPayload(protocol.RunnerControlPayload{Version: protocol.ProtocolVersion, Type: protocol.RunnerControlCapacity, RunnerID: parts[3], Capacity: *input.Capacity, IssuedAt: time.Now().UTC()})
 				err = encodeErr
 				if err == nil {
 					envelope, signErr := signingKey.SignEvent(payload)
@@ -650,12 +690,13 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		RunnerID     string `json:"runner_id"`
-		RunnerName   string `json:"runner_name"`
-		PoolID       string `json:"pool_id"`
-		Platform     string `json:"platform"`
-		Architecture string `json:"architecture"`
-		Capacity     *int   `json:"capacity"`
+		RunnerID             string `json:"runner_id"`
+		RunnerName           string `json:"runner_name"`
+		EmbeddedNATSEndpoint string `json:"embedded_nats_endpoint"`
+		PoolID               string `json:"pool_id"`
+		Platform             string `json:"platform"`
+		Architecture         string `json:"architecture"`
+		Capacity             *int   `json:"capacity"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid runner enrollment request", err)
@@ -711,7 +752,7 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 	}
 	token := base64.RawURLEncoding.EncodeToString(raw)
 	expiry := time.Now().Add(15 * time.Minute)
-	artifact, filename, err := s.buildRunnerArtifact(r, input.Platform, input.Architecture, input.RunnerID, token)
+	artifact, filename, err := s.buildRunnerArtifact(r, input.Platform, input.Architecture, input.RunnerID, token, input.EmbeddedNATSEndpoint)
 	if err != nil {
 		recordRequestError(r, err)
 		writeError(w, http.StatusServiceUnavailable, "runner binary is unavailable", err)
@@ -738,7 +779,7 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 		if input.Capacity != nil {
 			capacity = *input.Capacity
 		}
-		if err := repository.CreateEnrollment(r.Context(), store.RunnerRecord{ID: input.RunnerID, Name: input.RunnerName, PoolID: input.PoolID, Capacity: capacity, Platform: input.Platform, Architecture: input.Architecture}, store.RunnerEnrollmentRecord{ID: "enrollment-" + input.RunnerID + "-" + platform.HashToken(token), RunnerID: input.RunnerID, TokenHash: platform.HashToken(token), ExpiresAt: expiry, Requester: requester, Target: input.RunnerID, Artifact: map[string]any{"platform": input.Platform, "architecture": input.Architecture}}); err != nil {
+		if err := repository.CreateEnrollment(r.Context(), store.RunnerRecord{ID: input.RunnerID, Name: input.RunnerName, PoolID: input.PoolID, Capacity: capacity, Platform: input.Platform, Architecture: input.Architecture, NATSEndpoint: input.EmbeddedNATSEndpoint}, store.RunnerEnrollmentRecord{ID: "enrollment-" + input.RunnerID + "-" + platform.HashToken(token), RunnerID: input.RunnerID, TokenHash: platform.HashToken(token), ExpiresAt: expiry, Requester: requester, Target: input.RunnerID, Artifact: map[string]any{"platform": input.Platform, "architecture": input.Architecture}}); err != nil {
 			recordRequestError(r, err)
 			writeError(w, http.StatusConflict, "enrollment could not be saved", err)
 			return
@@ -768,7 +809,10 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ok {
-		item = RunnerRecord{ID: input.RunnerID, Name: input.RunnerName, PoolID: input.PoolID, DesiredState: "ENABLED", ObservedState: "PENDING", Pool: pool.Name, Platform: input.Platform, Architecture: input.Architecture}
+		item = RunnerRecord{ID: input.RunnerID, Name: input.RunnerName, PoolID: input.PoolID, DesiredState: "ENABLED", ObservedState: "PENDING", Pool: pool.Name, Platform: input.Platform, Architecture: input.Architecture, NATSEndpoint: strings.TrimSpace(input.EmbeddedNATSEndpoint)}
+	}
+	if strings.TrimSpace(input.EmbeddedNATSEndpoint) != "" {
+		item.NATSEndpoint = strings.TrimSpace(input.EmbeddedNATSEndpoint)
 	}
 	if input.Capacity != nil || !ok {
 		item.Capacity = store.DefaultRunnerCapacity
@@ -782,9 +826,9 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]string{"artifact": base64.StdEncoding.EncodeToString(artifact), "expires_at": expiry.UTC().Format(time.RFC3339), "filename": filename, "runner_id": input.RunnerID, "runner_name": input.RunnerName})
 }
 
-func (s *InfrastructureService) buildRunnerArtifact(r *http.Request, platformName, architecture, runnerID, token string) ([]byte, string, error) {
+func (s *InfrastructureService) buildRunnerArtifact(r *http.Request, platformName, architecture, runnerID, token, embeddedNATSEndpoint string) ([]byte, string, error) {
 	s.mu.RLock()
-	directory, natsURL, maxMessageBytes, controlPlanePublicKey := s.runnerBinaryDir, s.runnerNATSURL, s.runnerMaxMessageBytes, s.controlPlanePublicKey
+	directory, controlPlaneURL, maxMessageBytes, controlPlanePublicKey := s.runnerBinaryDir, s.runnerControlPlaneURL, s.runnerMaxMessageBytes, s.controlPlanePublicKey
 	s.mu.RUnlock()
 	binaryName := "glyphflow-runner-" + platformName + "-" + architecture
 	filename := runnerID + "-" + binaryName
@@ -796,8 +840,10 @@ func (s *InfrastructureService) buildRunnerArtifact(r *http.Request, platformNam
 	if err != nil {
 		return nil, "", err
 	}
-	controlPlaneURL := requestBaseURL(r)
-	packed, err := worker.PackBootstrap(raw, worker.Bootstrap{Token: token, RunnerID: runnerID, ControlPlaneURL: controlPlaneURL, ControlPublicKey: controlPlanePublicKey, NATSURL: natsURL, MaxMessageBytes: maxMessageBytes})
+	if controlPlaneURL == "" {
+		controlPlaneURL = requestBaseURL(r)
+	}
+	packed, err := worker.PackBootstrap(raw, worker.Bootstrap{Token: token, RunnerID: runnerID, ControlPlaneURL: controlPlaneURL, ControlPublicKey: controlPlanePublicKey, NATSURL: strings.TrimSpace(embeddedNATSEndpoint), MaxMessageBytes: maxMessageBytes})
 	return packed, filename, err
 }
 

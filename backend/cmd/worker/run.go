@@ -77,13 +77,14 @@ func runWorker(ctx context.Context, stdout, stderr io.Writer, status StatusSink)
 			}
 			storedKey, foundKey = enrollmentKey, true
 		} else if keyNeedsEnrollment || !found {
-			return fmt.Errorf("runner enrollment failed")
+			return fmt.Errorf("runner enrollment failed: %w", enrollErr)
 		} else {
 			fmt.Fprintln(stderr, "runner enrollment check failed; using stored connection")
 		}
 	} else if !found {
 		connection = worker.RunnerConnection{}
 	}
+	connection.NATSURL = resolveNATSEndpoint(bootstrap, connection.NATSURL)
 	if bootstrap != nil && bootstrap.ControlPublicKey != "" && connection.ControlPublicKey != bootstrap.ControlPublicKey {
 		connection.ControlPublicKey = bootstrap.ControlPublicKey
 		if err := localStore.SaveConnection(connection); err != nil {
@@ -225,6 +226,19 @@ func runWorker(ctx context.Context, stdout, stderr io.Writer, status StatusSink)
 	closeJetStream()
 	background.Wait()
 	return nil
+}
+
+func resolveNATSEndpoint(bootstrap *worker.Bootstrap, enrolled string) string {
+	embedded := ""
+	if bootstrap != nil {
+		embedded = bootstrap.NATSURL
+	}
+	for _, endpoint := range []string{os.Getenv("GLYPHFLOW_NATS_ENDPOINT"), embedded, enrolled} {
+		if endpoint = strings.TrimSpace(endpoint); endpoint != "" {
+			return endpoint
+		}
+	}
+	return ""
 }
 
 func workerHeartbeat(ctx context.Context, jetstream *queue.JetStream, runnerID, bootID string, signingKey protocol.SigningKey, capacity *atomic.Int64, stderr io.Writer) {

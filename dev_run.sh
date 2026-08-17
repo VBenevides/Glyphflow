@@ -31,6 +31,8 @@ bash "$project_root/backend/build_runner_binaries.sh"
   ACCESS_TOKEN_SECRET="${ACCESS_TOKEN_SECRET:-development-secret-at-least-32-characters}" \
   PASSWORD_PEPPER="${PASSWORD_PEPPER:-development-password-pepper-at-least-16}" \
   WEB_ORIGIN="${WEB_ORIGIN:-http://${FRONTEND_HOST:-localhost}:5173}" \
+  RUNNER_NATS_URL="${RUNNER_NATS_URL:-nats://${FRONTEND_HOST:-localhost}:4222}" \
+  RUNNER_CONTROL_PLANE_URL="${RUNNER_CONTROL_PLANE_URL:-http://${FRONTEND_HOST:-localhost}:5173}" \
   ENVIRONMENT="${ENVIRONMENT:-development}" \
   ALLOW_INSECURE_TRANSPORT="${ALLOW_INSECURE_TRANSPORT:-true}" \
   DATA_DIR="${DATA_DIR:-$project_root/.dev-data}" \

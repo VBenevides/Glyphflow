@@ -56,7 +56,7 @@ func main() {
 		Height:           560,
 		MinWidth:         640,
 		MinHeight:        420,
-		Hidden:           trayEnabled,
+		Hidden:           false,
 		BackgroundColour: application.NewRGB(243, 240, 255),
 		URL:              "/",
 	})
@@ -84,15 +84,6 @@ func main() {
 		tray.SetMenu(menu)
 		tray.OnClick(open)
 
-		window.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-				event.Cancel()
-				window.Hide()
-			}
-		})
 		window.OnWindowEvent(events.Common.WindowMinimise, func(*application.WindowEvent) {
 			window.UnMinimise()
 			window.Hide()

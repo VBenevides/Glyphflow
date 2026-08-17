@@ -39,7 +39,7 @@ type RunnerConnection struct {
 }
 
 func PackBootstrap(executable []byte, bootstrap Bootstrap) ([]byte, error) {
-	if bootstrap.Token == "" || bootstrap.RunnerID == "" || bootstrap.ControlPlaneURL == "" || bootstrap.NATSURL == "" || bootstrap.MaxMessageBytes <= 0 {
+	if bootstrap.Token == "" || bootstrap.RunnerID == "" || bootstrap.ControlPlaneURL == "" || bootstrap.MaxMessageBytes <= 0 {
 		return nil, errors.New("runner bootstrap is incomplete")
 	}
 	publicKey, err := base64.RawStdEncoding.DecodeString(bootstrap.ControlPublicKey)
@@ -123,7 +123,7 @@ func (b Bootstrap) Enroll(ctx context.Context) (RunnerConnection, error) {
 		}
 		return RunnerConnection{}, errors.New(result.Error)
 	}
-	if result.RunnerID == "" || result.NATSURL == "" || result.MaxMessageBytes <= 0 {
+	if result.RunnerID == "" || result.MaxMessageBytes <= 0 {
 		return RunnerConnection{}, errors.New("runner enrollment returned incomplete connection data")
 	}
 	return RunnerConnection{RunnerID: result.RunnerID, NATSURL: result.NATSURL, MaxMessageBytes: result.MaxMessageBytes, Capacity: result.Capacity, ControlPublicKey: b.ControlPublicKey}, nil

@@ -28,9 +28,68 @@ export function RunnerInventoryPage() {
 }
 
 export function RunnerDetailPage() {
-  const { runnerId = '' } = useParams(); const navigate = useNavigate(); const { permissions } = useAuth(); const [binaryBusy, setBinaryBusy] = useState(false); const [binaryError, setBinaryError] = useState(''); const [capacityDraft, setCapacityDraft] = useState(''); const [capacityBusy, setCapacityBusy] = useState(false); const [capacityError, setCapacityError] = useState(''); const [runPage, setRunPage] = useState(1); const query = useQuery({ queryKey: ['runner', runnerId], queryFn: ({ signal }) => api.get<Runner>(`/api/v1/runners/${encodeURIComponent(runnerId)}`, undefined, signal), enabled: Boolean(runnerId) }); const currentRuns = useQuery({ queryKey: ['runner-runs', runnerId, runPage], queryFn: ({ signal }) => api.get<Page<Run>>('/api/v1/runs', { runner: runnerId, state: 'ACTIVE', page: runPage, limit: 100 }, signal), enabled: Boolean(runnerId), refetchInterval: 5_000 }); const manage = hasPermission(permissions, 'runners.manage')
+  const { runnerId = '' } = useParams()
+  const navigate = useNavigate()
+  const { permissions } = useAuth()
+  const [binaryBusy, setBinaryBusy] = useState(false)
+  const [binaryError, setBinaryError] = useState('')
+  const [capacityDraft, setCapacityDraft] = useState('')
+  const [capacityBusy, setCapacityBusy] = useState(false)
+  const [capacityError, setCapacityError] = useState('')
+  const [natsEndpointDraft, setNatsEndpointDraft] = useState<string>()
+  const [natsEndpointBusy, setNatsEndpointBusy] = useState(false)
+  const [natsEndpointError, setNatsEndpointError] = useState('')
+  const [runPage, setRunPage] = useState(1)
+  const query = useQuery({ queryKey: ['runner', runnerId], queryFn: ({ signal }) => api.get<Runner>(`/api/v1/runners/${encodeURIComponent(runnerId)}`, undefined, signal), enabled: Boolean(runnerId) })
+  const currentRuns = useQuery({ queryKey: ['runner-runs', runnerId, runPage], queryFn: ({ signal }) => api.get<Page<Run>>('/api/v1/runs', { runner: runnerId, state: 'ACTIVE', page: runPage, limit: 100 }, signal), enabled: Boolean(runnerId), refetchInterval: 5_000 })
+  const manage = hasPermission(permissions, 'runners.manage')
   const action = (state: string) => api.post(`/api/v1/runners/${encodeURIComponent(runnerId)}/${state}`).then(() => { void query.refetch() })
   const updateCapacity = async (runner: Runner) => { const value = Number(capacityDraft || runner.capacity || 0); if (!Number.isInteger(value) || value < 1) { setCapacityError('Capacity must be at least 1.'); return }; setCapacityBusy(true); setCapacityError(''); try { await api.put(`/api/v1/runners/${encodeURIComponent(runner.id)}`, { capacity: value }); setCapacityDraft(String(value)); await query.refetch() } catch (cause) { setCapacityError(describeError(cause).message) } finally { setCapacityBusy(false) } }
-  const generateBinary = async (runner: Runner) => { setBinaryBusy(true); setBinaryError(''); try { const platform = runner.platform || 'linux'; const architecture = runner.architecture || 'amd64'; const result = await api.post<{ artifact: string; filename?: string }>('/api/v1/runners/enrollments', { runner_id: runner.id, pool_id: runner.poolId || runner.pool, platform, architecture, capacity: runner.capacity ?? 10 }); downloadArtifact(result.artifact, result.filename ?? `${runner.id}-glyphflow-runner-${platform}-${architecture}${platform === 'windows' ? '.exe' : ''}`) } catch (cause) { setBinaryError(describeError(cause).message) } finally { setBinaryBusy(false) } }
-  return <main className="gf-content"><QueryState query={query}>{(runner) => <><PageHeader title={runner.name} description={`Pool ${runner.pool ?? '—'} · ${runner.observedState ?? '—'}`} />{runner.isArchived && <p className="gf-form-error" role="alert">This runner is archived permanently and cannot be recovered.</p>}<section className="gf-metric-grid"><div className="gf-metric"><span>Desired state</span><strong><StatusPill status={runner.desiredState ?? '—'} /></strong></div><div className="gf-metric"><span>Observed state</span><strong><StatusPill status={runner.observedState ?? '—'} /></strong></div><div className="gf-metric"><span>Capacity</span><strong>{runner.activeCount ?? 0}/{runner.capacity ?? 0}</strong><small>{runner.currentCapacity && runner.currentCapacity !== runner.capacity ? `Heartbeat current: ${runner.currentCapacity}` : runnerIsStale(runner.heartbeatAt) ? 'Heartbeat stale' : 'Heartbeat current'}</small></div></section><section className="gf-card-panel"><h2>Capacity</h2>{manage && !runner.isArchived ? <div className="gf-dialog-actions"><label>Tasks<Input type="number" min={1} value={capacityDraft || String(runner.capacity ?? 10)} onChange={(event) => setCapacityDraft(event.target.value)} /></label><Button busy={capacityBusy} onClick={() => updateCapacity(runner)}>Update capacity</Button></div> : <p className="gf-muted">Configured capacity: {runner.capacity ?? '—'}</p>}{capacityError && <p className="gf-form-error" role="alert">{capacityError}</p>}</section><section className="gf-card-panel"><h2>Lifecycle</h2><div className="gf-dialog-actions">{manage && !runner.isArchived && <><Button busy={binaryBusy} title="Create and download a new one-use runner binary" onClick={() => generateBinary(runner)}>Generate Binary</Button><DangerousAction label="Drain" variant="secondary" onConfirm={() => action('drain')} onConflict={() => query.refetch()} /><DangerousAction label="Revoke" onConfirm={() => action('revoke')} onConflict={() => query.refetch()} /><DangerousAction label="Archive" title="Archive runner permanently" warning="Archiving cancels this runner's active work and permanently removes its ability to connect. Archived runners cannot be recovered." confirmLabel="Archive" onConfirm={() => api.delete(`/api/v1/runners/${encodeURIComponent(runnerId)}`).then(() => navigate('/runners'))} /></>}</div>{binaryError && <p className="gf-form-error" role="alert">{binaryError}</p>}</section><section className="gf-card-panel"><h2>Current runs</h2><QueryState query={currentRuns} empty="No current runs.">{(data) => data.items.length ? <><DataTable caption="Current runs" rows={data.items} columns={[{ key: 'id', label: 'Run', render: (run) => <RunIDCell id={run.id} compact /> }, { key: 'task', label: 'Task', render: (run) => run.taskName ?? run.taskId ?? '—' }, { key: 'state', label: 'State', render: (run) => <StatusPill status={run.state} /> }, { key: 'attempt', label: 'Attempt' }, { key: 'scheduled', label: 'Scheduled', render: (run) => run.scheduledFor ?? '—' }]} /><Pagination page={data.page} pages={data.pages ?? 1} onChange={setRunPage} /></> : null}</QueryState></section></>}</QueryState></main>
+  const updateNATSEndpoint = async (runner: Runner) => { const value = (natsEndpointDraft ?? runner.natsEndpoint ?? '').trim(); setNatsEndpointBusy(true); setNatsEndpointError(''); try { await api.put(`/api/v1/runners/${encodeURIComponent(runner.id)}`, { nats_endpoint: value }); setNatsEndpointDraft(value); await query.refetch() } catch (cause) { setNatsEndpointError(describeError(cause).message) } finally { setNatsEndpointBusy(false) } }
+  const generateBinary = async (runner: Runner) => { setBinaryBusy(true); setBinaryError(''); try { const platform = runner.platform || 'linux'; const architecture = runner.architecture || 'amd64'; const result = await api.post<{ artifact: string; filename?: string }>('/api/v1/runners/enrollments', { runner_id: runner.id, pool_id: runner.poolId || runner.pool, platform, architecture, capacity: runner.capacity ?? 10, embedded_nats_endpoint: runner.natsEndpoint ?? '' }); downloadArtifact(result.artifact, result.filename ?? `${runner.id}-glyphflow-runner-${platform}-${architecture}${platform === 'windows' ? '.exe' : ''}`) } catch (cause) { setBinaryError(describeError(cause).message) } finally { setBinaryBusy(false) } }
+  return (
+    <main className="gf-content">
+      <QueryState query={query}>
+        {(runner) => (
+          <>
+            <PageHeader title={runner.name} description={`Pool ${runner.pool ?? '—'} · ${runner.observedState ?? '—'}`} />
+            {runner.isArchived && <p className="gf-form-error" role="alert">This runner is archived permanently and cannot be recovered.</p>}
+            <section className="gf-metric-grid">
+              <div className="gf-metric"><span>Desired state</span><strong><StatusPill status={runner.desiredState ?? '—'} /></strong></div>
+              <div className="gf-metric"><span>Observed state</span><strong><StatusPill status={runner.observedState ?? '—'} /></strong></div>
+              <div className="gf-metric"><span>Capacity</span><strong>{runner.activeCount ?? 0}/{runner.capacity ?? 0}</strong><small>{runner.currentCapacity && runner.currentCapacity !== runner.capacity ? `Heartbeat current: ${runner.currentCapacity}` : runnerIsStale(runner.heartbeatAt) ? 'Heartbeat stale' : 'Heartbeat current'}</small></div>
+            </section>
+            <section className="gf-card-panel">
+              <h2>Capacity</h2>
+              {manage && !runner.isArchived ? <div className="gf-dialog-actions"><label>Tasks<Input type="number" min={1} value={capacityDraft || String(runner.capacity ?? 10)} onChange={(event) => setCapacityDraft(event.target.value)} /></label><Button busy={capacityBusy} onClick={() => updateCapacity(runner)}>Update capacity</Button></div> : <p className="gf-muted">Configured capacity: {runner.capacity ?? '—'}</p>}
+              {capacityError && <p className="gf-form-error" role="alert">{capacityError}</p>}
+            </section>
+            <section className="gf-card-panel">
+              <h2>NATS endpoint</h2>
+              {manage && !runner.isArchived ? <div className="gf-runner-endpoint-form"><div className="gf-runner-endpoint-control"><label htmlFor="runner-nats-endpoint">Endpoint</label><Input id="runner-nats-endpoint" value={natsEndpointDraft ?? runner.natsEndpoint ?? ''} placeholder="nats://localhost:4222" onChange={(event) => setNatsEndpointDraft(event.target.value)} /><Button busy={natsEndpointBusy} onClick={() => updateNATSEndpoint(runner)}>Save endpoint</Button></div><small><code>GLYPHFLOW_NATS_ENDPOINT</code> on the runner machine overrides this value.</small></div> : <><p className="gf-muted">Configured endpoint: {runner.natsEndpoint || 'server default'}</p><p className="gf-muted"><code>GLYPHFLOW_NATS_ENDPOINT</code> on the runner machine overrides this value.</p></>}
+              {natsEndpointError && <p className="gf-form-error" role="alert">{natsEndpointError}</p>}
+            </section>
+            <section className="gf-card-panel">
+              <h2>Lifecycle</h2>
+              <div className="gf-dialog-actions">
+                {manage && !runner.isArchived && <>
+                  <Button busy={binaryBusy} title="Create and download a new one-use runner binary" onClick={() => generateBinary(runner)}>Generate Binary</Button>
+                  <DangerousAction label="Drain" variant="secondary" onConfirm={() => action('drain')} onConflict={() => query.refetch()} />
+                  <DangerousAction label="Revoke" onConfirm={() => action('revoke')} onConflict={() => query.refetch()} />
+                  <DangerousAction label="Archive" title="Archive runner permanently" warning="Archiving cancels this runner's active work and permanently removes its ability to connect. Archived runners cannot be recovered." confirmLabel="Archive" onConfirm={() => api.delete(`/api/v1/runners/${encodeURIComponent(runnerId)}`).then(() => navigate('/runners'))} />
+                </>}
+              </div>
+              {binaryError && <p className="gf-form-error" role="alert">{binaryError}</p>}
+            </section>
+            <section className="gf-card-panel">
+              <h2>Current runs</h2>
+              <QueryState query={currentRuns} empty="No current runs.">
+                {(data) => data.items.length ? <><DataTable caption="Current runs" rows={data.items} columns={[{ key: 'id', label: 'Run', render: (run) => <RunIDCell id={run.id} compact /> }, { key: 'task', label: 'Task', render: (run) => run.taskName ?? run.taskId ?? '—' }, { key: 'state', label: 'State', render: (run) => <StatusPill status={run.state} /> }, { key: 'attempt', label: 'Attempt' }, { key: 'scheduled', label: 'Scheduled', render: (run) => run.scheduledFor ?? '—' }]} /><Pagination page={data.page} pages={data.pages ?? 1} onChange={setRunPage} /></> : null}
+              </QueryState>
+            </section>
+          </>
+        )}
+      </QueryState>
+    </main>
+  )
 }

@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -15,6 +16,7 @@ import (
 
 type RunnerRecord struct {
 	ID, Name, PoolID, Pool, DesiredState, ObservedState, Platform, Architecture string
+	NATSEndpoint                                                                string
 	Capacity, CurrentCapacity, ActiveCount                                      int
 	HeartbeatAt                                                                 *time.Time
 	IsArchived, IsDeleted                                                       bool
@@ -44,6 +46,7 @@ type RunnerRepository interface {
 	Find(context.Context, string) (RunnerRecord, bool, error)
 	SetDesiredState(context.Context, string, string) (RunnerRecord, bool, error)
 	UpdateCapacity(context.Context, string, int) (RunnerRecord, bool, error)
+	UpdateNATSEndpoint(context.Context, string, string) (RunnerRecord, bool, error)
 	Delete(context.Context, string) (bool, error)
 	Archive(context.Context, string) (bool, error)
 	CreateEnrollment(context.Context, RunnerRecord, RunnerEnrollmentRecord) error
@@ -137,7 +140,7 @@ func (s *RunnerStore) DeletePool(ctx context.Context, id string) error {
 	return nil
 }
 
-const runnerQuery = `SELECT r.id, r.name, p.id, p.name, r.desired_state, r.observed_state, r.capacity, COALESCE((SELECT current_capacity FROM runner_sessions WHERE runner_id = r.id AND disconnected_at IS NULL ORDER BY last_heartbeat_at DESC LIMIT 1), 0), r.active_count, r.last_seen_at, COALESCE(r.capabilities->>'platform', ''), COALESCE(r.capabilities->>'architecture', ''), r.is_archived, r.is_deleted FROM runners r LEFT JOIN runner_pools p ON p.id = r.pool_id`
+const runnerQuery = `SELECT r.id, r.name, p.id, p.name, r.desired_state, r.observed_state, r.nats_endpoint, r.capacity, COALESCE((SELECT current_capacity FROM runner_sessions WHERE runner_id = r.id AND disconnected_at IS NULL ORDER BY last_heartbeat_at DESC LIMIT 1), 0), r.active_count, r.last_seen_at, COALESCE(r.capabilities->>'platform', ''), COALESCE(r.capabilities->>'architecture', ''), r.is_archived, r.is_deleted FROM runners r LEFT JOIN runner_pools p ON p.id = r.pool_id`
 
 func (s *RunnerStore) List(ctx context.Context) ([]RunnerRecord, error) {
 	rows, err := s.pool.Query(ctx, runnerQuery+` WHERE NOT r.is_archived AND NOT r.is_deleted ORDER BY r.id`)
@@ -184,7 +187,7 @@ func (s *RunnerStore) Find(ctx context.Context, id string) (RunnerRecord, bool, 
 func scanRunner(row interface{ Scan(...any) error }) (RunnerRecord, error) {
 	var item RunnerRecord
 	var poolID, pool sql.NullString
-	if err := row.Scan(&item.ID, &item.Name, &poolID, &pool, &item.DesiredState, &item.ObservedState, &item.Capacity, &item.CurrentCapacity, &item.ActiveCount, &item.HeartbeatAt, &item.Platform, &item.Architecture, &item.IsArchived, &item.IsDeleted); err != nil {
+	if err := row.Scan(&item.ID, &item.Name, &poolID, &pool, &item.DesiredState, &item.ObservedState, &item.NATSEndpoint, &item.Capacity, &item.CurrentCapacity, &item.ActiveCount, &item.HeartbeatAt, &item.Platform, &item.Architecture, &item.IsArchived, &item.IsDeleted); err != nil {
 		return RunnerRecord{}, err
 	}
 	item.PoolID, item.Pool = poolID.String, pool.String
@@ -217,6 +220,14 @@ func (s *RunnerStore) UpdateCapacity(ctx context.Context, id string, capacity in
 		return RunnerRecord{}, false, errors.New("runner capacity must be at least 1")
 	}
 	result, err := s.pool.Exec(ctx, `UPDATE runners SET capacity = $2, updated_at = now() WHERE id = $1 AND NOT is_archived AND NOT is_deleted`, id, capacity)
+	if err != nil || result.RowsAffected() == 0 {
+		return RunnerRecord{}, result.RowsAffected() > 0, err
+	}
+	return s.Find(ctx, id)
+}
+
+func (s *RunnerStore) UpdateNATSEndpoint(ctx context.Context, id, endpoint string) (RunnerRecord, bool, error) {
+	result, err := s.pool.Exec(ctx, `UPDATE runners SET nats_endpoint = $2, updated_at = now() WHERE id = $1 AND NOT is_archived AND NOT is_deleted`, id, strings.TrimSpace(endpoint))
 	if err != nil || result.RowsAffected() == 0 {
 		return RunnerRecord{}, result.RowsAffected() > 0, err
 	}
@@ -285,7 +296,7 @@ func (s *RunnerStore) CreateEnrollment(ctx context.Context, runner RunnerRecord,
 	if poolID == "" {
 		poolID = runner.Pool
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO runners (id, pool_id, name, desired_state, observed_state, capacity, capabilities) VALUES ($1, (SELECT id FROM runner_pools WHERE (id = $2 OR name = $2) AND NOT is_deleted), $3, 'ENABLED', 'PENDING', CASE WHEN $4 > 0 THEN $4 ELSE 10 END, $5::jsonb) ON CONFLICT (id) DO UPDATE SET capacity = CASE WHEN $4 > 0 THEN EXCLUDED.capacity ELSE runners.capacity END`, runner.ID, poolID, runner.Name, runner.Capacity, artifact); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO runners (id, pool_id, name, desired_state, observed_state, capacity, nats_endpoint, capabilities) VALUES ($1, (SELECT id FROM runner_pools WHERE (id = $2 OR name = $2) AND NOT is_deleted), $3, 'ENABLED', 'PENDING', CASE WHEN $4 > 0 THEN $4 ELSE 10 END, $5, $6::jsonb) ON CONFLICT (id) DO UPDATE SET capacity = CASE WHEN $4 > 0 THEN EXCLUDED.capacity ELSE runners.capacity END, nats_endpoint = CASE WHEN EXCLUDED.nats_endpoint <> '' THEN EXCLUDED.nats_endpoint ELSE runners.nats_endpoint END`, runner.ID, poolID, runner.Name, runner.Capacity, strings.TrimSpace(runner.NATSEndpoint), artifact); err != nil {
 		return err
 	}
 	var lockedRunnerID string

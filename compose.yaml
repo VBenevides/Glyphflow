@@ -6,6 +6,8 @@ services:
     environment:
       DATABASE_URL: postgres://glyphflow:glyphflow@postgres:5432/glyphflow?sslmode=disable
       NATS_URL: ${NATS_URL:-nats://nats:4222}
+      RUNNER_NATS_URL: ${RUNNER_NATS_URL:-nats://nats:4222}
+      RUNNER_CONTROL_PLANE_URL: ${RUNNER_CONTROL_PLANE_URL:-}
       ACCESS_TOKEN_SECRET: ${ACCESS_TOKEN_SECRET:-development-secret-at-least-32-characters}
       PASSWORD_PEPPER: ${PASSWORD_PEPPER:-development-password-pepper-at-least-16}
       WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost}

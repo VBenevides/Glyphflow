@@ -13,7 +13,11 @@ build_headless() {
 
 build_desktop() {
   local goos="$1" output="$2"
-  (cd "$project_root" && GOOS="$goos" GOARCH=amd64 go build -tags workerui -trimpath -ldflags='-s -w' -o "$output" ./cmd/worker)
+  local ldflags='-s -w'
+  if [[ "$goos" == windows ]]; then
+    ldflags+=' -H=windowsgui'
+  fi
+  (cd "$project_root" && GOOS="$goos" GOARCH=amd64 go build -tags workerui -trimpath -ldflags="$ldflags" -o "$output" ./cmd/worker)
 }
 
 build_desktop linux "$output_dir/glyphflow-runner-linux-amd64"

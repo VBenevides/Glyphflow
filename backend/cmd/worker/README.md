@@ -2,7 +2,7 @@
 
 The default `go run ./cmd/worker` entry point is headless and uses SIGINT/SIGTERM for shutdown. It has no graphical-session dependency.
 
-The desktop worker uses the pinned Wails v3 prerelease with the `workerui` build tag. It starts hidden in the system tray; **Open** shows it, window close/minimize hides it, and tray **Exit** performs shutdown. On Linux, if no StatusNotifier tray host is available, it starts as a normal visible window so it can be minimized and restored from the taskbar; closing that fallback window shuts down the worker.
+The desktop worker uses the pinned Wails v3 prerelease with the `workerui` build tag. It starts visible; minimizing hides it in the system tray, and tray **Open** restores it. Closing the window exits the worker. On Linux, if no StatusNotifier tray host is available, it remains a normal visible window.
 
 ```sh
 GOOS=linux GOARCH=amd64 go build -tags workerui -trimpath -ldflags='-s -w' -o bin/glyphflow-worker ./cmd/worker

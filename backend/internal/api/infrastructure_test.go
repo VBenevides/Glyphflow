@@ -101,11 +101,12 @@ func TestRunnerEnrollmentBuildsBootstrapBinaryAndConsumesToken(t *testing.T) {
 	directory := t.TempDir()
 	s.SetRunnerBinaryDirectory(directory)
 	s.SetRunnerArtifactConfig("nats://localhost:4222", 1<<20)
+	s.SetRunnerControlPlaneURL("http://runner.example")
 	s.SetControlPlanePublicKey(base64.RawStdEncoding.EncodeToString(make([]byte, 32)))
 	if err := os.WriteFile(filepath.Join(directory, "glyphflow-runner-linux-amd64"), []byte("runner-binary"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/runners/enrollments", bytes.NewBufferString(`{"runner_id":"runner-1","platform":"linux","architecture":"amd64"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/runners/enrollments", bytes.NewBufferString(`{"runner_id":"runner-1","platform":"linux","architecture":"amd64","embedded_nats_endpoint":"nats://embedded:4222"}`))
 	request.Host = "control.example:8080"
 	response := httptest.NewRecorder()
 	s.enroll(response, request)
@@ -130,7 +131,7 @@ func TestRunnerEnrollmentBuildsBootstrapBinaryAndConsumesToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	bootstrap, err := worker.UnpackBootstrap(raw)
-	if err != nil || bootstrap == nil || bootstrap.RunnerID != "runner-1" || bootstrap.ControlPlaneURL != "http://control.example:8080" || bootstrap.NATSURL != "nats://localhost:4222" {
+	if err != nil || bootstrap == nil || bootstrap.RunnerID != "runner-1" || bootstrap.ControlPlaneURL != "http://runner.example" || bootstrap.NATSURL != "nats://embedded:4222" {
 		t.Fatalf("bootstrap = %#v, err=%v", bootstrap, err)
 	}
 	consume := httptest.NewRecorder()
@@ -371,5 +372,15 @@ func TestRunnerCapacityUpdatePublishesControlMessage(t *testing.T) {
 	payload, err := protocol.DecodeRunnerControlPayload(rawPayload)
 	if err != nil || payload.Capacity != 42 || payload.RunnerID != "runner-1" {
 		t.Fatalf("control payload = %#v, err=%v", payload, err)
+	}
+}
+
+func TestRunnerNATSEndpointUpdate(t *testing.T) {
+	s := NewInfrastructureService()
+	s.runners["runner-1"] = RunnerRecord{ID: "runner-1", Name: "runner-1"}
+	response := httptest.NewRecorder()
+	s.runnerPath(response, httptest.NewRequest(http.MethodPut, "/api/v1/runners/runner-1", bytes.NewBufferString(`{"nats_endpoint":" nats://vmnet8:4222 "}`)))
+	if response.Code != http.StatusOK || s.runners["runner-1"].NATSEndpoint != "nats://vmnet8:4222" {
+		t.Fatalf("endpoint update = %d %s", response.Code, response.Body.String())
 	}
 }

@@ -35,3 +35,18 @@ func TestNeedsRunnerEnrollmentForLegacyStore(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveNATSEndpointPriority(t *testing.T) {
+	bootstrap := &worker.Bootstrap{NATSURL: "nats://embedded:4222"}
+	t.Setenv("GLYPHFLOW_NATS_ENDPOINT", "nats://environment:4222")
+	if got := resolveNATSEndpoint(bootstrap, "nats://server:4222"); got != "nats://environment:4222" {
+		t.Fatalf("environment endpoint = %q", got)
+	}
+	t.Setenv("GLYPHFLOW_NATS_ENDPOINT", "")
+	if got := resolveNATSEndpoint(bootstrap, "nats://server:4222"); got != "nats://embedded:4222" {
+		t.Fatalf("embedded endpoint = %q", got)
+	}
+	if got := resolveNATSEndpoint(nil, "nats://server:4222"); got != "nats://server:4222" {
+		t.Fatalf("server endpoint = %q", got)
+	}
+}
