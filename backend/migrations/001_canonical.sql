@@ -284,7 +284,7 @@ CREATE TABLE runs (
     trigger_type text NOT NULL CHECK (trigger_type IN ('SCHEDULE', 'MANUAL', 'RETRY')),
     scheduled_for timestamptz NOT NULL,
     start_deadline_at timestamptz,
-    state text NOT NULL CHECK (state IN ('WAITING', 'DISPATCHED', 'RUNNING', 'RETRY_WAIT', 'CANCELLING', 'SUCCEEDED', 'FAILED', 'CANCELLED', 'UNKNOWN')),
+    state text NOT NULL CHECK (state IN ('WAITING', 'RUNNING', 'RETRY_WAIT', 'CANCELLING', 'SUCCEEDED', 'FAILED', 'CANCELLED', 'UNKNOWN')),
     state_version bigint NOT NULL DEFAULT 0 CHECK (state_version >= 0),
     idempotency_key text NOT NULL UNIQUE,
     retry_not_before timestamptz,
