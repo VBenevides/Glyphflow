@@ -22,6 +22,17 @@ func TestAuthAndPagination(t *testing.T) {
 	}
 }
 
+func TestCORSWildcardHandlesCredentialedPreflight(t *testing.T) {
+	h := (Server{CORSOrigins: []string{"http://localhost:5173", "*"}}).Handler()
+	request := httptest.NewRequest(http.MethodOptions, "/api/v1/auth/login", nil)
+	request.Header.Set("Origin", "http://other.example")
+	response := httptest.NewRecorder()
+	h.ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent || response.Header().Get("Access-Control-Allow-Origin") != "http://other.example" || response.Header().Get("Access-Control-Allow-Credentials") != "true" {
+		t.Fatalf("unexpected CORS response: %d %#v", response.Code, response.Header())
+	}
+}
+
 func TestRequestBodiesAreBoundBeforePublicAndAuthenticatedHandlers(t *testing.T) {
 	large := strings.NewReader(strings.Repeat("x", maxRequestBodyBytes+1))
 	response := httptest.NewRecorder()

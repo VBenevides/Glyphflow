@@ -26,13 +26,15 @@ bash "$project_root/backend/build_runner_binaries.sh"
 
 (
   cd "$project_root/backend"
-  DATABASE_URL="${DATABASE_URL:-postgres://glyphflow:glyphflow@localhost:5432/glyphflow?sslmode=disable}" \
-  NATS_URL="${NATS_URL:-nats://localhost:4222}" \
+  DATABASE_URL="${DATABASE_URL:-postgres://glyphflow:glyphflow@0.0.0.0:5432/glyphflow?sslmode=disable}" \
+  NATS_URL="${NATS_URL:-nats://0.0.0.0:4222}" \
   ACCESS_TOKEN_SECRET="${ACCESS_TOKEN_SECRET:-development-secret-at-least-32-characters}" \
   PASSWORD_PEPPER="${PASSWORD_PEPPER:-development-password-pepper-at-least-16}" \
-  WEB_ORIGIN="${WEB_ORIGIN:-http://${FRONTEND_HOST:-localhost}:5173}" \
-  RUNNER_NATS_URL="${RUNNER_NATS_URL:-nats://${FRONTEND_HOST:-localhost}:4222}" \
-  RUNNER_CONTROL_PLANE_URL="${RUNNER_CONTROL_PLANE_URL:-http://${FRONTEND_HOST:-localhost}:5173}" \
+  WEB_ORIGIN="${WEB_ORIGIN:-http://${FRONTEND_HOST:-0.0.0.0}:5173}" \
+  CSRF_ORIGINS="${CSRF_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173,http://${FRONTEND_HOST:-0.0.0.0}:5173}" \
+  CORS_ORIGIN="${CORS_ORIGIN:-*}" \
+  RUNNER_NATS_URL="${RUNNER_NATS_URL:-nats://${FRONTEND_HOST:-0.0.0.0}:4222}" \
+  RUNNER_CONTROL_PLANE_URL="${RUNNER_CONTROL_PLANE_URL:-http://${FRONTEND_HOST:-0.0.0.0}:5173}" \
   ENVIRONMENT="${ENVIRONMENT:-development}" \
   ALLOW_INSECURE_TRANSPORT="${ALLOW_INSECURE_TRANSPORT:-true}" \
   DATA_DIR="${DATA_DIR:-$project_root/.dev-data}" \
@@ -50,13 +52,13 @@ backend_pid=$!
 
 (
   cd "$project_root/frontend"
-  VITE_BACKEND_URL="${VITE_BACKEND_URL:-http://localhost:8080}" \
-  npm run dev -- --host "${FRONTEND_HOST:-localhost}"
+  VITE_BACKEND_URL="${VITE_BACKEND_URL:-http://0.0.0.0:8080}" \
+  npm run dev -- --host "${FRONTEND_HOST:-0.0.0.0}"
 ) &
 frontend_pid=$!
 
-echo "Frontend: http://${FRONTEND_HOST:-localhost}:5173"
-echo "Backend:  http://localhost:8080"
+echo "Frontend: http://${FRONTEND_HOST:-0.0.0.0}:5173"
+echo "Backend:  http://0.0.0.0:8080"
 echo "Press Ctrl-C to stop both processes and Docker dependencies."
 
 wait -n "$backend_pid" "$frontend_pid"

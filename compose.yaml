@@ -11,6 +11,8 @@ services:
       ACCESS_TOKEN_SECRET: ${ACCESS_TOKEN_SECRET:-development-secret-at-least-32-characters}
       PASSWORD_PEPPER: ${PASSWORD_PEPPER:-development-password-pepper-at-least-16}
       WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost}
+      CORS_ORIGIN: ${CORS_ORIGIN:-*}
+      CSRF_ORIGINS: ${CSRF_ORIGINS:-}
       ENVIRONMENT: ${ENVIRONMENT:-development}
       ALLOW_INSECURE_TRANSPORT: ${ALLOW_INSECURE_TRANSPORT:-true}
       DATA_DIR: /data

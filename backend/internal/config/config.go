@@ -33,6 +33,8 @@ type Config struct {
 	ControlPlaneSigningPrivateKey string
 	PasswordPepper                string
 	WebOrigin                     string
+	CORSOrigins                   []string
+	CSRFOrigins                   []string
 	PasswordLoginEnabled          bool
 	PasswordRegistrationEnabled   bool
 	DefaultRoleID                 string
@@ -62,6 +64,10 @@ func FromEnv(role Role) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	csrfOrigins := parseOrigins(os.Getenv("CSRF_ORIGINS"))
+	if len(csrfOrigins) == 0 {
+		csrfOrigins = parseOrigins(os.Getenv("WEB_ORIGIN"))
+	}
 	config := Config{
 		Role:                          role,
 		DatabaseURL:                   os.Getenv("DATABASE_URL"),
@@ -73,6 +79,8 @@ func FromEnv(role Role) (Config, error) {
 		ControlPlaneSigningPrivateKey: strings.TrimSpace(os.Getenv("CONTROL_PLANE_SIGNING_PRIVATE_KEY")),
 		PasswordPepper:                os.Getenv("PASSWORD_PEPPER"),
 		WebOrigin:                     os.Getenv("WEB_ORIGIN"),
+		CORSOrigins:                   parseOrigins(os.Getenv("CORS_ORIGIN")),
+		CSRFOrigins:                   csrfOrigins,
 		PasswordLoginEnabled:          passwordLogin,
 		PasswordRegistrationEnabled:   passwordRegistration,
 		DefaultRoleID:                 strings.TrimSpace(envStringDefault("DEFAULT_ROLE_ID", "system-user")),
@@ -100,6 +108,16 @@ func FromEnv(role Role) (Config, error) {
 		return Config{}, err
 	}
 	return config, nil
+}
+
+func parseOrigins(value string) []string {
+	var origins []string
+	for _, origin := range strings.Split(value, ",") {
+		if origin = strings.TrimSpace(origin); origin != "" {
+			origins = append(origins, origin)
+		}
+	}
+	return origins
 }
 
 func (c Config) Validate() error {

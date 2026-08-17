@@ -67,6 +67,8 @@ type Server struct {
 	Audit           func(Claims, string, string)
 	Ready           func(context.Context) error
 	CSRFOrigin      string
+	CSRFOrigins     []string
+	CORSOrigins     []string
 	AuthRateLimiter *platform.RateLimiter
 	Config          RuntimeConfig
 	Operations      *OperationsService
@@ -258,10 +260,54 @@ func (s Server) Handler() http.Handler {
 		panic(err)
 	}
 	var handler http.Handler = mux
-	if s.CSRFOrigin != "" {
-		handler = s.withCSRF(handler, s.CSRFOrigin)
+	csrfOrigins := s.CSRFOrigins
+	if len(csrfOrigins) == 0 && s.CSRFOrigin != "" {
+		csrfOrigins = []string{s.CSRFOrigin}
+	}
+	if len(csrfOrigins) > 0 {
+		handler = s.withCSRF(handler, csrfOrigins)
+	}
+	if len(s.CORSOrigins) > 0 {
+		handler = s.withCORS(handler)
 	}
 	return s.noStore(s.withCorrelation(s.limitRequestBody(handler)))
+}
+
+func (s Server) withCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestOrigin := r.Header.Get("Origin")
+		wildcard := false
+		allowed := false
+		for _, configuredOrigin := range s.CORSOrigins {
+			if configuredOrigin == "*" {
+				wildcard, allowed = true, true
+				break
+			}
+			if configuredOrigin == requestOrigin {
+				allowed = true
+			}
+		}
+		if !allowed {
+			next.ServeHTTP(w, r)
+			return
+		}
+		origin := requestOrigin
+		if wildcard && origin == "" {
+			origin = "*"
+		}
+		if wildcard || len(s.CORSOrigins) > 1 {
+			w.Header().Set("Vary", "Origin")
+		}
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-CSRF-Token")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s Server) limitRequestBody(next http.Handler) http.Handler {

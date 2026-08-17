@@ -36,6 +36,7 @@ RUN bash ./build_runner_binaries.sh
 
 FROM nginx:1.29-alpine
 WORKDIR /app
+ENV CORS_ORIGIN="*"
 COPY --from=frontend-build /src/frontend/dist /usr/share/nginx/html
 COPY --from=backend-build /out/glyphflow-controlplane /usr/local/bin/glyphflow-controlplane
 COPY --from=backend-build /src/backend/migrations ./migrations

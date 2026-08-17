@@ -29,6 +29,13 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	for _, origin := range cfg.CORSOrigins {
+		if origin != "*" {
+			continue
+		}
+		fmt.Fprintln(os.Stderr, `WARNING: CORS set to "*", this is NOT RECOMMENDED for production environments`)
+		break
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	db, err := pgxpool.New(ctx, cfg.DatabaseURL)
@@ -185,7 +192,7 @@ func main() {
 		metrics.AuditAppendErrors.Add(1)
 		_ = logger.Event("audit.append_failed", map[string]string{"id": event.ID, "actor": event.Actor, "error": err.Error(), "count": strconv.FormatUint(metrics.AuditAppendErrors.Load(), 10)})
 	})
-	application := api.Server{AuthService: authService, AuthAdmin: &api.AuthAdminService{Auth: authService, OIDC: oidcService, Sessions: authService.SessionManager()}, Sessions: authService.SessionManager(), OIDC: oidcService, Roles: roles, Auth: authService.Authenticator(), Permissions: authService.Permissions, CSRFOrigin: cfg.WebOrigin, Operations: operations, Runs: runs, Infrastructure: infrastructure, AuditQuery: audit, ExitCodes: store.NewExitCodeRepository(db), GlobalVariables: globalVariables, Ready: func(ctx context.Context) error {
+	application := api.Server{AuthService: authService, AuthAdmin: &api.AuthAdminService{Auth: authService, OIDC: oidcService, Sessions: authService.SessionManager()}, Sessions: authService.SessionManager(), OIDC: oidcService, Roles: roles, Auth: authService.Authenticator(), Permissions: authService.Permissions, CSRFOrigin: cfg.WebOrigin, CSRFOrigins: cfg.CSRFOrigins, CORSOrigins: cfg.CORSOrigins, Operations: operations, Runs: runs, Infrastructure: infrastructure, AuditQuery: audit, ExitCodes: store.NewExitCodeRepository(db), GlobalVariables: globalVariables, Ready: func(ctx context.Context) error {
 		if err := db.Ping(ctx); err != nil {
 			return err
 		}
