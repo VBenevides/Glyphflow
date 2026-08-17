@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func TestRunRepositoryClaimsAndReconcilesTimedOutRun(t *testing.T) {
+func TestRunRepositoryClaimsAndReconcilesStartFailure(t *testing.T) {
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("set DATABASE_URL to run PostgreSQL repository tests")
@@ -64,8 +64,15 @@ func TestRunRepositoryClaimsAndReconcilesTimedOutRun(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT r.state, a.state, o.state FROM runs r JOIN execution_attempts a ON a.run_id = r.id JOIN dispatch_outbox o ON o.execution_attempt_id = a.id WHERE r.id = $1`, runID).Scan(&runState, &attemptState, &outboxState); err != nil {
 		t.Fatal(err)
 	}
-	if runState != "UNKNOWN" || attemptState != "UNKNOWN" || outboxState != "FAILED" {
+	if runState != "FAILED" || attemptState != "FAILED" || outboxState != "FAILED" {
 		t.Fatalf("states = run %q, attempt %q, outbox %q", runState, attemptState, outboxState)
+	}
+	var exitCode int
+	if err := pool.QueryRow(ctx, `SELECT exit_code FROM execution_attempts WHERE run_id = $1`, runID).Scan(&exitCode); err != nil {
+		t.Fatal(err)
+	}
+	if exitCode != 5 {
+		t.Fatalf("start failure exit code = %d, want 5", exitCode)
 	}
 }
 
@@ -106,6 +113,13 @@ func TestRunRepositoryReconcilesStaleCancellation(t *testing.T) {
 	}
 	if _, claimed, err := NewRunRepository(db).ClaimWaiting(ctx, func(DispatchCandidate) ([]byte, error) { return []byte("order"), nil }); err != nil || !claimed {
 		t.Fatalf("claim cancellation candidate setup: claimed=%t err=%v", claimed, err)
+	}
+	runs := NewRunRepository(db)
+	if _, changed, err := runs.RequestCancellation(ctx, runID, "stop"); err != nil || !changed {
+		t.Fatalf("first cancellation: changed=%t err=%v", changed, err)
+	}
+	if _, changed, err := runs.RequestCancellation(ctx, runID, "stop again"); err != nil || changed {
+		t.Fatalf("duplicate cancellation changed state: changed=%t err=%v", changed, err)
 	}
 	if _, err := db.Exec(ctx, `UPDATE runs SET state = 'CANCELLING', updated_at = now() - interval '1 minute' WHERE id = $1`, runID); err != nil {
 		t.Fatal(err)

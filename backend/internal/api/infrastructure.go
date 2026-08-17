@@ -53,6 +53,7 @@ type RunnerPoolRecord struct {
 type ResourceRecord struct {
 	ID               string `json:"id"`
 	Name             string `json:"name"`
+	Kind             string `json:"kind"`
 	Enabled          bool   `json:"enabled"`
 	Holder           string `json:"holder,omitempty"`
 	ExpiresAt        string `json:"expiresAt,omitempty"`
@@ -332,7 +333,7 @@ func resourceRecordFromStore(resource store.ResourceRecord) ResourceRecord {
 	if resource.ExpiresAt != nil {
 		expiresAt = resource.ExpiresAt.UTC().Format(time.RFC3339)
 	}
-	return ResourceRecord{ID: resource.ID, Name: resource.Name, Enabled: resource.Enabled, Holder: resource.Holder, ExpiresAt: expiresAt, FencingToken: resource.FencingToken}
+	return ResourceRecord{ID: resource.ID, Name: resource.Name, Kind: resource.Kind, Enabled: resource.Enabled, Holder: resource.Holder, ExpiresAt: expiresAt, FencingToken: resource.FencingToken}
 }
 
 func (s *InfrastructureService) runnerCollection(w http.ResponseWriter, r *http.Request) {
@@ -935,7 +936,7 @@ func (s *InfrastructureService) resourceCollection(w http.ResponseWriter, r *htt
 			writeJSON(w, http.StatusCreated, resourceRecordFromStore(item))
 			return
 		}
-		item := ResourceRecord{ID: "resource-" + id, Name: strings.TrimSpace(input.Name), Enabled: true}
+		item := ResourceRecord{ID: "resource-" + id, Name: strings.TrimSpace(input.Name), Kind: strings.TrimSpace(input.Kind), Enabled: true}
 		s.mu.Lock()
 		s.resources[item.ID] = item
 		s.mu.Unlock()

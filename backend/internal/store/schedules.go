@@ -264,7 +264,7 @@ func (s *ScheduleStore) CreateDueRun(ctx context.Context, now time.Time, next fu
 		return "", false, nil
 	}
 	if due.ConcurrencyPolicy == "REPLACE" && due.ActiveRuns > 0 {
-		if _, err := tx.Exec(ctx, `UPDATE runs SET state = 'CANCELLING', cancellation_requested_at = COALESCE(cancellation_requested_at, now()), cancellation_reason = 'schedule replacement', state_version = state_version + 1, updated_at = now() WHERE schedule_version_id = $1 AND state IN ('WAITING','RUNNING','RETRY_WAIT')`, due.ScheduleVersionID); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE runs SET state = 'CANCELLING', cancellation_requested_at = COALESCE(cancellation_requested_at, now()), cancellation_reason = 'schedule replacement', state_version = state_version + 1, updated_at = now() WHERE schedule_version_id = $1 AND state IN ('WAITING','DISPATCHED','RUNNING','RETRY_WAIT')`, due.ScheduleVersionID); err != nil {
 			return "", false, err
 		}
 	}
@@ -303,7 +303,7 @@ func (s *ScheduleStore) CreateDueRun(ctx context.Context, now time.Time, next fu
 
 func deadlineValue(occurrence time.Time, seconds int) any {
 	if seconds <= 0 {
-		return nil
+		return occurrence.Add(defaultStartDelay)
 	}
 	return occurrence.Add(time.Duration(seconds) * time.Second)
 }

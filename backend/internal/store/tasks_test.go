@@ -9,6 +9,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+func TestNormalizeTaskDefinitionDeduplicatesResources(t *testing.T) {
+	definition := normalizeTaskDefinition(TaskDefinition{ResourceIDs: []string{" resource-2 ", "resource-1", "resource-2"}})
+	if len(definition.ResourceIDs) != 2 || definition.ResourceIDs[0] != "resource-1" || definition.ResourceIDs[1] != "resource-2" {
+		t.Fatalf("resource IDs = %#v", definition.ResourceIDs)
+	}
+}
+
 func TestTaskRepositoryKeepsImmutableVersionsAndPointer(t *testing.T) {
 	url := os.Getenv("DATABASE_URL")
 	if url == "" {
