@@ -39,6 +39,7 @@ type RunnerRecord struct {
 	Platform        string `json:"platform,omitempty"`
 	Architecture    string `json:"architecture,omitempty"`
 	NATSEndpoint    string `json:"natsEndpoint,omitempty"`
+	ControlPlaneURL string `json:"controlPlaneUrl,omitempty"`
 	IsArchived      bool   `json:"isArchived"`
 	IsDeleted       bool   `json:"isDeleted"`
 }
@@ -147,7 +148,7 @@ func runnerRecordFromStore(runner store.RunnerRecord) RunnerRecord {
 	if runner.HeartbeatAt != nil {
 		heartbeat = runner.HeartbeatAt.UTC().Format(time.RFC3339)
 	}
-	return RunnerRecord{ID: runner.ID, Name: runner.Name, PoolID: runner.PoolID, DesiredState: runner.DesiredState, ObservedState: runner.ObservedState, Pool: runner.Pool, Capacity: runner.Capacity, CurrentCapacity: runner.CurrentCapacity, ActiveCount: runner.ActiveCount, HeartbeatAt: heartbeat, Platform: runner.Platform, Architecture: runner.Architecture, NATSEndpoint: runner.NATSEndpoint, IsArchived: runner.IsArchived, IsDeleted: runner.IsDeleted}
+	return RunnerRecord{ID: runner.ID, Name: runner.Name, PoolID: runner.PoolID, DesiredState: runner.DesiredState, ObservedState: runner.ObservedState, Pool: runner.Pool, Capacity: runner.Capacity, CurrentCapacity: runner.CurrentCapacity, ActiveCount: runner.ActiveCount, HeartbeatAt: heartbeat, Platform: runner.Platform, Architecture: runner.Architecture, NATSEndpoint: runner.NATSEndpoint, ControlPlaneURL: runner.ControlPlaneURL, IsArchived: runner.IsArchived, IsDeleted: runner.IsDeleted}
 }
 
 func runnerPoolRecordFromStore(pool store.RunnerPoolRecord) RunnerPoolRecord {
@@ -437,15 +438,16 @@ func (s *InfrastructureService) runnerPath(w http.ResponseWriter, r *http.Reques
 	}
 	if len(parts) == 4 && r.Method == http.MethodPut {
 		var input struct {
-			Capacity     *int    `json:"capacity"`
-			NATSEndpoint *string `json:"nats_endpoint"`
+			Capacity        *int    `json:"capacity"`
+			NATSEndpoint    *string `json:"nats_endpoint"`
+			ControlPlaneURL *string `json:"control_plane_url"`
 		}
 		if json.NewDecoder(r.Body).Decode(&input) != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid runner update"})
 			return
 		}
-		if input.Capacity == nil && input.NATSEndpoint == nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "capacity or nats_endpoint is required"})
+		if input.Capacity == nil && input.NATSEndpoint == nil && input.ControlPlaneURL == nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "capacity, nats_endpoint, or control_plane_url is required"})
 			return
 		}
 		if input.Capacity != nil && *input.Capacity < 1 {
@@ -481,6 +483,14 @@ func (s *InfrastructureService) runnerPath(w http.ResponseWriter, r *http.Reques
 				}
 				item, found = runnerRecordFromStore(updated), exists
 			}
+			if found && input.ControlPlaneURL != nil {
+				updated, exists, err := repository.UpdateControlPlaneURL(r.Context(), parts[3], *input.ControlPlaneURL)
+				if err != nil {
+					writeError(w, http.StatusConflict, "runner control plane URL update failed", err)
+					return
+				}
+				item, found = runnerRecordFromStore(updated), exists
+			}
 			if !found {
 				writeJSON(w, http.StatusNotFound, map[string]string{"error": "runner not found"})
 				return
@@ -498,6 +508,9 @@ func (s *InfrastructureService) runnerPath(w http.ResponseWriter, r *http.Reques
 				}
 				if input.NATSEndpoint != nil {
 					item.NATSEndpoint = strings.TrimSpace(*input.NATSEndpoint)
+				}
+				if input.ControlPlaneURL != nil {
+					item.ControlPlaneURL = strings.TrimRight(strings.TrimSpace(*input.ControlPlaneURL), "/")
 				}
 				s.runners[parts[3]] = item
 			}
@@ -693,6 +706,7 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 		RunnerID             string `json:"runner_id"`
 		RunnerName           string `json:"runner_name"`
 		EmbeddedNATSEndpoint string `json:"embedded_nats_endpoint"`
+		ControlPlaneURL      string `json:"control_plane_url"`
 		PoolID               string `json:"pool_id"`
 		Platform             string `json:"platform"`
 		Architecture         string `json:"architecture"`
@@ -704,6 +718,7 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 	}
 	input.RunnerID = strings.TrimSpace(input.RunnerID)
 	input.RunnerName = strings.TrimSpace(input.RunnerName)
+	input.ControlPlaneURL = strings.TrimRight(strings.TrimSpace(input.ControlPlaneURL), "/")
 	if input.RunnerID == "" && input.RunnerName == "" {
 		writeJSON(w, 400, map[string]string{"error": "runner_name is required"})
 		return
@@ -752,7 +767,7 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 	}
 	token := base64.RawURLEncoding.EncodeToString(raw)
 	expiry := time.Now().Add(15 * time.Minute)
-	artifact, filename, err := s.buildRunnerArtifact(r, input.Platform, input.Architecture, input.RunnerID, token, input.EmbeddedNATSEndpoint)
+	artifact, filename, err := s.buildRunnerArtifact(r, input.Platform, input.Architecture, input.RunnerID, token, input.ControlPlaneURL, input.EmbeddedNATSEndpoint)
 	if err != nil {
 		recordRequestError(r, err)
 		writeError(w, http.StatusServiceUnavailable, "runner binary is unavailable", err)
@@ -779,7 +794,7 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 		if input.Capacity != nil {
 			capacity = *input.Capacity
 		}
-		if err := repository.CreateEnrollment(r.Context(), store.RunnerRecord{ID: input.RunnerID, Name: input.RunnerName, PoolID: input.PoolID, Capacity: capacity, Platform: input.Platform, Architecture: input.Architecture, NATSEndpoint: input.EmbeddedNATSEndpoint}, store.RunnerEnrollmentRecord{ID: "enrollment-" + input.RunnerID + "-" + platform.HashToken(token), RunnerID: input.RunnerID, TokenHash: platform.HashToken(token), ExpiresAt: expiry, Requester: requester, Target: input.RunnerID, Artifact: map[string]any{"platform": input.Platform, "architecture": input.Architecture}}); err != nil {
+		if err := repository.CreateEnrollment(r.Context(), store.RunnerRecord{ID: input.RunnerID, Name: input.RunnerName, PoolID: input.PoolID, Capacity: capacity, Platform: input.Platform, Architecture: input.Architecture, NATSEndpoint: input.EmbeddedNATSEndpoint, ControlPlaneURL: input.ControlPlaneURL}, store.RunnerEnrollmentRecord{ID: "enrollment-" + input.RunnerID + "-" + platform.HashToken(token), RunnerID: input.RunnerID, TokenHash: platform.HashToken(token), ExpiresAt: expiry, Requester: requester, Target: input.RunnerID, Artifact: map[string]any{"platform": input.Platform, "architecture": input.Architecture}}); err != nil {
 			recordRequestError(r, err)
 			writeError(w, http.StatusConflict, "enrollment could not be saved", err)
 			return
@@ -809,10 +824,13 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ok {
-		item = RunnerRecord{ID: input.RunnerID, Name: input.RunnerName, PoolID: input.PoolID, DesiredState: "ENABLED", ObservedState: "PENDING", Pool: pool.Name, Platform: input.Platform, Architecture: input.Architecture, NATSEndpoint: strings.TrimSpace(input.EmbeddedNATSEndpoint)}
+		item = RunnerRecord{ID: input.RunnerID, Name: input.RunnerName, PoolID: input.PoolID, DesiredState: "ENABLED", ObservedState: "PENDING", Pool: pool.Name, Platform: input.Platform, Architecture: input.Architecture, NATSEndpoint: strings.TrimSpace(input.EmbeddedNATSEndpoint), ControlPlaneURL: input.ControlPlaneURL}
 	}
 	if strings.TrimSpace(input.EmbeddedNATSEndpoint) != "" {
 		item.NATSEndpoint = strings.TrimSpace(input.EmbeddedNATSEndpoint)
+	}
+	if input.ControlPlaneURL != "" {
+		item.ControlPlaneURL = input.ControlPlaneURL
 	}
 	if input.Capacity != nil || !ok {
 		item.Capacity = store.DefaultRunnerCapacity
@@ -826,10 +844,22 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]string{"artifact": base64.StdEncoding.EncodeToString(artifact), "expires_at": expiry.UTC().Format(time.RFC3339), "filename": filename, "runner_id": input.RunnerID, "runner_name": input.RunnerName})
 }
 
-func (s *InfrastructureService) buildRunnerArtifact(r *http.Request, platformName, architecture, runnerID, token, embeddedNATSEndpoint string) ([]byte, string, error) {
+func (s *InfrastructureService) buildRunnerArtifact(r *http.Request, platformName, architecture, runnerID, token, controlPlaneURL, embeddedNATSEndpoint string) ([]byte, string, error) {
 	s.mu.RLock()
-	directory, controlPlaneURL, maxMessageBytes, controlPlanePublicKey := s.runnerBinaryDir, s.runnerControlPlaneURL, s.runnerMaxMessageBytes, s.controlPlanePublicKey
+	directory, defaultControlPlaneURL, maxMessageBytes, controlPlanePublicKey, repository := s.runnerBinaryDir, s.runnerControlPlaneURL, s.runnerMaxMessageBytes, s.controlPlanePublicKey, s.runnerRepository
+	if controlPlaneURL == "" {
+		controlPlaneURL = s.runners[runnerID].ControlPlaneURL
+	}
 	s.mu.RUnlock()
+	if controlPlaneURL == "" && repository != nil {
+		item, found, err := repository.Find(r.Context(), runnerID)
+		if err != nil {
+			return nil, "", err
+		}
+		if found {
+			controlPlaneURL = item.ControlPlaneURL
+		}
+	}
 	binaryName := "glyphflow-runner-" + platformName + "-" + architecture
 	filename := runnerID + "-" + binaryName
 	if platformName == "windows" {
@@ -839,6 +869,9 @@ func (s *InfrastructureService) buildRunnerArtifact(r *http.Request, platformNam
 	raw, err := os.ReadFile(filepath.Join(directory, binaryName))
 	if err != nil {
 		return nil, "", err
+	}
+	if controlPlaneURL == "" {
+		controlPlaneURL = defaultControlPlaneURL
 	}
 	if controlPlaneURL == "" {
 		controlPlaneURL = requestBaseURL(r)

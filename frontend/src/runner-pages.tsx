@@ -39,6 +39,9 @@ export function RunnerDetailPage() {
   const [natsEndpointDraft, setNatsEndpointDraft] = useState<string>()
   const [natsEndpointBusy, setNatsEndpointBusy] = useState(false)
   const [natsEndpointError, setNatsEndpointError] = useState('')
+  const [controlPlaneURLDraft, setControlPlaneURLDraft] = useState<string>()
+  const [controlPlaneURLBusy, setControlPlaneURLBusy] = useState(false)
+  const [controlPlaneURLError, setControlPlaneURLError] = useState('')
   const [runPage, setRunPage] = useState(1)
   const query = useQuery({ queryKey: ['runner', runnerId], queryFn: ({ signal }) => api.get<Runner>(`/api/v1/runners/${encodeURIComponent(runnerId)}`, undefined, signal), enabled: Boolean(runnerId) })
   const currentRuns = useQuery({ queryKey: ['runner-runs', runnerId, runPage], queryFn: ({ signal }) => api.get<Page<Run>>('/api/v1/runs', { runner: runnerId, state: 'ACTIVE', page: runPage, limit: 100 }, signal), enabled: Boolean(runnerId), refetchInterval: 5_000 })
@@ -46,7 +49,8 @@ export function RunnerDetailPage() {
   const action = (state: string) => api.post(`/api/v1/runners/${encodeURIComponent(runnerId)}/${state}`).then(() => { void query.refetch() })
   const updateCapacity = async (runner: Runner) => { const value = Number(capacityDraft || runner.capacity || 0); if (!Number.isInteger(value) || value < 1) { setCapacityError('Capacity must be at least 1.'); return }; setCapacityBusy(true); setCapacityError(''); try { await api.put(`/api/v1/runners/${encodeURIComponent(runner.id)}`, { capacity: value }); setCapacityDraft(String(value)); await query.refetch() } catch (cause) { setCapacityError(describeError(cause).message) } finally { setCapacityBusy(false) } }
   const updateNATSEndpoint = async (runner: Runner) => { const value = (natsEndpointDraft ?? runner.natsEndpoint ?? '').trim(); setNatsEndpointBusy(true); setNatsEndpointError(''); try { await api.put(`/api/v1/runners/${encodeURIComponent(runner.id)}`, { nats_endpoint: value }); setNatsEndpointDraft(value); await query.refetch() } catch (cause) { setNatsEndpointError(describeError(cause).message) } finally { setNatsEndpointBusy(false) } }
-  const generateBinary = async (runner: Runner) => { setBinaryBusy(true); setBinaryError(''); try { const platform = runner.platform || 'linux'; const architecture = runner.architecture || 'amd64'; const result = await api.post<{ artifact: string; filename?: string }>('/api/v1/runners/enrollments', { runner_id: runner.id, pool_id: runner.poolId || runner.pool, platform, architecture, capacity: runner.capacity ?? 10, embedded_nats_endpoint: runner.natsEndpoint ?? '' }); downloadArtifact(result.artifact, result.filename ?? `${runner.id}-glyphflow-runner-${platform}-${architecture}${platform === 'windows' ? '.exe' : ''}`) } catch (cause) { setBinaryError(describeError(cause).message) } finally { setBinaryBusy(false) } }
+  const updateControlPlaneURL = async (runner: Runner) => { const value = (controlPlaneURLDraft ?? runner.controlPlaneUrl ?? '').trim().replace(/\/$/, ''); setControlPlaneURLBusy(true); setControlPlaneURLError(''); try { await api.put(`/api/v1/runners/${encodeURIComponent(runner.id)}`, { control_plane_url: value }); setControlPlaneURLDraft(value); await query.refetch() } catch (cause) { setControlPlaneURLError(describeError(cause).message) } finally { setControlPlaneURLBusy(false) } }
+  const generateBinary = async (runner: Runner) => { setBinaryBusy(true); setBinaryError(''); try { const platform = runner.platform || 'linux'; const architecture = runner.architecture || 'amd64'; const result = await api.post<{ artifact: string; filename?: string }>('/api/v1/runners/enrollments', { runner_id: runner.id, pool_id: runner.poolId || runner.pool, platform, architecture, capacity: runner.capacity ?? 10, control_plane_url: runner.controlPlaneUrl ?? '', embedded_nats_endpoint: runner.natsEndpoint ?? '' }); downloadArtifact(result.artifact, result.filename ?? `${runner.id}-glyphflow-runner-${platform}-${architecture}${platform === 'windows' ? '.exe' : ''}`) } catch (cause) { setBinaryError(describeError(cause).message) } finally { setBinaryBusy(false) } }
   return (
     <main className="gf-content">
       <QueryState query={query}>
@@ -63,6 +67,11 @@ export function RunnerDetailPage() {
               <h2>Capacity</h2>
               {manage && !runner.isArchived ? <div className="gf-dialog-actions"><label>Tasks<Input type="number" min={1} value={capacityDraft || String(runner.capacity ?? 10)} onChange={(event) => setCapacityDraft(event.target.value)} /></label><Button busy={capacityBusy} onClick={() => updateCapacity(runner)}>Update capacity</Button></div> : <p className="gf-muted">Configured capacity: {runner.capacity ?? '—'}</p>}
               {capacityError && <p className="gf-form-error" role="alert">{capacityError}</p>}
+            </section>
+            <section className="gf-card-panel">
+              <h2>Control plane endpoint</h2>
+              {manage && !runner.isArchived ? <div className="gf-runner-endpoint-form"><div className="gf-runner-endpoint-control"><label htmlFor="runner-control-plane-url">Endpoint</label><Input id="runner-control-plane-url" value={controlPlaneURLDraft ?? runner.controlPlaneUrl ?? ''} placeholder="http://localhost:8080" onChange={(event) => setControlPlaneURLDraft(event.target.value)} /><Button busy={controlPlaneURLBusy} onClick={() => updateControlPlaneURL(runner)}>Save endpoint</Button></div><small><code>GLYPHFLOW_CONTROL_PLANE_URL</code> on the runner machine overrides this value.</small></div> : <><p className="gf-muted">Configured endpoint: {runner.controlPlaneUrl || 'server default'}</p><p className="gf-muted"><code>GLYPHFLOW_CONTROL_PLANE_URL</code> on the runner machine overrides this value.</p></>}
+              {controlPlaneURLError && <p className="gf-form-error" role="alert">{controlPlaneURLError}</p>}
             </section>
             <section className="gf-card-panel">
               <h2>NATS endpoint</h2>

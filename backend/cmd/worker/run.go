@@ -56,14 +56,12 @@ func runWorker(ctx context.Context, stdout, stderr io.Writer, status StatusSink)
 	if err != nil {
 		return fmt.Errorf("load worker signing key: %w", err)
 	}
-	if bootstrap != nil {
+	if bootstrap != nil && needsRunnerEnrollment(bootstrap, found, foundKey, storedKey) {
+		bootstrap.ControlPlaneURL = resolveControlPlaneEndpoint(bootstrap)
 		enrollmentKey := storedKey
-		keyNeedsEnrollment := needsRunnerEnrollment(bootstrap, found, foundKey, storedKey)
-		if keyNeedsEnrollment {
-			enrollmentKey, err = protocol.GenerateSigningKey("runner:"+bootstrap.RunnerID, time.Now().UTC(), 365*24*time.Hour)
-			if err != nil {
-				return fmt.Errorf("generate enrollment signing key: %w", err)
-			}
+		enrollmentKey, err = protocol.GenerateSigningKey("runner:"+bootstrap.RunnerID, time.Now().UTC(), 365*24*time.Hour)
+		if err != nil {
+			return fmt.Errorf("generate enrollment signing key: %w", err)
 		}
 		bootstrap.RunnerKeyID = enrollmentKey.ID
 		bootstrap.RunnerPublicKey = base64.RawStdEncoding.EncodeToString(enrollmentKey.Public.PublicKey)
@@ -76,10 +74,8 @@ func runWorker(ctx context.Context, stdout, stderr io.Writer, status StatusSink)
 				return fmt.Errorf("save enrolled connection: %w", err)
 			}
 			storedKey, foundKey = enrollmentKey, true
-		} else if keyNeedsEnrollment || !found {
-			return fmt.Errorf("runner enrollment failed: %w", enrollErr)
 		} else {
-			fmt.Fprintln(stderr, "runner enrollment check failed; using stored connection")
+			return fmt.Errorf("runner enrollment failed: %w", enrollErr)
 		}
 	} else if !found {
 		connection = worker.RunnerConnection{}
@@ -233,7 +229,20 @@ func resolveNATSEndpoint(bootstrap *worker.Bootstrap, enrolled string) string {
 	if bootstrap != nil {
 		embedded = bootstrap.NATSURL
 	}
-	for _, endpoint := range []string{os.Getenv("GLYPHFLOW_NATS_ENDPOINT"), embedded, enrolled} {
+	for _, endpoint := range []string{os.Getenv("GLYPHFLOW_NATS_ENDPOINT"), os.Getenv("RUNNER_NATS_URL"), embedded, enrolled} {
+		if endpoint = strings.TrimSpace(endpoint); endpoint != "" {
+			return endpoint
+		}
+	}
+	return ""
+}
+
+func resolveControlPlaneEndpoint(bootstrap *worker.Bootstrap) string {
+	embedded := ""
+	if bootstrap != nil {
+		embedded = bootstrap.ControlPlaneURL
+	}
+	for _, endpoint := range []string{os.Getenv("GLYPHFLOW_CONTROL_PLANE_URL"), os.Getenv("RUNNER_CONTROL_PLANE_URL"), embedded} {
 		if endpoint = strings.TrimSpace(endpoint); endpoint != "" {
 			return endpoint
 		}

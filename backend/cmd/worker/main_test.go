@@ -39,6 +39,7 @@ func TestNeedsRunnerEnrollmentForLegacyStore(t *testing.T) {
 func TestResolveNATSEndpointPriority(t *testing.T) {
 	bootstrap := &worker.Bootstrap{NATSURL: "nats://embedded:4222"}
 	t.Setenv("GLYPHFLOW_NATS_ENDPOINT", "nats://environment:4222")
+	t.Setenv("RUNNER_NATS_URL", "")
 	if got := resolveNATSEndpoint(bootstrap, "nats://server:4222"); got != "nats://environment:4222" {
 		t.Fatalf("environment endpoint = %q", got)
 	}
@@ -48,5 +49,23 @@ func TestResolveNATSEndpointPriority(t *testing.T) {
 	}
 	if got := resolveNATSEndpoint(nil, "nats://server:4222"); got != "nats://server:4222" {
 		t.Fatalf("server endpoint = %q", got)
+	}
+}
+
+func TestResolveControlPlaneEndpointPriority(t *testing.T) {
+	bootstrap := &worker.Bootstrap{ControlPlaneURL: "http://embedded:8080"}
+	t.Setenv("GLYPHFLOW_CONTROL_PLANE_URL", "http://environment:8080")
+	t.Setenv("RUNNER_CONTROL_PLANE_URL", "")
+	if got := resolveControlPlaneEndpoint(bootstrap); got != "http://environment:8080" {
+		t.Fatalf("environment endpoint = %q", got)
+	}
+	t.Setenv("GLYPHFLOW_CONTROL_PLANE_URL", "")
+	t.Setenv("RUNNER_CONTROL_PLANE_URL", "http://runner-environment:8080")
+	if got := resolveControlPlaneEndpoint(bootstrap); got != "http://runner-environment:8080" {
+		t.Fatalf("runner environment endpoint = %q", got)
+	}
+	t.Setenv("RUNNER_CONTROL_PLANE_URL", "")
+	if got := resolveControlPlaneEndpoint(bootstrap); got != "http://embedded:8080" {
+		t.Fatalf("embedded endpoint = %q", got)
 	}
 }
