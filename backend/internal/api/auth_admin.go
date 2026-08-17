@@ -119,20 +119,61 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 		}
 	})))
 	mux.Handle("/api/v1/admin/auth/users/", s.require("users.manage", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || s.AuthAdmin.Auth == nil || !strings.HasSuffix(r.URL.Path, "/disable") {
+		if s.AuthAdmin.Auth == nil {
 			writeJSON(w, 405, map[string]string{"error": "method not allowed"})
 			return
 		}
-		path := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/v1/admin/auth/users/"), "/disable")
-		if err := s.AuthAdmin.Auth.DisableUser(path); err != nil {
-			if errors.Is(err, platform.ErrLastAdministrator) || errors.Is(err, platform.ErrSystemAdministrator) {
-				writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		path := strings.TrimPrefix(r.URL.Path, "/api/v1/admin/auth/users/")
+		switch {
+		case r.Method == http.MethodPost && strings.HasSuffix(path, "/disable"):
+			userID := strings.TrimSuffix(path, "/disable")
+			if err := s.AuthAdmin.Auth.DisableUser(userID); err != nil {
+				if errors.Is(err, platform.ErrLastAdministrator) || errors.Is(err, platform.ErrSystemAdministrator) {
+					writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+					return
+				}
+				writeJSON(w, 404, map[string]string{"error": "user not found"})
 				return
 			}
-			writeJSON(w, 404, map[string]string{"error": "user not found"})
-			return
+			writeJSON(w, 204, nil)
+		case r.Method == http.MethodPost && strings.HasSuffix(path, "/roles"):
+			userID := strings.TrimSuffix(path, "/roles")
+			var input struct {
+				Role string `json:"role"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&input); err != nil || strings.TrimSpace(input.Role) == "" {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "role is required"})
+				return
+			}
+			if err := s.AuthAdmin.Auth.Grant(userID, input.Role); err != nil {
+				if strings.Contains(err.Error(), "not found") {
+					writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+				} else {
+					writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				}
+				return
+			}
+			writeJSON(w, http.StatusNoContent, nil)
+		case r.Method == http.MethodDelete && strings.Contains(path, "/roles/"):
+			parts := strings.SplitN(path, "/roles/", 2)
+			if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "user and role are required"})
+				return
+			}
+			if err := s.AuthAdmin.Auth.Revoke(parts[0], parts[1]); err != nil {
+				if errors.Is(err, platform.ErrLastAdministrator) || errors.Is(err, platform.ErrSystemAdministrator) {
+					writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+				} else if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "not assigned") {
+					writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+				} else {
+					writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				}
+				return
+			}
+			writeJSON(w, http.StatusNoContent, nil)
+		default:
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		}
-		writeJSON(w, 204, nil)
 	})))
 	mux.Handle("/api/v1/users", s.requireMethodRole(func(r *http.Request) string {
 		if r.Method == http.MethodGet {
@@ -157,12 +198,12 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 			writeError(w, http.StatusBadRequest, "invalid user request", err)
 			return
 		}
-		user, err := s.AuthAdmin.Auth.Register(input.Email, input.Password)
+		user, err := s.AuthAdmin.Auth.register(input.Email, input.Password, false)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "user creation failed", err)
 			return
 		}
-		writeJSON(w, http.StatusCreated, user)
+		writeJSON(w, http.StatusCreated, map[string]string{"id": user.ID, "email": user.Email})
 	})))
 	mux.Handle("/api/v1/users/", s.requireAuthenticated(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

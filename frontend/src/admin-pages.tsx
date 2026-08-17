@@ -32,27 +32,65 @@ function InlinePills({ values }: { values?: string[] }) {
   return values?.length ? <span className="gf-pill-list">{values.map((value) => <span className="gf-inline-pill" key={value}>{value}</span>)}</span> : '—'
 }
 
+export function UserCreationForm({ onCreated }: { onCreated: (userID: string) => Promise<void> }) {
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const submit = async (event: FormEvent) => {
+    event.preventDefault(); setBusy(true); setError('')
+    try {
+      const user = await api.post<{ id: string }>('/api/v1/users', { email: email.trim(), password })
+      await onCreated(user.id)
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'User creation failed') } finally { setBusy(false) }
+  }
+  return <section className="gf-card-panel"><h2>Create user</h2><form className="gf-editor-form" onSubmit={submit}><div className="gf-form-grid"><label htmlFor="admin-user-email">Email<Input id="admin-user-email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label><label htmlFor="admin-user-password">Temporary password<Input id="admin-user-password" type="password" autoComplete="new-password" minLength={12} value={password} onChange={(event) => setPassword(event.target.value)} required /></label></div>{error && <p className="gf-form-error" role="alert">{error}</p>}<div className="gf-dialog-actions"><Button type="submit" busy={busy}>Create user</Button></div></form></section>
+}
+
+export function UserAccessEditor({ user, roles, onChanged, onClose }: { user: UserRecord; roles?: RoleDefinition[]; onChanged: () => Promise<void>; onClose: () => void }) {
+  const [roleID, setRoleID] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const role = roles?.find((item) => item.id === roleID)
+  const assign = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!role) return
+    setBusy(true); setError('')
+    try { await api.post(`/api/v1/admin/auth/users/${encodeURIComponent(user.id)}/roles`, { role: role.name }); setRoleID(''); await onChanged() } catch (cause) { setError(cause instanceof Error ? cause.message : 'Role assignment failed') } finally { setBusy(false) }
+  }
+  const revoke = async (name: string) => { await api.delete(`/api/v1/admin/auth/users/${encodeURIComponent(user.id)}/roles/${encodeURIComponent(name)}`); await onChanged() }
+  return <section className="gf-card-panel"><h2>Manage access for {user.email ?? user.username}</h2><form className="gf-editor-form" onSubmit={assign}><label htmlFor="admin-user-role">Assign role<RoleSelect id="admin-user-role" value={roleID} roles={roles} disabled={!roles?.length || busy} onChange={setRoleID} /></label>{!roles?.length && <p className="gf-form-error">Roles could not be loaded. Verify that you have role-read access.</p>}{error && <p className="gf-form-error" role="alert">{error}</p>}<div className="gf-dialog-actions"><Button type="submit" busy={busy} disabled={!role}>Assign role</Button><Button type="button" variant="ghost" onClick={onClose}>Close</Button></div></form><h3>Assigned roles</h3>{user.roles?.length ? <ul className="gf-dashboard-list">{user.roles.map((name) => <li key={name}><span>{name}</span><DangerousAction label="Revoke" warning={`Remove the ${name} role from this user.`} onConfirm={() => revoke(name)} /></li>)}</ul> : <p className="gf-muted">No roles are assigned.</p>}</section>
+}
+
 export function UserManagementPage() {
   const { permissions } = useAuth()
   const manage = hasPermission(permissions, 'users.manage')
   const [page, setPage] = useState(1)
+  const [creating, setCreating] = useState(false)
+  const [accessUserID, setAccessUserID] = useState<string | null>(null)
   const query = useQuery({ queryKey: ['admin-users', page], queryFn: ({ signal }) => api.get<Page<UserRecord> | UserRecord[]>('/api/v1/users', { page, limit: 50 }, signal).then(asPage) })
+  const rolesQuery = useQuery({ queryKey: ['admin-user-role-options'], queryFn: ({ signal }) => api.get<RoleDefinition[]>('/api/v1/admin/roles', undefined, signal), enabled: manage })
   const revoke = async (session: AuthSession) => { await api.post(`/api/v1/admin/auth/sessions/revoke?session_id=${encodeURIComponent(session.id)}`); await query.refetch() }
   const disable = async (user: UserRecord) => { await api.post(`/api/v1/admin/auth/users/${encodeURIComponent(user.id)}/disable`); await query.refetch() }
+  const refreshUsers = async () => { await query.refetch() }
+  const created = async (userID: string) => { setCreating(false); setAccessUserID(userID); await query.refetch() }
   return <main className="gf-content">
-    <PageHeader title="Users and sessions" description="Review identity methods, role sources, permissions, and active sessions." />
+    <PageHeader title="Users and sessions" description="Review identity methods, role sources, permissions, and active sessions." action={manage && <Button onClick={() => setCreating((value) => !value)}>{creating ? 'Cancel' : 'Create user'}</Button>} />
+    {creating && <UserCreationForm onCreated={created} />}
     <QueryState query={query} empty="No users are available.">{(raw) => {
       const data = asPage(raw)
       if (!data.items.length) return <EmptyState title="No users">Create or provision a user before managing access.</EmptyState>
+      const accessUser = data.items.find((user) => user.id === accessUserID)
       return <><DataTable caption="Users" rows={data.items} columns={[
         { key: 'email', label: 'User', render: (user) => <span><strong>{user.displayName ?? user.email ?? user.username}</strong><br /><small>{user.email ?? user.username}</small></span> },
         { key: 'status', label: 'Status', render: (user) => <StatusPill status={user.status ?? (user.enabled === false ? 'disabled' : 'active')} /> },
         { key: 'loginMethods', label: 'Login methods', render: (user) => <InlinePills values={user.loginMethods} /> },
         { key: 'roles', label: 'Roles', render: (user) => <InlinePills values={user.roles} /> },
         { key: 'sessions', label: 'Sessions', render: (user) => user.sessions?.length ?? 0 },
-        { key: 'actions', label: 'Actions', render: (user) => manage && <div className="gf-dialog-actions">{!user.systemAdmin && <DangerousAction label="Disable" onConfirm={() => disable(user)} />}<Link to={`/admin/users/${encodeURIComponent(user.id)}`}>Details</Link></div> },
+        { key: 'actions', label: 'Actions', render: (user) => <div className="gf-dialog-actions">{manage && <><Button variant="secondary" onClick={() => setAccessUserID(user.id)}>Manage access</Button>{!user.systemAdmin && <DangerousAction label="Disable" onConfirm={() => disable(user)} />}</>}<Link to={`/admin/users/${encodeURIComponent(user.id)}`}>Details</Link></div> },
       ]} />
       <Pagination page={data.page ?? page} pages={data.pages ?? 1} onChange={setPage} />
+      {accessUser && <UserAccessEditor user={accessUser} roles={rolesQuery.data} onChanged={refreshUsers} onClose={() => setAccessUserID(null)} />}
       {data.items.map((user) => user.sessions?.length ? <section className="gf-card-panel" key={`${user.id}-sessions`}><h2>{user.username} sessions</h2><ul className="gf-dashboard-list">{user.sessions.map((session) => <li key={session.id}><span>{sessionLabel(session)}<br /><small>{session.expiresAt ? `Expires ${formatDateTime(session.expiresAt)}` : 'Expiry unavailable'}</small></span>{manage && !session.current && <Button variant="danger" onClick={() => void revoke(session)}>Revoke</Button>}</li>)}</ul></section> : null)}
     </> }}</QueryState>
   </main>

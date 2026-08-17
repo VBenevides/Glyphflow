@@ -67,6 +67,60 @@ func TestAuthenticationAdministrationManagesSSOAndUsers(t *testing.T) {
 	}
 }
 
+func TestAuthenticationAdministrationCreatesPromotesAndRevokesRoles(t *testing.T) {
+	auth, err := NewAuthService("01234567890123456789012345678901", true, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, role := range []string{"user", "admin", "operator"} {
+		if err := auth.AddRole(role); err != nil {
+			t.Fatal(err)
+		}
+	}
+	auth.SetDefaultRole("user")
+	server := Server{AuthAdmin: &AuthAdminService{Auth: auth}, Auth: func(*http.Request) (Claims, bool) {
+		return Claims{Roles: map[string]bool{"users.manage": true}}, true
+	}}
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, httptest.NewRequest(method, path, bytes.NewBufferString(body)))
+		return response
+	}
+	created := request(http.MethodPost, "/api/v1/users", `{"email":"managed@example.com","password":"correct horse"}`)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create user: %d %s", created.Code, created.Body.String())
+	}
+	var user struct{ ID, Email string }
+	if err := json.Unmarshal(created.Body.Bytes(), &user); err != nil || user.ID == "" || user.Email != "managed@example.com" {
+		t.Fatalf("created user response: %s", created.Body.String())
+	}
+	if response := request(http.MethodPost, "/api/v1/admin/auth/users/"+user.ID+"/roles", `{"role":"operator"}`); response.Code != http.StatusNoContent {
+		t.Fatalf("assign custom role: %d %s", response.Code, response.Body.String())
+	}
+	if response := request(http.MethodPost, "/api/v1/admin/auth/users/"+user.ID+"/roles", `{"role":"admin"}`); response.Code != http.StatusNoContent {
+		t.Fatalf("promote admin: %d %s", response.Code, response.Body.String())
+	}
+	profile, ok := auth.UserProfile(user.ID)
+	if !ok || !containsString(profile["roles"].([]string), "admin") || !containsString(profile["roles"].([]string), "operator") {
+		t.Fatalf("assigned roles missing: %#v", profile)
+	}
+	if response := request(http.MethodDelete, "/api/v1/admin/auth/users/"+user.ID+"/roles/operator", ""); response.Code != http.StatusNoContent {
+		t.Fatalf("revoke custom role: %d %s", response.Code, response.Body.String())
+	}
+	if response := request(http.MethodDelete, "/api/v1/admin/auth/users/"+user.ID+"/roles/admin", ""); response.Code != http.StatusConflict {
+		t.Fatalf("last admin revoke: %d %s", response.Code, response.Body.String())
+	}
+}
+
+func containsString(values []string, wanted string) bool {
+	for _, value := range values {
+		if value == wanted {
+			return true
+		}
+	}
+	return false
+}
+
 func TestAuthenticationAdministrationReportsImmutableSystemAdmin(t *testing.T) {
 	auth, err := NewAuthService("01234567890123456789012345678901", true, true, nil)
 	if err != nil {
