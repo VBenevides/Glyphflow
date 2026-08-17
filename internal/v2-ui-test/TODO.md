@@ -14,8 +14,9 @@ Based on [`findings.md`](./findings.md).
   - Implementation commit: `5efa0b8bb8237b41d01e730df607c93682136755`
 - [x] Show useful metadata on `/account/sessions` such as device/user agent and last-seen or expiry time.
   - Verification: `npm test -- src/account-pages.test.ts`
-  - Result: PASS — 3 tests passed.
+  - Result: PASS — 3 tests passed; the desktop audit screenshot confirms metadata is stacked and readable.
   - Implementation commit: `b197564675ee53ea8ec91498e34f480a39f42a0c`
+  - Follow-up polish commit: `f5d0ff0`
 - [x] Add confirmation before deleting global variables, including reference/impact information.
   - Verification: `npm test -- src/global-variables-page.test.ts`
   - Result: PASS — 2 tests passed.
@@ -42,5 +43,11 @@ Based on [`findings.md`](./findings.md).
 
 ## Verification
 
-- [ ] Run the full route/dialog audit at desktop and mobile widths.
-- [ ] Confirm no console errors, clipped controls, accidental destructive actions, or broken primary buttons.
+- [x] Run the full route/dialog audit at desktop and mobile widths.
+  - Verification: `node internal/v2-ui-test/ui-audit.mjs`
+  - Result: PASS — 27 routes, 13 interactions, 0 browser errors; the 320px task editor reports document/body width 320px with no horizontal overflow.
+  - Verification commit: `9c513b7`
+- [x] Confirm no console errors, clipped controls, accidental destructive actions, or broken primary buttons.
+  - Verification: `npm test`; `npm run typecheck`; `npm run build`; `npm run lint`; `env GOCACHE=/tmp/glyphflow-go-cache go test ./internal/api`; `node internal/v2-ui-test/ui-audit.mjs`
+  - Result: PASS — 71 frontend tests, production build, quality checks, backend API tests, and the full UI audit passed; destructive actions opened confirmations and were cancelled.
+  - Verification commit: `9c513b7`
