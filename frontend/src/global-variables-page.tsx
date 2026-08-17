@@ -2,12 +2,20 @@ import { useState, type FormEvent } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api, type GlobalVariable, type Page } from './api'
 import { Button, DataTable, EmptyState, Input, PageHeader, StatusPill } from './components'
+import { DangerousAction } from './actions'
 import { QueryState } from './query'
 import { hasPermission } from './permissions'
 import { useAuth } from './auth'
 
 export function validGlobalVariableName(value: string): boolean {
 	return /^[A-Z_][A-Z0-9_]*$/.test(value.trim())
+}
+
+export function globalVariableDeleteWarning(item: Pick<GlobalVariable, 'name' | 'references'>): string {
+  const references = item.references ?? 0
+  return references
+    ? `${item.name} is referenced by ${references} task or schedule definition${references === 1 ? '' : 's'}. Deleting it may affect those definitions and will be blocked until the references are removed.`
+    : `${item.name} is not referenced by any task or schedule definitions. Delete it?`
 }
 
 export function GlobalVariablesPage() {
@@ -35,5 +43,5 @@ export function GlobalVariablesPage() {
   }
 	return <main className="gf-content"><PageHeader title="Global environment variables" description="Reusable non-secret values. Reference them as $ENV:VARIABLE_NAME in supported task and schedule fields." action={manage && !editing && <Button onClick={() => setEditing({ id: '', name: '', value: '' })}>Create variable</Button>} />
     {manage && editing && <form className="gf-editor-form" onSubmit={submit}><div className="gf-form-grid"><label>Name<Input list="global-variable-names" value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} disabled={Boolean(editing.id)} required /></label><label>Value<Input value={draft.value} onChange={(event) => setDraft({ ...draft, value: event.target.value })} required /></label></div><datalist id="global-variable-names">{(query.data ?? []).map((item) => <option key={item.id} value={item.name} />)}</datalist>{error && <p className="gf-form-error" role="alert">{error}</p>}<div className="gf-dialog-actions"><Button type="submit" busy={busy}>Save variable</Button><Button type="button" variant="ghost" onClick={close}>Cancel</Button></div></form>}
-    <QueryState query={query} empty="No global variables are configured.">{(items) => items.length ? <DataTable caption="Global environment variables" rows={items} columns={[{ key: 'name', label: 'Name', render: (item) => <strong>{item.name}</strong> }, { key: 'value', label: 'Value' }, { key: 'references', label: 'References', render: (item) => <StatusPill status={item.references ? 'in use' : 'unused'} /> }, { key: 'actions', label: 'Actions', render: (item) => manage && <div className="gf-dialog-actions"><Button variant="secondary" onClick={() => { setEditing(item); setDraft({ name: item.name, value: item.value }) }}>Edit</Button><Button variant="danger" onClick={() => void remove(item)}>Delete</Button></div> }]} /> : <EmptyState title="No global variables">Create a reusable value for task and schedule fields.</EmptyState>}</QueryState>{error && !editing && <p className="gf-form-error" role="alert">{error}</p>}</main>
+    <QueryState query={query} empty="No global variables are configured.">{(items) => items.length ? <DataTable caption="Global environment variables" rows={items} columns={[{ key: 'name', label: 'Name', render: (item) => <strong>{item.name}</strong> }, { key: 'value', label: 'Value' }, { key: 'references', label: 'References', render: (item) => <StatusPill status={item.references ? 'in use' : 'unused'} /> }, { key: 'actions', label: 'Actions', render: (item) => manage && <div className="gf-dialog-actions"><Button variant="secondary" onClick={() => { setEditing(item); setDraft({ name: item.name, value: item.value }) }}>Edit</Button><DangerousAction label="Delete" title={`Delete ${item.name}`} warning={globalVariableDeleteWarning(item)} onConfirm={() => remove(item)} /></div> }]} /> : <EmptyState title="No global variables">Create a reusable value for task and schedule fields.</EmptyState>}</QueryState>{error && !editing && <p className="gf-form-error" role="alert">{error}</p>}</main>
 }
