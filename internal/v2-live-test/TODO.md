@@ -56,7 +56,7 @@
   - Description: Reduce the worker log flush interval from 30 seconds to 10 seconds so live run logs reach NATS and storage sooner.
   - Test Description: Run a task that emits output for more than 10 seconds and verify log chunks are published during execution rather than waiting 30 seconds.
   - Test Result: Passed with `GOCACHE=/tmp/glyphflow-go-cache go test ./internal/worker`.
-  - Commit Hash: Not committed
+  - Commit Hash: `91473217aba8d91fd3cd5789a955357b338140f1`
 
 - [ ] Remove Neon theme
   - Importance Level: Low
