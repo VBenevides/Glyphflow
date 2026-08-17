@@ -40,12 +40,12 @@ Reference UI: `http://localhost:5200/admin`
   - Test Result: PASS — `npm test -- --run src/components.test.tsx src/layout.test.ts` (2 files, 13 tests); `git diff --check` passed.
   - Commit Hash: `c6a6b8bc2c83bf64ad102d959c2445cfc9e8e944`
 
-- [ ] **Medium: Use dialogs for create and edit flows**
+- [x] **Medium: Use dialogs for create and edit flows**
   - Importance Level: Medium
   - Description: Update create and edit actions to open dialogs or modals, following the reference UI, instead of navigating to separate pages where the workflow does not require a full page.
   - Test Description: Open every affected create and edit action, verify the dialog contents, validation, save/cancel behavior, focus handling, and list refresh after success.
-  - Test Result: Not run
-  - Commit Hash: Not committed
+  - Test Result: PASS — `npm test -- --run src/task-editor.test.ts src/task-pages.test.ts src/schedule-pages.test.ts src/run-pages.test.ts src/runner-pages.test.ts` (5 files, 17 tests); `npm run typecheck` passed; `git diff --check` passed. Deep-link editor routes remain available; browser interaction testing was not available in this environment.
+  - Commit Hash: `25ea9aa743ff7ccf8b0d8a2c9c637f94b407d198`
 
 ## Security Patches
 
