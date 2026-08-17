@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -69,7 +70,11 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	signingKey, err := loadControlPlaneSigningKey(cfg.ControlPlaneSigningPrivateKey)
+	signingKeyPath := ""
+	if cfg.Environment == "development" && cfg.ControlPlaneSigningPrivateKey == "" {
+		signingKeyPath = filepath.Join(cfg.DataDir, "control-plane-signing.key")
+	}
+	signingKey, err := loadControlPlaneSigningKey(cfg.ControlPlaneSigningPrivateKey, signingKeyPath)
 	if err != nil {
 		db.Close()
 		fmt.Fprintln(os.Stderr, err)
