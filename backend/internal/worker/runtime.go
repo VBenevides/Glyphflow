@@ -16,13 +16,14 @@ import (
 )
 
 const (
-	logFlushInterval      = 30 * time.Second
+	logFlushInterval      = 10 * time.Second
 	maxEventLogChunkBytes = 64 * 1024
 )
 
 type OrderRuntime struct {
 	Store            *LocalStore
 	Publisher        queue.Publisher
+	StartClaimer     StartClaimer
 	RunnerID         string
 	ExecutorBootID   string
 	ProcessID        int64
@@ -78,7 +79,7 @@ func (a *ActiveOrders) cancel(id string) bool {
 }
 
 func (r OrderRuntime) Handle(ctx context.Context, message queue.Message) error {
-	if r.Store == nil || r.Publisher == nil || r.RunnerID == "" || len(r.ControlPublicKey) != ed25519.PublicKeySize || len(r.SigningKey.Private) != ed25519.PrivateKeySize {
+	if r.Store == nil || r.Publisher == nil || r.StartClaimer == nil || r.RunnerID == "" || len(r.ControlPublicKey) != ed25519.PublicKeySize || len(r.SigningKey.Private) != ed25519.PrivateKeySize {
 		return errors.New("worker order runtime is not configured")
 	}
 	envelope, err := protocol.DecodeEnvelope(message.Data)
@@ -110,12 +111,22 @@ func (r OrderRuntime) Handle(ctx context.Context, message queue.Message) error {
 		}
 		return nil
 	}
-	payload, err := r.Store.AcceptOrder(message.Data, protocol.Keyring{"control-plane": {ID: "control-plane", PublicKey: r.ControlPublicKey}}, time.Now().UTC(), r.RunnerID, order.RunID, order.Attempt, order.LeaseToken, time.Second)
+	payload, err := protocol.VerifyOrder(message.Data, protocol.Keyring{"control-plane": {ID: "control-plane", PublicKey: r.ControlPublicKey}}, time.Now().UTC(), r.RunnerID, order.RunID, order.Attempt, order.LeaseToken, time.Second, nil)
 	if err != nil {
 		return err
 	}
 	if payload.Type != protocol.OrderExecute {
 		return errors.New("unsupported worker order type")
+	}
+	if err := r.StartClaimer.ClaimStart(ctx, protocol.StartClaimPayload{Version: protocol.ProtocolVersion, RequestID: payload.OrderID, RunID: payload.RunID, RunnerID: payload.RunnerID, RunnerSessionID: payload.RunnerSessionID, LeaseToken: payload.LeaseToken, Attempt: payload.Attempt, FencingToken: payload.FencingToken, ExecutionSpecDigest: payload.ExecutionSpecDigest, IssuedAt: time.Now().UTC()}); err != nil {
+		if errors.Is(err, ErrStartRejected) {
+			return nil
+		}
+		return err
+	}
+	payload, err = r.Store.AcceptOrder(message.Data, protocol.Keyring{"control-plane": {ID: "control-plane", PublicKey: r.ControlPublicKey}}, time.Now().UTC(), r.RunnerID, order.RunID, order.Attempt, order.LeaseToken, time.Second)
+	if err != nil {
+		return err
 	}
 	if err := r.Store.ClaimOrder(payload.OrderID, r.ExecutorBootID, r.ProcessID); err != nil {
 		return nil
@@ -126,7 +137,11 @@ func (r OrderRuntime) Handle(ctx context.Context, message queue.Message) error {
 	if err := r.Store.MarkProcessStarted(payload.OrderID); err != nil {
 		return err
 	}
-	r.logf("%s - Started Run %q\n", time.Now().UTC().Format("2006-01-02 15:04 MST"), payload.RunID)
+	taskName := payload.TaskName
+	if taskName == "" {
+		taskName = payload.TaskID
+	}
+	r.logf("> %s - Started Task %q v%d - ID %q - Run %q\n", time.Now().UTC().Format("2006-01-02 15:04 MST"), taskName, payload.TaskVersion, payload.TaskID, payload.RunID)
 	if err := r.publishEvent(ctx, payload, protocol.EventStarted, 2, "", "", nil, nil); err != nil {
 		return err
 	}
@@ -171,16 +186,25 @@ func (r OrderRuntime) Handle(ctx context.Context, message queue.Message) error {
 		genericError := 1
 		exitCode = &genericError
 	}
+	timedOut := errors.Is(executionContext.Err(), context.DeadlineExceeded)
+	if timedOut {
+		timeoutCode := 6
+		exitCode = &timeoutCode
+		runErr = errors.New("Timeout")
+	}
 	finishedCode := -1
 	if exitCode != nil {
 		finishedCode = *exitCode
 	}
-	r.logf("%s - Finished Run %q - %d\n", time.Now().UTC().Format("2006-01-02 15:04 MST"), payload.RunID, finishedCode)
+	r.logf("> %s - Finished Task %q v%d - ID %q - Run %q - %d\n", time.Now().UTC().Format("2006-01-02 15:04 MST"), taskName, payload.TaskVersion, payload.TaskID, payload.RunID, finishedCode)
 	eventType := protocol.EventCompleted
+	if timedOut {
+		eventType = protocol.EventTimedOut
+	}
 	if active != nil && active.cancelled.Load() {
 		eventType = protocol.EventCancelled
 	}
-	if runErr != nil && (active == nil || !active.cancelled.Load()) {
+	if runErr != nil && !timedOut && (active == nil || !active.cancelled.Load()) {
 		eventType = protocol.EventFailed
 	}
 	errorText := ""

@@ -17,8 +17,8 @@ import (
 type failingAuditRepository struct{ err error }
 
 func (r failingAuditRepository) Append(context.Context, store.AuditEventRecord) error { return r.err }
-func (r failingAuditRepository) Query(context.Context, store.AuditFilter) ([]store.AuditEventRecord, int, error) {
-	return nil, 0, r.err
+func (r failingAuditRepository) Query(context.Context, store.AuditFilter) ([]store.AuditEventRecord, store.AuditCounts, error) {
+	return nil, store.AuditCounts{}, r.err
 }
 
 func TestAuditAppendFailureIsSignalled(t *testing.T) {
@@ -41,16 +41,17 @@ func TestAuditAppendFailureIsSignalled(t *testing.T) {
 func TestAuditQueryFiltersRedactsAndPaginates(t *testing.T) {
 	audit := NewAuditQueryService()
 	audit.Add(AuditEvent{ID: "old", Actor: "system:scheduler", Action: "run.created", Target: "run-1", Result: "success", CorrelationID: "corr-1", CreatedAt: "2026-08-13T10:00:00Z", Before: map[string]any{"token": "secret"}})
+	audit.Add(AuditEvent{ID: "write", Actor: "user-1", Action: http.MethodPost, Target: "/api/v1/tasks", Result: "success", CreatedAt: "2026-08-09T10:00:00Z"})
 	audit.Add(AuditEvent{ID: "new", Actor: "user-1", Action: "user.updated", Target: "user-1", Result: "failure", CorrelationID: "corr-2", CreatedAt: "2026-08-14T10:00:00Z", After: map[string]any{"nested": map[string]any{"password": "secret"}}})
 	audit.Add(AuditEvent{ID: "audit-read", Actor: "system:audit", Action: "GET", Target: "/api/v1/audit", Result: "success", CreatedAt: "2026-08-14T11:00:00Z"})
 	audit.Add(AuditEvent{ID: "run-log-read", Actor: "system:runner", Action: "GET", Target: "/api/v1/runs/run-1/logs", Result: "success", CreatedAt: "2026-08-14T12:00:00Z"})
-	if audit.events[0].Before["token"] != "[REDACTED]" || audit.events[1].After["nested"].(map[string]any)["password"] != "[REDACTED]" {
+	if audit.events[0].Before["token"] != "[REDACTED]" || audit.events[2].After["nested"].(map[string]any)["password"] != "[REDACTED]" {
 		t.Fatal("audit secrets were not redacted")
 	}
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/audit?actor=user-1&page=1&limit=1", nil)
 	response := httptest.NewRecorder()
 	audit.query(response, request)
-	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"id":"new"`)) || bytes.Contains(response.Body.Bytes(), []byte(`"id":"old"`)) {
+	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"id":"new"`)) || bytes.Contains(response.Body.Bytes(), []byte(`"id":"old"`)) || !bytes.Contains(response.Body.Bytes(), []byte(`"total":2`)) || !bytes.Contains(response.Body.Bytes(), []byte(`"failureCount":1`)) || !bytes.Contains(response.Body.Bytes(), []byte(`"writeCount":1`)) {
 		t.Fatalf("filtered audit response: %d %s", response.Code, response.Body.String())
 	}
 	request = httptest.NewRequest(http.MethodGet, "/api/v1/audit?from="+time.Date(2026, 8, 14, 0, 0, 0, 0, time.UTC).Format(time.RFC3339), nil)

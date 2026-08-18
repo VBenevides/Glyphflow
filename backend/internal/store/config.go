@@ -18,6 +18,7 @@ var allowedConfigNames = map[string]struct{}{
 	"ENABLE_PASSWORD_LOGIN":        {},
 	"ENABLE_PASSWORD_REGISTRATION": {},
 	"DEFAULT_ROLE_ID":              {},
+	"LOCKDOWN_SCHEDULER":           {},
 	"WEB_ORIGIN":                   {},
 	"MAX_MESSAGE_BYTES":            {},
 	"GLYPHFLOW_BOOTSTRAP_EMAIL":    {},

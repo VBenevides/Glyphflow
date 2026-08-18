@@ -112,6 +112,54 @@ func TestAuthenticationAdministrationCreatesPromotesAndRevokesRoles(t *testing.T
 	}
 }
 
+func TestAuthenticationAdministrationFiltersAndRevokesSessions(t *testing.T) {
+	auth, err := NewAuthService("01234567890123456789012345678901", true, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.AddRole("user"); err != nil {
+		t.Fatal(err)
+	}
+	auth.SetDefaultRole("user")
+	alice, err := auth.Register("alice@example.com", "correct horse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := auth.Register("bob@example.com", "correct horse 2"); err != nil {
+		t.Fatal(err)
+	}
+	first, err := auth.Login(alice.Email, "correct horse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := auth.Login(alice.Email, "correct horse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := Server{AuthAdmin: &AuthAdminService{Auth: auth}, Auth: func(*http.Request) (Claims, bool) {
+		return Claims{Roles: map[string]bool{"users.read": true, "users.manage": true}}, true
+	}}
+	request := func(method, path string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, httptest.NewRequest(method, path, nil))
+		return response
+	}
+	users := request(http.MethodGet, "/api/v1/users?email=alice@example.com&page=1&limit=10")
+	if users.Code != http.StatusOK || !bytes.Contains(users.Body.Bytes(), []byte(alice.Email)) || bytes.Contains(users.Body.Bytes(), []byte("bob@example.com")) {
+		t.Fatalf("filtered users: %d %s", users.Code, users.Body.String())
+	}
+	sessions := request(http.MethodGet, "/api/v1/admin/auth/sessions?email=alice@example.com&page=1&limit=10")
+	if sessions.Code != http.StatusOK || !bytes.Contains(sessions.Body.Bytes(), []byte(first.SessionID)) || !bytes.Contains(sessions.Body.Bytes(), []byte(second.SessionID)) {
+		t.Fatalf("filtered sessions: %d %s", sessions.Code, sessions.Body.String())
+	}
+	if response := request(http.MethodPost, "/api/v1/admin/auth/sessions/revoke?session_id="+first.SessionID); response.Code != http.StatusNoContent || auth.SessionManager().Owns(alice.ID, first.SessionID) {
+		t.Fatalf("revoke session: %d", response.Code)
+	}
+	if response := request(http.MethodPost, "/api/v1/admin/auth/users/"+alice.ID+"/sessions/revoke-all"); response.Code != http.StatusNoContent || auth.SessionManager().Owns(alice.ID, second.SessionID) {
+		t.Fatalf("revoke all sessions: %d", response.Code)
+	}
+}
+
 func containsString(values []string, wanted string) bool {
 	for _, value := range values {
 		if value == wanted {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { createElement } from 'react'
-import { AppearanceChoices, activeGroupName, groupedRoutes } from './shell'
+import { AppearanceChoices, activeGroupName, activeRoutePath, groupedRoutes, navigationLabel } from './shell'
 import { ROUTES, visibleRoutes } from './permissions'
 
 describe('application shell navigation', () => {
@@ -13,17 +13,28 @@ describe('application shell navigation', () => {
     expect(activeGroupName('/unknown')).toBeUndefined()
   })
 
+  it('activates only the most specific route for nested pages', () => {
+    expect(activeRoutePath('/runners/pools', ROUTES)).toBe('/runners')
+    expect(activeRoutePath('/runners/runner-1', ROUTES)).toBe('/runners')
+    expect(activeRoutePath('/tasks/new', ROUTES)).toBe('/tasks')
+  })
+
+  it('uses contextual labels for compact navigation items', () => {
+    expect(navigationLabel(ROUTES.find((route) => route.path === '/runners')!)).toBe('Runners & Pools')
+    expect(navigationLabel(ROUTES.find((route) => route.path === '/admin/sso')!)).toBe('Single sign-on')
+  })
+
   it('counts only permitted routes in each group', () => {
     const groups = groupedRoutes(visibleRoutes(['users.read']))
     expect(groups.find(({ group }) => group.name === 'Administration')?.routes.map((route) => route.path)).toEqual(['/admin/users'])
     expect(groups.find(({ group }) => group.name === 'Operations')?.routes.map((route) => route.path)).toEqual(['/'])
   })
 
-  it('renders all appearance choices with accessible pressed state', () => {
-    const html = renderToStaticMarkup(createElement(AppearanceChoices, { theme: 'neon', onSelect: () => undefined }))
-    expect(html).toContain('>Light<')
-    expect(html).toContain('>Dark<')
-    expect(html).toContain('>Neon<')
-    expect(html).toContain('aria-pressed="true"')
+  it('renders the appearance toggle with an accessible checked state', () => {
+    const html = renderToStaticMarkup(createElement(AppearanceChoices, { theme: 'dark', onSelect: () => undefined }))
+    expect(html).toContain('>Light mode<')
+    expect(html).toContain('>Dark mode<')
+    expect(html).toContain('role="switch"')
+    expect(html).toContain('aria-checked="true"')
   })
 })

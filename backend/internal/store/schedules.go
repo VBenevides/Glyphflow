@@ -203,7 +203,7 @@ func (s *ScheduleStore) CreateDueRun(ctx context.Context, now time.Time, next fu
 	defer tx.Rollback(ctx)
 	var due DueScheduleRecord
 	var storedNext *time.Time
-	err = tx.QueryRow(ctx, `SELECT s.id, s.task_id, sv.task_version_id, s.current_version_id, sv.expression, sv.timezone, sv.misfire_policy, sv.catchup_limit, sv.start_deadline_seconds, sv.concurrency_policy, sv.max_concurrent_runs, COALESCE((SELECT count(*) FROM runs active WHERE active.schedule_version_id = s.current_version_id AND active.state IN ('WAITING','RUNNING','RETRY_WAIT','CANCELLING')), 0), s.next_fire_at FROM schedules s JOIN schedule_versions sv ON sv.id = s.current_version_id WHERE s.enabled AND (s.next_fire_at IS NULL OR s.next_fire_at <= $1) ORDER BY COALESCE(s.next_fire_at, $1), s.id FOR UPDATE OF s SKIP LOCKED LIMIT 1`, now).Scan(&due.ID, &due.TaskID, &due.TaskVersionID, &due.ScheduleVersionID, &due.Expression, &due.Timezone, &due.MisfirePolicy, &due.CatchupLimit, &due.DeadlineSeconds, &due.ConcurrencyPolicy, &due.MaxConcurrentRuns, &due.ActiveRuns, &storedNext)
+	err = tx.QueryRow(ctx, `SELECT s.id, s.task_id, sv.task_version_id, s.current_version_id, sv.expression, sv.timezone, sv.misfire_policy, sv.catchup_limit, sv.start_deadline_seconds, sv.concurrency_policy, sv.max_concurrent_runs, COALESCE((SELECT count(*) FROM runs active WHERE active.schedule_version_id = s.current_version_id AND active.state IN ('WAITING','RUNNING','RETRY_WAIT','CANCELLING')), 0), s.next_fire_at FROM schedules s JOIN schedule_versions sv ON sv.id = s.current_version_id WHERE s.enabled AND (s.next_fire_at IS NULL OR s.next_fire_at <= $1) AND NOT ((sv.concurrency_policy = 'ALLOW' AND sv.max_concurrent_runs > 0 AND COALESCE((SELECT count(*) FROM runs active WHERE active.schedule_version_id = s.current_version_id AND active.state IN ('WAITING','RUNNING','RETRY_WAIT','CANCELLING')), 0) >= sv.max_concurrent_runs) OR (sv.concurrency_policy = 'QUEUE' AND COALESCE((SELECT count(*) FROM runs active WHERE active.schedule_version_id = s.current_version_id AND active.state IN ('WAITING','RUNNING','RETRY_WAIT','CANCELLING')), 0) > 0)) ORDER BY COALESCE(s.next_fire_at, $1), s.id FOR UPDATE OF s SKIP LOCKED LIMIT 1`, now).Scan(&due.ID, &due.TaskID, &due.TaskVersionID, &due.ScheduleVersionID, &due.Expression, &due.Timezone, &due.MisfirePolicy, &due.CatchupLimit, &due.DeadlineSeconds, &due.ConcurrencyPolicy, &due.MaxConcurrentRuns, &due.ActiveRuns, &storedNext)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", false, nil
 	}
@@ -264,7 +264,7 @@ func (s *ScheduleStore) CreateDueRun(ctx context.Context, now time.Time, next fu
 		return "", false, nil
 	}
 	if due.ConcurrencyPolicy == "REPLACE" && due.ActiveRuns > 0 {
-		if _, err := tx.Exec(ctx, `UPDATE runs SET state = 'CANCELLING', cancellation_requested_at = COALESCE(cancellation_requested_at, now()), cancellation_reason = 'schedule replacement', state_version = state_version + 1, updated_at = now() WHERE schedule_version_id = $1 AND state IN ('WAITING','RUNNING','RETRY_WAIT')`, due.ScheduleVersionID); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE runs SET state = 'CANCELLING', cancellation_requested_at = COALESCE(cancellation_requested_at, now()), cancellation_reason = 'schedule replacement', state_version = state_version + 1, updated_at = now() WHERE schedule_version_id = $1 AND state IN ('WAITING','DISPATCHED','RUNNING','RETRY_WAIT')`, due.ScheduleVersionID); err != nil {
 			return "", false, err
 		}
 	}
@@ -303,7 +303,7 @@ func (s *ScheduleStore) CreateDueRun(ctx context.Context, now time.Time, next fu
 
 func deadlineValue(occurrence time.Time, seconds int) any {
 	if seconds <= 0 {
-		return nil
+		return occurrence.Add(defaultStartDelay)
 	}
 	return occurrence.Add(time.Duration(seconds) * time.Second)
 }

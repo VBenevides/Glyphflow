@@ -94,7 +94,7 @@ func dispatchWaiting(ctx context.Context, events *queue.JetStream, runs Dispatch
 		candidate, claimed, err := runs.ClaimWaiting(ctx, func(candidate store.DispatchCandidate) ([]byte, error) {
 			payload := protocol.OrderPayload{
 				Version: protocol.ProtocolVersion, OrderID: candidate.AttemptID, RunID: candidate.RunID,
-				TaskID: candidate.TaskID, Attempt: uint32(candidate.AttemptNumber), LeaseToken: candidate.LeaseToken,
+				TaskID: candidate.TaskID, TaskName: candidate.TaskName, TaskVersion: uint32(candidate.TaskVersion), Attempt: uint32(candidate.AttemptNumber), LeaseToken: candidate.LeaseToken,
 				RunnerID: candidate.RunnerID, IssuedAt: time.Now().UTC(), NotBefore: time.Now().UTC(),
 				ExpiresAt: candidate.LeaseNotAfter, Type: protocol.OrderExecute, Command: candidate.Command,
 				WorkingDir: candidate.WorkingDirectory, TimeoutSeconds: uint32(candidate.TimeoutSeconds),

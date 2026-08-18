@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { Activity } from 'lucide-react'
-import { Button, DataTable, EmptyState, MetricCard, PageHeader, StatusPill } from './components'
+import { Button, DataTable, Dialog, EmptyState, Input, matchingFilterOptions, MetricCard, PageHeader, StatusPill } from './components'
 
 describe('shared components', () => {
   it('renders status text and table headers accessibly', () => {
@@ -24,6 +24,24 @@ describe('shared components', () => {
 
   it('adds native tooltips to action buttons', () => {
     expect(renderToStaticMarkup(<Button aria-label="Refresh data">Refresh</Button>)).toContain('title="Refresh data"')
+  })
+
+  it('preserves shared control classes and exposes busy state', () => {
+    const html = renderToStaticMarkup(<><Input className="compact" /><Button busy>Save</Button></>)
+    expect(html).toContain('class="gf-input compact"')
+    expect(html).toContain('aria-busy="true"')
+    expect(html).toContain('Working…')
+  })
+
+  it('filters and deduplicates searchable filter values', () => {
+    expect(matchingFilterOptions(['Admin', 'Runner', 'Admin'], 'run')).toEqual(['Runner'])
+  })
+
+  it('gives each dialog title a unique label target', () => {
+    const html = renderToStaticMarkup(<><Dialog open title="First" onClose={() => undefined}>Content</Dialog><Dialog open title="Second" onClose={() => undefined}>Content</Dialog></>)
+    const ids = [...html.matchAll(/aria-labelledby="([^"]+)"/g)].map((match) => match[1])
+    expect(ids).toHaveLength(2)
+    expect(ids[0]).not.toBe(ids[1])
   })
 
   it('supports reference-style header metadata and metric icons', () => {

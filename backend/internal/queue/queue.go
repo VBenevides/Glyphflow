@@ -15,6 +15,9 @@ type Message struct {
 type Publisher interface {
 	Publish(context.Context, Message) error
 }
+type Requester interface {
+	Request(context.Context, Message, time.Duration) (Message, error)
+}
 type Consumer interface {
 	Consume(context.Context) (Message, error)
 }

@@ -73,7 +73,7 @@ var (
 func NewRunnerRepository(pool *pgxpool.Pool) *RunnerStore { return &RunnerStore{pool: pool} }
 
 func (s *RunnerStore) EnsurePool(ctx context.Context, id, name string) error {
-	_, err := s.pool.Exec(ctx, `INSERT INTO runner_pools (id, name) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING`, id, name)
+	_, err := s.pool.Exec(ctx, `INSERT INTO runner_pools (id, name, description) VALUES ($1, $2, CASE WHEN $1 = 'default' THEN 'Default Runner Pool' ELSE '' END) ON CONFLICT (id) DO UPDATE SET description = CASE WHEN runner_pools.id = 'default' AND runner_pools.description = '' THEN EXCLUDED.description ELSE runner_pools.description END`, id, name)
 	return err
 }
 
@@ -199,6 +199,8 @@ func (s *RunnerStore) SetDesiredState(ctx context.Context, id, state string) (Ru
 	query := `UPDATE runners SET desired_state = $2, updated_at = now() WHERE id = $1`
 	if state == "REVOKED" {
 		query = `UPDATE runners SET desired_state = 'DISABLED', observed_state = 'REVOKED', updated_at = now() WHERE id = $1 AND NOT is_archived AND NOT is_deleted`
+	} else if state == "ENABLED" {
+		query = `UPDATE runners SET desired_state = $2, observed_state = 'OFFLINE', updated_at = now() WHERE id = $1 AND NOT is_archived AND NOT is_deleted`
 	} else {
 		query += ` AND NOT is_archived AND NOT is_deleted`
 	}

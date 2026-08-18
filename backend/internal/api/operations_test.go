@@ -16,3 +16,10 @@ func TestPreviewOccurrencesReturnsFiveIncreasingTimes(t *testing.T) {
 		}
 	}
 }
+
+func TestTaskDefinitionIncludesResourceRequirements(t *testing.T) {
+	definition := taskDefinition("task-1", taskInput{Name: "Build", RunnerPool: "default", Command: []string{"echo", "ok"}, Resources: []string{"resource-1", "resource-2"}})
+	if len(definition.ResourceIDs) != 2 || definition.ResourceIDs[0] != "resource-1" || definition.ResourceIDs[1] != "resource-2" {
+		t.Fatalf("resource IDs = %#v", definition.ResourceIDs)
+	}
+}

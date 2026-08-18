@@ -32,6 +32,7 @@ type TaskRecord struct {
 	MaxOutputBytes     int64          `json:"maxOutputBytes"`
 	MaxAttempts        int            `json:"maxAttempts"`
 	AmbiguityPolicy    string         `json:"ambiguityPolicy,omitempty"`
+	Resources          []string       `json:"resources,omitempty"`
 	LatestRun          *RunRecord     `json:"latestRun,omitempty"`
 }
 
@@ -46,6 +47,7 @@ type TaskVersionRecord struct {
 	MaxOutputBytes      int64    `json:"maxOutputBytes"`
 	MaxAttempts         int      `json:"maxAttempts"`
 	AmbiguityPolicy     string   `json:"ambiguityPolicy,omitempty"`
+	Resources           []string `json:"resources,omitempty"`
 	ExecutionSpecDigest string   `json:"executionSpecDigest,omitempty"`
 	CreatedAt           string   `json:"createdAt,omitempty"`
 }
@@ -101,7 +103,7 @@ func taskRecordFromStore(task store.TaskRecord) TaskRecord {
 		mapped := runRecordFromStore(*task.LatestRun)
 		latestRun = &mapped
 	}
-	return TaskRecord{ID: task.ID, Name: task.Name, Enabled: task.Enabled, IsDeleted: task.IsDeleted, ActiveVersion: task.ActiveVersion, Pool: task.RunnerPoolID, PinnedRunner: task.PinnedRunnerID, Command: append([]string(nil), task.Command...), WorkingDirectory: task.WorkingDirectory, PlacementSelectors: task.PlacementSelectors, Environment: task.Environment, SecretReferences: task.SecretReferences, TimeoutSeconds: task.TimeoutSeconds, MaxOutputBytes: task.MaxOutputBytes, MaxAttempts: task.MaxAttempts, AmbiguityPolicy: task.AmbiguityPolicy, LatestRun: latestRun}
+	return TaskRecord{ID: task.ID, Name: task.Name, Enabled: task.Enabled, IsDeleted: task.IsDeleted, ActiveVersion: task.ActiveVersion, Pool: task.RunnerPoolID, PinnedRunner: task.PinnedRunnerID, Command: append([]string(nil), task.Command...), WorkingDirectory: task.WorkingDirectory, PlacementSelectors: task.PlacementSelectors, Environment: task.Environment, SecretReferences: task.SecretReferences, TimeoutSeconds: task.TimeoutSeconds, MaxOutputBytes: task.MaxOutputBytes, MaxAttempts: task.MaxAttempts, AmbiguityPolicy: task.AmbiguityPolicy, Resources: append([]string(nil), task.ResourceIDs...), LatestRun: latestRun}
 }
 
 func taskVersionRecordFromStore(version store.TaskVersionRecord) TaskVersionRecord {
@@ -109,7 +111,7 @@ func taskVersionRecordFromStore(version store.TaskVersionRecord) TaskVersionReco
 	if !version.CreatedAt.IsZero() {
 		createdAt = version.CreatedAt.UTC().Format(time.RFC3339)
 	}
-	return TaskVersionRecord{ID: version.ID, Version: version.Version, Pool: version.RunnerPoolID, PinnedRunner: version.PinnedRunnerID, Command: append([]string(nil), version.Command...), WorkingDirectory: version.WorkingDirectory, TimeoutSeconds: version.TimeoutSeconds, MaxOutputBytes: version.MaxOutputBytes, MaxAttempts: version.MaxAttempts, AmbiguityPolicy: version.AmbiguityPolicy, ExecutionSpecDigest: version.ExecutionSpecDigest, CreatedAt: createdAt}
+	return TaskVersionRecord{ID: version.ID, Version: version.Version, Pool: version.RunnerPoolID, PinnedRunner: version.PinnedRunnerID, Command: append([]string(nil), version.Command...), WorkingDirectory: version.WorkingDirectory, TimeoutSeconds: version.TimeoutSeconds, MaxOutputBytes: version.MaxOutputBytes, MaxAttempts: version.MaxAttempts, AmbiguityPolicy: version.AmbiguityPolicy, Resources: append([]string(nil), version.ResourceIDs...), ExecutionSpecDigest: version.ExecutionSpecDigest, CreatedAt: createdAt}
 }
 
 type taskInput struct {
@@ -125,10 +127,11 @@ type taskInput struct {
 	MaxOutputBytes     int64          `json:"max_output_bytes"`
 	MaxAttempts        int            `json:"max_attempts"`
 	AmbiguityPolicy    string         `json:"ambiguity_policy"`
+	Resources          []string       `json:"resources"`
 }
 
 func taskDefinition(id string, input taskInput) store.TaskDefinition {
-	return store.TaskDefinition{ID: id, Name: strings.TrimSpace(input.Name), RunnerPoolID: strings.TrimSpace(input.RunnerPool), PinnedRunnerID: strings.TrimSpace(input.PinnedRunner), Command: append([]string(nil), input.Command...), WorkingDirectory: input.WorkingDirectory, PlacementSelectors: input.PlacementSelectors, Environment: input.Environment, SecretReferences: input.SecretReferences, TimeoutSeconds: input.TimeoutSeconds, MaxOutputBytes: input.MaxOutputBytes, MaxAttempts: input.MaxAttempts, AmbiguityPolicy: input.AmbiguityPolicy, Enabled: true}
+	return store.TaskDefinition{ID: id, Name: strings.TrimSpace(input.Name), RunnerPoolID: strings.TrimSpace(input.RunnerPool), PinnedRunnerID: strings.TrimSpace(input.PinnedRunner), Command: append([]string(nil), input.Command...), WorkingDirectory: input.WorkingDirectory, PlacementSelectors: input.PlacementSelectors, Environment: input.Environment, SecretReferences: input.SecretReferences, TimeoutSeconds: input.TimeoutSeconds, MaxOutputBytes: input.MaxOutputBytes, MaxAttempts: input.MaxAttempts, AmbiguityPolicy: input.AmbiguityPolicy, ResourceIDs: append([]string(nil), input.Resources...), Enabled: true}
 }
 
 func scheduleRecordFromStore(schedule store.ScheduleRecord) ScheduleRecord {
@@ -151,11 +154,12 @@ func scheduleDefinition(id string, input scheduleInput) (store.ScheduleDefinitio
 
 func (o *OperationsService) taskCollection(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
+		archived := strings.EqualFold(r.URL.Query().Get("archived"), "true")
 		o.mu.RLock()
 		repository := o.repository
 		o.mu.RUnlock()
 		if repository != nil {
-			items, err := repository.List(r.Context())
+			items, err := repository.List(r.Context(), archived)
 			if err != nil {
 				writeError(w, http.StatusServiceUnavailable, "task storage unavailable", err)
 				return
@@ -164,20 +168,20 @@ func (o *OperationsService) taskCollection(w http.ResponseWriter, r *http.Reques
 			for _, item := range items {
 				result = append(result, taskRecordFromStore(item))
 			}
-			result = filterTasks(result, r.URL.Query().Get("search"))
+			result = filterTasks(result, r.URL.Query())
 			writePage(w, r, result)
 			return
 		}
 		o.mu.RLock()
 		items := make([]TaskRecord, 0, len(o.tasks))
 		for _, task := range o.tasks {
-			if task.IsDeleted {
+			if task.IsDeleted != archived {
 				continue
 			}
 			items = append(items, task)
 		}
 		o.mu.RUnlock()
-		items = filterTasks(items, r.URL.Query().Get("search"))
+		items = filterTasks(items, r.URL.Query())
 		sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 		writePage(w, r, items)
 		return
@@ -208,7 +212,7 @@ func (o *OperationsService) taskCollection(w http.ResponseWriter, r *http.Reques
 		writeJSON(w, http.StatusCreated, taskRecordFromStore(created))
 		return
 	}
-	task := o.createTask(input.Name, input.Command, input.RunnerPool, input.PinnedRunner, input.TimeoutSeconds)
+	task := o.createTask(input.Name, input.Command, input.RunnerPool, input.PinnedRunner, input.TimeoutSeconds, input.Resources)
 	writeJSON(w, http.StatusCreated, task)
 }
 
@@ -547,11 +551,11 @@ type scheduleInput struct {
 	MaxConcurrentRuns int    `json:"max_concurrent_runs"`
 }
 
-func (o *OperationsService) createTask(name string, command []string, pool, pinnedRunner string, timeout int) TaskRecord {
+func (o *OperationsService) createTask(name string, command []string, pool, pinnedRunner string, timeout int, resources []string) TaskRecord {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.nextTaskID++
-	task := TaskRecord{ID: "task-" + strconv.Itoa(o.nextTaskID), Name: strings.TrimSpace(name), Enabled: true, ActiveVersion: 1, Pool: strings.TrimSpace(pool), PinnedRunner: strings.TrimSpace(pinnedRunner), Command: append([]string(nil), command...), TimeoutSeconds: timeout}
+	task := TaskRecord{ID: "task-" + strconv.Itoa(o.nextTaskID), Name: strings.TrimSpace(name), Enabled: true, ActiveVersion: 1, Pool: strings.TrimSpace(pool), PinnedRunner: strings.TrimSpace(pinnedRunner), Command: append([]string(nil), command...), Resources: append([]string(nil), resources...), TimeoutSeconds: timeout}
 	o.tasks[task.ID] = task
 	return task
 }
@@ -598,6 +602,9 @@ func (o *OperationsService) addTaskVersion(id string, input taskInput) (TaskReco
 	}
 	task.PinnedRunner = input.PinnedRunner
 	task.Command = append([]string(nil), input.Command...)
+	if input.Resources != nil {
+		task.Resources = append([]string(nil), input.Resources...)
+	}
 	if input.TimeoutSeconds > 0 {
 		task.TimeoutSeconds = input.TimeoutSeconds
 	}
@@ -631,14 +638,18 @@ func (o *OperationsService) schedule(id string) (ScheduleRecord, bool) {
 	return schedule, ok
 }
 
-func filterTasks(items []TaskRecord, search string) []TaskRecord {
-	search = strings.ToLower(strings.TrimSpace(search))
-	if search == "" {
+func filterTasks(items []TaskRecord, query url.Values) []TaskRecord {
+	search := strings.ToLower(strings.TrimSpace(query.Get("search")))
+	state := strings.ToLower(strings.TrimSpace(query.Get("state")))
+	if search == "" && state != "enabled" && state != "disabled" {
 		return items
 	}
 	filtered := items[:0]
 	for _, item := range items {
 		if strings.Contains(strings.ToLower(item.ID), search) || strings.Contains(strings.ToLower(item.Name), search) || strings.Contains(strings.ToLower(item.Pool), search) {
+			if state == "enabled" && !item.Enabled || state == "disabled" && item.Enabled {
+				continue
+			}
 			filtered = append(filtered, item)
 		}
 	}
@@ -647,13 +658,22 @@ func filterTasks(items []TaskRecord, search string) []TaskRecord {
 
 func filterSchedules(items []ScheduleRecord, query url.Values) []ScheduleRecord {
 	task, due := strings.TrimSpace(query.Get("task")), strings.EqualFold(query.Get("due"), "true")
-	if task == "" && !due {
+	enabled, enabledFilter := false, false
+	if value := strings.TrimSpace(query.Get("enabled")); value != "" {
+		if parsed, err := strconv.ParseBool(value); err == nil {
+			enabled, enabledFilter = parsed, true
+		}
+	}
+	if task == "" && !due && !enabledFilter {
 		return items
 	}
 	filtered := items[:0]
 	now := time.Now().UTC()
 	for _, item := range items {
 		if task != "" && !strings.Contains(strings.ToLower(item.TaskID), strings.ToLower(task)) {
+			continue
+		}
+		if enabledFilter && item.Enabled != enabled {
 			continue
 		}
 		if due {
@@ -678,12 +698,19 @@ func (o *OperationsService) deleteSchedule(id string) bool {
 }
 
 func writePage[T any](w http.ResponseWriter, r *http.Request, items []T) {
+	all := strings.EqualFold(r.URL.Query().Get("all"), "true")
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	if page < 1 {
 		page = 1
 	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	if limit < 1 || limit > 100 {
+	if all {
+		page = 1
+		limit = len(items)
+		if limit == 0 {
+			limit = 1
+		}
+	} else if limit < 1 || limit > 100 {
 		limit = 50
 	}
 	start := (page - 1) * limit

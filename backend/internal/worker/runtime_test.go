@@ -1,10 +1,12 @@
 package worker
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -24,6 +26,10 @@ type concurrentRuntimePublisher struct {
 	mu       sync.Mutex
 	messages []queue.Message
 }
+
+type testStartClaimer struct{ err error }
+
+func (c testStartClaimer) ClaimStart(context.Context, protocol.StartClaimPayload) error { return c.err }
 
 func (p *concurrentRuntimePublisher) Publish(_ context.Context, message queue.Message) error {
 	p.mu.Lock()
@@ -48,7 +54,7 @@ func TestOrderRuntimeExecutesOrderAndPublishesEvents(t *testing.T) {
 	}
 	directory := t.TempDir()
 	now := time.Now().UTC()
-	order := protocol.OrderPayload{Version: protocol.ProtocolVersion, OrderID: "attempt-1", RunID: "run-1", TaskID: "task-1", Attempt: 1, LeaseToken: "lease-1", RunnerID: "runner-1", IssuedAt: now, NotBefore: now, ExpiresAt: now.Add(time.Minute), Type: protocol.OrderExecute, Command: []string{"printf", "ok"}, WorkingDir: directory, TimeoutSeconds: 1}
+	order := protocol.OrderPayload{Version: protocol.ProtocolVersion, OrderID: "attempt-1", RunID: "run-1", TaskID: "task-1", TaskName: "Example task", TaskVersion: 2, Attempt: 1, LeaseToken: "lease-1", RunnerID: "runner-1", IssuedAt: now, NotBefore: now, ExpiresAt: now.Add(time.Minute), Type: protocol.OrderExecute, Command: []string{"printf", "ok"}, WorkingDir: directory, TimeoutSeconds: 1}
 	rawPayload, err := protocol.EncodeOrderPayload(order)
 	if err != nil {
 		t.Fatal(err)
@@ -62,7 +68,8 @@ func TestOrderRuntimeExecutesOrderAndPublishesEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	publisher := &runtimePublisher{}
-	runtime := OrderRuntime{Store: local, Publisher: publisher, RunnerID: order.RunnerID, ExecutorBootID: "boot-1", ProcessID: 1, ControlPublicKey: controlKey.Public.PublicKey, SigningKey: workerKey, Executor: Executor{Roots: []string{directory}, MaxOutputBytes: 1024}}
+	var terminal bytes.Buffer
+	runtime := OrderRuntime{Store: local, Publisher: publisher, StartClaimer: testStartClaimer{}, RunnerID: order.RunnerID, ExecutorBootID: "boot-1", ProcessID: 1, ControlPublicKey: controlKey.Public.PublicKey, SigningKey: workerKey, Executor: Executor{Roots: []string{directory}, MaxOutputBytes: 1024}, Writer: &terminal}
 	if err := runtime.Handle(context.Background(), queue.Message{Subject: queue.Subject("orders", order.RunnerID), ID: order.OrderID, Data: rawOrder}); err != nil {
 		t.Fatal(err)
 	}
@@ -104,6 +111,15 @@ func TestOrderRuntimeExecutesOrderAndPublishesEvents(t *testing.T) {
 	if terminalExitCode == nil || *terminalExitCode != 0 {
 		t.Fatalf("terminal exit code = %v, want 0", terminalExitCode)
 	}
+	lines := strings.Split(strings.TrimSpace(terminal.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("terminal lines = %q, want start and finish", terminal.String())
+	}
+	for _, line := range lines {
+		if !strings.HasPrefix(line, "> ") || !strings.Contains(line, `Task "Example task" v2 - ID "task-1"`) || !strings.Contains(line, `Run "run-1"`) {
+			t.Fatalf("terminal line = %q, want prefixed task and run context", line)
+		}
+	}
 }
 
 func TestOrderRuntimeRunsOrdersConcurrently(t *testing.T) {
@@ -127,7 +143,7 @@ func TestOrderRuntimeRunsOrdersConcurrently(t *testing.T) {
 	started := []string{directory + "/started-1", directory + "/started-2"}
 	finished := directory + "/finished"
 	publisher := &concurrentRuntimePublisher{}
-	runtime := OrderRuntime{Store: local, Publisher: publisher, RunnerID: "runner-1", ExecutorBootID: "boot-1", ProcessID: 1, ControlPublicKey: controlKey.Public.PublicKey, SigningKey: workerKey, Executor: Executor{Roots: []string{directory}, MaxOutputBytes: 1024}}
+	runtime := OrderRuntime{Store: local, Publisher: publisher, StartClaimer: testStartClaimer{}, RunnerID: "runner-1", ExecutorBootID: "boot-1", ProcessID: 1, ControlPublicKey: controlKey.Public.PublicKey, SigningKey: workerKey, Executor: Executor{Roots: []string{directory}, MaxOutputBytes: 1024}}
 	orders := make([]queue.Message, 2)
 	for index := range orders {
 		now := time.Now().UTC()
@@ -169,5 +185,111 @@ func TestOrderRuntimeRunsOrdersConcurrently(t *testing.T) {
 	}
 	if string(content) != "xx" {
 		t.Fatalf("finished markers = %q, want both concurrent orders to finish", content)
+	}
+}
+
+func TestOrderRuntimeReportsTimeoutWithSystemCode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell timeout test requires POSIX tools")
+	}
+	local, err := OpenStore(t.TempDir() + "/runner.sqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer local.Close()
+	controlKey, err := protocol.GenerateSigningKey("control-plane", time.Now().UTC(), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workerKey, err := protocol.GenerateSigningKey("runner:runner-1", time.Now().UTC(), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := t.TempDir()
+	now := time.Now().UTC()
+	order := protocol.OrderPayload{Version: protocol.ProtocolVersion, OrderID: "attempt-timeout", RunID: "run-timeout", TaskID: "task-timeout", Attempt: 1, LeaseToken: "lease-timeout", RunnerID: "runner-1", IssuedAt: now, NotBefore: now, ExpiresAt: now.Add(time.Minute), Type: protocol.OrderExecute, Command: []string{"sh", "-c", "sleep 2"}, WorkingDir: directory, TimeoutSeconds: 1}
+	rawPayload, err := protocol.EncodeOrderPayload(order)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := controlKey.SignOrder(rawPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawOrder, err := protocol.EncodeEnvelope(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publisher := &runtimePublisher{}
+	runtime := OrderRuntime{Store: local, Publisher: publisher, StartClaimer: testStartClaimer{}, RunnerID: order.RunnerID, ExecutorBootID: "boot-timeout", ProcessID: 1, ControlPublicKey: controlKey.Public.PublicKey, SigningKey: workerKey, Executor: Executor{Roots: []string{directory}, MaxOutputBytes: 1024}}
+	if err := runtime.Handle(context.Background(), queue.Message{Subject: queue.Subject("orders", order.RunnerID), ID: order.OrderID, Data: rawOrder}); err != nil {
+		t.Fatal(err)
+	}
+	var timeoutEvent protocol.EventPayload
+	for _, message := range publisher.messages {
+		decoded, err := protocol.DecodeEnvelope(message.Data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err := decoded.PayloadBytes()
+		if err != nil {
+			t.Fatal(err)
+		}
+		event, err := protocol.DecodeEventPayload(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if event.Type == protocol.EventTimedOut {
+			timeoutEvent = event
+		}
+	}
+	if timeoutEvent.Type != protocol.EventTimedOut || timeoutEvent.ExitCode == nil || *timeoutEvent.ExitCode != 6 || timeoutEvent.Error != "Timeout" {
+		t.Fatalf("timeout event = %#v", timeoutEvent)
+	}
+}
+
+func TestOrderRuntimeDiscardsRejectedStartClaim(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell execution guard test requires POSIX tools")
+	}
+	local, err := OpenStore(t.TempDir() + "/runner.sqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer local.Close()
+	controlKey, err := protocol.GenerateSigningKey("control-plane", time.Now().UTC(), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workerKey, err := protocol.GenerateSigningKey("runner:runner-1", time.Now().UTC(), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := t.TempDir()
+	marker := directory + "/started"
+	now := time.Now().UTC()
+	order := protocol.OrderPayload{Version: protocol.ProtocolVersion, OrderID: "attempt-rejected", RunID: "run-rejected", TaskID: "task-rejected", Attempt: 1, LeaseToken: "lease-rejected", RunnerID: "runner-1", IssuedAt: now, NotBefore: now, ExpiresAt: now.Add(time.Minute), Type: protocol.OrderExecute, Command: []string{"touch", marker}, WorkingDir: directory, TimeoutSeconds: 1}
+	orderBytes, err := protocol.EncodeOrderPayload(order)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := controlKey.SignOrder(orderBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawOrder, err := protocol.EncodeEnvelope(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publisher := &runtimePublisher{}
+	runtime := OrderRuntime{Store: local, Publisher: publisher, StartClaimer: testStartClaimer{err: ErrStartRejected}, RunnerID: order.RunnerID, ExecutorBootID: "boot-rejected", ProcessID: 1, ControlPublicKey: controlKey.Public.PublicKey, SigningKey: workerKey, Executor: Executor{Roots: []string{directory}, MaxOutputBytes: 1024}}
+	if err := runtime.Handle(context.Background(), queue.Message{Subject: queue.Subject("orders", order.RunnerID), ID: order.OrderID, Data: rawOrder}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("marker stat error = %v, worker executed rejected order", err)
+	}
+	if len(publisher.messages) != 0 {
+		t.Fatalf("published events = %d, want 0", len(publisher.messages))
 	}
 }

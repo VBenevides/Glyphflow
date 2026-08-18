@@ -26,10 +26,11 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 			return
 		}
 		var in struct {
-			Enabled       bool    `json:"enabled"`
-			Registration  bool    `json:"registration"`
-			DefaultRoleID string  `json:"default_role_id"`
+			Enabled       *bool   `json:"enabled"`
+			Registration  *bool   `json:"registration"`
+			DefaultRoleID *string `json:"default_role_id"`
 			LegacyRole    *string `json:"default_role"`
+			Lockdown      *bool   `json:"lockdown_scheduler"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid authentication settings request", err)
@@ -45,44 +46,104 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 		} else if s.AuthAdmin.Password != nil {
 			before = map[string]any{"passwordLoginEnabled": s.AuthAdmin.Password.Enabled(), "registration": s.AuthAdmin.Password.RegistrationEnabled(), "defaultRoleId": ""}
 		}
+		enabled := false
+		registration := false
+		defaultRoleID := ""
+		if s.AuthAdmin.Auth != nil {
+			settings := s.AuthAdmin.Auth.AuthSettings()
+			enabled, _ = settings["passwordLoginEnabled"].(bool)
+			registration, _ = settings["registration"].(bool)
+			defaultRoleID, _ = settings["defaultRoleId"].(string)
+		} else if s.AuthAdmin.Password != nil {
+			enabled = s.AuthAdmin.Password.Enabled()
+			registration = s.AuthAdmin.Password.RegistrationEnabled()
+		}
+		if in.Enabled != nil {
+			enabled = *in.Enabled
+		}
+		if in.Registration != nil {
+			registration = *in.Registration
+		}
+		if in.DefaultRoleID != nil {
+			defaultRoleID = *in.DefaultRoleID
+		}
+		authChanged := in.Enabled != nil || in.Registration != nil || in.DefaultRoleID != nil
 		enabledSSO := 0
 		if s.AuthAdmin.OIDC != nil {
 			enabledSSO = s.AuthAdmin.OIDC.EnabledCount()
 		}
-		if !in.Enabled && !platform.HasLoginMethod(false, enabledSSO) {
+		if authChanged && !enabled && !platform.HasLoginMethod(false, enabledSSO) {
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "a login method must remain enabled"})
 			return
 		}
 		if s.AuthAdmin.Auth != nil {
-			if err := s.AuthAdmin.Auth.UpdateAuthSettings(in.Enabled, in.Registration, in.DefaultRoleID); err != nil {
-				writeError(w, http.StatusBadRequest, "authentication settings update failed", err)
-				return
+			if authChanged {
+				if err := s.AuthAdmin.Auth.UpdateAuthSettings(enabled, registration, defaultRoleID); err != nil {
+					writeError(w, http.StatusBadRequest, "authentication settings update failed", err)
+					return
+				}
+			}
+			if in.Lockdown != nil {
+				if err := s.AuthAdmin.Auth.UpdateLockdownScheduler(*in.Lockdown); err != nil {
+					writeError(w, http.StatusBadRequest, "general settings update failed", err)
+					return
+				}
 			}
 		}
 		if s.AuthAdmin.Password != nil {
 			s.AuthAdmin.Password.mu.Lock()
-			s.AuthAdmin.Password.enabled = in.Enabled
-			s.AuthAdmin.Password.registration = in.Registration
+			if authChanged {
+				s.AuthAdmin.Password.enabled = enabled
+				s.AuthAdmin.Password.registration = registration
+			}
 			s.AuthAdmin.Password.mu.Unlock()
 		}
-		after := map[string]any{"passwordLoginEnabled": in.Enabled, "registration": in.Registration, "defaultRoleId": in.DefaultRoleID}
+		after := map[string]any{"passwordLoginEnabled": enabled, "registration": registration, "defaultRoleId": defaultRoleID}
 		if s.AuthAdmin.Auth != nil {
 			after = s.AuthAdmin.Auth.AuthSettings()
 		}
 		if s.AuditQuery != nil {
 			claims, _ := s.authenticator()(r)
 			actorName, actorEmail := s.auditActor(claims.UserID)
-			s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: "success", CorrelationID: r.Header.Get("X-Correlation-ID"), Before: before, After: after, Input: auditInput(r), Output: map[string]any{"passwordLoginEnabled": in.Enabled, "registrationEnabled": in.Registration, "defaultRoleId": in.DefaultRoleID}})
+			s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: "success", CorrelationID: r.Header.Get("X-Correlation-ID"), Before: before, After: after, Input: auditInput(r), Output: map[string]any{"passwordLoginEnabled": enabled, "registrationEnabled": registration, "defaultRoleId": defaultRoleID}})
 		}
-		writeJSON(w, 200, map[string]any{"password_login_enabled": in.Enabled, "registration_enabled": in.Registration, "default_role_id": in.DefaultRoleID})
+		response := map[string]any{"password_login_enabled": enabled, "registration_enabled": registration, "default_role_id": defaultRoleID}
+		if s.AuthAdmin.Auth != nil {
+			response["lockdown_scheduler"] = s.AuthAdmin.Auth.LockdownScheduler()
+		}
+		writeJSON(w, 200, response)
 	})))
 	mux.Handle("/api/v1/admin/auth/sessions/revoke", s.require("users.manage", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || s.AuthAdmin.Sessions == nil {
+		if r.Method != http.MethodPost || (s.AuthAdmin.Sessions == nil && s.AuthAdmin.Auth == nil) {
 			writeJSON(w, 405, map[string]string{"error": "method not allowed"})
 			return
 		}
-		s.AuthAdmin.Sessions.Revoke(r.URL.Query().Get("session_id"))
+		if s.AuthAdmin.Auth != nil {
+			s.AuthAdmin.Auth.Logout(r.URL.Query().Get("session_id"))
+		} else {
+			s.AuthAdmin.Sessions.Revoke(r.URL.Query().Get("session_id"))
+		}
 		writeJSON(w, 204, nil)
+	})))
+	mux.Handle("/api/v1/admin/auth/sessions", s.requireMethodRole(func(r *http.Request) string {
+		return "users.read|users.manage"
+	}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || s.AuthAdmin.Auth == nil {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			return
+		}
+		sessions := s.AuthAdmin.Auth.AdminSessions()
+		email := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("email")))
+		if email != "" {
+			filtered := sessions[:0]
+			for _, session := range sessions {
+				if strings.Contains(strings.ToLower(session.UserEmail), email) {
+					filtered = append(filtered, session)
+				}
+			}
+			sessions = filtered
+		}
+		writePage(w, r, sessions)
 	})))
 	mux.Handle("/api/v1/admin/auth/providers", s.require("sso.manage", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s.AuthAdmin.OIDC == nil {
@@ -171,6 +232,14 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 				return
 			}
 			writeJSON(w, http.StatusNoContent, nil)
+		case r.Method == http.MethodPost && strings.HasSuffix(path, "/sessions/revoke-all"):
+			userID := strings.TrimSuffix(path, "/sessions/revoke-all")
+			if _, ok := s.AuthAdmin.Auth.UserProfile(userID); !ok {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "user not found"})
+				return
+			}
+			s.AuthAdmin.Auth.LogoutAll(userID)
+			writeJSON(w, http.StatusNoContent, nil)
 		default:
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		}
@@ -186,7 +255,19 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 			return
 		}
 		if r.Method == http.MethodGet {
-			writePage(w, r, s.AuthAdmin.Auth.Users())
+			users := s.AuthAdmin.Auth.Users()
+			email := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("email")))
+			if email != "" {
+				filtered := users[:0]
+				for _, user := range users {
+					userEmail, _ := user["email"].(string)
+					if strings.Contains(strings.ToLower(userEmail), email) {
+						filtered = append(filtered, user)
+					}
+				}
+				users = filtered
+			}
+			writePage(w, r, users)
 			return
 		}
 		if r.Method != http.MethodPost {

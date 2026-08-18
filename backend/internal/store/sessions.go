@@ -30,6 +30,7 @@ type SessionRepository interface {
 	RevokeFamily(context.Context, string) error
 	RevokeUser(context.Context, string) error
 	List(context.Context, string) ([]SessionRecord, error)
+	DeleteOlderThan(context.Context, time.Time) error
 }
 
 type SessionStore struct{ pool *pgxpool.Pool }
@@ -130,4 +131,12 @@ func (s *SessionStore) List(ctx context.Context, userID string) ([]SessionRecord
 		result = append(result, session)
 	}
 	return result, rows.Err()
+}
+
+func (s *SessionStore) DeleteOlderThan(ctx context.Context, cutoff time.Time) error {
+	if cutoff.IsZero() {
+		return errors.New("session cleanup cutoff is required")
+	}
+	_, err := s.pool.Exec(ctx, `DELETE FROM auth_sessions WHERE created_at < $1`, cutoff)
+	return err
 }

@@ -6,6 +6,7 @@ COPY frontend/package.json frontend/package-lock.json ./
 RUN npm install --no-audit --no-fund
 COPY assets/ /src/assets/
 COPY frontend/ ./
+COPY VERSION /src/VERSION
 RUN npm run build
 
 FROM ubuntu:24.04 AS backend-build
@@ -31,7 +32,8 @@ WORKDIR /src/backend
 COPY backend/go.mod backend/go.sum ./
 RUN go mod download
 COPY backend/ ./
-RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/glyphflow-controlplane ./cmd/controlplane
+COPY VERSION /src/VERSION
+RUN version="$(tr -d '[:space:]' < /src/VERSION)" && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/VBenevides/Glyphflow/backend.Version=$version" -o /out/glyphflow-controlplane ./cmd/controlplane
 RUN bash ./build_runner_binaries.sh
 
 FROM nginx:1.29-alpine

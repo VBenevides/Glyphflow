@@ -147,7 +147,7 @@ func parseFilterTime(value string) (time.Time, error) {
 
 func isActiveRunState(state string) bool {
 	switch strings.ToUpper(strings.TrimSpace(state)) {
-	case "WAITING", "RUNNING", "RETRY_WAIT", "CANCELLING":
+	case "WAITING", "DISPATCHED", "RUNNING", "RETRY_WAIT", "CANCELLING":
 		return true
 	default:
 		return false
@@ -351,7 +351,7 @@ func (s *RunService) action(w http.ResponseWriter, r *http.Request, id, action s
 		var to string
 		switch action {
 		case "cancel":
-			from, to = []string{"WAITING", "RUNNING", "RETRY_WAIT", "CANCELLING"}, "CANCELLED"
+			from, to = []string{"WAITING", "DISPATCHED", "RUNNING", "RETRY_WAIT", "CANCELLING"}, "CANCELLED"
 		case "retry":
 			from, to = []string{"FAILED"}, "RETRY_WAIT"
 		case "reconcile":
@@ -381,7 +381,7 @@ func (s *RunService) action(w http.ResponseWriter, r *http.Request, id, action s
 	allowed := false
 	switch action {
 	case "cancel":
-		allowed = run.State == "WAITING" || run.State == "RUNNING" || run.State == "RETRY_WAIT" || run.State == "CANCELLING"
+		allowed = run.State == "WAITING" || run.State == "DISPATCHED" || run.State == "RUNNING" || run.State == "RETRY_WAIT" || run.State == "CANCELLING"
 		if allowed {
 			run.State = "CANCELLED"
 		}

@@ -1,11 +1,16 @@
 package backend
 
 import (
-	_ "embed"
+	"os"
 	"strings"
 )
 
-//go:embed VERSION
-var versionFile string
+var Version = "dev"
 
-var Version = strings.TrimSpace(versionFile)
+func init() {
+	if raw, err := os.ReadFile("../VERSION"); err == nil {
+		if version := strings.TrimSpace(string(raw)); version != "" {
+			Version = version
+		}
+	}
+}

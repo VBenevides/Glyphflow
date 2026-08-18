@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -28,6 +29,7 @@ type TaskDefinition struct {
 	WorkingDirectory                                    string
 	PlacementSelectors, Environment                     map[string]any
 	SecretReferences                                    map[string]any
+	ResourceIDs                                         []string
 	RetryableExitCodes                                  []int
 	RetryableTerminationReasons                         []string
 	AmbiguityPolicy                                     string
@@ -44,6 +46,7 @@ type TaskRecord struct {
 	WorkingDirectory, ExecutionSpecDigest, AmbiguityPolicy   string
 	Command                                                  []string
 	PlacementSelectors, Environment, SecretReferences        map[string]any
+	ResourceIDs                                              []string
 	LatestRun                                                *RunRecord
 }
 
@@ -52,11 +55,12 @@ type TaskVersionRecord struct {
 	Version, TimeoutSeconds, MaxAttempts                                                     int
 	MaxOutputBytes                                                                           int64
 	Command                                                                                  []string
+	ResourceIDs                                                                              []string
 	CreatedAt                                                                                time.Time
 }
 
 type TaskRepository interface {
-	List(context.Context) ([]TaskRecord, error)
+	List(context.Context, bool) ([]TaskRecord, error)
 	Find(context.Context, string) (TaskRecord, bool, error)
 	ListVersions(context.Context, string) ([]TaskVersionRecord, error)
 	Create(context.Context, TaskDefinition) (TaskRecord, error)
@@ -68,8 +72,12 @@ type TaskStore struct{ pool *pgxpool.Pool }
 
 func NewTaskRepository(pool *pgxpool.Pool) *TaskStore { return &TaskStore{pool: pool} }
 
-func (s *TaskStore) List(ctx context.Context) ([]TaskRecord, error) {
-	rows, err := s.pool.Query(ctx, taskQuery+` WHERE NOT t.is_deleted ORDER BY lower(t.name), t.id`)
+func (s *TaskStore) List(ctx context.Context, archived bool) ([]TaskRecord, error) {
+	filter := `NOT t.is_deleted`
+	if archived {
+		filter = `t.is_deleted`
+	}
+	rows, err := s.pool.Query(ctx, taskQuery+` WHERE `+filter+` ORDER BY lower(t.name), t.id`)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +102,7 @@ func (s *TaskStore) Find(ctx context.Context, id string) (TaskRecord, bool, erro
 }
 
 func (s *TaskStore) ListVersions(ctx context.Context, taskID string) ([]TaskVersionRecord, error) {
-	rows, err := s.pool.Query(ctx, `SELECT v.id, v.version, v.runner_pool_id, COALESCE(v.pinned_runner_id, ''), v.command, v.working_directory, v.timeout_seconds, v.max_output_bytes, v.max_attempts, v.ambiguity_policy, v.execution_spec_digest, v.created_at FROM task_versions v JOIN tasks t ON t.id = v.task_id WHERE v.task_id = $1 AND NOT t.is_deleted ORDER BY v.version DESC`, taskID)
+	rows, err := s.pool.Query(ctx, `SELECT v.id, v.version, v.runner_pool_id, COALESCE(v.pinned_runner_id, ''), v.command, v.working_directory, v.timeout_seconds, v.max_output_bytes, v.max_attempts, v.ambiguity_policy, v.execution_spec_digest, COALESCE((SELECT jsonb_agg(req.resource_id ORDER BY req.resource_id) FROM task_resource_requirements req WHERE req.task_version_id = v.id), '[]'::jsonb), v.created_at FROM task_versions v JOIN tasks t ON t.id = v.task_id WHERE v.task_id = $1 AND NOT t.is_deleted ORDER BY v.version DESC`, taskID)
 	if err != nil {
 		return nil, err
 	}
@@ -102,11 +110,14 @@ func (s *TaskStore) ListVersions(ctx context.Context, taskID string) ([]TaskVers
 	items := []TaskVersionRecord{}
 	for rows.Next() {
 		var item TaskVersionRecord
-		var command []byte
-		if err := rows.Scan(&item.ID, &item.Version, &item.RunnerPoolID, &item.PinnedRunnerID, &command, &item.WorkingDirectory, &item.TimeoutSeconds, &item.MaxOutputBytes, &item.MaxAttempts, &item.AmbiguityPolicy, &item.ExecutionSpecDigest, &item.CreatedAt); err != nil {
+		var command, resources []byte
+		if err := rows.Scan(&item.ID, &item.Version, &item.RunnerPoolID, &item.PinnedRunnerID, &command, &item.WorkingDirectory, &item.TimeoutSeconds, &item.MaxOutputBytes, &item.MaxAttempts, &item.AmbiguityPolicy, &item.ExecutionSpecDigest, &resources, &item.CreatedAt); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal(command, &item.Command); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(resources, &item.ResourceIDs); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
@@ -114,18 +125,18 @@ func (s *TaskStore) ListVersions(ctx context.Context, taskID string) ([]TaskVers
 	return items, rows.Err()
 }
 
-const taskQuery = `SELECT t.id, COALESCE(t.current_version_id, ''), t.name, t.enabled, COALESCE(v.version, 0), COALESCE(v.runner_pool_id, ''), COALESCE(v.pinned_runner_id, ''), COALESCE(v.command, '[]'::jsonb), COALESCE(v.working_directory, '.'), COALESCE(v.placement_selectors, '{}'::jsonb), COALESCE(v.environment, '{}'::jsonb), COALESCE(v.secret_references, '{}'::jsonb), COALESCE(v.timeout_seconds, 0), COALESCE(v.max_output_bytes, 0), COALESCE(v.max_attempts, 1), COALESCE(v.ambiguity_policy, ''), COALESCE(v.execution_spec_digest, ''), COALESCE(latest_run.id, ''), COALESCE(latest_run.task_id, ''), COALESCE(latest_run.task_name, ''), COALESCE(latest_run.state, ''), COALESCE(latest_run.attempt, 0), latest_run.exit_code, COALESCE(latest_run.exit_code_meaning, ''), COALESCE(latest_run.runner, ''), COALESCE(latest_run.trigger_type, ''), COALESCE(latest_run.scheduled_for, 'epoch'::timestamptz), t.is_deleted FROM tasks t LEFT JOIN task_versions v ON v.id = t.current_version_id LEFT JOIN LATERAL (SELECT r.id, r.task_id, t_run.name AS task_name, r.state, r.trigger_type, r.scheduled_for, COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = r.id), 1) AS attempt, latest_attempt.runner_id AS runner, latest_attempt.exit_code, COALESCE(ec.meaning, '') AS exit_code_meaning FROM runs r JOIN tasks t_run ON t_run.id = r.task_id LEFT JOIN LATERAL (SELECT runner_id, exit_code FROM execution_attempts WHERE run_id = r.id ORDER BY attempt_number DESC LIMIT 1) latest_attempt ON true LEFT JOIN exit_code ec ON ec.code = latest_attempt.exit_code WHERE r.task_id = t.id ORDER BY r.created_at DESC, r.id DESC LIMIT 1) latest_run ON true`
+const taskQuery = `SELECT t.id, COALESCE(t.current_version_id, ''), t.name, t.enabled, COALESCE(v.version, 0), COALESCE(v.runner_pool_id, ''), COALESCE(v.pinned_runner_id, ''), COALESCE(v.command, '[]'::jsonb), COALESCE(v.working_directory, '.'), COALESCE(v.placement_selectors, '{}'::jsonb), COALESCE(v.environment, '{}'::jsonb), COALESCE(v.secret_references, '{}'::jsonb), COALESCE(v.timeout_seconds, 0), COALESCE(v.max_output_bytes, 0), COALESCE(v.max_attempts, 1), COALESCE(v.ambiguity_policy, ''), COALESCE(v.execution_spec_digest, ''), COALESCE((SELECT jsonb_agg(req.resource_id ORDER BY req.resource_id) FROM task_resource_requirements req WHERE req.task_version_id = v.id), '[]'::jsonb), COALESCE(latest_run.id, ''), COALESCE(latest_run.task_id, ''), COALESCE(latest_run.task_name, ''), COALESCE(latest_run.state, ''), COALESCE(latest_run.attempt, 0), latest_run.exit_code, COALESCE(latest_run.exit_code_meaning, ''), COALESCE(latest_run.runner, ''), COALESCE(latest_run.trigger_type, ''), COALESCE(latest_run.scheduled_for, 'epoch'::timestamptz), t.is_deleted FROM tasks t LEFT JOIN task_versions v ON v.id = t.current_version_id LEFT JOIN LATERAL (SELECT r.id, r.task_id, t_run.name AS task_name, r.state, r.trigger_type, r.scheduled_for, COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = r.id), 1) AS attempt, latest_attempt.runner_id AS runner, latest_attempt.exit_code, COALESCE(ec.meaning, '') AS exit_code_meaning FROM runs r JOIN tasks t_run ON t_run.id = r.task_id LEFT JOIN LATERAL (SELECT runner_id, exit_code FROM execution_attempts WHERE run_id = r.id ORDER BY attempt_number DESC LIMIT 1) latest_attempt ON true LEFT JOIN exit_code ec ON ec.code = latest_attempt.exit_code WHERE r.task_id = t.id ORDER BY r.created_at DESC, r.id DESC LIMIT 1) latest_run ON true`
 
 type rowScanner interface{ Scan(...any) error }
 
 func scanTask(row rowScanner, _ ...string) (TaskRecord, error) {
 	var item TaskRecord
-	var command, selectors, environment, secrets []byte
+	var command, selectors, environment, secrets, resources []byte
 	var latestRunID, latestTaskID, latestTaskName, latestState, latestMeaning, latestRunner, latestTrigger string
 	var latestAttempt int
 	var latestExitCode *int
 	var latestScheduledFor time.Time
-	if err := row.Scan(&item.ID, &item.CurrentVersionID, &item.Name, &item.Enabled, &item.ActiveVersion, &item.RunnerPoolID, &item.PinnedRunnerID, &command, &item.WorkingDirectory, &selectors, &environment, &secrets, &item.TimeoutSeconds, &item.MaxOutputBytes, &item.MaxAttempts, &item.AmbiguityPolicy, &item.ExecutionSpecDigest, &latestRunID, &latestTaskID, &latestTaskName, &latestState, &latestAttempt, &latestExitCode, &latestMeaning, &latestRunner, &latestTrigger, &latestScheduledFor, &item.IsDeleted); err != nil {
+	if err := row.Scan(&item.ID, &item.CurrentVersionID, &item.Name, &item.Enabled, &item.ActiveVersion, &item.RunnerPoolID, &item.PinnedRunnerID, &command, &item.WorkingDirectory, &selectors, &environment, &secrets, &item.TimeoutSeconds, &item.MaxOutputBytes, &item.MaxAttempts, &item.AmbiguityPolicy, &item.ExecutionSpecDigest, &resources, &latestRunID, &latestTaskID, &latestTaskName, &latestState, &latestAttempt, &latestExitCode, &latestMeaning, &latestRunner, &latestTrigger, &latestScheduledFor, &item.IsDeleted); err != nil {
 		return TaskRecord{}, err
 	}
 	if err := json.Unmarshal(command, &item.Command); err != nil {
@@ -138,6 +149,9 @@ func scanTask(row rowScanner, _ ...string) (TaskRecord, error) {
 		return TaskRecord{}, err
 	}
 	if err := json.Unmarshal(secrets, &item.SecretReferences); err != nil {
+		return TaskRecord{}, err
+	}
+	if err := json.Unmarshal(resources, &item.ResourceIDs); err != nil {
 		return TaskRecord{}, err
 	}
 	if latestRunID != "" {
@@ -189,8 +203,8 @@ func (s *TaskStore) CreateVersion(ctx context.Context, taskID string, definition
 		return TaskRecord{}, err
 	}
 	var previous TaskDefinition
-	var command, selectors, environment, secrets, exitCodes, reasons []byte
-	if err := tx.QueryRow(ctx, `SELECT t.name, v.runner_pool_id, COALESCE(v.pinned_runner_id, ''), v.command, v.working_directory, v.placement_selectors, v.environment, v.secret_references, v.timeout_seconds, v.max_output_bytes, v.max_attempts, v.initial_backoff_seconds, v.max_backoff_seconds, v.backoff_multiplier, v.retryable_exit_codes, v.retryable_termination_reasons, v.ambiguity_policy, v.execution_spec_version FROM task_versions v JOIN tasks t ON t.id = v.task_id WHERE v.task_id = $1 ORDER BY v.version DESC LIMIT 1`, taskID).Scan(&previous.Name, &previous.RunnerPoolID, &previous.PinnedRunnerID, &command, &previous.WorkingDirectory, &selectors, &environment, &secrets, &previous.TimeoutSeconds, &previous.MaxOutputBytes, &previous.MaxAttempts, &previous.InitialBackoffSeconds, &previous.MaxBackoffSeconds, &previous.BackoffMultiplier, &exitCodes, &reasons, &previous.AmbiguityPolicy, &previous.ExecutionSpecVersion); err != nil {
+	var command, selectors, environment, secrets, resources, exitCodes, reasons []byte
+	if err := tx.QueryRow(ctx, `SELECT t.name, v.runner_pool_id, COALESCE(v.pinned_runner_id, ''), v.command, v.working_directory, v.placement_selectors, v.environment, v.secret_references, v.timeout_seconds, v.max_output_bytes, v.max_attempts, v.initial_backoff_seconds, v.max_backoff_seconds, v.backoff_multiplier, v.retryable_exit_codes, v.retryable_termination_reasons, v.ambiguity_policy, v.execution_spec_version, COALESCE((SELECT jsonb_agg(req.resource_id ORDER BY req.resource_id) FROM task_resource_requirements req WHERE req.task_version_id = v.id), '[]'::jsonb) FROM task_versions v JOIN tasks t ON t.id = v.task_id WHERE v.task_id = $1 ORDER BY v.version DESC LIMIT 1`, taskID).Scan(&previous.Name, &previous.RunnerPoolID, &previous.PinnedRunnerID, &command, &previous.WorkingDirectory, &selectors, &environment, &secrets, &previous.TimeoutSeconds, &previous.MaxOutputBytes, &previous.MaxAttempts, &previous.InitialBackoffSeconds, &previous.MaxBackoffSeconds, &previous.BackoffMultiplier, &exitCodes, &reasons, &previous.AmbiguityPolicy, &previous.ExecutionSpecVersion, &resources); err != nil {
 		return TaskRecord{}, err
 	}
 	if err := json.Unmarshal(command, &previous.Command); err != nil {
@@ -209,6 +223,9 @@ func (s *TaskStore) CreateVersion(ctx context.Context, taskID string, definition
 		return TaskRecord{}, err
 	}
 	if err := json.Unmarshal(reasons, &previous.RetryableTerminationReasons); err != nil {
+		return TaskRecord{}, err
+	}
+	if err := json.Unmarshal(resources, &previous.ResourceIDs); err != nil {
 		return TaskRecord{}, err
 	}
 	requested := definition
@@ -236,6 +253,9 @@ func (s *TaskStore) CreateVersion(ctx context.Context, taskID string, definition
 	}
 	if requested.SecretReferences == nil {
 		definition.SecretReferences = previous.SecretReferences
+	}
+	if requested.ResourceIDs == nil {
+		definition.ResourceIDs = previous.ResourceIDs
 	}
 	if requested.TimeoutSeconds <= 0 {
 		definition.TimeoutSeconds = previous.TimeoutSeconds
@@ -302,7 +322,7 @@ func (s *TaskStore) Delete(ctx context.Context, id string) (bool, error) {
 	if _, err := tx.Exec(ctx, `UPDATE schedules SET enabled = false, updated_at = now() WHERE task_id = $1`, id); err != nil {
 		return false, err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE runs SET state = CASE WHEN state IN ('WAITING','RETRY_WAIT') THEN 'CANCELLED' ELSE 'CANCELLING' END, cancellation_requested_at = COALESCE(cancellation_requested_at, now()), cancellation_reason = 'task deleted', completed_at = CASE WHEN state IN ('WAITING','RETRY_WAIT') THEN now() ELSE completed_at END, state_version = state_version + 1, updated_at = now() WHERE task_id = $1 AND state IN ('WAITING','RUNNING','RETRY_WAIT','CANCELLING')`, id); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE runs SET state = CASE WHEN state IN ('WAITING','RETRY_WAIT') THEN 'CANCELLED' ELSE 'CANCELLING' END, cancellation_requested_at = COALESCE(cancellation_requested_at, now()), cancellation_reason = 'task deleted', completed_at = CASE WHEN state IN ('WAITING','RETRY_WAIT') THEN now() ELSE completed_at END, state_version = state_version + 1, updated_at = now() WHERE task_id = $1 AND state IN ('WAITING','DISPATCHED','RUNNING','RETRY_WAIT')`, id); err != nil {
 		return false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -344,6 +364,23 @@ func normalizeTaskDefinition(definition TaskDefinition) TaskDefinition {
 	}
 	if definition.SecretReferences == nil {
 		definition.SecretReferences = map[string]any{}
+	}
+	if definition.ResourceIDs != nil {
+		seen := make(map[string]struct{}, len(definition.ResourceIDs))
+		resources := make([]string, 0, len(definition.ResourceIDs))
+		for _, resourceID := range definition.ResourceIDs {
+			resourceID = strings.TrimSpace(resourceID)
+			if resourceID == "" {
+				continue
+			}
+			if _, exists := seen[resourceID]; exists {
+				continue
+			}
+			seen[resourceID] = struct{}{}
+			resources = append(resources, resourceID)
+		}
+		sort.Strings(resources)
+		definition.ResourceIDs = resources
 	}
 	if definition.ExecutionSpecDigest == "" {
 		raw, _ := json.Marshal(definition)
@@ -388,6 +425,11 @@ func insertTaskVersion(ctx context.Context, tx pgx.Tx, taskID string, version in
 	versionID := taskID + "-v" + strconv.Itoa(version)
 	if _, err = tx.Exec(ctx, `INSERT INTO task_versions (id, task_id, version, runner_pool_id, pinned_runner_id, placement_selectors, command, working_directory, environment, secret_references, timeout_seconds, max_output_bytes, max_attempts, initial_backoff_seconds, max_backoff_seconds, backoff_multiplier, retryable_exit_codes, retryable_termination_reasons, ambiguity_policy, execution_spec_version, execution_spec_digest) VALUES ($1, $2, $3, $4, NULLIF($5, ''), $6::jsonb, $7::jsonb, $8, $9::jsonb, $10::jsonb, $11, $12, $13, $14, $15, $16, $17::jsonb, $18::jsonb, $19, $20, $21)`, versionID, taskID, version, definition.RunnerPoolID, definition.PinnedRunnerID, placement, command, definition.WorkingDirectory, environment, secrets, definition.TimeoutSeconds, definition.MaxOutputBytes, definition.MaxAttempts, definition.InitialBackoffSeconds, definition.MaxBackoffSeconds, definition.BackoffMultiplier, exitCodes, reasons, definition.AmbiguityPolicy, definition.ExecutionSpecVersion, definition.ExecutionSpecDigest); err != nil {
 		return err
+	}
+	for _, resourceID := range definition.ResourceIDs {
+		if _, err := tx.Exec(ctx, `INSERT INTO task_resource_requirements (task_version_id, resource_id) VALUES ($1, $2)`, versionID, resourceID); err != nil {
+			return err
+		}
 	}
 	return recordGlobalVariableReferences(ctx, tx, "task_version", versionID, definition.Command, definition.WorkingDirectory, definition.Environment, definition.PlacementSelectors)
 }

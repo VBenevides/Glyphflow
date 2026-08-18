@@ -11,7 +11,7 @@ export function taskOptionLabel(task: Pick<Task, 'id' | 'name'>) {
 export function TaskPicker({ id = 'task-picker', value, onChange, error, label = 'Task', required = false, info }: { id?: string; value: string; onChange: (value: string) => void; error?: string; label?: string; required?: boolean; info?: string }) {
   const [filter, setFilter] = useState('')
   const [open, setOpen] = useState(false)
-  const query = useQuery({ queryKey: ['task-picker'], queryFn: ({ signal }) => api.get<Page<Task>>('/api/v1/tasks', { limit: 100 }, signal) })
+  const query = useQuery({ queryKey: ['task-picker'], queryFn: ({ signal }) => api.get<Page<Task>>('/api/v1/tasks', { all: true }, signal) })
   const tasks = query.data?.items ?? []
   const selected = tasks.find((task) => task.id === value)
   const options = tasks.filter((task) => taskOptionLabel(task).toLowerCase().includes(filter.trim().toLowerCase()))

@@ -37,10 +37,23 @@ type SessionManager struct {
 	repository store.SessionRepository
 }
 type SessionInfo struct {
-	ID        string    `json:"id"`
-	UserID    string    `json:"userId"`
-	ExpiresAt time.Time `json:"expiresAt"`
-	Current   bool      `json:"current,omitempty"`
+	ID         string     `json:"id"`
+	UserID     string     `json:"userId"`
+	ExpiresAt  time.Time  `json:"expiresAt"`
+	LastSeenAt *time.Time `json:"lastSeenAt,omitempty"`
+	UserAgent  string     `json:"userAgent,omitempty"`
+	IPAddress  string     `json:"ipAddress,omitempty"`
+	Current    bool       `json:"current,omitempty"`
+}
+
+type AdminSession struct {
+	ID         string     `json:"id"`
+	UserID     string     `json:"userId"`
+	UserEmail  string     `json:"userEmail"`
+	ExpiresAt  time.Time  `json:"expiresAt"`
+	LastSeenAt *time.Time `json:"lastSeenAt,omitempty"`
+	UserAgent  string     `json:"userAgent,omitempty"`
+	IPAddress  string     `json:"ipAddress,omitempty"`
 }
 
 func (m *SessionManager) Owns(userID, sessionID string) bool {
@@ -130,7 +143,8 @@ func (m *SessionManager) List(userID string) []SessionInfo {
 		}
 		out := make([]SessionInfo, 0, len(sessions))
 		for _, session := range sessions {
-			out = append(out, SessionInfo{ID: session.ID, UserID: userID, ExpiresAt: session.AccessExpiresAt})
+			lastSeenAt := session.LastSeenAt
+			out = append(out, SessionInfo{ID: session.ID, UserID: userID, ExpiresAt: session.AccessExpiresAt, LastSeenAt: &lastSeenAt, UserAgent: session.UserAgent, IPAddress: session.IPAddress})
 		}
 		return out
 	}

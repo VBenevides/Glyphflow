@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { runnerIsStale } from './runner-pages'
+import { runnerIsRevoked, runnerIsStale } from './runner-pages'
 
 describe('runner health', () => {
   it('flags stale heartbeats and accepts current ones', () => {
@@ -7,5 +7,11 @@ describe('runner health', () => {
     expect(runnerIsStale('2025-12-31T23:58:00Z', now)).toBe(true)
     expect(runnerIsStale('2025-12-31T23:59:30Z', now)).toBe(false)
     expect(runnerIsStale(undefined, now)).toBe(false)
+  })
+
+  it('recognizes revoked desired or observed state', () => {
+    expect(runnerIsRevoked({ desiredState: 'DISABLED', observedState: 'REVOKED' })).toBe(true)
+    expect(runnerIsRevoked({ desiredState: 'REVOKED', observedState: 'OFFLINE' })).toBe(true)
+    expect(runnerIsRevoked({ desiredState: 'ENABLED', observedState: 'ONLINE' })).toBe(false)
   })
 })

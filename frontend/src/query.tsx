@@ -31,9 +31,3 @@ export function QueryState<T>({ query, children, empty = 'Nothing to show yet.' 
 export function queryHasData<T>(query: Pick<UseQueryResult<T>, 'data' | 'isPending' | 'isError'>): boolean {
   return !query.isPending && !query.isError && query.data !== undefined
 }
-
-export function useDebouncedValue<T>(value: T, delay = 250): T {
-  const [debounced, setDebounced] = useState(value)
-  useEffect(() => { const timer = window.setTimeout(() => setDebounced(value), delay); return () => window.clearTimeout(timer) }, [value, delay])
-  return debounced
-}

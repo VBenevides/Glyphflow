@@ -1,15 +1,17 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
+import { CalendarClock, CircleOff } from 'lucide-react'
 import { useAuth } from './auth'
 import { api, type GlobalVariable, type Page, type Schedule } from './api'
 import { DangerousAction } from './actions'
-import { Button, DataTable, EmptyState, FieldLabel, Input, PageHeader, Pagination, StatusPill } from './components'
-import { QueryState, useDebouncedValue } from './query'
+import { Button, DataTable, Dialog, DropdownMenuItem, EmptyState, FieldLabel, Input, MetricCard, PageHeader, Pagination, StatusPill, TableActions } from './components'
+import { QueryState } from './query'
 import { describeError, FieldError } from './errors'
 import { useUnsavedChanges } from './unsaved'
 import { TaskPicker } from './task-picker'
 import { GlobalVariableInput } from './global-variable-input'
+import { formatDateTime } from './format'
 
 export type ScheduleDraft = { taskId: string; name: string; expression: string; timezone: string; misfirePolicy: string; catchupLimit: string; deadlineSeconds: string; concurrencyPolicy: string; maxConcurrentRuns: string }
 export const emptyScheduleDraft: ScheduleDraft = { taskId: '', name: '', expression: '0 * * * *', timezone: '0', misfirePolicy: 'SKIP_ALL', catchupLimit: '0', deadlineSeconds: '0', concurrencyPolicy: 'QUEUE', maxConcurrentRuns: '0' }
@@ -63,13 +65,17 @@ export function previewPayload(draft: ScheduleDraft) {
 }
 
 export function ScheduleInventoryPage() {
-  const { permissions } = useAuth(); const navigate = useNavigate(); const [page, setPage] = useState(1); const [task, setTask] = useState(''); const debouncedTask = useDebouncedValue(task)
-  const query = useQuery({ queryKey: ['schedules', page, debouncedTask], queryFn: ({ signal }) => api.get<Page<Schedule>>('/api/v1/schedules', { page, task: debouncedTask || undefined }, signal), refetchInterval: 5_000 })
-  return <main className="gf-content"><PageHeader title="Schedules" description="Versioned triggers with explicit UTC offset and misfire policy." action={permissions.includes('tasks.manage') && <Button onClick={() => navigate('/schedules/new')}>Create schedule</Button>} /><div className="gf-filter-bar"><TaskPicker value={task} onChange={(value) => { setTask(value); setPage(1) }} label="Task" /></div><QueryState query={query} empty="Create a schedule to trigger a task.">{(data) => data.items.length ? <><DataTable caption="Schedules" rows={data.items} columns={[{ key: 'name', label: 'Schedule', render: (schedule) => <Link to={`/schedules/${schedule.id}/edit`}>{schedule.name}</Link> }, { key: 'taskId', label: 'Task' }, { key: 'timezone', label: 'UTC offset', render: (schedule) => utcOffsetFromTimezone(schedule.timezone ?? 'UTC') }, { key: 'nextFireAt', label: 'Next fire' }, { key: 'enabled', label: 'State', render: (schedule) => <StatusPill status={schedule.enabled === false ? 'disabled' : 'enabled'} /> }, { key: 'actions', label: 'Actions', render: (schedule) => permissions.includes('tasks.manage') && <DangerousAction label="Delete" warning="Permanently deletes this schedule and its versions. Existing execution history may block deletion." onConfirm={() => api.delete(`/api/v1/schedules/${encodeURIComponent(schedule.id)}`).then(() => { void query.refetch() })} /> }]} /><Pagination page={data.page} pages={data.pages ?? 1} onChange={setPage} /></> : <EmptyState title="No schedules">Create a schedule to trigger a task.</EmptyState>}</QueryState></main>
+  const { permissions } = useAuth(); const [page, setPage] = useState(1); const [limit, setLimit] = useState(10); const [task, setTask] = useState(''); const [editor, setEditor] = useState<{ id?: string } | null>(null)
+  const query = useQuery({ queryKey: ['schedules', page, limit, task], queryFn: ({ signal }) => api.get<Page<Schedule>>('/api/v1/schedules', { page, limit, task: task || undefined }, signal), refetchInterval: 5_000 })
+  const summaryQuery = useQuery({ queryKey: ['schedule-summary'], queryFn: async ({ signal }) => { const [all, disabled] = await Promise.all([api.get<Page<Schedule>>('/api/v1/schedules', { page: 1, limit: 1 }, signal), api.get<Page<Schedule>>('/api/v1/schedules', { page: 1, limit: 1, enabled: false }, signal)]); return { total: all.total ?? 0, disabled: disabled.total ?? 0 } }, refetchInterval: 5_000 })
+  const refresh = async () => { await Promise.all([query.refetch(), summaryQuery.refetch()]) }
+  return <main className="gf-content"><PageHeader title="Schedules" description="Versioned triggers with explicit UTC offset and misfire policy." action={permissions.includes('tasks.manage') && <Button onClick={() => setEditor({})}>Create schedule</Button>} /><div className="gf-metric-grid"><MetricCard label="Total schedules" value={summaryQuery.data?.total ?? '—'} detail="All configured schedules" icon={CalendarClock} tone="info" /><MetricCard label="Disabled schedules" value={summaryQuery.data?.disabled ?? '—'} detail="Schedules not currently firing" icon={CircleOff} tone="warning" /></div><div className="gf-filter-bar"><TaskPicker value={task} onChange={(value) => { setTask(value); setPage(1) }} label="Task" /></div><QueryState query={query} empty="Create a schedule to trigger a task.">{(data) => data.items.length ? <><DataTable caption="Schedules" rows={data.items} columns={[{ key: 'name', label: 'Schedule', render: (schedule) => <Button variant="ghost" onClick={() => setEditor({ id: schedule.id })}>{schedule.name}</Button> }, { key: 'taskId', label: 'Task' }, { key: 'timezone', label: 'UTC offset', render: (schedule) => utcOffsetFromTimezone(schedule.timezone ?? 'UTC') }, { key: 'nextFireAt', label: 'Next fire', render: (schedule) => formatDateTime(schedule.nextFireAt) }, { key: 'enabled', label: 'State', render: (schedule) => <StatusPill status={schedule.enabled === false ? 'disabled' : 'enabled'} /> }, { key: 'actions', label: 'Actions', render: (schedule) => permissions.includes('tasks.manage') && <TableActions label={`Actions for ${schedule.name}`}><DangerousAction label="Delete" warning="Permanently deletes this schedule and its versions. Existing execution history may block deletion." onConfirm={() => api.delete(`/api/v1/schedules/${encodeURIComponent(schedule.id)}`).then(refresh)} renderTrigger={(open) => <DropdownMenuItem onSelect={(event) => { event.preventDefault(); open() }}>Delete</DropdownMenuItem>} /></TableActions> }]} /><Pagination page={data.page} pages={data.pages ?? 1} limit={limit} onChange={setPage} onLimitChange={(next) => { setLimit(next); setPage(1) }} /></> : <EmptyState title="No schedules">Create a schedule to trigger a task.</EmptyState>}</QueryState>{editor && <ScheduleEditorPage editScheduleId={editor.id} inDialog onClose={() => setEditor(null)} onSaved={async () => { setEditor(null); await refresh() }} />}</main>
 }
 
-export function ScheduleEditorPage() {
-  const { scheduleId } = useParams(); const navigate = useNavigate(); const { permissions } = useAuth(); const [draft, setDraft] = useState<ScheduleDraft>(emptyScheduleDraft); const [baseline, setBaseline] = useState<ScheduleDraft>(emptyScheduleDraft); const [errors, setErrors] = useState<Record<string, string>>({}); const [preview, setPreview] = useState<string[]>([]); const [error, setError] = useState(''); const [busy, setBusy] = useState(false)
+type ScheduleEditorProps = { editScheduleId?: string; inDialog?: boolean; onClose?: () => void; onSaved?: () => void | Promise<void> }
+
+export function ScheduleEditorPage({ editScheduleId, inDialog = false, onClose, onSaved }: ScheduleEditorProps = {}) {
+  const { scheduleId: routeScheduleId } = useParams(); const scheduleId = editScheduleId ?? routeScheduleId; const navigate = useNavigate(); const { permissions } = useAuth(); const [draft, setDraft] = useState<ScheduleDraft>(emptyScheduleDraft); const [baseline, setBaseline] = useState<ScheduleDraft>(emptyScheduleDraft); const [errors, setErrors] = useState<Record<string, string>>({}); const [preview, setPreview] = useState<string[]>([]); const [error, setError] = useState(''); const [busy, setBusy] = useState(false)
   const query = useQuery({ queryKey: ['schedule-edit', scheduleId], queryFn: ({ signal }) => api.get<Schedule>(`/api/v1/schedules/${encodeURIComponent(scheduleId ?? '')}`, undefined, signal), enabled: Boolean(scheduleId) })
   const variablesQuery = useQuery({ queryKey: ['global-variable-options'], queryFn: ({ signal }) => api.get<Page<GlobalVariable>>('/api/v1/global-variables/options', { limit: 100 }, signal) })
   useEffect(() => {
@@ -86,11 +92,10 @@ export function ScheduleEditorPage() {
   useUnsavedChanges(JSON.stringify(draft) !== JSON.stringify(baseline))
   if (!permissions.includes('tasks.manage')) return <main className="gf-content"><h1>Access denied</h1></main>
   const showPreview = async () => { const next = validateScheduleDraft(draft); setErrors(next); if (Object.keys(next).length) return; setBusy(true); setError(''); try { const result = await api.post<{ occurrences?: string[] }>('/api/v1/schedules/preview', previewPayload(draft)); setPreview(result.occurrences ?? []) } catch (cause) { const details = describeError(cause); setError(details.message) } finally { setBusy(false) } }
-  const save = async (event: FormEvent) => { event.preventDefault(); const next = validateScheduleDraft(draft); setErrors(next); if (Object.keys(next).length) return; setBusy(true); setError(''); try { await api.post(scheduleId ? `/api/v1/schedules/${encodeURIComponent(scheduleId)}` : '/api/v1/schedules', { ...previewPayload(draft), name: draft.name, schedule_type: 'cron', misfire_policy: draft.misfirePolicy, catchup_limit: draft.misfirePolicy === 'RUN_UP_TO_N' ? Number(draft.catchupLimit) : 0, start_deadline_seconds: Number(draft.deadlineSeconds), concurrency_policy: draft.concurrencyPolicy, max_concurrent_runs: draft.concurrencyPolicy === 'ALLOW' ? Number(draft.maxConcurrentRuns) : 0 }); navigate('/schedules') } catch (cause) { setError(describeError(cause).message) } finally { setBusy(false) } }
-  return (
-    <main className="gf-content">
-      <PageHeader title={scheduleId ? 'Edit schedule' : 'Create schedule'} description="Preview occurrences before activating a new immutable version." />
-      <form className="gf-editor-form" onSubmit={save}>
+  const save = async (event: FormEvent) => { event.preventDefault(); const next = validateScheduleDraft(draft); setErrors(next); if (Object.keys(next).length) return; setBusy(true); setError(''); try { await api.post(scheduleId ? `/api/v1/schedules/${encodeURIComponent(scheduleId)}` : '/api/v1/schedules', { ...previewPayload(draft), name: draft.name, schedule_type: 'cron', misfire_policy: draft.misfirePolicy, catchup_limit: draft.misfirePolicy === 'RUN_UP_TO_N' ? Number(draft.catchupLimit) : 0, start_deadline_seconds: Number(draft.deadlineSeconds), concurrency_policy: draft.concurrencyPolicy, max_concurrent_runs: draft.concurrencyPolicy === 'ALLOW' ? Number(draft.maxConcurrentRuns) : 0 }); if (onSaved) await onSaved(); else navigate('/schedules') } catch (cause) { setError(describeError(cause).message) } finally { setBusy(false) } }
+  const title = scheduleId ? 'Edit schedule' : 'Create schedule'
+  const close = () => onClose ? onClose() : navigate(-1)
+  const form = <form className="gf-editor-form" onSubmit={save}>
         <div className="gf-form-grid">
           <TaskPicker id="schedule-task" value={draft.taskId} onChange={(value) => update('taskId', value)} label="Task" info={scheduleInfo.task} error={errors.taskId} required />
           <div className="gf-form-field"><FieldLabel htmlFor="schedule-name" info={scheduleInfo.name}>Name</FieldLabel><Input id="schedule-name" value={draft.name} onChange={(event) => update('name', event.target.value)} /><FieldError message={errors.name} /></div>
@@ -108,8 +113,7 @@ export function ScheduleEditorPage() {
         </div>
         {preview.length > 0 && <section className="gf-review-panel"><h2>Next occurrences</h2><ul>{preview.map((occurrence) => <li key={occurrence}>{occurrence}</li>)}</ul></section>}
         {error && <p className="gf-form-error" role="alert">{error}</p>}
-        <div className="gf-dialog-actions"><Button type="button" variant="secondary" busy={busy} onClick={showPreview}>Preview next occurrences</Button><Button type="submit" busy={busy}>Save schedule version</Button></div>
+        <div className="gf-dialog-actions"><Button type="button" variant="secondary" busy={busy} onClick={showPreview}>Preview next occurrences</Button><Button type="button" variant="secondary" disabled={busy} onClick={close}>Cancel</Button><Button type="submit" busy={busy}>Save schedule version</Button></div>
       </form>
-    </main>
-  )
+  return inDialog ? <Dialog open title={title} onClose={close}>{form}</Dialog> : <main className="gf-content"><PageHeader title={title} description="Preview occurrences before activating a new immutable version." />{form}</main>
 }

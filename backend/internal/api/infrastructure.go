@@ -53,6 +53,7 @@ type RunnerPoolRecord struct {
 type ResourceRecord struct {
 	ID               string `json:"id"`
 	Name             string `json:"name"`
+	Kind             string `json:"kind"`
 	Enabled          bool   `json:"enabled"`
 	Holder           string `json:"holder,omitempty"`
 	ExpiresAt        string `json:"expiresAt,omitempty"`
@@ -89,7 +90,7 @@ type InfrastructureService struct {
 }
 
 func NewInfrastructureService() *InfrastructureService {
-	return &InfrastructureService{runners: map[string]RunnerRecord{}, pools: map[string]RunnerPoolRecord{"default": {ID: "default", Name: "default", Enabled: true}}, resources: map[string]ResourceRecord{}, enrollments: map[string]*enrollment{}, runnerKeys: map[string]runnerKey{}, runnerBinaryDir: "runner-binaries"}
+	return &InfrastructureService{runners: map[string]RunnerRecord{}, pools: map[string]RunnerPoolRecord{"default": {ID: "default", Name: "default", Description: "Default Runner Pool", Enabled: true}}, resources: map[string]ResourceRecord{}, enrollments: map[string]*enrollment{}, runnerKeys: map[string]runnerKey{}, runnerBinaryDir: "runner-binaries"}
 }
 
 func (s *InfrastructureService) SetRunnerRepository(repository store.RunnerRepository) {
@@ -332,7 +333,7 @@ func resourceRecordFromStore(resource store.ResourceRecord) ResourceRecord {
 	if resource.ExpiresAt != nil {
 		expiresAt = resource.ExpiresAt.UTC().Format(time.RFC3339)
 	}
-	return ResourceRecord{ID: resource.ID, Name: resource.Name, Enabled: resource.Enabled, Holder: resource.Holder, ExpiresAt: expiresAt, FencingToken: resource.FencingToken}
+	return ResourceRecord{ID: resource.ID, Name: resource.Name, Kind: resource.Kind, Enabled: resource.Enabled, Holder: resource.Holder, ExpiresAt: expiresAt, FencingToken: resource.FencingToken}
 }
 
 func (s *InfrastructureService) runnerCollection(w http.ResponseWriter, r *http.Request) {
@@ -359,7 +360,7 @@ func (s *InfrastructureService) runnerCollection(w http.ResponseWriter, r *http.
 		for _, item := range items {
 			result = append(result, runnerRecordFromStore(item))
 		}
-		result = filterRunners(result, r.URL.Query().Get("state"), r.URL.Query().Get("search"))
+		result = filterRunners(result, r.URL.Query().Get("state"), r.URL.Query().Get("search"), r.URL.Query().Get("desired_state"))
 		sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 		writePage(w, r, result)
 		return
@@ -373,7 +374,7 @@ func (s *InfrastructureService) runnerCollection(w http.ResponseWriter, r *http.
 		}
 	}
 	s.mu.RUnlock()
-	items = filterRunners(items, r.URL.Query().Get("state"), r.URL.Query().Get("search"))
+	items = filterRunners(items, r.URL.Query().Get("state"), r.URL.Query().Get("search"), r.URL.Query().Get("desired_state"))
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 	writePage(w, r, items)
 }
@@ -381,17 +382,22 @@ func (s *InfrastructureService) runnerCollection(w http.ResponseWriter, r *http.
 func filterRunners(items []RunnerRecord, state string, searchValues ...string) []RunnerRecord {
 	state = strings.TrimSpace(state)
 	search := ""
+	desiredState := ""
 	if len(searchValues) > 0 {
 		search = searchValues[0]
 	}
+	if len(searchValues) > 1 {
+		desiredState = searchValues[1]
+	}
 	search = strings.ToLower(strings.TrimSpace(search))
-	if state == "" && search == "" {
+	desiredState = strings.TrimSpace(desiredState)
+	if state == "" && search == "" && desiredState == "" {
 		return items
 	}
 	filtered := items[:0]
 	for _, item := range items {
 		matchesSearch := search == "" || strings.Contains(strings.ToLower(item.ID), search) || strings.Contains(strings.ToLower(item.Name), search) || strings.Contains(strings.ToLower(item.Pool), search)
-		if (state == "" || strings.EqualFold(item.ObservedState, state)) && matchesSearch {
+		if (state == "" || strings.EqualFold(item.ObservedState, state)) && (desiredState == "" || strings.EqualFold(item.DesiredState, desiredState)) && matchesSearch {
 			filtered = append(filtered, item)
 		}
 	}
@@ -577,6 +583,9 @@ func (s *InfrastructureService) runnerPath(w http.ResponseWriter, r *http.Reques
 		}
 		if ok && valid {
 			item.DesiredState = state
+			if state == "ENABLED" && item.ObservedState == "REVOKED" {
+				item.ObservedState = "OFFLINE"
+			}
 			s.runners[parts[3]] = item
 		}
 		s.mu.Unlock()
@@ -711,6 +720,7 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 		Platform             string `json:"platform"`
 		Architecture         string `json:"architecture"`
 		Capacity             *int   `json:"capacity"`
+		UI                   string `json:"ui"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid runner enrollment request", err)
@@ -743,6 +753,10 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 	}
 	input.Platform = strings.ToLower(strings.TrimSpace(input.Platform))
 	input.Architecture = strings.ToLower(strings.TrimSpace(input.Architecture))
+	input.UI = strings.ToLower(strings.TrimSpace(input.UI))
+	if input.UI == "" {
+		input.UI = "gui"
+	}
 	if !runnerIDPattern.MatchString(input.RunnerID) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "runner_id must contain only letters, digits, dot, underscore, or hyphen"})
 		return
@@ -753,6 +767,10 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 	}
 	if input.Architecture != "amd64" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "architecture must be amd64"})
+		return
+	}
+	if input.UI != "gui" && input.UI != "tui" && input.UI != "headless" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "ui must be gui, tui, or headless"})
 		return
 	}
 	if input.Capacity != nil && *input.Capacity < 1 {
@@ -767,7 +785,7 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 	}
 	token := base64.RawURLEncoding.EncodeToString(raw)
 	expiry := time.Now().Add(15 * time.Minute)
-	artifact, filename, err := s.buildRunnerArtifact(r, input.Platform, input.Architecture, input.RunnerID, token, input.ControlPlaneURL, input.EmbeddedNATSEndpoint)
+	artifact, filename, err := s.buildRunnerArtifact(r, input.Platform, input.Architecture, input.RunnerID, token, input.ControlPlaneURL, input.EmbeddedNATSEndpoint, input.UI)
 	if err != nil {
 		recordRequestError(r, err)
 		writeError(w, http.StatusServiceUnavailable, "runner binary is unavailable", err)
@@ -844,7 +862,7 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]string{"artifact": base64.StdEncoding.EncodeToString(artifact), "expires_at": expiry.UTC().Format(time.RFC3339), "filename": filename, "runner_id": input.RunnerID, "runner_name": input.RunnerName})
 }
 
-func (s *InfrastructureService) buildRunnerArtifact(r *http.Request, platformName, architecture, runnerID, token, controlPlaneURL, embeddedNATSEndpoint string) ([]byte, string, error) {
+func (s *InfrastructureService) buildRunnerArtifact(r *http.Request, platformName, architecture, runnerID, token, controlPlaneURL, embeddedNATSEndpoint, ui string) ([]byte, string, error) {
 	s.mu.RLock()
 	directory, defaultControlPlaneURL, maxMessageBytes, controlPlanePublicKey, repository := s.runnerBinaryDir, s.runnerControlPlaneURL, s.runnerMaxMessageBytes, s.controlPlanePublicKey, s.runnerRepository
 	if controlPlaneURL == "" {
@@ -861,6 +879,9 @@ func (s *InfrastructureService) buildRunnerArtifact(r *http.Request, platformNam
 		}
 	}
 	binaryName := "glyphflow-runner-" + platformName + "-" + architecture
+	if ui != "gui" {
+		binaryName += "-" + ui
+	}
 	filename := runnerID + "-" + binaryName
 	if platformName == "windows" {
 		binaryName += ".exe"
@@ -910,6 +931,11 @@ func (s *InfrastructureService) resourceCollection(w http.ResponseWriter, r *htt
 		if strings.TrimSpace(input.Kind) == "" {
 			input.Kind = "exclusive"
 		}
+		input.Kind = strings.ToLower(strings.TrimSpace(input.Kind))
+		if input.Kind != "exclusive" && input.Kind != "non-blocking" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "resource kind must be exclusive or non-blocking"})
+			return
+		}
 		id, err := randomID()
 		if err != nil {
 			writeError(w, http.StatusServiceUnavailable, "resource creation failed", err)
@@ -935,7 +961,7 @@ func (s *InfrastructureService) resourceCollection(w http.ResponseWriter, r *htt
 			writeJSON(w, http.StatusCreated, resourceRecordFromStore(item))
 			return
 		}
-		item := ResourceRecord{ID: "resource-" + id, Name: strings.TrimSpace(input.Name), Enabled: true}
+		item := ResourceRecord{ID: "resource-" + id, Name: strings.TrimSpace(input.Name), Kind: strings.TrimSpace(input.Kind), Enabled: true}
 		s.mu.Lock()
 		s.resources[item.ID] = item
 		s.mu.Unlock()
@@ -959,7 +985,7 @@ func (s *InfrastructureService) resourceCollection(w http.ResponseWriter, r *htt
 		for _, item := range items {
 			result = append(result, resourceRecordFromStore(item))
 		}
-		result = filterResources(result, r.URL.Query().Get("search"))
+		result = filterResources(result, r.URL.Query().Get("search"), r.URL.Query().Get("kind"))
 		writePage(w, r, result)
 		return
 	}
@@ -969,19 +995,24 @@ func (s *InfrastructureService) resourceCollection(w http.ResponseWriter, r *htt
 		items = append(items, item)
 	}
 	s.mu.RUnlock()
-	items = filterResources(items, r.URL.Query().Get("search"))
+	items = filterResources(items, r.URL.Query().Get("search"), r.URL.Query().Get("kind"))
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 	writePage(w, r, items)
 }
 
-func filterResources(items []ResourceRecord, search string) []ResourceRecord {
+func filterResources(items []ResourceRecord, search string, kindValues ...string) []ResourceRecord {
 	search = strings.ToLower(strings.TrimSpace(search))
-	if search == "" {
+	kind := ""
+	if len(kindValues) > 0 {
+		kind = strings.ToLower(strings.ReplaceAll(strings.TrimSpace(kindValues[0]), "_", "-"))
+	}
+	if search == "" && kind == "" {
 		return items
 	}
 	filtered := items[:0]
 	for _, item := range items {
-		if strings.Contains(strings.ToLower(item.ID), search) || strings.Contains(strings.ToLower(item.Name), search) {
+		itemKind := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(item.Kind), "_", "-"))
+		if (kind == "" || itemKind == kind) && (strings.Contains(strings.ToLower(item.ID), search) || strings.Contains(strings.ToLower(item.Name), search)) {
 			filtered = append(filtered, item)
 		}
 	}

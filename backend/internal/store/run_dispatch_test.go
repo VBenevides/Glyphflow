@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func TestRunRepositoryClaimsAndReconcilesTimedOutRun(t *testing.T) {
+func TestRunRepositoryClaimsAndReconcilesStartFailure(t *testing.T) {
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("set DATABASE_URL to run PostgreSQL repository tests")
@@ -64,8 +64,78 @@ func TestRunRepositoryClaimsAndReconcilesTimedOutRun(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT r.state, a.state, o.state FROM runs r JOIN execution_attempts a ON a.run_id = r.id JOIN dispatch_outbox o ON o.execution_attempt_id = a.id WHERE r.id = $1`, runID).Scan(&runState, &attemptState, &outboxState); err != nil {
 		t.Fatal(err)
 	}
-	if runState != "UNKNOWN" || attemptState != "UNKNOWN" || outboxState != "FAILED" {
+	if runState != "FAILED" || attemptState != "FAILED" || outboxState != "FAILED" {
 		t.Fatalf("states = run %q, attempt %q, outbox %q", runState, attemptState, outboxState)
+	}
+	var exitCode int
+	if err := pool.QueryRow(ctx, `SELECT exit_code FROM execution_attempts WHERE run_id = $1`, runID).Scan(&exitCode); err != nil {
+		t.Fatal(err)
+	}
+	if exitCode != 5 {
+		t.Fatalf("start failure exit code = %d, want 5", exitCode)
+	}
+	_, granted, err := NewRunRepository(pool).ClaimStart(ctx, StartClaimInput{RunID: candidate.RunID, RunnerID: candidate.RunnerID, RunnerSessionID: candidate.RunnerSessionID, LeaseToken: candidate.LeaseToken, Attempt: candidate.AttemptNumber, FencingToken: candidate.FencingToken, ExecutionSpecDigest: candidate.ExecutionSpecDigest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if granted {
+		t.Fatal("start claim succeeded after Start Failure")
+	}
+}
+
+func TestRunRepositoryClaimsStartBeforeTimeout(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set DATABASE_URL to run PostgreSQL repository tests")
+	}
+	ctx := context.Background()
+	db, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	poolID, runnerID := "start-pool-"+suffix, "start-runner-"+suffix
+	taskID, runID := "start-task-"+suffix, "start-run-"+suffix
+	t.Cleanup(func() {
+		_, _ = db.Exec(ctx, `DELETE FROM runs WHERE id = $1`, runID)
+		_, _ = db.Exec(ctx, `DELETE FROM tasks WHERE id = $1`, taskID)
+		_, _ = db.Exec(ctx, `DELETE FROM runners WHERE id = $1`, runnerID)
+		_, _ = db.Exec(ctx, `DELETE FROM runner_pools WHERE id = $1`, poolID)
+	})
+	if _, err := db.Exec(ctx, `INSERT INTO runner_pools (id, name) VALUES ($1, $1)`, poolID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO runners (id, pool_id, name, desired_state, capabilities) VALUES ($1, $2, $1, 'ENABLED', '{}'::jsonb)`, runnerID, poolID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO runner_sessions (id, runner_id, boot_id, last_heartbeat_at) VALUES ($1, $2, $3, now())`, runnerID+"/boot", runnerID, "boot"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewTaskRepository(db).Create(ctx, TaskDefinition{ID: taskID, Name: taskID, RunnerPoolID: poolID, Command: []string{"echo", "ok"}, TimeoutSeconds: 1, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewRunRepository(db).Create(ctx, RunDefinition{ID: runID, TaskID: taskID, TriggerType: "MANUAL", IdempotencyKey: "start-idempotency-" + suffix}); err != nil {
+		t.Fatal(err)
+	}
+	candidate, claimed, err := NewRunRepository(db).ClaimWaiting(ctx, func(candidate DispatchCandidate) ([]byte, error) { return []byte("order"), nil })
+	if err != nil || !claimed {
+		t.Fatalf("claim = %#v, claimed=%t, err=%v", candidate, claimed, err)
+	}
+	runs := NewRunRepository(db)
+	grantedAt, granted, err := runs.ClaimStart(ctx, StartClaimInput{RunID: candidate.RunID, RunnerID: candidate.RunnerID, RunnerSessionID: candidate.RunnerSessionID, LeaseToken: candidate.LeaseToken, Attempt: candidate.AttemptNumber, FencingToken: candidate.FencingToken, ExecutionSpecDigest: candidate.ExecutionSpecDigest})
+	if err != nil || !granted || grantedAt.IsZero() {
+		t.Fatalf("start claim = %v, granted=%t, err=%v", grantedAt, granted, err)
+	}
+	var runState, attemptState string
+	if err := db.QueryRow(ctx, `SELECT r.state, a.state FROM runs r JOIN execution_attempts a ON a.run_id = r.id WHERE r.id = $1`, runID).Scan(&runState, &attemptState); err != nil {
+		t.Fatal(err)
+	}
+	if runState != "RUNNING" || attemptState != "RUNNING" {
+		t.Fatalf("states = run %q, attempt %q", runState, attemptState)
+	}
+	if _, granted, err := runs.ClaimStart(ctx, StartClaimInput{RunID: candidate.RunID, RunnerID: candidate.RunnerID, RunnerSessionID: candidate.RunnerSessionID, LeaseToken: candidate.LeaseToken, Attempt: candidate.AttemptNumber, FencingToken: candidate.FencingToken, ExecutionSpecDigest: candidate.ExecutionSpecDigest}); err != nil || !granted {
+		t.Fatalf("idempotent start claim = granted=%t, err=%v", granted, err)
 	}
 }
 
@@ -106,6 +176,13 @@ func TestRunRepositoryReconcilesStaleCancellation(t *testing.T) {
 	}
 	if _, claimed, err := NewRunRepository(db).ClaimWaiting(ctx, func(DispatchCandidate) ([]byte, error) { return []byte("order"), nil }); err != nil || !claimed {
 		t.Fatalf("claim cancellation candidate setup: claimed=%t err=%v", claimed, err)
+	}
+	runs := NewRunRepository(db)
+	if _, changed, err := runs.RequestCancellation(ctx, runID, "stop"); err != nil || !changed {
+		t.Fatalf("first cancellation: changed=%t err=%v", changed, err)
+	}
+	if _, changed, err := runs.RequestCancellation(ctx, runID, "stop again"); err != nil || changed {
+		t.Fatalf("duplicate cancellation changed state: changed=%t err=%v", changed, err)
 	}
 	if _, err := db.Exec(ctx, `UPDATE runs SET state = 'CANCELLING', updated_at = now() - interval '1 minute' WHERE id = $1`, runID); err != nil {
 		t.Fatal(err)

@@ -8,7 +8,7 @@ Glyphflow is an open-source platform for script orchestration across servers and
 
 The platform has one central control plane and many remote workers. The control plane schedules work. Workers execute the work.
 
-Glyphflow is an alpha application. The current version is `0.1.0`. The repository contains the Go control plane, Go workers, React frontend, PostgreSQL persistence, and NATS JetStream integration.
+Glyphflow is an alpha application. The current version is defined in [`VERSION`](VERSION). The repository contains the Go control plane, Go workers, React frontend, PostgreSQL persistence, and NATS JetStream integration.
 
 ## Quick start
 
@@ -31,7 +31,7 @@ Press `Ctrl-C` to stop the development processes. Docker volumes keep PostgreSQL
 
 ## Deployment model
 
-The current release uses one control-plane executable, one NATS JetStream deployment, and any number of outbound-only workers. PostgreSQL remains private to the control plane. The scheduler, dispatcher, event ingestion, HTTP API, housekeeping, and health metrics run in the same control-plane process.
+The current release uses one control-plane executable, one NATS JetStream deployment, and any number of outbound-only workers. PostgreSQL remains private to the control plane. The scheduler, dispatcher, event ingestion, HTTP API, housekeeping, health checks, and internal runtime metrics run in the same control-plane process.
 
 Service splitting is deferred until measured scaling, deployment, or ownership needs justify it.
 
@@ -43,7 +43,8 @@ Service splitting is deferred until measured scaling, deployment, or ownership n
 - Enroll and manage workers and pools. Set execution capacity, view active runs, archive workers, and manage resource leases.
 - Use password or OIDC authentication with sessions, CSRF protection, RBAC, SSO, account management, and audited administration.
 - Use the responsive React console with light, dark, and neon themes, accessible dialogs, filters, pagination, and permission-aware routes.
-- Run persistent workers with SQLite recovery, signed messages, streamed output, concurrent execution, and headless or tray-based desktop builds.
+- Run persistent workers with SQLite recovery, signed messages, streamed output, concurrent execution, and headless, Gio desktop, or Bubble Tea TUI builds. The Windows TUI build supports minimizing the console to the system tray.
+- Select the worker UI during enrollment and binary generation: GUI (default), TUI (lower memory usage), or headless (lowest memory usage).
 
 ## Architecture
 

@@ -1,9 +1,10 @@
-import { createElement } from 'react'
+import { createElement, type ComponentType } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
-import { canReadRunLogs, eligibleRunActions, hasActiveRuns, runQuery, runStatusLabel, RunIDCell, RunTimeline, waitingRunMessage } from './run-pages'
+import { canReadRunLogs, eligibleRunActions, hasActiveRuns, ManualRunPage, type ManualRunProps, runQuery, runStatusLabel, RunIDCell, RunTimeline, waitingRunMessage } from './run-pages'
 import { isTerminalRunState } from './run-logs'
+import { QueryProvider } from './query'
 
 describe('run inventory', () => {
   it('builds server-side filters and keeps terminal labels distinct', () => {
@@ -12,8 +13,10 @@ describe('run inventory', () => {
     expect(runStatusLabel('unknown')).toBe('UNKNOWN')
     expect(runStatusLabel('TIMED_OUT')).toBe('TIMED_OUT')
     expect(eligibleRunActions('UNKNOWN')).toEqual({ cancel: false, retry: false, reconcile: true })
+    expect(eligibleRunActions('DISPATCHED').cancel).toBe(true)
     expect(eligibleRunActions('RUNNING').cancel).toBe(true)
     expect(hasActiveRuns({ items: [{ id: 'r1', state: 'RUNNING' }], page: 1, limit: 20 })).toBe(true)
+    expect(hasActiveRuns({ items: [{ id: 'r-dispatched', state: 'DISPATCHED' }], page: 1, limit: 20 })).toBe(true)
     expect(hasActiveRuns({ items: [{ id: 'r2', state: 'SUCCEEDED' }], page: 1, limit: 20 })).toBe(false)
     expect(canReadRunLogs(['runs.read'])).toBe(false)
     expect(canReadRunLogs(['runs.read', 'logs.read'])).toBe(true)
@@ -43,5 +46,12 @@ describe('run inventory', () => {
     expect(markup).toContain('gf-run-id-cell-compact')
     expect(markup).toContain('title="run-123"')
     expect(markup).toContain('aria-label="Copy run ID"')
+  })
+
+  it('renders manual runs in a focused dialog with a preselected task', () => {
+    const markup = renderToStaticMarkup(createElement(QueryProvider, null, createElement(MemoryRouter, null, createElement(ManualRunPage as ComponentType<ManualRunProps>, { inDialog: true, initialTaskId: 'task-1' }))))
+    expect(markup).toContain('role="dialog"')
+    expect(markup).toContain('Start manual run')
+    expect(markup).toContain('value="task-1"')
   })
 })

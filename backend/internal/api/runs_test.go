@@ -67,8 +67,9 @@ func TestRunCollectionMatchesRunnerExactly(t *testing.T) {
 func TestRunCollectionFiltersActiveRuns(t *testing.T) {
 	runs := NewRunService()
 	runs.runs = map[string]RunRecord{
-		"waiting":   {ID: "waiting", State: "WAITING"},
-		"cancelled": {ID: "cancelled", State: "CANCELLED"},
+		"waiting":    {ID: "waiting", State: "WAITING"},
+		"dispatched": {ID: "dispatched", State: "DISPATCHED"},
+		"cancelled":  {ID: "cancelled", State: "CANCELLED"},
 	}
 	response := httptest.NewRecorder()
 	runs.collection(response, httptest.NewRequest(http.MethodGet, "/api/v1/runs?state=active", nil))
@@ -81,7 +82,7 @@ func TestRunCollectionFiltersActiveRuns(t *testing.T) {
 	if err := json.NewDecoder(response.Body).Decode(&page); err != nil {
 		t.Fatal(err)
 	}
-	if len(page.Items) != 1 || page.Items[0].ID != "waiting" {
+	if len(page.Items) != 2 {
 		t.Fatalf("active runs = %#v", page.Items)
 	}
 }

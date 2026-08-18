@@ -37,3 +37,5 @@ local/
 .tokensave/
 /build/*.tar.gz
 internal/**/*.png
+/**/*gitignored*
+.dev-data/

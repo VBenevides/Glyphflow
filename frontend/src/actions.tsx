@@ -27,7 +27,7 @@ export function dangerousActionError(cause: unknown, onConflict?: () => void): s
 	return cause instanceof Error ? cause.message : 'Action failed'
 }
 
-export function DangerousAction({ label, title = label, warning = dangerousWarning(label), confirmLabel = label, reasonRequired = false, variant = 'danger', onConfirm, onConflict }: { label: string; title?: string; warning?: string; confirmLabel?: string; reasonRequired?: boolean; variant?: 'danger' | 'secondary'; onConfirm: (reason?: string) => void | Promise<void>; onConflict?: () => void }) {
+export function DangerousAction({ label, title = label, warning = dangerousWarning(label), confirmLabel = label, cancelLabel = 'Cancel', reasonRequired = false, variant = 'danger', onConfirm, onConflict, renderTrigger }: { label: string; title?: string; warning?: string; confirmLabel?: string; cancelLabel?: string; reasonRequired?: boolean; variant?: 'danger' | 'secondary'; onConfirm: (reason?: string) => void | Promise<void>; onConflict?: () => void; renderTrigger?: (open: () => void) => ReactNode }) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [reason, setReason] = useState('')
@@ -39,7 +39,7 @@ export function DangerousAction({ label, title = label, warning = dangerousWarni
 	      setError(dangerousActionError(cause, onConflict))
     } finally { setBusy(false) }
   }
-  return <><Button variant={variant} title={warning} onClick={() => setOpen(true)}>{label}</Button><Dialog open={open} title={title} onClose={() => !busy && setOpen(false)}><div className="gf-danger-dialog"><p>{warning}</p>{reasonRequired && <><label htmlFor="danger-reason">Reason</label><Input id="danger-reason" value={reason} onChange={(event) => setReason(event.target.value)} /></>}{error && <p className="gf-form-error" role="alert">{error}</p>}<div className="gf-dialog-actions"><Button variant="secondary" disabled={busy} onClick={() => setOpen(false)}>Cancel</Button><Button variant="danger" busy={busy} onClick={confirm}>{confirmLabel}</Button></div></div></Dialog></>
+  return <>{renderTrigger ? renderTrigger(() => setOpen(true)) : <Button variant={variant} title={warning} onClick={() => setOpen(true)}>{label}</Button>}<Dialog open={open} title={title} onClose={() => !busy && setOpen(false)}><div className="gf-danger-dialog"><p>{warning}</p>{reasonRequired && <><label htmlFor="danger-reason">Reason</label><Input id="danger-reason" value={reason} onChange={(event) => setReason(event.target.value)} /></>}{error && <p className="gf-form-error" role="alert">{error}</p>}<div className="gf-dialog-actions"><Button variant="secondary" disabled={busy} onClick={() => setOpen(false)}>{cancelLabel}</Button><Button variant="danger" busy={busy} onClick={confirm}>{confirmLabel}</Button></div></div></Dialog></>
 }
 
 export function PermissionAction({ allowed, children }: { allowed: boolean; children: ReactNode }) {

@@ -20,7 +20,7 @@ type AuthContextValue = BootstrapResult & { loading: boolean; error: Error | nul
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<BootstrapResult>({ config: { brand: 'Glyphflow', passwordLogin: false, registration: false, oidc: false, csrfCookie: 'glyphflow_csrf' }, profile: null, permissions: [] })
+  const [state, setState] = useState<BootstrapResult>({ config: { brand: 'Glyphflow', passwordLogin: false, registration: false, oidc: false, csrfCookie: 'glyphflow_csrf', lockdownScheduler: false }, profile: null, permissions: [] })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<Error | null>(null)
   const [attempt, setAttempt] = useState(0)

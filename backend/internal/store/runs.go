@@ -68,6 +68,8 @@ type RunEventRecord struct {
 
 type DispatchCandidate struct {
 	RunID, TaskID, TaskVersionID, AttemptID string
+	TaskName                                string
+	TaskVersion                             int
 	Pool                                    string
 	RunnerID, RunnerSessionID, LeaseToken   string
 	Command                                 []string
@@ -126,7 +128,19 @@ type RetryRepository interface {
 	Retry(context.Context, string, string) (RunRecord, bool, error)
 }
 
+type StartClaimInput struct {
+	RunID, RunnerID, RunnerSessionID, LeaseToken, ExecutionSpecDigest string
+	Attempt                                                           int
+	FencingToken                                                      int64
+}
+
+type StartClaimRepository interface {
+	ClaimStart(context.Context, StartClaimInput) (time.Time, bool, error)
+}
+
 type RunStore struct{ pool *pgxpool.Pool }
+
+const defaultStartDelay = time.Minute
 
 const (
 	insertTaskRunSQL        = "INSERT INTO runs"
@@ -169,6 +183,46 @@ func (s *RunStore) Find(ctx context.Context, id string) (RunRecord, bool, error)
 	return item, err == nil, err
 }
 
+func (s *RunStore) ClaimStart(ctx context.Context, input StartClaimInput) (time.Time, bool, error) {
+	if input.RunID == "" || input.RunnerID == "" || input.RunnerSessionID == "" || input.LeaseToken == "" || input.ExecutionSpecDigest == "" || input.Attempt <= 0 || input.FencingToken <= 0 {
+		return time.Time{}, false, errors.New("start claim is incomplete")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	defer tx.Rollback(ctx)
+	var runState, attemptState, runnerID, sessionID, leaseToken, digest string
+	var fencingToken int64
+	var leaseNotAfter, startDeadline, now time.Time
+	err = tx.QueryRow(ctx, `SELECT r.state, a.state, a.runner_id, a.runner_session_id, a.lease_token, a.fencing_token, a.execution_spec_digest, a.lease_not_after, COALESCE(r.start_deadline_at, a.dispatched_at + $3 * interval '1 second'), now() FROM runs r JOIN execution_attempts a ON a.run_id = r.id WHERE r.id = $1 AND a.attempt_number = $2 FOR UPDATE OF r, a`, input.RunID, input.Attempt, int64(defaultStartDelay/time.Second)).Scan(&runState, &attemptState, &runnerID, &sessionID, &leaseToken, &fencingToken, &digest, &leaseNotAfter, &startDeadline, &now)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return time.Time{}, false, nil
+	}
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	if runnerID != input.RunnerID || sessionID != input.RunnerSessionID || leaseToken != input.LeaseToken || fencingToken != input.FencingToken || digest != input.ExecutionSpecDigest {
+		return time.Time{}, false, nil
+	}
+	if attemptState == "RUNNING" && runState == "RUNNING" {
+		return now.UTC(), true, tx.Commit(ctx)
+	}
+	if runState != "DISPATCHED" || (attemptState != "DISPATCHED" && attemptState != "ACCEPTED") || !now.Before(startDeadline) || !now.Before(leaseNotAfter) {
+		return time.Time{}, false, nil
+	}
+	if _, err := tx.Exec(ctx, `UPDATE execution_attempts SET state = 'RUNNING', accepted_at = COALESCE(accepted_at, $2), started_at = COALESCE(started_at, $2), last_applied_state_sequence = GREATEST(last_applied_state_sequence, 1), state_version = state_version + 1, updated_at = now() WHERE id = (SELECT a.id FROM execution_attempts a WHERE a.run_id = $1 AND a.attempt_number = $3)`, input.RunID, now, input.Attempt); err != nil {
+		return time.Time{}, false, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE runs SET state = 'RUNNING', state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state = 'DISPATCHED'`, input.RunID); err != nil {
+		return time.Time{}, false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return time.Time{}, false, err
+	}
+	return now.UTC(), true, nil
+}
+
 func (s *RunStore) placementBlocker(ctx context.Context, runID string) string {
 	var blocker *string
 	err := s.pool.QueryRow(ctx, `
@@ -194,7 +248,8 @@ WITH task AS (
 		LEFT JOIN resource_leases lease ON lease.resource_id = resource.id
 		  AND lease.state = 'ACTIVE' AND lease.expires_at > now()
 		WHERE req.task_version_id = task.version_id
-		  AND (NOT resource.enabled OR lease.id IS NOT NULL)
+		AND LOWER(REPLACE(resource.kind, '_', '-')) <> 'non-blocking'
+		AND (NOT resource.enabled OR lease.id IS NOT NULL)
 	       ) AS resource_available
 	FROM task
 	JOIN runner_pools pool ON pool.id = task.runner_pool_id AND NOT pool.is_deleted AND pool.enabled
@@ -260,7 +315,7 @@ func (s *RunStore) Create(ctx context.Context, definition RunDefinition) (RunRec
 	if strings.TrimSpace(definition.TriggeredBy) != "" {
 		triggeredBy = definition.TriggeredBy
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO runs (id, task_id, task_version_id, triggered_by, trigger_type, scheduled_for, resolved_global_variables, state, idempotency_key) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, 'WAITING', $8)`, definition.ID, definition.TaskID, taskVersionID, triggeredBy, definition.TriggerType, definition.ScheduledFor, resolvedGlobals, definition.IdempotencyKey); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO runs (id, task_id, task_version_id, triggered_by, trigger_type, scheduled_for, resolved_global_variables, start_deadline_at, state, idempotency_key) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, 'WAITING', $9)`, definition.ID, definition.TaskID, taskVersionID, triggeredBy, definition.TriggerType, definition.ScheduledFor, resolvedGlobals, definition.ScheduledFor.Add(defaultStartDelay), definition.IdempotencyKey); err != nil {
 		return RunRecord{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -288,7 +343,7 @@ func (s *RunStore) ClaimWaiting(ctx context.Context, build func(DispatchCandidat
 	var candidate DispatchCandidate
 	var command, environment, secrets, selectors, resources, resolvedGlobals []byte
 	var timeout, maxOutput, attempt int
-	err = tx.QueryRow(ctx, `SELECT r.id, r.task_id, r.task_version_id, tv.command, COALESCE(NULLIF(tv.working_directory, ''), '.'), tv.timeout_seconds, tv.max_output_bytes, tv.execution_spec_digest, COALESCE(r.resolved_global_variables, '{}'::jsonb), COALESCE(tv.environment, '{}'::jsonb), COALESCE(tv.secret_references, '{}'::jsonb), COALESCE(tv.placement_selectors, '{}'::jsonb), COALESCE((SELECT jsonb_agg(resource_id) FROM task_resource_requirements WHERE task_version_id = tv.id), '[]'::jsonb), rp.name, rs.id, rs.runner_id, COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = r.id), 0) + 1 FROM runs r JOIN task_versions tv ON tv.id = r.task_version_id JOIN runners rr ON rr.pool_id = tv.runner_pool_id AND NOT rr.is_archived AND NOT rr.is_deleted AND rr.desired_state = 'ENABLED' AND rr.active_count < rr.capacity AND (tv.pinned_runner_id IS NULL OR tv.pinned_runner_id = rr.id) JOIN runner_pools rp ON rp.id = rr.pool_id JOIN runner_sessions rs ON rs.runner_id = rr.id AND rs.disconnected_at IS NULL AND rs.last_heartbeat_at >= now() - interval '30 seconds' WHERE (r.state = 'WAITING' OR (r.state = 'RETRY_WAIT' AND (r.retry_not_before IS NULL OR r.retry_not_before <= now()))) AND r.scheduled_for <= now() AND (r.state = 'WAITING' OR COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = r.id), 0) < tv.max_attempts) AND rr.capabilities @> COALESCE(tv.placement_selectors, '{}'::jsonb) AND NOT EXISTS (SELECT 1 FROM task_resource_requirements req JOIN resources resource ON resource.id = req.resource_id LEFT JOIN resource_leases lease ON lease.resource_id = req.resource_id AND lease.state = 'ACTIVE' AND lease.expires_at > now() WHERE req.task_version_id = tv.id AND (NOT resource.enabled OR lease.id IS NOT NULL)) ORDER BY r.created_at, r.id FOR UPDATE OF r, rr, rs SKIP LOCKED LIMIT 1`).Scan(&candidate.RunID, &candidate.TaskID, &candidate.TaskVersionID, &command, &candidate.WorkingDirectory, &timeout, &maxOutput, &candidate.ExecutionSpecDigest, &resolvedGlobals, &environment, &secrets, &selectors, &resources, &candidate.Pool, &candidate.RunnerSessionID, &candidate.RunnerID, &attempt)
+	err = tx.QueryRow(ctx, `SELECT r.id, r.task_id, r.task_version_id, t.name, tv.version, tv.command, COALESCE(NULLIF(tv.working_directory, ''), '.'), tv.timeout_seconds, tv.max_output_bytes, tv.execution_spec_digest, COALESCE(r.resolved_global_variables, '{}'::jsonb), COALESCE(tv.environment, '{}'::jsonb), COALESCE(tv.secret_references, '{}'::jsonb), COALESCE(tv.placement_selectors, '{}'::jsonb), COALESCE((SELECT jsonb_agg(req.resource_id) FROM task_resource_requirements req JOIN resources resource ON resource.id = req.resource_id WHERE req.task_version_id = tv.id AND LOWER(REPLACE(resource.kind, '_', '-')) <> 'non-blocking'), '[]'::jsonb), rp.name, rs.id, rs.runner_id, COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = r.id), 0) + 1 FROM runs r JOIN task_versions tv ON tv.id = r.task_version_id JOIN tasks t ON t.id = r.task_id JOIN runners rr ON rr.pool_id = tv.runner_pool_id AND NOT rr.is_archived AND NOT rr.is_deleted AND rr.desired_state = 'ENABLED' AND rr.active_count < rr.capacity AND (tv.pinned_runner_id IS NULL OR tv.pinned_runner_id = rr.id) JOIN runner_pools rp ON rp.id = rr.pool_id JOIN runner_sessions rs ON rs.runner_id = rr.id AND rs.disconnected_at IS NULL AND rs.last_heartbeat_at >= now() - interval '30 seconds' WHERE (r.state = 'WAITING' OR (r.state = 'RETRY_WAIT' AND (r.retry_not_before IS NULL OR r.retry_not_before <= now()))) AND r.scheduled_for <= now() AND (r.state = 'WAITING' OR COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = r.id), 0) < tv.max_attempts) AND rr.capabilities @> COALESCE(tv.placement_selectors, '{}'::jsonb) AND NOT EXISTS (SELECT 1 FROM task_resource_requirements req JOIN resources resource ON resource.id = req.resource_id LEFT JOIN resource_leases lease ON lease.resource_id = req.resource_id AND lease.state = 'ACTIVE' AND lease.expires_at > now() WHERE req.task_version_id = tv.id AND LOWER(REPLACE(resource.kind, '_', '-')) <> 'non-blocking' AND (NOT resource.enabled OR lease.id IS NOT NULL)) ORDER BY r.created_at, r.id FOR UPDATE OF r, rr, rs SKIP LOCKED LIMIT 1`).Scan(&candidate.RunID, &candidate.TaskID, &candidate.TaskVersionID, &candidate.TaskName, &candidate.TaskVersion, &command, &candidate.WorkingDirectory, &timeout, &maxOutput, &candidate.ExecutionSpecDigest, &resolvedGlobals, &environment, &secrets, &selectors, &resources, &candidate.Pool, &candidate.RunnerSessionID, &candidate.RunnerID, &attempt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return DispatchCandidate{}, false, nil
 	}
@@ -379,7 +434,7 @@ func (s *RunStore) ClaimWaiting(ctx context.Context, build func(DispatchCandidat
 			return DispatchCandidate{}, false, err
 		}
 	}
-	if _, err := tx.Exec(ctx, `UPDATE runs SET state = 'RUNNING', state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state IN ('WAITING', 'RETRY_WAIT')`, candidate.RunID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE runs SET state = 'DISPATCHED', state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state IN ('WAITING', 'RETRY_WAIT')`, candidate.RunID); err != nil {
 		return DispatchCandidate{}, false, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE runners SET active_count = active_count + 1, updated_at = now() WHERE id = $1`, candidate.RunnerID); err != nil {
@@ -394,8 +449,8 @@ func (s *RunStore) ClaimWaiting(ctx context.Context, build func(DispatchCandidat
 	return candidate, true, nil
 }
 
-// ReconcileTimedOutDispatches marks attempts that outlived their task timeout
-// plus a grace period as UNKNOWN when no terminal runner event was received.
+// ReconcileTimedOutDispatches records start failures and stale execution
+// attempts that did not produce a terminal runner event.
 func (s *RunStore) ReconcileTimedOutDispatches(ctx context.Context, now time.Time) error {
 	if now.IsZero() {
 		return errors.New("dispatch timeout reconciliation time is required")
@@ -405,18 +460,19 @@ func (s *RunStore) ReconcileTimedOutDispatches(ctx context.Context, now time.Tim
 		return err
 	}
 	defer tx.Rollback(ctx)
-	rows, err := tx.Query(ctx, `SELECT a.id, a.run_id, a.runner_id, a.last_applied_state_sequence FROM runs r JOIN execution_attempts a ON a.run_id = r.id JOIN task_versions tv ON tv.id = r.task_version_id WHERE r.state = 'RUNNING' AND a.state IN ('DISPATCHED','ACCEPTED','RUNNING') AND a.dispatched_at IS NOT NULL AND a.dispatched_at + (tv.timeout_seconds * interval '1 second') + interval '10 minutes' <= $1 ORDER BY a.dispatched_at, a.id FOR UPDATE OF r, a SKIP LOCKED LIMIT 100`, now)
+	rows, err := tx.Query(ctx, `SELECT a.id, a.run_id, a.runner_id, a.state, a.last_applied_state_sequence, COALESCE(r.start_deadline_at, a.dispatched_at + $1 * interval '1 second') <= $2 AS start_failed FROM runs r JOIN execution_attempts a ON a.run_id = r.id JOIN task_versions tv ON tv.id = r.task_version_id WHERE ((r.state = 'DISPATCHED' AND a.state IN ('DISPATCHED','ACCEPTED') AND COALESCE(r.start_deadline_at, a.dispatched_at + $1 * interval '1 second') <= $2) OR (r.state = 'RUNNING' AND a.state IN ('DISPATCHED','ACCEPTED','RUNNING') AND a.dispatched_at IS NOT NULL AND a.dispatched_at + (tv.timeout_seconds * interval '1 second') + interval '10 minutes' <= $2)) ORDER BY a.dispatched_at, a.id FOR UPDATE OF r, a SKIP LOCKED LIMIT 100`, int64(defaultStartDelay/time.Second), now)
 	if err != nil {
 		return err
 	}
 	type timedOutDispatch struct {
-		attemptID, runID, runnerID string
-		lastSequence               int64
+		attemptID, runID, runnerID, attemptState string
+		lastSequence                             int64
+		startFailed                              bool
 	}
 	candidates := make([]timedOutDispatch, 0, 100)
 	for rows.Next() {
 		var candidate timedOutDispatch
-		if err := rows.Scan(&candidate.attemptID, &candidate.runID, &candidate.runnerID, &candidate.lastSequence); err != nil {
+		if err := rows.Scan(&candidate.attemptID, &candidate.runID, &candidate.runnerID, &candidate.attemptState, &candidate.lastSequence, &candidate.startFailed); err != nil {
 			return err
 		}
 		candidates = append(candidates, candidate)
@@ -431,14 +487,22 @@ func (s *RunStore) ReconcileTimedOutDispatches(ctx context.Context, now time.Tim
 			sequence = 3
 		}
 		reportedAt := now.UTC()
-		payload := []byte(`{"result":"","error":"execution exceeded its timeout and could not be confirmed"}`)
-		if _, err := tx.Exec(ctx, `INSERT INTO run_events (event_id, execution_attempt_id, state_sequence, event_kind, reported_at, payload) VALUES ($1, $2, $3, 'unknown', $4, $5::jsonb)`, "dispatch-timeout:"+candidate.attemptID, candidate.attemptID, sequence, reportedAt, payload); err != nil {
+		state, termination, eventKind, eventID, exitCode := "UNKNOWN", "execution timeout could not be confirmed", "unknown", "dispatch-timeout:"+candidate.attemptID, any(nil)
+		if candidate.startFailed {
+			state, termination, eventKind, eventID, exitCode = "FAILED", "Start Failure", "failed", "start-failure:"+candidate.attemptID, 5
+		}
+		payload := []byte(`{"result":"","error":"` + termination + `"}`)
+		if candidate.startFailed {
+			payload = []byte(`{"result":"","error":"Start Failure","exit_code":5}`)
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO run_events (event_id, execution_attempt_id, state_sequence, event_kind, reported_at, payload) VALUES ($1, $2, $3, $4, $5, $6::jsonb)`, eventID, candidate.attemptID, sequence, eventKind, reportedAt, payload); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `UPDATE execution_attempts SET state = 'UNKNOWN', finished_at = COALESCE(finished_at, $2), termination_reason = 'execution timeout could not be confirmed', last_applied_state_sequence = $3, state_version = state_version + 1, updated_at = now() WHERE id = $1`, candidate.attemptID, reportedAt, sequence); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE execution_attempts SET state = $2, finished_at = COALESCE(finished_at, $3), termination_reason = $4, exit_code = $5, last_applied_state_sequence = $6, state_version = state_version + 1, updated_at = now() WHERE id = $1`, candidate.attemptID, state, reportedAt, termination, exitCode, sequence); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `UPDATE runs SET state = 'UNKNOWN', retry_not_before = NULL, state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state = 'RUNNING'`, candidate.runID); err != nil {
+		runState := state
+		if _, err := tx.Exec(ctx, `UPDATE runs SET state = $2, retry_not_before = NULL, completed_at = CASE WHEN $2 = 'FAILED' THEN COALESCE(completed_at, $3) ELSE completed_at END, state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state IN ('DISPATCHED','RUNNING')`, candidate.runID, runState, reportedAt); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `UPDATE runners SET active_count = GREATEST(active_count - 1, 0), updated_at = now() WHERE id = $1 AND active_count > 0`, candidate.runnerID); err != nil {
@@ -447,7 +511,8 @@ func (s *RunStore) ReconcileTimedOutDispatches(ctx context.Context, now time.Tim
 		if _, err := tx.Exec(ctx, `UPDATE resource_leases SET state = 'RELEASED', released_at = now() WHERE execution_attempt_id = $1 AND state = 'ACTIVE'`, candidate.attemptID); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `UPDATE dispatch_outbox SET state = 'FAILED', last_error = 'execution timeout could not be confirmed' WHERE execution_attempt_id = $1 AND message_type = 'execute' AND state = 'PENDING'`, candidate.attemptID); err != nil {
+		lastError := termination
+		if _, err := tx.Exec(ctx, `UPDATE dispatch_outbox SET state = 'FAILED', last_error = $2 WHERE execution_attempt_id = $1 AND message_type = 'execute' AND state = 'PENDING'`, candidate.attemptID, lastError); err != nil {
 			return err
 		}
 	}
@@ -611,7 +676,7 @@ func (s *RunStore) RequestCancellation(ctx context.Context, id, reason string) (
 	if reason == "" {
 		return RunRecord{}, false, errors.New("cancellation reason is required")
 	}
-	result, err := s.pool.Exec(ctx, `UPDATE runs SET state = CASE WHEN state IN ('WAITING','RETRY_WAIT') THEN 'CANCELLED' ELSE 'CANCELLING' END, cancellation_requested_at = COALESCE(cancellation_requested_at, now()), cancellation_reason = $2, completed_at = CASE WHEN state IN ('WAITING','RETRY_WAIT') THEN now() ELSE completed_at END, state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state IN ('WAITING','RUNNING','RETRY_WAIT','CANCELLING')`, id, reason)
+	result, err := s.pool.Exec(ctx, `UPDATE runs SET state = CASE WHEN state IN ('WAITING','RETRY_WAIT') THEN 'CANCELLED' ELSE 'CANCELLING' END, cancellation_requested_at = now(), cancellation_reason = $2, completed_at = CASE WHEN state IN ('WAITING','RETRY_WAIT') THEN now() ELSE completed_at END, state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state IN ('WAITING','DISPATCHED','RUNNING','RETRY_WAIT')`, id, reason)
 	if err != nil {
 		return RunRecord{}, false, err
 	}
@@ -623,7 +688,7 @@ func (s *RunStore) RequestCancellation(ctx context.Context, id, reason string) (
 }
 
 func (s *RunStore) Retry(ctx context.Context, id, reason string) (RunRecord, bool, error) {
-	result, err := s.pool.Exec(ctx, `UPDATE runs SET state = 'RETRY_WAIT', retry_not_before = now(), completed_at = NULL, cancellation_reason = NULLIF($2, ''), state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state IN ('FAILED','UNKNOWN') AND NOT EXISTS (SELECT 1 FROM tasks WHERE tasks.id = runs.task_id AND tasks.is_deleted) AND COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = runs.id), 0) < (SELECT max_attempts FROM task_versions WHERE id = runs.task_version_id)`, id, strings.TrimSpace(reason))
+	result, err := s.pool.Exec(ctx, `UPDATE runs SET state = 'RETRY_WAIT', retry_not_before = now(), start_deadline_at = now() + $3 * interval '1 second', completed_at = NULL, cancellation_reason = NULLIF($2, ''), state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state IN ('FAILED','UNKNOWN') AND NOT EXISTS (SELECT 1 FROM tasks WHERE tasks.id = runs.task_id AND tasks.is_deleted) AND COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = runs.id), 0) < (SELECT max_attempts FROM task_versions WHERE id = runs.task_version_id)`, id, strings.TrimSpace(reason), int64(defaultStartDelay/time.Second))
 	if err != nil {
 		return RunRecord{}, false, err
 	}
@@ -731,9 +796,12 @@ func (s *RunStore) ApplyRunEvent(ctx context.Context, event RunEventInput) error
 	}
 	switch event.EventType {
 	case "accepted":
-		_, err = tx.Exec(ctx, `UPDATE execution_attempts SET state = 'ACCEPTED', accepted_at = COALESCE(accepted_at, $2), updated_at = now() WHERE id = $1`, attemptID, event.ReportedAt)
+		_, err = tx.Exec(ctx, `UPDATE execution_attempts SET state = CASE WHEN state = 'RUNNING' THEN state ELSE 'ACCEPTED' END, accepted_at = COALESCE(accepted_at, $2), updated_at = now() WHERE id = $1`, attemptID, event.ReportedAt)
 	case "started":
 		_, err = tx.Exec(ctx, `UPDATE execution_attempts SET state = 'RUNNING', started_at = COALESCE(started_at, $2), updated_at = now() WHERE id = $1`, attemptID, event.ReportedAt)
+		if err == nil {
+			_, err = tx.Exec(ctx, `UPDATE runs SET state = 'RUNNING', state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state = 'DISPATCHED'`, event.RunID)
+		}
 	case "heartbeat":
 		_, err = tx.Exec(ctx, `UPDATE execution_attempts SET last_heartbeat_at = $2, updated_at = now() WHERE id = $1`, attemptID, event.ReportedAt)
 	case "completed", "failed", "timed_out", "cancelled":
@@ -860,9 +928,9 @@ func shouldRetry(event RunEventInput, maxAttempts int, exitCodes, reasons []byte
 func legalAttemptTransition(state, eventType string) bool {
 	switch eventType {
 	case "accepted":
-		return state == "DISPATCHED"
+		return state == "DISPATCHED" || state == "RUNNING"
 	case "started":
-		return state == "ACCEPTED" || state == "DISPATCHED"
+		return state == "ACCEPTED" || state == "DISPATCHED" || state == "RUNNING"
 	case "heartbeat":
 		return state == "ACCEPTED" || state == "RUNNING"
 	case "completed", "failed", "timed_out", "cancelled":

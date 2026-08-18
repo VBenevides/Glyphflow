@@ -41,3 +41,23 @@ func TestRuntimeConfigPublishesFlagsAndIssuesCSRF(t *testing.T) {
 		t.Fatalf("valid CSRF request returned %d", checked.Code)
 	}
 }
+
+func TestLockdownBlocksWritesButAllowsReadAndSettingsControl(t *testing.T) {
+	handler := (Server{Config: RuntimeConfig{LockdownScheduler: true}}).withLockdown(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	for _, path := range []string{"/api/v1/tasks", "/api/v1/resources/one"} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, path, nil))
+		if response.Code != http.StatusLocked {
+			t.Fatalf("write %s returned %d", path, response.Code)
+		}
+	}
+	for _, methodPath := range [][2]string{{http.MethodGet, "/api/v1/tasks"}, {http.MethodPost, "/api/v1/admin/auth/settings"}, {http.MethodPost, "/api/v1/auth/login"}} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(methodPath[0], methodPath[1], nil))
+		if response.Code != http.StatusNoContent {
+			t.Fatalf("allowed %s %s returned %d", methodPath[0], methodPath[1], response.Code)
+		}
+	}
+}

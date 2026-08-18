@@ -62,6 +62,7 @@ func TestRunnerEnrollmentExplainsInvalidTarget(t *testing.T) {
 		{"runner ID", `{"runner_id":"Runner 2","platform":"linux","architecture":"amd64"}`, "runner_id must contain only letters, digits, dot, underscore, or hyphen"},
 		{"platform", `{"runner_id":"runner-2","platform":"darwin","architecture":"amd64"}`, "platform must be linux or windows"},
 		{"architecture", `{"runner_id":"runner-2","platform":"linux","architecture":"arm64"}`, "architecture must be amd64"},
+		{"ui", `{"runner_id":"runner-2","platform":"linux","architecture":"amd64","ui":"unknown"}`, "ui must be gui, tui, or headless"},
 		{"capacity", `{"runner_id":"runner-2","platform":"linux","architecture":"amd64","capacity":0}`, "capacity must be at least 1"},
 	}
 	for _, test := range cases {
@@ -104,6 +105,12 @@ func TestRunnerEnrollmentBuildsBootstrapBinaryAndConsumesToken(t *testing.T) {
 	s.SetRunnerControlPlaneURL("http://default.example")
 	s.SetControlPlanePublicKey(base64.RawStdEncoding.EncodeToString(make([]byte, 32)))
 	if err := os.WriteFile(filepath.Join(directory, "glyphflow-runner-linux-amd64"), []byte("runner-binary"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "glyphflow-runner-linux-amd64-tui"), []byte("tui-runner-binary"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "glyphflow-runner-linux-amd64-headless"), []byte("headless-runner-binary"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/runners/enrollments", bytes.NewBufferString(`{"runner_id":"runner-1","platform":"linux","architecture":"amd64","control_plane_url":"http://configured.example/","embedded_nats_endpoint":"nats://embedded:4222"}`))
@@ -149,7 +156,7 @@ func TestRunnerEnrollmentBuildsBootstrapBinaryAndConsumesToken(t *testing.T) {
 	if replay.Code != http.StatusUnauthorized {
 		t.Fatalf("replay returned %d", replay.Code)
 	}
-	secondRequest := httptest.NewRequest(http.MethodPost, "/api/v1/runners/enrollments", bytes.NewBufferString(`{"runner_id":"runner-1","platform":"linux","architecture":"amd64","capacity":42}`))
+	secondRequest := httptest.NewRequest(http.MethodPost, "/api/v1/runners/enrollments", bytes.NewBufferString(`{"runner_id":"runner-1","platform":"linux","architecture":"amd64","capacity":42,"ui":"tui"}`))
 	secondRequest.Host = "control.example:8080"
 	second := httptest.NewRecorder()
 	s.enroll(second, secondRequest)
@@ -158,9 +165,13 @@ func TestRunnerEnrollmentBuildsBootstrapBinaryAndConsumesToken(t *testing.T) {
 	}
 	var secondResult struct {
 		Artifact string `json:"artifact"`
+		Filename string `json:"filename"`
 	}
 	if err := json.Unmarshal(second.Body.Bytes(), &secondResult); err != nil {
 		t.Fatal(err)
+	}
+	if secondResult.Filename != "runner-1-glyphflow-runner-linux-amd64-tui" {
+		t.Fatalf("TUI filename = %q", secondResult.Filename)
 	}
 	secondRaw, err := base64.StdEncoding.DecodeString(secondResult.Artifact)
 	if err != nil {
@@ -175,12 +186,21 @@ func TestRunnerEnrollmentBuildsBootstrapBinaryAndConsumesToken(t *testing.T) {
 	if rebind.Code != http.StatusOK {
 		t.Fatalf("same-key rebind returned %d: %s", rebind.Code, rebind.Body.String())
 	}
-	thirdRequest := httptest.NewRequest(http.MethodPost, "/api/v1/runners/enrollments", bytes.NewBufferString(`{"runner_id":"runner-1","platform":"linux","architecture":"amd64"}`))
+	thirdRequest := httptest.NewRequest(http.MethodPost, "/api/v1/runners/enrollments", bytes.NewBufferString(`{"runner_id":"runner-1","platform":"linux","architecture":"amd64","ui":"headless"}`))
 	thirdRequest.Host = "control.example:8080"
 	third := httptest.NewRecorder()
 	s.enroll(third, thirdRequest)
 	if s.runners["runner-1"].Capacity != 42 {
 		t.Fatalf("omitted runner capacity = %d, want 42", s.runners["runner-1"].Capacity)
+	}
+	var thirdResult struct {
+		Filename string `json:"filename"`
+	}
+	if err := json.Unmarshal(third.Body.Bytes(), &thirdResult); err != nil {
+		t.Fatal(err)
+	}
+	if thirdResult.Filename != "runner-1-glyphflow-runner-linux-amd64-headless" {
+		t.Fatalf("headless filename = %q", thirdResult.Filename)
 	}
 }
 
@@ -267,6 +287,23 @@ func TestFilterRunnersByObservedState(t *testing.T) {
 	if len(items) != 1 || items[0].ID != "runner-2" {
 		t.Fatalf("offline runners = %#v", items)
 	}
+	disabled := filterRunners([]RunnerRecord{
+		{ID: "runner-1", DesiredState: "ENABLED"},
+		{ID: "runner-2", DesiredState: "DISABLED"},
+	}, "", "", "DISABLED")
+	if len(disabled) != 1 || disabled[0].ID != "runner-2" {
+		t.Fatalf("disabled runners = %#v", disabled)
+	}
+}
+
+func TestRunnerRevokeCanBeReset(t *testing.T) {
+	s := NewInfrastructureService()
+	s.runners["runner-1"] = RunnerRecord{ID: "runner-1", Name: "runner-1", DesiredState: "DISABLED", ObservedState: "REVOKED"}
+	response := httptest.NewRecorder()
+	s.runnerPath(response, httptest.NewRequest(http.MethodPost, "/api/v1/runners/runner-1/reset", nil))
+	if response.Code != http.StatusOK || s.runners["runner-1"].DesiredState != "ENABLED" || s.runners["runner-1"].ObservedState != "OFFLINE" {
+		t.Fatalf("reset returned %d and runner = %#v", response.Code, s.runners["runner-1"])
+	}
 }
 
 func TestResourceDeleteGuardsReferencesAndActiveLease(t *testing.T) {
@@ -287,6 +324,16 @@ func TestResourceDeleteGuardsReferencesAndActiveLease(t *testing.T) {
 	}
 }
 
+func TestFilterResourcesByKind(t *testing.T) {
+	items := filterResources([]ResourceRecord{
+		{ID: "exclusive", Kind: "exclusive"},
+		{ID: "non-blocking", Kind: "non_blocking"},
+	}, "", "exclusive")
+	if len(items) != 1 || items[0].ID != "exclusive" {
+		t.Fatalf("exclusive resources = %#v", items)
+	}
+}
+
 func TestResourceCreate(t *testing.T) {
 	s := NewInfrastructureService()
 	response := httptest.NewRecorder()
@@ -296,6 +343,16 @@ func TestResourceCreate(t *testing.T) {
 	}
 	if len(s.resources) != 1 {
 		t.Fatalf("resources = %d, want 1", len(s.resources))
+	}
+	response = httptest.NewRecorder()
+	s.resourceCollection(response, httptest.NewRequest(http.MethodPost, "/api/v1/resources", bytes.NewBufferString(`{"name":"Telemetry","kind":"non-blocking"}`)))
+	if response.Code != http.StatusCreated || !bytes.Contains(response.Body.Bytes(), []byte(`"kind":"non-blocking"`)) {
+		t.Fatalf("create non-blocking resource returned %d: %s", response.Code, response.Body.String())
+	}
+	response = httptest.NewRecorder()
+	s.resourceCollection(response, httptest.NewRequest(http.MethodPost, "/api/v1/resources", bytes.NewBufferString(`{"name":"Invalid","kind":"shared"}`)))
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("invalid resource kind returned %d", response.Code)
 	}
 }
 

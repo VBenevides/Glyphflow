@@ -1,4 +1,8 @@
-import { Children, forwardRef, useEffect, useRef, type ButtonHTMLAttributes, type ComponentType, type InputHTMLAttributes, type ReactNode } from 'react'
+import * as TabsPrimitive from '@radix-ui/react-tabs'
+import * as DialogPrimitive from '@radix-ui/react-dialog'
+import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu'
+import { MoreHorizontal } from 'lucide-react'
+import { Children, forwardRef, useId, useState, type ButtonHTMLAttributes, type ComponentPropsWithoutRef, type ComponentType, type ElementRef, type InputHTMLAttributes, type ReactNode } from 'react'
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: 'primary' | 'secondary' | 'danger' | 'ghost'
@@ -8,15 +12,29 @@ type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button({ variant = 'primary', busy = false, disabled, children, className, title, ...props }, ref) {
   const tooltip = title ?? props['aria-label'] ?? (Children.toArray(children).filter((child) => typeof child === 'string' || typeof child === 'number').join(' ').trim() || undefined)
   return (
-    <button ref={ref} title={tooltip} className={`gf-button gf-button-${variant}${className ? ` ${className}` : ''}`} disabled={disabled || busy} {...props}>
+    <button ref={ref} {...props} title={tooltip} className={`gf-button gf-button-${variant}${className ? ` ${className}` : ''}`} disabled={disabled || busy} aria-busy={busy || undefined}>
       {busy ? 'Working…' : children}
     </button>
   )
 })
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input(props, ref) {
-  return <input ref={ref} className="gf-input" {...props} />
+  const { className, ...inputProps } = props
+  return <input ref={ref} {...inputProps} className={`gf-input${className ? ` ${className}` : ''}`} />
 })
+
+export function matchingFilterOptions(options: readonly string[], value: string) {
+  const needle = value.trim().toLowerCase()
+  return [...new Set(options)].filter((option) => option && (!needle || option.toLowerCase().includes(needle)))
+}
+
+export function FilterInput({ label, options = [], value, onChange, id, ...props }: { label: string; options?: readonly string[]; value: string; onChange: (value: string) => void; id?: string } & Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'>) {
+  const generatedID = useId()
+  const inputID = id ?? generatedID
+  const [open, setOpen] = useState(false)
+  const matches = matchingFilterOptions(options, value)
+  return <div className="gf-filter-field"><label htmlFor={inputID}>{label}</label><div className="gf-filter-input"><Input {...props} id={inputID} value={value} autoComplete="off" onFocus={() => setOpen(true)} onChange={(event) => { onChange(event.target.value); setOpen(true) }} onBlur={() => window.setTimeout(() => setOpen(false), 100)} aria-autocomplete="list" aria-expanded={open} aria-controls={open ? `${inputID}-options` : undefined} />{open && <div id={`${inputID}-options`} className="gf-task-options" role="listbox">{matches.length ? matches.map((option) => <button type="button" role="option" className="gf-task-option" key={option} onMouseDown={(event) => { event.preventDefault(); onChange(option); setOpen(false) }}>{option}</button>) : <span className="gf-task-empty">No matching values</span>}</div>}</div></div>
+}
 
 export function InfoTooltip({ text }: { text: string }) {
   return <span className="gf-info-tooltip"><button type="button" className="gf-info-tooltip-trigger" aria-label="More information">i</button><span className="gf-info-tooltip-content" role="tooltip">{text}</span></span>
@@ -27,51 +45,8 @@ export function FieldLabel({ children, info, htmlFor }: { children: ReactNode; i
 }
 
 export function Dialog({ open, title, children, onClose, className }: { open: boolean; title: string; children: ReactNode; onClose: () => void; className?: string }) {
-  const dialogRef = useRef<HTMLDivElement>(null)
-  const onCloseRef = useRef(onClose)
-  onCloseRef.current = onClose
-  useEffect(() => {
-    if (!open) return
-    const previous = document.activeElement as HTMLElement | null
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    const dialog = dialogRef.current
-    const focusable = dialog?.querySelector<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
-    focusable?.focus()
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onCloseRef.current()
-      if (event.key !== 'Tab' || !dialog) return
-      const items = [...dialog.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
-      if (!items.length) return
-      const first = items[0]
-      const last = items[items.length - 1]
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault()
-        last.focus()
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault()
-        first.focus()
-      }
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => {
-      document.removeEventListener('keydown', onKeyDown)
-      document.body.style.overflow = previousOverflow
-      previous?.focus()
-    }
-  }, [open])
-  if (!open) return null
-  return (
-    <div className="gf-dialog-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <div ref={dialogRef} className={`gf-dialog${className ? ` ${className}` : ''}`} role="dialog" aria-modal="true" aria-labelledby="gf-dialog-title">
-        <div className="gf-dialog-header">
-          <h2 id="gf-dialog-title">{title}</h2>
-          <Button variant="ghost" aria-label="Close dialog" onClick={onClose}>×</Button>
-        </div>
-        {children}
-      </div>
-    </div>
-  )
+  const titleId = useId()
+  return <DialogPrimitive.Root open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose() }}><DialogPrimitive.Overlay className="gf-dialog-backdrop" /><DialogPrimitive.Content aria-modal="true" aria-labelledby={titleId} className={`gf-dialog${className ? ` ${className}` : ''}`}><div className="gf-dialog-header"><DialogPrimitive.Title asChild><h2 id={titleId}>{title}</h2></DialogPrimitive.Title><DialogPrimitive.Close asChild><Button variant="ghost" aria-label="Close dialog">×</Button></DialogPrimitive.Close></div>{children}</DialogPrimitive.Content></DialogPrimitive.Root>
 }
 
 export function StatusPill({ status }: { status: string }) {
@@ -81,6 +56,40 @@ export function StatusPill({ status }: { status: string }) {
 
 export function PageHeader({ title, description, action, meta }: { title: string; description?: string; action?: ReactNode; meta?: ReactNode }) {
   return <header className="gf-page-header"><div><h1>{title}</h1>{description && <p>{description}</p>}</div><div className="gf-page-header-actions">{meta && <div className="gf-page-header-meta">{meta}</div>}{action}</div></header>
+}
+
+export const Tabs = TabsPrimitive.Root
+
+export const TabsList = forwardRef<ElementRef<typeof TabsPrimitive.List>, ComponentPropsWithoutRef<typeof TabsPrimitive.List>>(function TabsList({ className, ...props }, ref) {
+  return <TabsPrimitive.List ref={ref} className={`gf-tabs-list${className ? ` ${className}` : ''}`} {...props} />
+})
+
+export const TabsTrigger = forwardRef<ElementRef<typeof TabsPrimitive.Trigger>, ComponentPropsWithoutRef<typeof TabsPrimitive.Trigger>>(function TabsTrigger({ className, ...props }, ref) {
+  return <TabsPrimitive.Trigger ref={ref} className={`gf-tabs-trigger${className ? ` ${className}` : ''}`} {...props} />
+})
+
+export const TabsContent = forwardRef<ElementRef<typeof TabsPrimitive.Content>, ComponentPropsWithoutRef<typeof TabsPrimitive.Content>>(function TabsContent({ className, ...props }, ref) {
+  return <TabsPrimitive.Content ref={ref} className={`gf-tabs-content${className ? ` ${className}` : ''}`} {...props} />
+})
+
+export const DropdownMenu = DropdownMenuPrimitive.Root
+export const DropdownMenuPortal = DropdownMenuPrimitive.Portal
+export const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger
+
+export const DropdownMenuContent = forwardRef<ElementRef<typeof DropdownMenuPrimitive.Content>, ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content>>(function DropdownMenuContent({ className, ...props }, ref) {
+  return <DropdownMenuPrimitive.Content ref={ref} className={`gf-dropdown-content${className ? ` ${className}` : ''}`} {...props} />
+})
+
+export const DropdownMenuItem = forwardRef<ElementRef<typeof DropdownMenuPrimitive.Item>, ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Item>>(function DropdownMenuItem({ className, ...props }, ref) {
+  return <DropdownMenuPrimitive.Item ref={ref} className={`gf-dropdown-item${className ? ` ${className}` : ''}`} {...props} />
+})
+
+export const DropdownMenuSeparator = forwardRef<ElementRef<typeof DropdownMenuPrimitive.Separator>, ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Separator>>(function DropdownMenuSeparator({ className, ...props }, ref) {
+  return <DropdownMenuPrimitive.Separator ref={ref} className={`gf-dropdown-separator${className ? ` ${className}` : ''}`} {...props} />
+})
+
+export function TableActions({ label = 'Actions', children }: { label?: string; children: ReactNode }) {
+  return <DropdownMenu><DropdownMenuTrigger asChild><Button type="button" variant="ghost" aria-label={label}><MoreHorizontal size={18} /></Button></DropdownMenuTrigger><DropdownMenuPortal><DropdownMenuContent align="end">{children}</DropdownMenuContent></DropdownMenuPortal></DropdownMenu>
 }
 
 export type MetricTone = 'default' | 'success' | 'warning' | 'danger' | 'info'
@@ -103,8 +112,8 @@ export function DataTable<T extends { id?: string | number }>({ columns, rows, c
   )
 }
 
-export function Pagination({ page, pages, onChange }: { page: number; pages: number; onChange: (page: number) => void }) {
-  return <nav className="gf-pagination" aria-label="Pagination"><Button variant="secondary" disabled={page <= 1} onClick={() => onChange(page - 1)}>Previous</Button><span>Page {page} of {Math.max(1, pages)}</span><Button variant="secondary" disabled={page >= pages} onClick={() => onChange(page + 1)}>Next</Button></nav>
+export function Pagination({ page, pages, limit = 10, onChange, onLimitChange }: { page: number; pages: number; limit?: number; onChange: (page: number) => void; onLimitChange?: (limit: number) => void }) {
+  return <nav className="gf-pagination" aria-label="Pagination"><Button variant="secondary" disabled={page <= 1} onClick={() => onChange(page - 1)}>Previous</Button><span>Page {page} of {Math.max(1, pages)}</span>{onLimitChange && <label className="gf-pagination-size">Items per page<select className="gf-input" aria-label="Items per page" value={limit} onChange={(event) => onLimitChange(Number(event.target.value))}><option value="10">10</option><option value="20">20</option><option value="50">50</option><option value="100">100</option></select></label>}<Button variant="secondary" disabled={page >= pages} onClick={() => onChange(page + 1)}>Next</Button></nav>
 }
 
 export function EmptyState({ title, children }: { title: string; children?: ReactNode }) {

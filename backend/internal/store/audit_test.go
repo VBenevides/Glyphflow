@@ -25,9 +25,9 @@ func TestAuditRepositoryPersistsFiltersAndAppendOnlyRows(t *testing.T) {
 	if err := repository.Append(ctx, AuditEventRecord{ID: id, ActorName: "actor", Method: "POST", Description: "Create task", Endpoint: "/api/v1/tasks", Target: "task-1", Result: "success", RequestInput: map[string]any{"name": "task"}, CorrelationID: "corr", CreatedAt: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
 	}
-	events, total, err := repository.Query(ctx, AuditFilter{Actor: "actor", CorrelationID: "corr", Page: 1, Limit: 10})
-	if err != nil || total != 1 || len(events) != 1 || events[0].Method != "POST" {
-		t.Fatalf("events = %#v, total=%d, err=%v", events, total, err)
+	events, counts, err := repository.Query(ctx, AuditFilter{Actor: "actor", CorrelationID: "corr", Page: 1, Limit: 10})
+	if err != nil || counts.Total != 1 || counts.Writes != 1 || counts.Failures != 0 || len(events) != 1 || events[0].Method != "POST" {
+		t.Fatalf("events = %#v, counts=%+v, err=%v", events, counts, err)
 	}
 	if _, err := pool.Exec(ctx, `UPDATE audit_events SET result = 'failure' WHERE id = $1`, id); err == nil {
 		t.Fatal("append-only audit event was updated")
