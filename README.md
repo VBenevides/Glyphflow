@@ -8,7 +8,7 @@ Glyphflow is an open-source platform for script orchestration across servers and
 
 The platform has one central control plane and many remote workers. The control plane schedules work. Workers execute the work.
 
-Glyphflow is an alpha application. The current version is `0.1.0`. The repository contains the Go control plane, Go workers, React frontend, PostgreSQL persistence, and NATS JetStream integration.
+Glyphflow is an alpha application. The current version is defined in [`VERSION`](VERSION). The repository contains the Go control plane, Go workers, React frontend, PostgreSQL persistence, and NATS JetStream integration.
 
 ## Quick start
 

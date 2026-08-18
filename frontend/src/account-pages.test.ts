@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import { accountDirty, sessionMetadata } from './account-pages'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
+const source = readFileSync(resolve(process.cwd(), 'src/account-pages.tsx'), 'utf8')
 
 describe('account dirty baseline', () => {
+  it('keeps email locked while leaving display name editable', () => {
+    expect(source).toContain('value={profile.email ?? profile.username} readOnly disabled')
+    expect(source).toContain('value={displayName} onChange=')
+  })
+
   it('does not mark the loaded profile dirty', () => {
     expect(accountDirty('Ada', 'Ada', { current: '', next: '', confirm: '' })).toBe(false)
   })

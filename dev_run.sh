@@ -15,6 +15,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 cd "$project_root"
+version="$(tr -d '[:space:]' < "$project_root/VERSION")"
 docker compose up -d postgres nats
 
 if [[ ! -d "$project_root/frontend/node_modules" ]]; then
@@ -46,7 +47,7 @@ bash "$project_root/backend/build_runner_binaries.sh"
   ENABLE_PASSWORD_REGISTRATION="${ENABLE_PASSWORD_REGISTRATION:-true}" \
   DEFAULT_ROLE_ID="${DEFAULT_ROLE_ID:-system-user}" \
   RUNNER_BINARIES_DIR="${RUNNER_BINARIES_DIR:-$project_root/backend/runner-binaries}" \
-  go run ./cmd/controlplane
+  go run -ldflags="-X github.com/VBenevides/Glyphflow/backend.Version=$version" ./cmd/controlplane
 ) &
 backend_pid=$!
 

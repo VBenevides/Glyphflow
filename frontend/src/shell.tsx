@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Activity, ChevronDown, ChevronRight, FolderKanban, KeyRound, LayoutDashboard, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Server, Shield, Sun, Users, X } from 'lucide-react'
+import { Activity, ChevronDown, ChevronRight, FolderKanban, KeyRound, LayoutDashboard, LogOut, Menu, Moon, PanelLeftClose, PanelLeftOpen, Server, Shield, Sun, Users, X } from 'lucide-react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from './auth'
 import { api } from './api'
-import { Button, Dialog } from './components'
+import { Button } from './components'
 import { applyTheme, currentTheme, type Theme } from './theme'
 import { ROUTES, visibleRoutes, type RouteRule } from './permissions'
 import { BrandMark } from './feedback'
 
 export const SIDEBAR_KEY = 'glyphflow:sidebar-collapsed'
+const appVersion = import.meta.env.VITE_APP_VERSION ?? 'dev'
 type Group = { name: string; icon: typeof LayoutDashboard; paths: string[] }
 export const NAVIGATION_GROUPS: Group[] = [
   { name: 'Operations', icon: LayoutDashboard, paths: ['/', '/tasks', '/schedules', '/runs'] },
@@ -54,7 +55,8 @@ function routeIcon(path: string) {
 }
 
 export function AppearanceChoices({ theme, onSelect }: { theme: Theme; onSelect: (theme: Theme) => void }) {
-  return <div className="gf-theme-choices" role="group" aria-label="Theme"><button type="button" className={theme === 'light' ? 'is-selected' : ''} aria-pressed={theme === 'light'} onClick={() => onSelect('light')}>Light</button><button type="button" className={theme === 'dark' ? 'is-selected' : ''} aria-pressed={theme === 'dark'} onClick={() => onSelect('dark')}>Dark</button></div>
+  const light = theme === 'light'
+  return <Button variant="ghost" className={`gf-theme-toggle${light ? '' : ' is-dark'}`} role="switch" aria-checked={!light} aria-label={`Switch to ${light ? 'dark' : 'light'} mode`} onClick={() => onSelect(light ? 'dark' : 'light')}><span className={`gf-theme-option${light ? ' is-current' : ''}`}><Sun size={15} aria-hidden="true" /><span className="gf-theme-label">Light mode</span></span><span className="gf-theme-switch" aria-hidden="true"><span /></span><span className={`gf-theme-option${light ? '' : ' is-current'}`}><Moon size={15} aria-hidden="true" /><span className="gf-theme-label">Dark mode</span></span></Button>
 }
 
 export function Shell({ children }: { children: ReactNode }) {
@@ -64,7 +66,6 @@ export function Shell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(() => window.localStorage.getItem(SIDEBAR_KEY) === 'true')
   const [mobileOpen, setMobileOpen] = useState(false)
   const [theme, setTheme] = useState<Theme>(currentTheme())
-  const [appearanceOpen, setAppearanceOpen] = useState(false)
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({ Operations: true, Infrastructure: true, Security: true, Administration: true })
   const menuButtonRef = useRef<HTMLButtonElement>(null)
   const sidebarRef = useRef<HTMLElement>(null)
@@ -98,8 +99,8 @@ export function Shell({ children }: { children: ReactNode }) {
   const logout = async () => { try { await api.post('/api/v1/auth/logout') } finally { setProfile(null); restore(); navigate('/login', { replace: true }) } }
   const selectTheme = (next: Theme) => { applyTheme(next); setTheme(next) }
   const navigation = <nav className="gf-sidebar-nav" aria-label="Primary navigation"><p className="gf-sidebar-eyebrow">Workspace</p>{grouped.map(({ group, routes }) => { const Icon = group.icon; const expanded = openGroups[group.name] ?? true; return <section key={group.name} className="gf-nav-group"><button type="button" className={`gf-nav-group-button${activeGroupName(location.pathname) === group.name ? ' is-active' : ''}`} title={`${expanded ? 'Collapse' : 'Expand'} ${group.name}`} aria-label={`${expanded ? 'Collapse' : 'Expand'} ${group.name}`} aria-expanded={expanded} onClick={() => setOpenGroups((current) => ({ ...current, [group.name]: !expanded }))}>{expanded ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}<Icon size={16} aria-hidden="true" /><span>{group.name}</span><small>{routes.length}</small></button>{expanded && <div className="gf-nav-children">{routes.map((route) => { const RouteIcon = routeIcon(route.path); const label = navigationLabel(route); const isCurrent = route.path === activePath; const end = !isCurrent || location.pathname === route.path; return <NavLink key={route.path} to={route.path} end={end} className={() => `gf-nav-link${isCurrent ? ' is-active' : ''}`} title={collapsed && !mobileOpen ? label : undefined} aria-label={label}><RouteIcon size={16} aria-hidden="true" /><span>{label}</span></NavLink> })}</div>}</section> })}</nav>
-  const sidebar = <aside ref={sidebarRef} className={`gf-sidebar${collapsed ? ' is-collapsed' : ''}${mobileOpen ? ' is-mobile-open' : ''}`} aria-label="Glyphflow sidebar"><div className="gf-sidebar-brand"><BrandMark /><div className="gf-sidebar-brand-copy"><strong>Glyphflow</strong><small>Scheduler console</small></div><Button className="gf-sidebar-collapse" variant="ghost" aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} onClick={() => setCollapsed((value) => !value)}>{collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}</Button>{mobileOpen && <Button variant="ghost" aria-label="Close navigation" onClick={() => setMobileOpen(false)}><X size={18} /></Button>}</div><div className="gf-module-badge" title="Scheduler"><LayoutDashboard size={15} aria-hidden="true" /><span>Scheduler</span></div>{navigation}<div className="gf-sidebar-footer"><Link className="gf-user-card" to="/account"><Users size={18} aria-hidden="true" /><span><strong>{profile?.displayName ?? profile?.username}</strong><small>{profile?.username}</small></span></Link><div className="gf-sidebar-actions"><Button variant="ghost" aria-label="Appearance" onClick={() => setAppearanceOpen(true)}><Sun size={17} /><span>Appearance</span></Button><Button variant="ghost" aria-label="Sign out" onClick={logout}><LogOut size={17} /></Button></div></div></aside>
-  return <div className={`gf-app-shell${collapsed ? ' is-sidebar-collapsed' : ''}`}>{config.lockdownScheduler && <div className="gf-lockdown-banner" role="status">Scheduler in lockdown: Only read actions are allowed</div>}<Button ref={menuButtonRef} className="gf-mobile-menu" variant="secondary" aria-label="Open navigation" onClick={() => setMobileOpen(true)}><Menu size={18} /></Button>{mobileOpen && <button className="gf-drawer-scrim" title="Close navigation" aria-label="Close navigation" onClick={() => setMobileOpen(false)} />}{sidebar}<main id="app-main" className="gf-main" tabIndex={-1}>{children}</main><Dialog open={appearanceOpen} title="Appearance" onClose={() => setAppearanceOpen(false)}><AppearanceChoices theme={theme} onSelect={selectTheme} /><div className="gf-dialog-actions"><Button onClick={() => setAppearanceOpen(false)}>Done</Button></div></Dialog></div>
+  const sidebar = <aside ref={sidebarRef} className={`gf-sidebar${collapsed ? ' is-collapsed' : ''}${mobileOpen ? ' is-mobile-open' : ''}`} aria-label="Glyphflow sidebar"><div className="gf-sidebar-brand"><BrandMark /><div className="gf-sidebar-brand-copy"><strong>Glyphflow <span className="gf-sidebar-version">v{appVersion}</span></strong><small>Scheduler console</small></div><Button className="gf-sidebar-collapse" variant="ghost" aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} onClick={() => setCollapsed((value) => !value)}>{collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}</Button>{mobileOpen && <Button variant="ghost" aria-label="Close navigation" onClick={() => setMobileOpen(false)}><X size={18} /></Button>}</div><div className="gf-module-badge" title="Scheduler"><LayoutDashboard size={15} aria-hidden="true" /><span>Scheduler</span></div>{navigation}<div className="gf-sidebar-footer"><Link className="gf-user-card" to="/account"><Users size={18} aria-hidden="true" /><span><strong>{profile?.displayName ?? profile?.username}</strong><small>{profile?.username}</small></span></Link><div className="gf-sidebar-actions"><AppearanceChoices theme={theme} onSelect={selectTheme} /><Button variant="ghost" aria-label="Sign out" onClick={logout}><LogOut size={17} /></Button></div></div></aside>
+  return <div className={`gf-app-shell${collapsed ? ' is-sidebar-collapsed' : ''}`}>{config.lockdownScheduler && <div className="gf-lockdown-banner" role="status">Scheduler in lockdown: Only read actions are allowed</div>}<Button ref={menuButtonRef} className="gf-mobile-menu" variant="secondary" aria-label="Open navigation" onClick={() => setMobileOpen(true)}><Menu size={18} /></Button>{mobileOpen && <button className="gf-drawer-scrim" title="Close navigation" aria-label="Close navigation" onClick={() => setMobileOpen(false)} />}{sidebar}<main id="app-main" className="gf-main" tabIndex={-1}>{children}</main></div>
 }
 
 export const allRoutes = ROUTES

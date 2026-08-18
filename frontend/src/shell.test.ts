@@ -30,11 +30,11 @@ describe('application shell navigation', () => {
     expect(groups.find(({ group }) => group.name === 'Operations')?.routes.map((route) => route.path)).toEqual(['/'])
   })
 
-  it('renders all appearance choices with accessible pressed state', () => {
+  it('renders the appearance toggle with an accessible checked state', () => {
     const html = renderToStaticMarkup(createElement(AppearanceChoices, { theme: 'dark', onSelect: () => undefined }))
-    expect(html).toContain('>Light<')
-    expect(html).toContain('>Dark<')
-    expect(html).not.toContain('>Neon<')
-    expect(html).toContain('aria-pressed="true"')
+    expect(html).toContain('>Light mode<')
+    expect(html).toContain('>Dark mode<')
+    expect(html).toContain('role="switch"')
+    expect(html).toContain('aria-checked="true"')
   })
 })

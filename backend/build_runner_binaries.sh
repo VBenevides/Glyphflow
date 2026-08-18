@@ -5,15 +5,18 @@ project_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 output_dir="${RUNNER_BINARIES_DIR:-$project_root/runner-binaries}"
 export GOCACHE="${GOCACHE:-/tmp/glyphflow-go-cache}"
 mkdir -p "$output_dir"
+version="$(tr -d '[:space:]' < "$project_root/../VERSION")"
+[[ -n "$version" ]] || { echo "VERSION is empty" >&2; exit 1; }
+base_ldflags="-s -w -X github.com/VBenevides/Glyphflow/backend.Version=$version"
 
 build_headless() {
   local goos="$1" output="$2"
-  (cd "$project_root" && GOOS="$goos" GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o "$output" ./cmd/worker)
+  (cd "$project_root" && GOOS="$goos" GOARCH=amd64 go build -trimpath -ldflags="$base_ldflags" -o "$output" ./cmd/worker)
 }
 
 build_desktop() {
   local goos="$1" output="$2"
-  local ldflags='-s -w'
+  local ldflags="$base_ldflags"
   if [[ "$goos" == windows ]]; then
     ldflags+=' -H=windowsgui'
   fi
@@ -22,7 +25,7 @@ build_desktop() {
 
 build_tui() {
   local goos="$1" output="$2"
-  (cd "$project_root" && GOOS="$goos" GOARCH=amd64 go build -tags workerui_tui -trimpath -ldflags='-s -w' -o "$output" ./cmd/worker)
+  (cd "$project_root" && GOOS="$goos" GOARCH=amd64 go build -tags workerui_tui -trimpath -ldflags="$base_ldflags" -o "$output" ./cmd/worker)
 }
 
 build_desktop linux "$output_dir/glyphflow-runner-linux-amd64"

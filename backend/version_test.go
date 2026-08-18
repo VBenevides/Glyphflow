@@ -1,9 +1,17 @@
 package backend
 
-import "testing"
+import (
+	"os"
+	"strings"
+	"testing"
+)
 
-func TestVersionIsEmbedded(t *testing.T) {
-	if Version != "0.1.0" {
-		t.Fatalf("Version = %q, want 0.1.0", Version)
+func TestVersionUsesRepositoryVersion(t *testing.T) {
+	raw, err := os.ReadFile("../VERSION")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if Version != strings.TrimSpace(string(raw)) {
+		t.Fatalf("Version = %q, want %q", Version, strings.TrimSpace(string(raw)))
 	}
 }
