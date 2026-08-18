@@ -519,6 +519,7 @@ body { background-image: var(--gf-page-glow); }
 .gf-metric { min-height: 6rem; padding: 0.8rem 0.9rem; border-color: var(--gf-border); border-radius: 0.9rem; }
 .gf-metric-icon { width: 1.85rem; height: 1.85rem; border-radius: 0.55rem; }
 .gf-metric-danger .gf-metric-icon { color: var(--gf-danger); background: color-mix(in oklab, var(--gf-danger), transparent 88%); border-color: color-mix(in oklab, var(--gf-danger), transparent 68%); }
+.gf-metric-danger strong { color: var(--gf-danger); }
 .gf-metric-info .gf-metric-icon { color: var(--gf-info); background: color-mix(in oklab, var(--gf-info), transparent 88%); border-color: color-mix(in oklab, var(--gf-info), transparent 68%); }
 .gf-filter-bar .gf-input { min-height: 2.6rem; border-radius: 0.75rem; background: var(--gf-card); }
 .gf-table-wrap { border-radius: 0.9rem; border-color: var(--gf-border); }
