@@ -85,13 +85,14 @@ export function UserManagementPage({ view = 'users' }: { view?: IdentityView } =
   const [creating, setCreating] = useState(false)
   const [accessUserID, setAccessUserID] = useState<string | null>(null)
   const query = useQuery({ queryKey: ['admin-users', page, limit, email], queryFn: ({ signal }) => api.get<Page<UserRecord> | UserRecord[]>('/api/v1/users', { page, limit, email: email || undefined }, signal).then((value) => asPage(value, page, limit)) })
+  const optionsQuery = useQuery({ queryKey: ['admin-user-filter-options'], queryFn: ({ signal }) => api.get<Page<UserRecord> | UserRecord[]>('/api/v1/users', { all: true }, signal).then((value) => asPage(value)) })
   const rolesQuery = useQuery({ queryKey: ['admin-user-role-options'], queryFn: ({ signal }) => api.get<RoleDefinition[]>('/api/v1/admin/roles', undefined, signal), enabled: manage })
   const disable = async (user: UserRecord) => { await api.post(`/api/v1/admin/auth/users/${encodeURIComponent(user.id)}/disable`); await query.refetch() }
   const refreshUsers = async () => { await query.refetch() }
   const created = async (userID: string) => { setCreating(false); setAccessUserID(userID); await query.refetch() }
   return <IdentityAdminLayout view={view} title="Users and sessions" description="Review identity methods, role sources, permissions, and active sessions." action={manage && <Button onClick={() => setCreating((value) => !value)}>{creating ? 'Cancel' : 'Create user'}</Button>}>
     {creating && <Dialog open title="Create user" onClose={() => setCreating(false)}><UserCreationForm onCreated={created} /></Dialog>}
-    <div className="gf-filter-bar"><FilterInput label="Email" type="email" value={email} options={(query.data?.items ?? []).map((user) => user.email ?? user.username)} onChange={(value) => { setEmail(value); setPage(1) }} placeholder="Filter by email" /></div>
+    <div className="gf-filter-bar"><FilterInput label="Email" type="email" value={email} options={(optionsQuery.data?.items ?? query.data?.items ?? []).map((user) => user.email ?? user.username)} onChange={(value) => { setEmail(value); setPage(1) }} placeholder="Filter by email" /></div>
     <QueryState query={query} empty="No users are available.">{(raw) => {
       const data = asPage(raw)
       if (!data.items.length) return <EmptyState title="No users">Create or provision a user before managing access.</EmptyState>
@@ -114,9 +115,10 @@ export function SessionManagementPage() {
   const manage = hasPermission(permissions, 'users.manage')
   const [page, setPage] = useState(1); const [limit, setLimit] = useState(10); const [email, setEmail] = useState('')
   const query = useQuery({ queryKey: ['admin-sessions', page, limit, email], queryFn: ({ signal }) => api.get<Page<AdminSession>>('/api/v1/admin/auth/sessions', { page, limit, email: email || undefined }, signal) })
+  const optionsQuery = useQuery({ queryKey: ['admin-session-filter-options'], queryFn: ({ signal }) => api.get<Page<AdminSession>>('/api/v1/admin/auth/sessions', { all: true }, signal) })
   const revoke = async (session: AdminSession) => { await api.post(`/api/v1/admin/auth/sessions/revoke?session_id=${encodeURIComponent(session.id)}`); await query.refetch() }
   return <IdentityAdminLayout view="sessions" title="Sessions" description="Review active authentication sessions across users.">
-    <div className="gf-filter-bar"><FilterInput label="User email" type="email" value={email} options={(query.data?.items ?? []).map((session) => session.userEmail)} onChange={(value) => { setEmail(value); setPage(1) }} placeholder="Filter by user email" /></div>
+    <div className="gf-filter-bar"><FilterInput label="User email" type="email" value={email} options={(optionsQuery.data?.items ?? query.data?.items ?? []).map((session) => session.userEmail)} onChange={(value) => { setEmail(value); setPage(1) }} placeholder="Filter by user email" /></div>
     <QueryState query={query} empty="No active sessions match this filter.">{(data) => data.items.length ? <><DataTable caption="Sessions" rows={data.items} columns={[{ key: 'userEmail', label: 'User', render: (session) => <Link to={`/admin/users/${encodeURIComponent(session.userId)}`}>{session.userEmail}</Link> }, { key: 'id', label: 'Session ID', render: (session) => <code>{session.id}</code> }, { key: 'lastSeenAt', label: 'Last seen', render: (session) => session.lastSeenAt ? formatDateTime(session.lastSeenAt) : '—' }, { key: 'expiresAt', label: 'Expires', render: (session) => session.expiresAt ? formatDateTime(session.expiresAt) : '—' }, { key: 'userAgent', label: 'Client', render: (session) => session.userAgent ?? '—' }, { key: 'actions', label: 'Actions', render: (session) => manage && <TableActions label={`Actions for ${session.userEmail}`}><DangerousAction label="Revoke" warning="This will immediately invalidate the session." onConfirm={() => revoke(session)} renderTrigger={(open) => <DropdownMenuItem onSelect={(event) => { event.preventDefault(); open() }}>Revoke</DropdownMenuItem>} /></TableActions> }]} /><Pagination page={data.page} pages={data.pages ?? 1} limit={limit} onChange={setPage} onLimitChange={(next) => { setLimit(next); setPage(1) }} /></> : <EmptyState title="No active sessions">No active sessions match this filter.</EmptyState>}</QueryState>
   </IdentityAdminLayout>
 }

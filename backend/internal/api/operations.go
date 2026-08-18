@@ -698,12 +698,19 @@ func (o *OperationsService) deleteSchedule(id string) bool {
 }
 
 func writePage[T any](w http.ResponseWriter, r *http.Request, items []T) {
+	all := strings.EqualFold(r.URL.Query().Get("all"), "true")
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	if page < 1 {
 		page = 1
 	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	if limit < 1 || limit > 100 {
+	if all {
+		page = 1
+		limit = len(items)
+		if limit == 0 {
+			limit = 1
+		}
+	} else if limit < 1 || limit > 100 {
 		limit = 50
 	}
 	start := (page - 1) * limit

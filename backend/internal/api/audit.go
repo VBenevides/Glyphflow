@@ -316,13 +316,14 @@ func (s *AuditQueryService) query(w http.ResponseWriter, r *http.Request) {
 	}
 	excludeTarget := strings.TrimSpace(r.URL.Query().Get("exclude_target"))
 	excludeRunLogs := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("exclude_run_logs")), "true")
+	all := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("all")), "true")
 	s.mu.RLock()
 	repository := s.repository
 	s.mu.RUnlock()
 	if repository != nil {
 		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-		items, counts, err := repository.Query(r.Context(), store.AuditFilter{Actor: filters["actor"], Action: filters["action"], Target: filters["target"], Result: filters["result"], CorrelationID: filters["correlationId"], ExcludeTarget: excludeTarget, ExcludeRunLogs: excludeRunLogs, From: from, To: to, Page: page, Limit: limit})
+		items, counts, err := repository.Query(r.Context(), store.AuditFilter{Actor: filters["actor"], Action: filters["action"], Target: filters["target"], Result: filters["result"], CorrelationID: filters["correlationId"], ExcludeTarget: excludeTarget, ExcludeRunLogs: excludeRunLogs, All: all, From: from, To: to, Page: page, Limit: limit})
 		if err != nil {
 			writeError(w, http.StatusServiceUnavailable, "audit storage unavailable", err)
 			return
@@ -334,7 +335,13 @@ func (s *AuditQueryService) query(w http.ResponseWriter, r *http.Request) {
 		if page < 1 {
 			page = 1
 		}
-		if limit < 1 || limit > 100 {
+		if all {
+			page = 1
+			limit = len(result)
+			if limit == 0 {
+				limit = 1
+			}
+		} else if limit < 1 || limit > 100 {
 			limit = 50
 		}
 		pages := (counts.Total + limit - 1) / limit
@@ -361,7 +368,13 @@ func (s *AuditQueryService) query(w http.ResponseWriter, r *http.Request) {
 		page = 1
 	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	if limit < 1 || limit > 100 {
+	if all {
+		page = 1
+		limit = len(items)
+		if limit == 0 {
+			limit = 1
+		}
+	} else if limit < 1 || limit > 100 {
 		limit = 50
 	}
 	start := (page - 1) * limit

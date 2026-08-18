@@ -158,12 +158,10 @@ a {
 .gf-metric span, .gf-metric small { color: var(--gf-muted); }
 .gf-metric strong { font-size: 1.65rem; }
 .gf-status { display: inline-flex; align-items: center; border-radius: 999px; padding: 0.2rem 0.55rem; font-size: 0.78rem; font-weight: 700; text-transform: capitalize; background: var(--gf-surface); }
-.gf-status-succeeded, .gf-status-completed, .gf-status-active, .gf-status-online { color: var(--gf-success); }
-.gf-status-failed, .gf-status-unknown, .gf-status-revoked { color: var(--gf-danger); }
-.gf-status-running, .gf-status-started, .gf-status-pending { color: var(--gf-info); }
-.gf-status-warning, .gf-status-draining { color: var(--gf-warning); }
-.gf-status-waiting-enrollment { color: var(--gf-warning); }
-.gf-status-runner-enrolled { color: var(--gf-success); }
+.gf-status-succeeded, .gf-status-completed, .gf-status-active, .gf-status-online, .gf-status-enabled, .gf-status-available, .gf-status-success, .gf-status-runner-enrolled { color: var(--gf-success); }
+.gf-status-failed, .gf-status-unknown, .gf-status-revoked, .gf-status-offline, .gf-status-timed-out, .gf-status-failure, .gf-status-start-failure { color: var(--gf-danger); }
+.gf-status-dispatched, .gf-status-accepted, .gf-status-running, .gf-status-started, .gf-status-pending, .gf-status-starting, .gf-status-busy, .gf-status-cancelled, .gf-status-leased, .gf-status-in-use, .gf-status-session, .gf-status-system, .gf-status-custom { color: var(--gf-info); }
+.gf-status-warning, .gf-status-waiting, .gf-status-retry-wait, .gf-status-cancelling, .gf-status-draining, .gf-status-disabled, .gf-status-archived, .gf-status-waiting-enrollment { color: var(--gf-warning); }
 .gf-table-wrap { overflow-x: auto; background: var(--gf-card); border: 1px solid var(--gf-border); border-radius: var(--gf-radius); }
 .gf-environment-table-wrap { overflow: visible; }
 .gf-environment-table-wrap .gf-env-variable-picker:focus-within { z-index: 7; }
@@ -445,7 +443,7 @@ body { background-image: var(--gf-page-glow); }
 .gf-editor-form label:has(> select#default-role) { display: flex; align-items: center; gap: 0.75rem; }
 .gf-editor-form label:has(> select#default-role) > select { width: 12rem; flex: 0 0 12rem; }
 .gf-filter-bar > label, .gf-filter-bar > .gf-filter-field, .gf-filter-bar > .gf-task-picker { min-width: 10rem; flex: 1 1 10rem; }
-.gf-filter-bar > label:has(> input[type='datetime-local']) { min-width: 18rem; flex-basis: 18rem; }
+.gf-filter-bar > label:has(> input[data-utc-datetime]) { min-width: 18rem; flex-basis: 18rem; }
 .gf-state.gf-empty { min-height: 7rem; padding: 1.25rem; }
 
 @media (max-width: 1024px) {

@@ -18,6 +18,7 @@ type AuditEventRecord struct {
 type AuditFilter struct {
 	Actor, Action, Target, Result, CorrelationID, ExcludeTarget string
 	ExcludeRunLogs                                              bool
+	All                                                         bool
 	From, To                                                    time.Time
 	Page, Limit                                                 int
 }
@@ -78,8 +79,13 @@ func (s *AuditStore) Query(ctx context.Context, filter AuditFilter) ([]AuditEven
 	if err := s.pool.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE lower(result) = 'failure'), count(*) FILTER (WHERE upper(method) IN ('POST', 'PUT', 'DELETE')) FROM audit_events`+where, filter.Actor, filter.Action, filter.Target, filter.Result, filter.CorrelationID, filter.ExcludeTarget, from, to, filter.ExcludeRunLogs).Scan(&counts.Total, &counts.Failures, &counts.Writes); err != nil {
 		return nil, AuditCounts{}, err
 	}
-	offset := (filter.Page - 1) * filter.Limit
-	rows, err := s.pool.Query(ctx, `SELECT id, COALESCE(actor_id, ''), actor_name, actor_email, method, description, endpoint, target, result, request_input, response_output, before_value, after_value, COALESCE(traceback, ''), COALESCE(correlation_id, ''), created_at FROM audit_events`+where+` ORDER BY created_at DESC, id DESC LIMIT $10 OFFSET $11`, filter.Actor, filter.Action, filter.Target, filter.Result, filter.CorrelationID, filter.ExcludeTarget, from, to, filter.ExcludeRunLogs, filter.Limit, offset)
+	query := `SELECT id, COALESCE(actor_id, ''), actor_name, actor_email, method, description, endpoint, target, result, request_input, response_output, before_value, after_value, COALESCE(traceback, ''), COALESCE(correlation_id, ''), created_at FROM audit_events` + where + ` ORDER BY created_at DESC, id DESC`
+	args := []any{filter.Actor, filter.Action, filter.Target, filter.Result, filter.CorrelationID, filter.ExcludeTarget, from, to, filter.ExcludeRunLogs}
+	if !filter.All {
+		args = append(args, filter.Limit, (filter.Page-1)*filter.Limit)
+		query += ` LIMIT $10 OFFSET $11`
+	}
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, AuditCounts{}, err
 	}
