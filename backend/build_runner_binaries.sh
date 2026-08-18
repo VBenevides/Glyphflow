@@ -20,7 +20,14 @@ build_desktop() {
   (cd "$project_root" && GOOS="$goos" GOARCH=amd64 go build -tags workerui -trimpath -ldflags="$ldflags" -o "$output" ./cmd/worker)
 }
 
+build_tui() {
+  local goos="$1" output="$2"
+  (cd "$project_root" && GOOS="$goos" GOARCH=amd64 go build -tags workerui_tui -trimpath -ldflags='-s -w' -o "$output" ./cmd/worker)
+}
+
 build_desktop linux "$output_dir/glyphflow-runner-linux-amd64"
 build_desktop windows "$output_dir/glyphflow-runner-windows-amd64.exe"
+build_tui linux "$output_dir/glyphflow-runner-linux-amd64-tui"
+build_tui windows "$output_dir/glyphflow-runner-windows-amd64-tui.exe"
 build_headless linux "$output_dir/glyphflow-runner-linux-amd64-headless"
 build_headless windows "$output_dir/glyphflow-runner-windows-amd64-headless.exe"

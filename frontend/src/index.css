@@ -284,6 +284,7 @@ a {
 }
 .gf-danger-dialog { display: grid; gap: 0.75rem; }
 .gf-dialog-actions { display: flex; justify-content: flex-start; gap: 0.5rem; }
+.gf-worker-ui-control { display: grid; align-self: flex-end; width: 16rem; max-width: 100%; min-width: 0; gap: 0.35rem; color: var(--gf-text); font-weight: 650; }
 .gf-runner-endpoint-form { display: grid; gap: 0.35rem; }
 .gf-runner-endpoint-control { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; align-items: end; gap: 0.35rem 0.5rem; }
 .gf-runner-endpoint-control label { grid-column: 1; grid-row: 1; color: var(--gf-text); font-weight: 650; }
@@ -291,6 +292,15 @@ a {
 .gf-runner-endpoint-control .gf-button { grid-column: 2; grid-row: 2; }
 .gf-runner-endpoint-form small { color: var(--gf-muted); font-weight: 400; }
 @media (max-width: 640px) { .gf-runner-endpoint-control { grid-template-columns: 1fr; grid-template-rows: auto auto auto; } .gf-runner-endpoint-control .gf-button { grid-column: 1; grid-row: 3; justify-self: start; } }
+.gf-binary-tab-content { margin-top: 1rem; }
+.gf-binary-endpoint-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.gf-binary-endpoint h3 { margin: 0 0 0.65rem; font-size: 0.95rem; }
+.gf-binary-generation-controls { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 0.75rem; }
+.gf-lifecycle-list { display: grid; }
+.gf-lifecycle-action { display: flex; align-items: center; gap: 1rem; padding: 0.65rem 0; }
+.gf-lifecycle-action + .gf-lifecycle-action { border-top: 1px solid var(--gf-border); }
+.gf-lifecycle-action p { margin: 0; color: var(--gf-muted); }
+@media (max-width: 720px) { .gf-binary-endpoint-grid { grid-template-columns: 1fr; } .gf-lifecycle-action { align-items: flex-start; flex-direction: column; gap: 0.35rem; } }
 .gf-audit-details { display: grid; gap: 1rem; }
 .gf-audit-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem; margin: 0; padding: 1rem; background: var(--gf-surface); border: 1px solid var(--gf-border); border-radius: 0.55rem; }
 .gf-audit-meta div { min-width: 0; }

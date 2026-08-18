@@ -1,4 +1,4 @@
-//go:build !workerui
+//go:build !workerui && !workerui_tui
 
 package main
 

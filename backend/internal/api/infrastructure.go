@@ -583,6 +583,9 @@ func (s *InfrastructureService) runnerPath(w http.ResponseWriter, r *http.Reques
 		}
 		if ok && valid {
 			item.DesiredState = state
+			if state == "ENABLED" && item.ObservedState == "REVOKED" {
+				item.ObservedState = "OFFLINE"
+			}
 			s.runners[parts[3]] = item
 		}
 		s.mu.Unlock()
@@ -717,6 +720,7 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 		Platform             string `json:"platform"`
 		Architecture         string `json:"architecture"`
 		Capacity             *int   `json:"capacity"`
+		UI                   string `json:"ui"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid runner enrollment request", err)
@@ -749,6 +753,10 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 	}
 	input.Platform = strings.ToLower(strings.TrimSpace(input.Platform))
 	input.Architecture = strings.ToLower(strings.TrimSpace(input.Architecture))
+	input.UI = strings.ToLower(strings.TrimSpace(input.UI))
+	if input.UI == "" {
+		input.UI = "gui"
+	}
 	if !runnerIDPattern.MatchString(input.RunnerID) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "runner_id must contain only letters, digits, dot, underscore, or hyphen"})
 		return
@@ -759,6 +767,10 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 	}
 	if input.Architecture != "amd64" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "architecture must be amd64"})
+		return
+	}
+	if input.UI != "gui" && input.UI != "tui" && input.UI != "headless" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "ui must be gui, tui, or headless"})
 		return
 	}
 	if input.Capacity != nil && *input.Capacity < 1 {
@@ -773,7 +785,7 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 	}
 	token := base64.RawURLEncoding.EncodeToString(raw)
 	expiry := time.Now().Add(15 * time.Minute)
-	artifact, filename, err := s.buildRunnerArtifact(r, input.Platform, input.Architecture, input.RunnerID, token, input.ControlPlaneURL, input.EmbeddedNATSEndpoint)
+	artifact, filename, err := s.buildRunnerArtifact(r, input.Platform, input.Architecture, input.RunnerID, token, input.ControlPlaneURL, input.EmbeddedNATSEndpoint, input.UI)
 	if err != nil {
 		recordRequestError(r, err)
 		writeError(w, http.StatusServiceUnavailable, "runner binary is unavailable", err)
@@ -850,7 +862,7 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]string{"artifact": base64.StdEncoding.EncodeToString(artifact), "expires_at": expiry.UTC().Format(time.RFC3339), "filename": filename, "runner_id": input.RunnerID, "runner_name": input.RunnerName})
 }
 
-func (s *InfrastructureService) buildRunnerArtifact(r *http.Request, platformName, architecture, runnerID, token, controlPlaneURL, embeddedNATSEndpoint string) ([]byte, string, error) {
+func (s *InfrastructureService) buildRunnerArtifact(r *http.Request, platformName, architecture, runnerID, token, controlPlaneURL, embeddedNATSEndpoint, ui string) ([]byte, string, error) {
 	s.mu.RLock()
 	directory, defaultControlPlaneURL, maxMessageBytes, controlPlanePublicKey, repository := s.runnerBinaryDir, s.runnerControlPlaneURL, s.runnerMaxMessageBytes, s.controlPlanePublicKey, s.runnerRepository
 	if controlPlaneURL == "" {
@@ -867,6 +879,9 @@ func (s *InfrastructureService) buildRunnerArtifact(r *http.Request, platformNam
 		}
 	}
 	binaryName := "glyphflow-runner-" + platformName + "-" + architecture
+	if ui != "gui" {
+		binaryName += "-" + ui
+	}
 	filename := runnerID + "-" + binaryName
 	if platformName == "windows" {
 		binaryName += ".exe"

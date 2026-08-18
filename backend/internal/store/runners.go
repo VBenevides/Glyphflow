@@ -199,6 +199,8 @@ func (s *RunnerStore) SetDesiredState(ctx context.Context, id, state string) (Ru
 	query := `UPDATE runners SET desired_state = $2, updated_at = now() WHERE id = $1`
 	if state == "REVOKED" {
 		query = `UPDATE runners SET desired_state = 'DISABLED', observed_state = 'REVOKED', updated_at = now() WHERE id = $1 AND NOT is_archived AND NOT is_deleted`
+	} else if state == "ENABLED" {
+		query = `UPDATE runners SET desired_state = $2, observed_state = 'OFFLINE', updated_at = now() WHERE id = $1 AND NOT is_archived AND NOT is_deleted`
 	} else {
 		query += ` AND NOT is_archived AND NOT is_deleted`
 	}
