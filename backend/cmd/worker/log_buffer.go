@@ -112,7 +112,7 @@ func (b *LogBuffer) Snapshot(after uint64) Snapshot {
 }
 
 func trayTooltip(snapshot Snapshot) string {
-	return fmt.Sprintf("Capacity: %d/%d", snapshot.RunningExecutions, snapshot.ParallelExecutions)
+	return fmt.Sprintf("Current executions: %d\nParallel executions capacity: %d", snapshot.RunningExecutions, snapshot.ParallelExecutions)
 }
 
 func (b *LogBuffer) Writer(stream string, mirror io.Writer) io.Writer {

@@ -131,8 +131,9 @@ func (ui *gioWorkerUI) layout(gtx layout.Context) layout.Dimensions {
 				layout.Rigid(gioCard(gioInfo(ui.theme, "Runner ID", gioDisplayValue(snapshot.RunnerID)))),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					return layout.Flex{Axis: layout.Horizontal, Gap: gtx.Dp(unit.Dp(14))}.Layout(gtx,
-						layout.Flexed(1, gioCard(gioInfo(ui.theme, "NATS JetStream endpoint", gioDisplayValue(snapshot.NATSEndpoint)))),
-						layout.Flexed(1, gioCard(gioInfo(ui.theme, "Parallel executions", fmt.Sprintf("%d", snapshot.ParallelExecutions)))),
+						layout.Flexed(2, gioCard(gioInfo(ui.theme, "NATS JetStream endpoint", gioDisplayValue(snapshot.NATSEndpoint)))),
+						layout.Flexed(1, gioCard(gioInfo(ui.theme, "Current executions", fmt.Sprintf("%d", snapshot.RunningExecutions)))),
+						layout.Flexed(1, gioCard(gioInfo(ui.theme, "Parallel executions capacity", fmt.Sprintf("%d", snapshot.ParallelExecutions)))),
 					)
 				}),
 				layout.Flexed(1, gioCard(func(gtx layout.Context) layout.Dimensions {
