@@ -14,7 +14,13 @@ func TestActiveOrdersCancelAfterCompletionIsIdempotent(t *testing.T) {
 	active := &ActiveOrders{}
 	called := false
 	item := active.put("attempt-1", func() { called = true })
+	if active.Count() != 1 {
+		t.Fatal("active order was not counted")
+	}
 	active.remove("attempt-1")
+	if active.Count() != 0 {
+		t.Fatal("completed order remained counted")
+	}
 	if active.cancel("attempt-1") {
 		t.Fatal("completed order was reported active")
 	}

@@ -5,3 +5,5 @@ package main
 func startTUITray(func()) func() {
 	return func() {}
 }
+
+func setTUITrayTooltip(Snapshot) {}

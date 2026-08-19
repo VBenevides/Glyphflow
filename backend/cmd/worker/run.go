@@ -115,6 +115,7 @@ func runWorker(ctx context.Context, stdout, stderr io.Writer, status StatusSink)
 		}
 		status.SetNATSEndpoint(endpoint)
 	}
+	activeOrders := &worker.ActiveOrders{}
 	workerKey := storedKey
 	if !foundKey || workerKey.ID != "runner:"+cfg.RunnerID || time.Now().UTC().After(workerKey.Public.NotAfter) {
 		workerKey, err = protocol.GenerateSigningKey("runner:"+cfg.RunnerID, time.Now().UTC(), 365*24*time.Hour)
@@ -162,8 +163,9 @@ func runWorker(ctx context.Context, stdout, stderr io.Writer, status StatusSink)
 	currentCapacity.Store(int64(capacity))
 	if status != nil {
 		status.SetCapacitySource(&currentCapacity)
+		status.SetRunningSource(activeOrders.Count)
 	}
-	runtime := worker.OrderRuntime{Store: localStore, Publisher: jetstream, StartClaimer: worker.NewNATSStartClaimer(jetstream, workerKey, ed25519.PublicKey(controlPublicKey)), RunnerID: cfg.RunnerID, ExecutorBootID: bootID, ProcessID: int64(os.Getpid()), ControlPublicKey: ed25519.PublicKey(controlPublicKey), SigningKey: workerKey, Active: &worker.ActiveOrders{}, Executor: worker.Executor{Roots: []string{cfg.DataDir, "."}, MaxOutputBytes: cfg.MaxOutputBytes}, Writer: stdout}
+	runtime := worker.OrderRuntime{Store: localStore, Publisher: jetstream, StartClaimer: worker.NewNATSStartClaimer(jetstream, workerKey, ed25519.PublicKey(controlPublicKey)), RunnerID: cfg.RunnerID, ExecutorBootID: bootID, ProcessID: int64(os.Getpid()), ControlPublicKey: ed25519.PublicKey(controlPublicKey), SigningKey: workerKey, Active: activeOrders, Executor: worker.Executor{Roots: []string{cfg.DataDir, "."}, MaxOutputBytes: cfg.MaxOutputBytes}, Writer: stdout}
 	consumer, err := jetstream.Consumer(ctx, "runner-"+cfg.RunnerID, queue.Subject("orders", cfg.RunnerID), queue.UnlimitedPending)
 	if err != nil {
 		return fmt.Errorf("create order consumer: %w", err)

@@ -11,6 +11,7 @@ import (
 	"image/color"
 	"image/png"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -130,8 +131,9 @@ func (ui *gioWorkerUI) layout(gtx layout.Context) layout.Dimensions {
 				layout.Rigid(gioCard(gioInfo(ui.theme, "Runner ID", gioDisplayValue(snapshot.RunnerID)))),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					return layout.Flex{Axis: layout.Horizontal, Gap: gtx.Dp(unit.Dp(14))}.Layout(gtx,
-						layout.Flexed(1, gioCard(gioInfo(ui.theme, "NATS JetStream endpoint", gioDisplayValue(snapshot.NATSEndpoint)))),
-						layout.Flexed(1, gioCard(gioInfo(ui.theme, "Parallel executions", fmt.Sprintf("%d", snapshot.ParallelExecutions)))),
+						layout.Flexed(2, gioCard(gioInfo(ui.theme, "NATS JetStream endpoint", gioDisplayValue(snapshot.NATSEndpoint)))),
+						layout.Flexed(1, gioCard(gioInfo(ui.theme, "Current executions", fmt.Sprintf("%d", snapshot.RunningExecutions)))),
+						layout.Flexed(1, gioCard(gioInfo(ui.theme, "Parallel executions capacity", fmt.Sprintf("%d", snapshot.ParallelExecutions)))),
 					)
 				}),
 				layout.Flexed(1, gioCard(func(gtx layout.Context) layout.Dimensions {
@@ -252,6 +254,7 @@ func updateGioStatus(ctx context.Context, logs *LogBuffer, ui *gioWorkerUI) {
 			if len(snapshot.Entries) > 0 {
 				after = snapshot.Entries[len(snapshot.Entries)-1].Sequence
 			}
+			systray.SetTooltip(trayTooltip(snapshot))
 			ui.update(snapshot, entries)
 		}
 	}
@@ -272,6 +275,14 @@ func runGioWindow(window *app.Window, ui *gioWorkerUI, onDestroy func()) {
 			return
 		}
 	}
+}
+
+func startGioTray(onReady func()) func() {
+	go func() {
+		runtime.LockOSThread()
+		systray.Run(onReady, nil)
+	}()
+	return systray.Quit
 }
 
 func gioDisplayValue(value string) string {
@@ -325,25 +336,24 @@ func main() {
 			window.Perform(system.ActionClose)
 		})
 	}
-	systray.SetOnTapped(func() { window.Perform(system.ActionRaise) })
-	trayStart, trayEnd := systray.RunWithExternalLoop(func() {
+	systray.SetOnTapped(func() { raiseGioWindow(window) })
+	trayStop = startGioTray(func() {
 		systray.SetIcon(gioTrayIcon)
+		systray.SetTooltip(trayTooltip(Snapshot{}))
 		open := systray.AddMenuItem("Open", "Show Glyphflow Worker")
 		exitItem := systray.AddMenuItem("Exit", "Exit Glyphflow Worker")
 		go func() {
 			for {
 				select {
 				case <-open.ClickedCh:
-					window.Perform(system.ActionRaise)
+					raiseGioWindow(window)
 				case <-exitItem.ClickedCh:
 					exit()
 					return
 				}
 			}
 		}()
-	}, nil)
-	trayStop = trayEnd
-	trayStart()
+	})
 
 	go updateGioStatus(ctx, logs, ui)
 	go runGioWindow(window, ui, func() {

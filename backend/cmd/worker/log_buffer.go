@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"net/url"
 	"strings"
@@ -23,6 +24,7 @@ type Snapshot struct {
 	RunnerID           string     `json:"runnerId"`
 	NATSEndpoint       string     `json:"natsEndpoint"`
 	ParallelExecutions int64      `json:"parallelExecutions"`
+	RunningExecutions  int64      `json:"runningExecutions"`
 	Entries            []LogEntry `json:"entries"`
 	Reset              bool       `json:"reset"`
 }
@@ -31,6 +33,7 @@ type StatusSink interface {
 	SetRunnerID(string)
 	SetNATSEndpoint(string)
 	SetCapacitySource(*atomic.Int64)
+	SetRunningSource(func() int64)
 }
 
 type LogBuffer struct {
@@ -40,6 +43,7 @@ type LogBuffer struct {
 	runnerID string
 	endpoint string
 	capacity *atomic.Int64
+	running  func() int64
 	partial  map[string]string
 }
 
@@ -65,6 +69,12 @@ func (b *LogBuffer) SetCapacitySource(capacity *atomic.Int64) {
 	b.mu.Unlock()
 }
 
+func (b *LogBuffer) SetRunningSource(running func() int64) {
+	b.mu.Lock()
+	b.running = running
+	b.mu.Unlock()
+}
+
 func (b *LogBuffer) SetParallelExecutions(value int64) {
 	b.mu.Lock()
 	if b.capacity == nil {
@@ -81,7 +91,11 @@ func (b *LogBuffer) Snapshot(after uint64) Snapshot {
 	if b.capacity != nil {
 		capacity = b.capacity.Load()
 	}
-	result := Snapshot{RunnerID: b.runnerID, NATSEndpoint: b.endpoint, ParallelExecutions: capacity}
+	running := int64(0)
+	if b.running != nil {
+		running = b.running()
+	}
+	result := Snapshot{RunnerID: b.runnerID, NATSEndpoint: b.endpoint, ParallelExecutions: capacity, RunningExecutions: running}
 	if len(b.entries) == 0 {
 		return result
 	}
@@ -95,6 +109,10 @@ func (b *LogBuffer) Snapshot(after uint64) Snapshot {
 		}
 	}
 	return result
+}
+
+func trayTooltip(snapshot Snapshot) string {
+	return fmt.Sprintf("Current executions: %d\nParallel executions capacity: %d", snapshot.RunningExecutions, snapshot.ParallelExecutions)
 }
 
 func (b *LogBuffer) Writer(stream string, mirror io.Writer) io.Writer {

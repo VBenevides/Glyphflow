@@ -41,7 +41,7 @@ func (m tuiModel) Init() tea.Cmd {
 }
 
 func tuiPoll() tea.Cmd {
-	return tea.Tick(750*time.Millisecond, func(now time.Time) tea.Msg { return tuiTick(now) })
+	return tea.Tick(1500*time.Millisecond, func(now time.Time) tea.Msg { return tuiTick(now) })
 }
 
 func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -62,6 +62,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.after = snapshot.Entries[len(snapshot.Entries)-1].Sequence
 		}
 		m.snapshot = snapshot
+		setTUITrayTooltip(snapshot)
 		m.offset = min(m.offset, m.maxScroll())
 		return m, tuiPoll()
 	case tea.KeyMsg:
@@ -112,7 +113,8 @@ func (m tuiModel) View() string {
 		"Glyphflow Worker | TUI",
 		fmt.Sprintf("Runner ID: %s", tuiValue(m.snapshot.RunnerID)),
 		fmt.Sprintf("NATS: %s", tuiValue(m.snapshot.NATSEndpoint)),
-		fmt.Sprintf("Parallel executions: %d", m.snapshot.ParallelExecutions),
+		fmt.Sprintf("Current executions: %d", m.snapshot.RunningExecutions),
+		fmt.Sprintf("Parallel executions capacity: %d", m.snapshot.ParallelExecutions),
 		"",
 		"Mouse wheel/keys scroll logs; click or press A/E to filter.",
 		"",

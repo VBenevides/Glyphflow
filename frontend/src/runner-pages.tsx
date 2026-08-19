@@ -76,7 +76,7 @@ export function RunnerDetailPage() {
             </section>
             <section className="gf-card-panel">
               <h2>Capacity</h2>
-              {manage && !runner.isArchived ? <div className="gf-dialog-actions"><label>Tasks<Input type="number" min={1} value={capacityDraft || String(runner.capacity ?? 10)} onChange={(event) => setCapacityDraft(event.target.value)} /></label><Button busy={capacityBusy} onClick={() => updateCapacity(runner)}>Update capacity</Button></div> : <p className="gf-muted">Configured capacity: {runner.capacity ?? '—'}</p>}
+              {manage && !runner.isArchived ? <div className="gf-dialog-actions gf-capacity-controls"><label>Tasks<Input type="number" min={1} value={capacityDraft || String(runner.capacity ?? 10)} onChange={(event) => setCapacityDraft(event.target.value)} /></label><Button busy={capacityBusy} onClick={() => updateCapacity(runner)}>Update capacity</Button></div> : <p className="gf-muted">Configured capacity: {runner.capacity ?? '—'}</p>}
               {capacityError && <p className="gf-form-error" role="alert">{capacityError}</p>}
             </section>
             <section className="gf-card-panel gf-binary-configuration">
