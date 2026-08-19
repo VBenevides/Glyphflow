@@ -4,6 +4,7 @@ package main
 
 import (
 	_ "embed"
+	"runtime"
 	"sync"
 	"syscall"
 	"time"
@@ -26,23 +27,26 @@ var (
 func startTUITray(onExit func()) func() {
 	hwnd, _, _ := tuiGetConsoleWindow.Call()
 	systray.SetOnTapped(func() { showTUIConsole(hwnd) })
-	start, end := systray.RunWithExternalLoop(func() {
-		systray.SetIcon(tuiTrayIcon)
-		open := systray.AddMenuItem("Open", "Show Glyphflow Worker")
-		exit := systray.AddMenuItem("Exit", "Exit Glyphflow Worker")
-		go func() {
-			for {
-				select {
-				case <-open.ClickedCh:
-					showTUIConsole(hwnd)
-				case <-exit.ClickedCh:
-					onExit()
-					return
+	go func() {
+		runtime.LockOSThread()
+		systray.Run(func() {
+			systray.SetIcon(tuiTrayIcon)
+			systray.SetTooltip(trayTooltip(Snapshot{}))
+			open := systray.AddMenuItem("Open", "Show Glyphflow Worker")
+			exit := systray.AddMenuItem("Exit", "Exit Glyphflow Worker")
+			go func() {
+				for {
+					select {
+					case <-open.ClickedCh:
+						showTUIConsole(hwnd)
+					case <-exit.ClickedCh:
+						onExit()
+						return
+					}
 				}
-			}
-		}()
-	}, nil)
-	start()
+			}()
+		}, nil)
+	}()
 
 	stop := make(chan struct{})
 	go watchTUIConsole(hwnd, stop)
@@ -50,12 +54,19 @@ func startTUITray(onExit func()) func() {
 	return func() {
 		once.Do(func() {
 			close(stop)
-			end()
+			systray.Quit()
 		})
 	}
 }
 
+func setTUITrayTooltip(snapshot Snapshot) {
+	systray.SetTooltip(trayTooltip(snapshot))
+}
+
 func showTUIConsole(hwnd uintptr) {
+	if hwnd == 0 {
+		hwnd, _, _ = tuiGetConsoleWindow.Call()
+	}
 	if hwnd == 0 {
 		return
 	}

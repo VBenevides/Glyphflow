@@ -70,6 +70,20 @@ func TestLogBufferCapacitySourceIsLive(t *testing.T) {
 	}
 }
 
+func TestLogBufferRunningSourceIsLive(t *testing.T) {
+	var running atomic.Int64
+	running.Store(2)
+	buffer := NewLogBuffer(nil)
+	buffer.SetRunningSource(running.Load)
+	if got := buffer.Snapshot(0).RunningExecutions; got != 2 {
+		t.Fatalf("running = %d, want 2", got)
+	}
+	running.Store(1)
+	if got := buffer.Snapshot(0).RunningExecutions; got != 1 {
+		t.Fatalf("updated running = %d, want 1", got)
+	}
+}
+
 func TestLogBufferConcurrentWriters(t *testing.T) {
 	buffer := NewLogBuffer(nil)
 	var group sync.WaitGroup

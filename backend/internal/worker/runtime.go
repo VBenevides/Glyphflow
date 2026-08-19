@@ -55,6 +55,12 @@ type ActiveOrders struct {
 	orders map[string]*activeOrder
 }
 
+func (a *ActiveOrders) Count() int64 {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return int64(len(a.orders))
+}
+
 func (a *ActiveOrders) put(id string, cancel context.CancelFunc) *activeOrder {
 	a.mu.Lock()
 	defer a.mu.Unlock()
