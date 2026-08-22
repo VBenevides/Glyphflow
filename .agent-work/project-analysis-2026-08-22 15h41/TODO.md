@@ -39,12 +39,12 @@ Planned from [REPORT.md](./REPORT.md) and all detailed analysis artifacts. No wo
   - Test Result: Not run
   - Commit Hash: Not committed
 
-- [ ] Publish current architecture documentation
+- [x] Publish current architecture documentation
   - Importance Level: Medium
-  - Description: Mark v0-v3 reviews as historical or target documents and maintain one current topology, ownership, health, and deployment source of truth. Evidence: [ARCHITECTURE.md#arc-007](./ARCHITECTURE.md#arc-007).
-  - Test Description: Review current documents against source and link each unresolved claim to current code or tests.
-  - Test Result: Not run
-  - Commit Hash: Not committed
+  - Description: Added a repository-root architecture source of truth for current topology, ownership, health/readiness, deployment, and verification; README now links to it and dated reviews are identified as historical. Evidence: [ARCHITECTURE.md#arc-007](./ARCHITECTURE.md#arc-007).
+  - Test Description: `git diff --check`; review `ARCHITECTURE.md` links against current source paths.
+  - Test Result: PASS — architecture document links and working-tree diff checks passed.
+  - Commit Hash: `1d3c4af3db4c584e54bbbf8893185b0f7373b961`
 
 - [ ] Reduce cross-layer dispatch coupling incrementally
   - Importance Level: Medium
