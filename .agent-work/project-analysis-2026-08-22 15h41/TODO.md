@@ -89,7 +89,8 @@ Planned from [REPORT.md](./REPORT.md) and all detailed analysis artifacts. No wo
   - Importance Level: Medium
   - Description: Determine whether synchronous outbox publishing under `pendingEventsMu` and single-connection SQLite materially backpressures concurrent commands before changing locking or drain behavior. Evidence: [OPTIMIZATION.md#opt-003](./OPTIMIZATION.md#opt-003).
   - Test Description: Run 1, 4, and 16 concurrent output-heavy orders with controlled broker latency; record p95 completion, chunk throughput, mutex wait, SQLite latency, outbox depth, retries, and duplicates.
-  - Test Result: Not run
+  - Test Result: BLOCKED — no NATS broker, controlled latency harness, or worker host fixture is available, so contention and duplicate/retry measurements cannot be reproduced safely.
+  - Blocked: Requires a controlled worker/NATS load environment.
   - Commit Hash: Not committed
 
 - [ ] Measure audit query scalability
