@@ -48,22 +48,8 @@ Service splitting is deferred until measured scaling, deployment, or ownership n
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    browser[Browser] -->|HTTPS| frontend[TypeScript and React frontend]
-    frontend -->|HTTP API| control[Go control plane]
-    control <-->|State and audit data| database[(PostgreSQL)]
-    control -->|Signed orders| queue[NATS JetStream]
-    queue -->|Assigned orders| workerA[Go worker<br/>VM A]
-    queue -->|Assigned orders| workerB[Go worker<br/>VM B]
-    workerA -->|Signed events| queue
-    workerB -->|Signed events| queue
-    queue -->|Verified event stream| control
-```
-
-PostgreSQL is the source of truth. NATS JetStream delivers orders and worker events.
-
-The frontend communicates only with the Go API. Workers do not communicate with the frontend or PostgreSQL.
+[`ARCHITECTURE.md`](ARCHITECTURE.md) is the current source of truth for
+topology, ownership, runtime readiness, deployment, and verification links.
 
 ## Authentication environment
 
@@ -72,17 +58,6 @@ The bootstrap administrator is created only when both `GLYPHFLOW_BOOTSTRAP_EMAIL
 `GLYPHFLOW_SYSTEM_ADMINS` accepts unique administrator emails separated by spaces, commas, or semicolons. Matching users receive the immutable `admin` role and cannot be disabled or demoted.
 
 `./dev_run.sh` defaults to `admin@example_domain.com` with password `admin-password-123` and includes that email in `GLYPHFLOW_SYSTEM_ADMINS`.
-
-## Components
-
-| Component | Technology | Responsibility |
-|---|---|---|
-| Frontend | TypeScript and React | Manage tasks, workers, schedules, runs, and audit history. |
-| Control plane | Go | Provide the API, schedule runs, produce orders, verify events, and update state. |
-| Database | PostgreSQL | Store task definitions, runs, keys, leases, outbox records, and audit events. |
-| Message queue | NATS with JetStream | Store and deliver orders and worker events. |
-| Worker | Go executable | Verify orders, execute commands, and publish signed lifecycle events. |
-| Worker state | SQLite | Store accepted orders and events that await publication. |
 
 The frontend uses TypeScript, React, React Router, TanStack Query, Vite, Vitest, and Lucide. The project does not require a second frontend framework.
 
