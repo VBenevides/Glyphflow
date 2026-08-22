@@ -11,12 +11,12 @@ Planned from [REPORT.md](./REPORT.md) and all detailed analysis artifacts. No wo
   - Test Result: PASS — health recovery tests, control-plane tests, vet, and diff checks passed.
   - Commit Hash: `cf3770a68ef7f78835f596e30d25ede8004734cb`
 
-- [ ] Require durable repositories in production
+- [x] Require durable repositories in production
   - Importance Level: High
-  - Description: Fail composition when a required repository is absent; keep in-memory fakes explicit and test-only. Evidence: [ARCHITECTURE.md#arc-002](./ARCHITECTURE.md#arc-002).
-  - Test Description: Verify production construction rejects missing repositories and test constructors still use explicit fakes without silently losing persistence.
-  - Test Result: Not run
-  - Commit Hash: Not committed
+  - Description: Production composition now enables a durable-repository guard covering operations, runs, infrastructure, global variables, audit, and exit-code persistence; non-production services retain explicit in-memory defaults. Evidence: [ARCHITECTURE.md#arc-002](./ARCHITECTURE.md#arc-002).
+  - Test Description: `GOCACHE=/tmp/glyphflow-go-cache-todo-solver go test ./internal/api ./cmd/controlplane`; `GOCACHE=/tmp/glyphflow-go-cache-todo-solver go vet ./internal/api ./cmd/controlplane`; `git diff --check`
+  - Test Result: PASS — repository validation regression, API/control-plane tests, vet, and diff checks passed.
+  - Commit Hash: `5aa1a7932f2a0a59a94b2d74f413574d0eedfa8c`
 
 - [ ] Add route and JSON contract checks
   - Importance Level: Medium
