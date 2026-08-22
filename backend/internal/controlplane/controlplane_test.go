@@ -54,3 +54,19 @@ func TestNextFireSupportsCron(t *testing.T) {
 		t.Fatalf("cron next fire = %v, err=%v", next, err)
 	}
 }
+
+func BenchmarkNextFireCron(b *testing.B) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for name, expression := range map[string]string{
+		"dense":         "*/5 * * * *",
+		"sparse":        "0 9 1-5 * *",
+		"unsatisfiable": "0 0 31 2 *",
+	} {
+		b.Run(name, func(b *testing.B) {
+			b.ReportAllocs()
+			for range b.N {
+				_, _ = NextFire(expression, "UTC", now)
+			}
+		})
+	}
+}
