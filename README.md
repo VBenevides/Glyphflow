@@ -12,7 +12,7 @@ Glyphflow is an alpha application. The current version is defined in [`VERSION`]
 
 ## Quick start
 
-Requirements: Docker Compose, Go, Node.js, and npm.
+Requirements: Docker Compose, Go, Node.js 22.22.2 or newer, and npm.
 
 Run the local environment:
 
