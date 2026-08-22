@@ -32,12 +32,12 @@ Planned from [REPORT.md](./REPORT.md) and all detailed analysis artifacts. No wo
   - Test Result: PASS — shared timezone semantics and scheduler/store package tests passed.
   - Commit Hash: `a379683459262df3002d5ea809fc13a7e5397ba9`
 
-- [ ] Narrow the NATS orchestration seam
+- [x] Narrow the NATS orchestration seam
   - Importance Level: Medium
-  - Description: Keep concrete JetStream types inside the queue adapter or a narrow integration seam and use existing queue ports where substitution is needed. Evidence: [ARCHITECTURE.md#arc-006](./ARCHITECTURE.md#arc-006).
-  - Test Description: Add a real NATS integration path for consumer setup, acknowledgement, retry, and delivery behavior before replacing production signatures.
-  - Test Result: Not run
-  - Commit Hash: Not committed
+  - Description: Control-plane orchestration now consumes queue-owned event and request-server ports; concrete JetStream consumers remain inside the queue adapter, while existing integration tests retain the real NATS path. Evidence: [ARCHITECTURE.md#arc-006](./ARCHITECTURE.md#arc-006).
+  - Test Description: `GOCACHE=/tmp/glyphflow-go-cache-todo-solver go test ./internal/queue ./internal/controlplane ./cmd/controlplane ./cmd/worker`; `GOCACHE=/tmp/glyphflow-go-cache-todo-solver go vet ./internal/queue ./internal/controlplane ./cmd/controlplane ./cmd/worker`; `git diff --check`
+  - Test Result: PASS — queue port assertions, control-plane/worker tests, vet, and diff checks passed. Live NATS integration remains environment-gated.
+  - Commit Hash: `392f7fb28c6cefddfe7ac7958d128429a08697c8`
 
 - [x] Publish current architecture documentation
   - Importance Level: Medium
