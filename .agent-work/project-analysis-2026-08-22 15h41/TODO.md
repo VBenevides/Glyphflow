@@ -18,12 +18,12 @@ Planned from [REPORT.md](./REPORT.md) and all detailed analysis artifacts. No wo
   - Test Result: PASS — repository validation regression, API/control-plane tests, vet, and diff checks passed.
   - Commit Hash: `5aa1a7932f2a0a59a94b2d74f413574d0eedfa8c`
 
-- [ ] Add route and JSON contract checks
+- [x] Add route and JSON contract checks
   - Importance Level: Medium
-  - Description: Designate one API contract authority and validate Go routes, permissions, status codes, representative JSON, and frontend API models. Evidence: [ARCHITECTURE.md#arc-004](./ARCHITECTURE.md#arc-004).
-  - Test Description: Run route, permission, and JSON contract tests against representative frontend requests and responses.
-  - Test Result: Not run
-  - Commit Hash: Not committed
+  - Description: Added representative Go route registration, permission/status, and task JSON checks plus a TypeScript client request/response contract test. Evidence: [ARCHITECTURE.md#arc-004](./ARCHITECTURE.md#arc-004).
+  - Test Description: `GOCACHE=/tmp/glyphflow-go-cache-todo-solver go test ./internal/api -run 'TestRepresentative|TestTaskJSON' -count=1`; `npm test -- --run src/api.contract.test.ts`; `npm run typecheck`; `git diff --check`
+  - Test Result: PASS — Go contract tests, the frontend contract test, typecheck, and diff checks passed.
+  - Commit Hash: `256a3b3db0942681f177ed8fcd112610e59af394`
 
 - [x] Consolidate schedule semantics
   - Importance Level: Medium
