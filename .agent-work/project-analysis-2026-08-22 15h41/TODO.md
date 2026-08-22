@@ -74,7 +74,8 @@ Planned from [REPORT.md](./REPORT.md) and all detailed analysis artifacts. No wo
   - Importance Level: Medium
   - Description: Benchmark the unbounded run list and per-waiting-run `placementBlocker` query before considering pagination or a set-based query. Evidence: [OPTIMIZATION.md#opt-001](./OPTIMIZATION.md#opt-001).
   - Test Description: Use 100, 1,000, and 10,000 runs with varying waiting-run counts; record query count, p50/p95 latency, rows scanned, heap, and `EXPLAIN (ANALYZE, BUFFERS)`.
-  - Test Result: Not run
+  - Test Result: BLOCKED — no PostgreSQL benchmark service or captured production-like dataset is available in this workspace, so query counts, latency percentiles, buffer plans, and heap measurements cannot be produced honestly.
+  - Blocked: Requires a network-enabled PostgreSQL fixture and representative run data.
   - Commit Hash: Not committed
 
 - [x] Measure and optimize cron parsing
