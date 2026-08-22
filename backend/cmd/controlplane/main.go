@@ -184,6 +184,7 @@ func run() error {
 		metrics.AuditAppendErrors.Add(1)
 		_ = logger.Event("audit.append_failed", map[string]string{"id": event.ID, "actor": event.Actor, "error": err.Error(), "count": strconv.FormatUint(metrics.AuditAppendErrors.Load(), 10)})
 	})
+	health := controlplane.NewHealth("session-cleanup", "heartbeat", "dispatcher", "start-claim", "scheduler")
 	application := api.Server{AuthService: authService, AuthAdmin: &api.AuthAdminService{Auth: authService, OIDC: oidcService, Sessions: authService.SessionManager()}, Sessions: authService.SessionManager(), OIDC: oidcService, Roles: roles, Auth: authService.Authenticator(), Permissions: authService.Permissions, CSRFOrigin: cfg.WebOrigin, CSRFOrigins: cfg.CSRFOrigins, CORSOrigins: cfg.CORSOrigins, Operations: operations, Runs: runs, Infrastructure: infrastructure, AuditQuery: audit, ExitCodes: store.NewExitCodeRepository(db), GlobalVariables: globalVariables, Ready: func(ctx context.Context) error {
 		if err := db.Ping(ctx); err != nil {
 			return err
@@ -213,8 +214,11 @@ func run() error {
 		const sessionRetention = 14 * 24 * time.Hour
 		cleanup := func() {
 			if err := sessionRepository.DeleteOlderThan(ctx, time.Now().UTC().Add(-sessionRetention)); err != nil && ctx.Err() == nil {
+				health.MarkFailed("session-cleanup", err)
 				fmt.Fprintln(os.Stderr, "session cleanup:", err)
+				return
 			}
+			health.MarkHealthy("session-cleanup")
 		}
 		cleanup()
 		ticker := time.NewTicker(24 * time.Hour)
@@ -230,7 +234,9 @@ func run() error {
 	}()
 	go func() {
 		for ctx.Err() == nil {
+			health.MarkHealthy("heartbeat")
 			if err := controlplane.RunRunnerHeartbeatMonitor(ctx, jetstream, runnerRepository, 30*time.Second, 10*time.Second); err != nil && ctx.Err() == nil {
+				health.MarkFailed("heartbeat", err)
 				fmt.Fprintln(os.Stderr, "runner heartbeat monitor:", err)
 				time.Sleep(time.Second)
 			}
@@ -238,7 +244,9 @@ func run() error {
 	}()
 	go func() {
 		for ctx.Err() == nil {
+			health.MarkHealthy("dispatcher")
 			if err := controlplane.RunDispatcher(ctx, jetstream, runRepository, runnerRepository, signingKey, 500*time.Millisecond); err != nil && ctx.Err() == nil {
+				health.MarkFailed("dispatcher", err)
 				fmt.Fprintln(os.Stderr, "run dispatcher:", err)
 				select {
 				case <-time.After(time.Second):
@@ -250,7 +258,9 @@ func run() error {
 	}()
 	go func() {
 		for ctx.Err() == nil {
+			health.MarkHealthy("start-claim")
 			if err := controlplane.RunStartClaimServer(ctx, jetstream, runRepository, runnerRepository, signingKey); err != nil && ctx.Err() == nil {
+				health.MarkFailed("start-claim", err)
 				fmt.Fprintln(os.Stderr, "start claim server:", err)
 				select {
 				case <-time.After(time.Second):
@@ -262,7 +272,9 @@ func run() error {
 	}()
 	go func() {
 		for ctx.Err() == nil {
+			health.MarkHealthy("scheduler")
 			if err := controlplane.RunScheduler(ctx, scheduleRepository, 500*time.Millisecond); err != nil && ctx.Err() == nil {
+				health.MarkFailed("scheduler", err)
 				fmt.Fprintln(os.Stderr, "schedule runner:", err)
 				select {
 				case <-time.After(time.Second):
@@ -282,7 +294,7 @@ func run() error {
 				if jetstream == nil {
 					return fmt.Errorf("NATS is not connected")
 				}
-				return nil
+				return health.Ready()
 			}
 			return application.Handler()
 		}(),
