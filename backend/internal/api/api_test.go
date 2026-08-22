@@ -22,6 +22,13 @@ func TestAuthAndPagination(t *testing.T) {
 	}
 }
 
+func TestServerRequiresDurableRepositoriesWhenConfigured(t *testing.T) {
+	server := Server{RequireDurableRepositories: true}
+	if err := server.ValidateDurableRepositories(); err == nil || !strings.Contains(err.Error(), "operations repositories") {
+		t.Fatalf("ValidateDurableRepositories() = %v", err)
+	}
+}
+
 func TestCORSOnlyAllowsExactConfiguredOrigins(t *testing.T) {
 	h := (Server{CORSOrigins: []string{"http://localhost:5173", "*"}}).Handler()
 	for _, test := range []struct {

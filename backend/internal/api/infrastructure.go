@@ -109,6 +109,12 @@ func (s *InfrastructureService) SetResourceRepository(repository store.ResourceR
 	}
 }
 
+func (s *InfrastructureService) hasDurableRepositories() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.runnerRepository != nil && s.resourceRepository != nil
+}
+
 func (s *InfrastructureService) SetRunnerBinaryDirectory(directory string) {
 	if strings.TrimSpace(directory) == "" {
 		return

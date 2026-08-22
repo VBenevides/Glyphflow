@@ -97,6 +97,12 @@ func (o *OperationsService) SetScheduleRepository(repository store.ScheduleRepos
 	}
 }
 
+func (o *OperationsService) hasDurableRepositories() bool {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	return o.repository != nil && o.scheduleRepository != nil
+}
+
 func taskRecordFromStore(task store.TaskRecord) TaskRecord {
 	var latestRun *RunRecord
 	if task.LatestRun != nil {

@@ -190,7 +190,10 @@ func run() error {
 			return err
 		}
 		return nil
-	}}
+	}, RequireDurableRepositories: true}
+	if err := application.ValidateDurableRepositories(); err != nil {
+		return err
+	}
 	if err := authService.SetSystemAdminEmails(cfg.SystemAdminEmails); err != nil {
 		return err
 	}

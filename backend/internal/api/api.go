@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"runtime/debug"
@@ -56,31 +57,60 @@ type RuntimeConfig struct {
 }
 
 type Server struct {
-	Auth            Authenticator
-	Permissions     func(Claims) map[string]bool
-	PasswordAuth    *PasswordAuthService
-	AuthService     *AuthService
-	Sessions        *SessionManager
-	OIDC            *OIDCService
-	AuthAdmin       *AuthAdminService
-	Roles           *RoleAdminService
-	CurrentUser     *CurrentUserService
-	Audit           func(Claims, string, string)
-	Ready           func(context.Context) error
-	CSRFOrigin      string
-	CSRFOrigins     []string
-	CORSOrigins     []string
-	AuthRateLimiter *platform.RateLimiter
-	Config          RuntimeConfig
-	Operations      *OperationsService
-	Runs            *RunService
-	Infrastructure  *InfrastructureService
-	AuditQuery      *AuditQueryService
-	ExitCodes       store.ExitCodeRepository
-	GlobalVariables *GlobalVariableService
+	Auth                       Authenticator
+	Permissions                func(Claims) map[string]bool
+	PasswordAuth               *PasswordAuthService
+	AuthService                *AuthService
+	Sessions                   *SessionManager
+	OIDC                       *OIDCService
+	AuthAdmin                  *AuthAdminService
+	Roles                      *RoleAdminService
+	CurrentUser                *CurrentUserService
+	Audit                      func(Claims, string, string)
+	Ready                      func(context.Context) error
+	CSRFOrigin                 string
+	CSRFOrigins                []string
+	CORSOrigins                []string
+	AuthRateLimiter            *platform.RateLimiter
+	Config                     RuntimeConfig
+	Operations                 *OperationsService
+	Runs                       *RunService
+	Infrastructure             *InfrastructureService
+	AuditQuery                 *AuditQueryService
+	ExitCodes                  store.ExitCodeRepository
+	GlobalVariables            *GlobalVariableService
+	RequireDurableRepositories bool
+}
+
+func (s Server) ValidateDurableRepositories() error {
+	if !s.RequireDurableRepositories {
+		return nil
+	}
+	if s.Operations == nil || !s.Operations.hasDurableRepositories() {
+		return errors.New("operations repositories are required")
+	}
+	if s.Runs == nil || !s.Runs.hasDurableRepository() {
+		return errors.New("run repository is required")
+	}
+	if s.Infrastructure == nil || !s.Infrastructure.hasDurableRepositories() {
+		return errors.New("infrastructure repositories are required")
+	}
+	if s.GlobalVariables == nil || !s.GlobalVariables.hasDurableRepository() {
+		return errors.New("global variable repository is required")
+	}
+	if s.AuditQuery == nil || !s.AuditQuery.hasDurableRepository() {
+		return errors.New("audit repository is required")
+	}
+	if s.ExitCodes == nil {
+		return errors.New("exit-code repository is required")
+	}
+	return nil
 }
 
 func (s Server) Handler() http.Handler {
+	if err := s.ValidateDurableRepositories(); err != nil {
+		panic(err)
+	}
 	if err := ValidateRouteRegistry(RouteRegistry()); err != nil {
 		panic(err)
 	}
