@@ -58,7 +58,8 @@ Planned from [REPORT.md](./REPORT.md) and all detailed analysis artifacts. No wo
   - Importance Level: Medium
   - Description: Add focused coverage for configuration precedence, migration/NATS failures, readiness, signal shutdown, and background-loop startup in the high-complexity entry point. Evidence: [CODE.md#code-005](./CODE.md#code-005).
   - Test Description: Run targeted startup tests under `go test -race` and assert cleanup and goroutine termination for each failure path.
-  - Test Result: Not run
+  - Test Result: BLOCKED — startup composition still hard-codes PostgreSQL, NATS, migration, and signal dependencies; failure-path tests need a deliberate injectable composition boundary and live service fixtures.
+  - Blocked: Requires a scoped startup dependency seam and PostgreSQL/NATS test services.
   - Commit Hash: Not committed
 
 - [ ] Cover worker lifecycle boundaries
