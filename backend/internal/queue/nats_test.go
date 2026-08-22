@@ -9,6 +9,9 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
+var _ EventStream = (*JetStream)(nil)
+var _ RequestServer = (*JetStream)(nil)
+
 type testMessages struct {
 	items   []jetstream.Msg
 	stopped chan struct{}

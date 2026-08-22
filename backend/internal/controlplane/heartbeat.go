@@ -26,19 +26,15 @@ type RunnerCapacityHeartbeatRepository interface {
 	HeartbeatWithKeyAndCapacity(context.Context, string, string, time.Time, int, string, []byte) error
 }
 
-func RunRunnerHeartbeatMonitor(ctx context.Context, events *queue.JetStream, repository RunnerHeartbeatRepository, staleAfter, checkInterval time.Duration) error {
+func RunRunnerHeartbeatMonitor(ctx context.Context, events queue.EventStream, repository RunnerHeartbeatRepository, staleAfter, checkInterval time.Duration) error {
 	if events == nil || repository == nil || staleAfter <= 0 || checkInterval <= 0 {
 		return errors.New("runner heartbeat monitor is not configured")
 	}
 	monitorCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	consumer, err := events.Consumer(monitorCtx, "control-plane-runner-heartbeats", "glyphflow.events.>", 100)
-	if err != nil {
-		return err
-	}
 	go func() {
 		for monitorCtx.Err() == nil {
-			if err := events.ConsumeOne(monitorCtx, consumer, func(ctx context.Context, message queue.Message) error {
+			if err := events.ConsumeSubject(monitorCtx, "control-plane-runner-heartbeats", "glyphflow.events.>", 100, func(ctx context.Context, message queue.Message) error {
 				return recordRunnerHeartbeatForSubject(ctx, repository, message.Subject, message.Data)
 			}); err != nil && monitorCtx.Err() == nil {
 				select {

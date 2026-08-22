@@ -162,6 +162,14 @@ func (j *JetStream) ConsumeOne(ctx context.Context, consumer jetstream.Consumer,
 	return j.processMessage(ctx, message, handler)
 }
 
+func (j *JetStream) ConsumeSubject(ctx context.Context, durable, subject string, maxPending int, handler Handler) error {
+	consumer, err := j.Consumer(ctx, durable, subject, maxPending)
+	if err != nil {
+		return err
+	}
+	return j.ConsumeOne(ctx, consumer, handler)
+}
+
 func (j *JetStream) ConsumeConcurrent(ctx context.Context, consumer jetstream.Consumer, handler Handler) error {
 	if consumer == nil || handler == nil {
 		return errors.New("consumer and handler are required")

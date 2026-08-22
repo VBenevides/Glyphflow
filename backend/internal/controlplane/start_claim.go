@@ -14,7 +14,7 @@ import (
 
 const startClaimClockTolerance = 5 * time.Second
 
-func RunStartClaimServer(ctx context.Context, events *queue.JetStream, runs store.StartClaimRepository, keys RunnerKeyRepository, signingKey protocol.SigningKey) error {
+func RunStartClaimServer(ctx context.Context, events queue.RequestServer, runs store.StartClaimRepository, keys RunnerKeyRepository, signingKey protocol.SigningKey) error {
 	if events == nil || runs == nil || keys == nil || len(signingKey.Private) != ed25519.PrivateKeySize {
 		return errors.New("start claim server is not configured")
 	}
