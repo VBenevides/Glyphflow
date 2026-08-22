@@ -18,6 +18,16 @@ type Publisher interface {
 type Requester interface {
 	Request(context.Context, Message, time.Duration) (Message, error)
 }
+
+type EventStream interface {
+	Publisher
+	ConsumeSubject(context.Context, string, string, int, Handler) error
+}
+
+type RequestServer interface {
+	ServeRequests(context.Context, string, RequestHandler) error
+}
+
 type Consumer interface {
 	Consume(context.Context) (Message, error)
 }

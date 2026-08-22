@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/ed25519"
+	"encoding/base64"
 	"strings"
 	"testing"
 )
@@ -93,5 +95,42 @@ func TestFromEnvRejectsMalformedBoolean(t *testing.T) {
 	t.Setenv("ENABLE_PASSWORD_LOGIN", "sometimes")
 	if _, err := FromEnv(ControlPlane); err == nil {
 		t.Fatal("malformed password-login boolean was accepted")
+	}
+}
+
+func TestDatabaseSSLMode(t *testing.T) {
+	if got := databaseSSLMode("postgres://user:pass@db/glyphflow?sslmode=verify-full"); got != "verify-full" {
+		t.Fatalf("databaseSSLMode() = %q", got)
+	}
+	if got := databaseSSLMode("postgres://user:pass@db/glyphflow?sslmode=disable"); got != "disable" {
+		t.Fatalf("databaseSSLMode() = %q", got)
+	}
+	if got := databaseSSLMode("not a URL"); got != "" {
+		t.Fatalf("databaseSSLMode(invalid) = %q", got)
+	}
+}
+
+func TestValidateControlPlaneRequiresPostgresTLS(t *testing.T) {
+	config := Config{
+		Role:                          ControlPlane,
+		DatabaseURL:                   "postgres://user:pass@db/glyphflow?sslmode=disable",
+		NATSURL:                       "tls://nats:4222",
+		NATSCertFile:                  "/run/secrets/nats-cert",
+		NATSKeyFile:                   "/run/secrets/nats-key",
+		NATSCAFile:                    "/run/secrets/nats-ca",
+		AccessTokenSecret:             "01234567890123456789012345678901",
+		ControlPlaneSigningPrivateKey: base64.RawStdEncoding.EncodeToString(make([]byte, ed25519.PrivateKeySize)),
+		PasswordPepper:                "0123456789012345",
+		WebOrigin:                     "https://console.example",
+		DataDir:                       "/var/lib/glyphflow",
+		MaxMessageBytes:               1 << 20,
+		Environment:                   "staging",
+	}
+	if err := config.Validate(); err == nil || !strings.Contains(err.Error(), "sslmode=verify-full") {
+		t.Fatalf("plaintext database URL error = %v", err)
+	}
+	config.DatabaseURL = "postgres://user:pass@db/glyphflow?sslmode=verify-full"
+	if err := config.Validate(); err != nil {
+		t.Fatalf("TLS database URL rejected: %v", err)
 	}
 }

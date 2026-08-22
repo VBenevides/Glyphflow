@@ -25,10 +25,16 @@ import (
 )
 
 func main() {
-	cfg, err := config.FromEnv(config.ControlPlane)
-	if err != nil {
+	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
+	}
+}
+
+func run() error {
+	cfg, err := config.FromEnv(config.ControlPlane)
+	if err != nil {
+		return err
 	}
 	for _, origin := range cfg.CORSOrigins {
 		if origin != "*" {
@@ -41,18 +47,14 @@ func main() {
 	defer stop()
 	db, err := pgxpool.New(ctx, cfg.DatabaseURL)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
+	defer db.Close()
 	if err := db.Ping(ctx); err != nil {
-		db.Close()
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
 	if err := store.ApplyMigrations(ctx, db, "migrations"); err != nil {
-		db.Close()
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
 	configStore := store.NewConfigStore(db)
 	for name, value := range map[string]any{
@@ -66,9 +68,7 @@ func main() {
 		"LOCKDOWN_SCHEDULER":           false,
 	} {
 		if err := configStore.SetIfAbsent(ctx, name, value); err != nil {
-			db.Close()
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+			return err
 		}
 	}
 	signingKeyPath := ""
@@ -77,16 +77,12 @@ func main() {
 	}
 	signingKey, err := loadControlPlaneSigningKey(cfg.ControlPlaneSigningPrivateKey, signingKeyPath)
 	if err != nil {
-		db.Close()
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
 	if len(cfg.SystemAdminEmails) == 0 {
 		var storedSystemAdminEmails []string
 		if found, err := configStore.Get(ctx, "GLYPHFLOW_SYSTEM_ADMINS", &storedSystemAdminEmails); err != nil {
-			db.Close()
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+			return err
 		} else if found {
 			cfg.SystemAdminEmails = storedSystemAdminEmails
 		}
@@ -94,37 +90,28 @@ func main() {
 	var storedPasswordLogin, storedPasswordRegistration, storedLockdownScheduler bool
 	var storedDefaultRoleID string
 	if found, err := configStore.Get(ctx, "ENABLE_PASSWORD_LOGIN", &storedPasswordLogin); err != nil {
-		db.Close()
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	} else if found {
 		cfg.PasswordLoginEnabled = storedPasswordLogin
 	}
 	if found, err := configStore.Get(ctx, "ENABLE_PASSWORD_REGISTRATION", &storedPasswordRegistration); err != nil {
-		db.Close()
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	} else if found {
 		cfg.PasswordRegistrationEnabled = storedPasswordRegistration
 	}
 	if found, err := configStore.Get(ctx, "DEFAULT_ROLE_ID", &storedDefaultRoleID); err != nil {
-		db.Close()
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	} else if found && strings.TrimSpace(storedDefaultRoleID) != "" {
 		cfg.DefaultRoleID = storedDefaultRoleID
 	}
 	if found, err := configStore.Get(ctx, "LOCKDOWN_SCHEDULER", &storedLockdownScheduler); err != nil {
-		db.Close()
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	} else if found {
 		cfg.LockdownScheduler = storedLockdownScheduler
 	}
 	authService, err := api.NewAuthService(cfg.AccessTokenSecret, cfg.PasswordLoginEnabled, cfg.PasswordRegistrationEnabled, []byte(cfg.PasswordPepper))
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
 	authService.SetUserRepository(store.NewUserRepository(db))
 	roleRepository := store.NewRoleRepository(db)
@@ -135,21 +122,16 @@ func main() {
 	authService.SetSessionRepository(sessionRepository)
 	authService.SetSSORepository(store.NewOIDCProviderRepository(db))
 	if err := authService.AddRole("admin", platform.PermissionCatalog...); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
 	if err := authService.AddRole("user", platform.UserPermissionCatalog...); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
 	if err := authService.AddRole("operator", platform.OperatorPermissionCatalog...); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
 	if err := authService.SetDefaultRoleID(cfg.DefaultRoleID); err != nil {
-		db.Close()
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
 	oidcService := api.NewOIDCService()
 	oidcService.SetDefaultCallback(strings.TrimRight(cfg.WebOrigin, "/") + "/api/v1/auth/oidc/callback")
@@ -158,16 +140,13 @@ func main() {
 	roles := api.NewRoleAdminService()
 	roles.SetRepository(roleRepository)
 	if err := roles.Seed("admin", platform.PermissionCatalog); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
 	if err := roles.Seed("user", platform.UserPermissionCatalog); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
 	if err := roles.Seed("operator", platform.OperatorPermissionCatalog); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
 	operations := api.NewOperationsService()
 	operations.SetTaskRepository(store.NewTaskRepository(db))
@@ -180,9 +159,7 @@ func main() {
 	runs.SetRepository(runRepository)
 	runnerRepository := store.NewRunnerRepository(db)
 	if err := runnerRepository.EnsurePool(ctx, "default", "default"); err != nil {
-		db.Close()
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
 	infrastructure := api.NewInfrastructureService()
 	infrastructure.SetRunnerRepository(runnerRepository)
@@ -207,22 +184,22 @@ func main() {
 		metrics.AuditAppendErrors.Add(1)
 		_ = logger.Event("audit.append_failed", map[string]string{"id": event.ID, "actor": event.Actor, "error": err.Error(), "count": strconv.FormatUint(metrics.AuditAppendErrors.Load(), 10)})
 	})
+	health := controlplane.NewHealth("session-cleanup", "heartbeat", "dispatcher", "start-claim", "scheduler")
 	application := api.Server{AuthService: authService, AuthAdmin: &api.AuthAdminService{Auth: authService, OIDC: oidcService, Sessions: authService.SessionManager()}, Sessions: authService.SessionManager(), OIDC: oidcService, Roles: roles, Auth: authService.Authenticator(), Permissions: authService.Permissions, CSRFOrigin: cfg.WebOrigin, CSRFOrigins: cfg.CSRFOrigins, CORSOrigins: cfg.CORSOrigins, Operations: operations, Runs: runs, Infrastructure: infrastructure, AuditQuery: audit, ExitCodes: store.NewExitCodeRepository(db), GlobalVariables: globalVariables, Ready: func(ctx context.Context) error {
 		if err := db.Ping(ctx); err != nil {
 			return err
 		}
 		return nil
-	}}
+	}, RequireDurableRepositories: true}
+	if err := application.ValidateDurableRepositories(); err != nil {
+		return err
+	}
 	if err := authService.SetSystemAdminEmails(cfg.SystemAdminEmails); err != nil {
-		db.Close()
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
 	if cfg.BootstrapUsername != "" && cfg.BootstrapPassword != "" {
 		if _, err := authService.EnsureBootstrap(cfg.BootstrapUsername, cfg.BootstrapPassword, "", ""); err != nil {
-			db.Close()
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+			return err
 		}
 	}
 	var jetstream *queue.JetStream
@@ -232,18 +209,19 @@ func main() {
 		jetstream, err = queue.ConnectJetStreamPlain(cfg.NATSURL)
 	}
 	if err != nil {
-		db.Close()
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
 	infrastructure.SetRunnerCapacityPublisher(jetstream, signingKey)
-	defer func() { jetstream.Close(); db.Close() }()
+	defer jetstream.Close()
 	go func() {
 		const sessionRetention = 14 * 24 * time.Hour
 		cleanup := func() {
 			if err := sessionRepository.DeleteOlderThan(ctx, time.Now().UTC().Add(-sessionRetention)); err != nil && ctx.Err() == nil {
+				health.MarkFailed("session-cleanup", err)
 				fmt.Fprintln(os.Stderr, "session cleanup:", err)
+				return
 			}
+			health.MarkHealthy("session-cleanup")
 		}
 		cleanup()
 		ticker := time.NewTicker(24 * time.Hour)
@@ -259,7 +237,9 @@ func main() {
 	}()
 	go func() {
 		for ctx.Err() == nil {
+			health.MarkHealthy("heartbeat")
 			if err := controlplane.RunRunnerHeartbeatMonitor(ctx, jetstream, runnerRepository, 30*time.Second, 10*time.Second); err != nil && ctx.Err() == nil {
+				health.MarkFailed("heartbeat", err)
 				fmt.Fprintln(os.Stderr, "runner heartbeat monitor:", err)
 				time.Sleep(time.Second)
 			}
@@ -267,7 +247,9 @@ func main() {
 	}()
 	go func() {
 		for ctx.Err() == nil {
+			health.MarkHealthy("dispatcher")
 			if err := controlplane.RunDispatcher(ctx, jetstream, runRepository, runnerRepository, signingKey, 500*time.Millisecond); err != nil && ctx.Err() == nil {
+				health.MarkFailed("dispatcher", err)
 				fmt.Fprintln(os.Stderr, "run dispatcher:", err)
 				select {
 				case <-time.After(time.Second):
@@ -279,7 +261,9 @@ func main() {
 	}()
 	go func() {
 		for ctx.Err() == nil {
+			health.MarkHealthy("start-claim")
 			if err := controlplane.RunStartClaimServer(ctx, jetstream, runRepository, runnerRepository, signingKey); err != nil && ctx.Err() == nil {
+				health.MarkFailed("start-claim", err)
 				fmt.Fprintln(os.Stderr, "start claim server:", err)
 				select {
 				case <-time.After(time.Second):
@@ -291,7 +275,9 @@ func main() {
 	}()
 	go func() {
 		for ctx.Err() == nil {
+			health.MarkHealthy("scheduler")
 			if err := controlplane.RunScheduler(ctx, scheduleRepository, 500*time.Millisecond); err != nil && ctx.Err() == nil {
+				health.MarkFailed("scheduler", err)
 				fmt.Fprintln(os.Stderr, "schedule runner:", err)
 				select {
 				case <-time.After(time.Second):
@@ -311,7 +297,7 @@ func main() {
 				if jetstream == nil {
 					return fmt.Errorf("NATS is not connected")
 				}
-				return nil
+				return health.Ready()
 			}
 			return application.Handler()
 		}(),
@@ -328,7 +314,7 @@ func main() {
 	}()
 	fmt.Printf("Glyphflow control plane v%s\n", backend.Version)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
+	return nil
 }

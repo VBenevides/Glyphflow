@@ -97,6 +97,12 @@ func (o *OperationsService) SetScheduleRepository(repository store.ScheduleRepos
 	}
 }
 
+func (o *OperationsService) hasDurableRepositories() bool {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	return o.repository != nil && o.scheduleRepository != nil
+}
+
 func taskRecordFromStore(task store.TaskRecord) TaskRecord {
 	var latestRun *RunRecord
 	if task.LatestRun != nil {
@@ -713,15 +719,22 @@ func writePage[T any](w http.ResponseWriter, r *http.Request, items []T) {
 	} else if limit < 1 || limit > 100 {
 		limit = 50
 	}
-	start := (page - 1) * limit
-	if start > len(items) {
-		start = len(items)
+	start := 0
+	if page > 1 {
+		if page-1 > len(items)/limit {
+			start = len(items)
+		} else {
+			start = (page - 1) * limit
+		}
 	}
-	end := start + limit
-	if end > len(items) {
-		end = len(items)
+	end := len(items)
+	if limit <= len(items)-start {
+		end = start + limit
 	}
-	pages := (len(items) + limit - 1) / limit
+	pages := len(items) / limit
+	if len(items)%limit != 0 {
+		pages++
+	}
 	if pages == 0 {
 		pages = 1
 	}

@@ -29,6 +29,12 @@ func (s *GlobalVariableService) SetRepository(repository store.GlobalVariableRep
 	}
 }
 
+func (s *GlobalVariableService) hasDurableRepository() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.repository != nil
+}
+
 func (s *GlobalVariableService) collection(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	repository := s.repository

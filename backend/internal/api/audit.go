@@ -226,6 +226,12 @@ func (s *AuditQueryService) SetRepository(repository store.AuditRepository) {
 	}
 }
 
+func (s *AuditQueryService) hasDurableRepository() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.repository != nil
+}
+
 // SetAppendFailureHandler registers the operator signal for durable audit
 // write failures. The callback must not block request handling.
 func (s *AuditQueryService) SetAppendFailureHandler(handler func(AuditEvent, error)) {

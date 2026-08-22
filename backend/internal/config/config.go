@@ -169,7 +169,13 @@ func (c Config) Validate() error {
 		if c.Environment == "production" && (c.NATSCertFile == "" || c.NATSKeyFile == "" || c.NATSCAFile == "") {
 			return errors.New("production requires NATS client certificate, key, and CA files")
 		}
-		return requireURL("DATABASE_URL", c.DatabaseURL, "postgres", "postgresql")
+		if err := requireURL("DATABASE_URL", c.DatabaseURL, "postgres", "postgresql"); err != nil {
+			return err
+		}
+		if c.Environment != "development" && databaseSSLMode(c.DatabaseURL) != "verify-full" {
+			return errors.New("DATABASE_URL must use sslmode=verify-full outside development")
+		}
+		return nil
 	}
 	if !runnerIDPattern.MatchString(c.RunnerID) {
 		return errors.New("RUNNER_ID must contain only letters, digits, dot, underscore, or hyphen")
@@ -244,4 +250,12 @@ func requireURL(name, value string, schemes ...string) error {
 		}
 	}
 	return fmt.Errorf("%s has unsupported scheme %q", name, parsed.Scheme)
+}
+
+func databaseSSLMode(value string) string {
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return ""
+	}
+	return parsed.Query().Get("sslmode")
 }

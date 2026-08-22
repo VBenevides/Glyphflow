@@ -359,33 +359,10 @@ func validateScheduleDefinition(definition ScheduleDefinition) error {
 	if definition.ID == "" || definition.Name == "" || definition.TaskID == "" || definition.Expression == "" {
 		return errors.New("schedule id, task, name, and expression are required")
 	}
-	if _, err := scheduleLocation(definition.Timezone); err != nil && globalVariableReferencePattern.FindString(definition.Timezone) != definition.Timezone {
+	if _, err := platform.ScheduleLocation(definition.Timezone); err != nil && globalVariableReferencePattern.FindString(definition.Timezone) != definition.Timezone {
 		return errors.New("schedule timezone is invalid")
 	}
 	return nil
-}
-
-func scheduleLocation(value string) (*time.Location, error) {
-	if len(value) >= 5 && strings.HasPrefix(value, "UTC") && (value[3] == '+' || value[3] == '-') {
-		parts := strings.Split(value[4:], ":")
-		hours, err := strconv.Atoi(parts[0])
-		if err != nil || hours > 23 || len(parts) > 2 {
-			return nil, errors.New("UTC offset is invalid")
-		}
-		minutes := 0
-		if len(parts) == 2 {
-			minutes, err = strconv.Atoi(parts[1])
-			if err != nil || minutes != 0 {
-				return nil, errors.New("UTC offset must use whole hours")
-			}
-		}
-		seconds := hours*60*60 + minutes*60
-		if value[3] == '-' {
-			seconds = -seconds
-		}
-		return time.FixedZone(value, seconds), nil
-	}
-	return time.LoadLocation(value)
 }
 
 func insertScheduleVersion(ctx context.Context, tx pgx.Tx, scheduleID, taskID string, version int, taskVersionID string, definition ScheduleDefinition) error {

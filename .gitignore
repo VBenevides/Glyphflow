@@ -39,3 +39,4 @@ local/
 internal/**/*.png
 /**/*gitignored*
 .dev-data/
+/.agent-work/

@@ -54,6 +54,12 @@ func (s *RunService) SetRepository(repository store.RunRepository) {
 	}
 }
 
+func (s *RunService) hasDurableRepository() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.repository != nil
+}
+
 func runRecordFromStore(run store.RunRecord) RunRecord {
 	scheduledFor := ""
 	if !run.ScheduledFor.IsZero() {

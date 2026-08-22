@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"runtime/debug"
@@ -56,31 +57,60 @@ type RuntimeConfig struct {
 }
 
 type Server struct {
-	Auth            Authenticator
-	Permissions     func(Claims) map[string]bool
-	PasswordAuth    *PasswordAuthService
-	AuthService     *AuthService
-	Sessions        *SessionManager
-	OIDC            *OIDCService
-	AuthAdmin       *AuthAdminService
-	Roles           *RoleAdminService
-	CurrentUser     *CurrentUserService
-	Audit           func(Claims, string, string)
-	Ready           func(context.Context) error
-	CSRFOrigin      string
-	CSRFOrigins     []string
-	CORSOrigins     []string
-	AuthRateLimiter *platform.RateLimiter
-	Config          RuntimeConfig
-	Operations      *OperationsService
-	Runs            *RunService
-	Infrastructure  *InfrastructureService
-	AuditQuery      *AuditQueryService
-	ExitCodes       store.ExitCodeRepository
-	GlobalVariables *GlobalVariableService
+	Auth                       Authenticator
+	Permissions                func(Claims) map[string]bool
+	PasswordAuth               *PasswordAuthService
+	AuthService                *AuthService
+	Sessions                   *SessionManager
+	OIDC                       *OIDCService
+	AuthAdmin                  *AuthAdminService
+	Roles                      *RoleAdminService
+	CurrentUser                *CurrentUserService
+	Audit                      func(Claims, string, string)
+	Ready                      func(context.Context) error
+	CSRFOrigin                 string
+	CSRFOrigins                []string
+	CORSOrigins                []string
+	AuthRateLimiter            *platform.RateLimiter
+	Config                     RuntimeConfig
+	Operations                 *OperationsService
+	Runs                       *RunService
+	Infrastructure             *InfrastructureService
+	AuditQuery                 *AuditQueryService
+	ExitCodes                  store.ExitCodeRepository
+	GlobalVariables            *GlobalVariableService
+	RequireDurableRepositories bool
+}
+
+func (s Server) ValidateDurableRepositories() error {
+	if !s.RequireDurableRepositories {
+		return nil
+	}
+	if s.Operations == nil || !s.Operations.hasDurableRepositories() {
+		return errors.New("operations repositories are required")
+	}
+	if s.Runs == nil || !s.Runs.hasDurableRepository() {
+		return errors.New("run repository is required")
+	}
+	if s.Infrastructure == nil || !s.Infrastructure.hasDurableRepositories() {
+		return errors.New("infrastructure repositories are required")
+	}
+	if s.GlobalVariables == nil || !s.GlobalVariables.hasDurableRepository() {
+		return errors.New("global variable repository is required")
+	}
+	if s.AuditQuery == nil || !s.AuditQuery.hasDurableRepository() {
+		return errors.New("audit repository is required")
+	}
+	if s.ExitCodes == nil {
+		return errors.New("exit-code repository is required")
+	}
+	return nil
 }
 
 func (s Server) Handler() http.Handler {
+	if err := s.ValidateDurableRepositories(); err != nil {
+		panic(err)
+	}
 	if err := ValidateRouteRegistry(RouteRegistry()); err != nil {
 		panic(err)
 	}
@@ -290,29 +320,24 @@ func isWriteMethod(method string) bool {
 func (s Server) withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestOrigin := r.Header.Get("Origin")
-		wildcard := false
 		allowed := false
 		for _, configuredOrigin := range s.CORSOrigins {
 			if configuredOrigin == "*" {
-				wildcard, allowed = true, true
-				break
+				continue
 			}
 			if configuredOrigin == requestOrigin {
 				allowed = true
+				break
 			}
 		}
 		if !allowed {
 			next.ServeHTTP(w, r)
 			return
 		}
-		origin := requestOrigin
-		if wildcard && origin == "" {
-			origin = "*"
-		}
-		if wildcard || len(s.CORSOrigins) > 1 {
+		if len(s.CORSOrigins) > 1 {
 			w.Header().Set("Vary", "Origin")
 		}
-		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Access-Control-Allow-Origin", requestOrigin)
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-CSRF-Token")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS")

@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/VBenevides/Glyphflow/backend/internal/platform"
 )
 
 type Schedule struct {
@@ -25,7 +27,7 @@ func (s Schedule) Next(now time.Time) (time.Time, error) {
 	location := time.UTC
 	if s.Timezone != "" {
 		var err error
-		location, err = scheduleLocation(s.Timezone)
+		location, err = platform.ScheduleLocation(s.Timezone)
 		if err != nil {
 			return time.Time{}, err
 		}
@@ -43,61 +45,35 @@ func (s Schedule) Next(now time.Time) (time.Time, error) {
 	return time.Time{}, errors.New("schedule must be manual, fixed-time, or five-field cron")
 }
 
-func scheduleLocation(value string) (*time.Location, error) {
-	if len(value) >= 5 && strings.HasPrefix(value, "UTC") && (value[3] == '+' || value[3] == '-') {
-		parts := strings.Split(strings.TrimPrefix(value[3:], "+"), ":")
-		if value[3] == '-' {
-			parts = strings.Split(strings.TrimPrefix(value[3:], "-"), ":")
-		}
-		hours, err := strconv.Atoi(parts[0])
-		if err != nil || hours > 23 || len(parts) > 2 {
-			return nil, errors.New("UTC offset is invalid")
-		}
-		minutes := 0
-		if len(parts) == 2 {
-			minutes, err = strconv.Atoi(parts[1])
-			if err != nil || minutes != 0 {
-				return nil, errors.New("UTC offset must use whole hours")
-			}
-		}
-		seconds := hours*60*60 + minutes*60
-		if value[3] == '-' {
-			seconds = -seconds
-		}
-		return time.FixedZone(value, seconds), nil
-	}
-	return time.LoadLocation(value)
-}
-
 func nextCronMinute(now time.Time, expression string) (time.Time, error) {
 	fields := splitFields(expression)
 	if len(fields) != 5 {
 		return time.Time{}, errors.New("cron requires five fields")
 	}
-	if _, err := parseCronField(fields[0], 0, 59); err != nil {
+	minute, err := parseCronField(fields[0], 0, 59)
+	if err != nil {
 		return time.Time{}, err
 	}
-	if _, err := parseCronField(fields[1], 0, 23); err != nil {
+	hour, err := parseCronField(fields[1], 0, 23)
+	if err != nil {
 		return time.Time{}, err
 	}
-	if _, err := parseCronField(fields[2], 1, 31); err != nil {
+	dom, err := parseCronField(fields[2], 1, 31)
+	if err != nil {
 		return time.Time{}, err
 	}
-	if _, err := parseCronField(fields[3], 1, 12); err != nil {
+	month, err := parseCronField(fields[3], 1, 12)
+	if err != nil {
 		return time.Time{}, err
 	}
-	if _, err := parseCronField(fields[4], 0, 6); err != nil {
+	dow, err := parseCronField(fields[4], 0, 6)
+	if err != nil {
 		return time.Time{}, err
 	}
 	domAny := fields[2] == "*"
 	dowAny := fields[4] == "*"
 	for i := 1; i <= 24*60*370; i++ {
 		candidate := now.Truncate(time.Minute).Add(time.Duration(i) * time.Minute)
-		minute, _ := parseCronField(fields[0], 0, 59)
-		hour, _ := parseCronField(fields[1], 0, 23)
-		dom, _ := parseCronField(fields[2], 1, 31)
-		month, _ := parseCronField(fields[3], 1, 12)
-		dow, _ := parseCronField(fields[4], 0, 6)
 		dayMatch := dom[candidate.Day()] || dow[int(candidate.Weekday())]
 		if domAny {
 			dayMatch = dow[int(candidate.Weekday())]

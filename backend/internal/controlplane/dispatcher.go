@@ -31,18 +31,14 @@ type RunnerKeyRepository interface {
 	FindPublicKey(context.Context, string, string) (ed25519.PublicKey, error)
 }
 
-func RunDispatcher(ctx context.Context, events *queue.JetStream, runs DispatchRepository, keys RunnerKeyRepository, signingKey protocol.SigningKey, pollInterval time.Duration) error {
+func RunDispatcher(ctx context.Context, events queue.EventStream, runs DispatchRepository, keys RunnerKeyRepository, signingKey protocol.SigningKey, pollInterval time.Duration) error {
 	if events == nil || runs == nil || keys == nil || len(signingKey.Private) != ed25519.PrivateKeySize || pollInterval <= 0 {
 		return errors.New("run dispatcher is not configured")
-	}
-	consumer, err := events.Consumer(ctx, "control-plane-run-events", "glyphflow.events.>", 100)
-	if err != nil {
-		return err
 	}
 	eventErrors := make(chan error, 1)
 	go func() {
 		for ctx.Err() == nil {
-			if err := events.ConsumeOne(ctx, consumer, func(handlerCtx context.Context, message queue.Message) error {
+			if err := events.ConsumeSubject(ctx, "control-plane-run-events", "glyphflow.events.>", 100, func(handlerCtx context.Context, message queue.Message) error {
 				return applyRunnerEvent(handlerCtx, keys, runs, message)
 			}); err != nil && ctx.Err() == nil {
 				select {
@@ -89,7 +85,7 @@ func RunDispatcher(ctx context.Context, events *queue.JetStream, runs DispatchRe
 	}
 }
 
-func dispatchWaiting(ctx context.Context, events *queue.JetStream, runs DispatchRepository, signingKey protocol.SigningKey) error {
+func dispatchWaiting(ctx context.Context, events queue.Publisher, runs DispatchRepository, signingKey protocol.SigningKey) error {
 	for range 100 {
 		candidate, claimed, err := runs.ClaimWaiting(ctx, func(candidate store.DispatchCandidate) ([]byte, error) {
 			payload := protocol.OrderPayload{
@@ -125,7 +121,7 @@ func dispatchWaiting(ctx context.Context, events *queue.JetStream, runs Dispatch
 	return nil
 }
 
-func dispatchCancellations(ctx context.Context, events *queue.JetStream, runs DispatchRepository, signingKey protocol.SigningKey) error {
+func dispatchCancellations(ctx context.Context, events queue.Publisher, runs DispatchRepository, signingKey protocol.SigningKey) error {
 	for range 100 {
 		candidate, claimed, err := runs.ClaimCancelling(ctx, func(candidate store.CancellationCandidate) ([]byte, error) {
 			now := time.Now().UTC()
@@ -161,7 +157,7 @@ func dispatchCancellations(ctx context.Context, events *queue.JetStream, runs Di
 	return nil
 }
 
-func publishPending(ctx context.Context, events *queue.JetStream, runs DispatchRepository) error {
+func publishPending(ctx context.Context, events queue.Publisher, runs DispatchRepository) error {
 	items, err := runs.PendingDispatch(ctx, 100)
 	if err != nil {
 		return err
