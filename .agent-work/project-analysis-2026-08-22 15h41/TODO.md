@@ -109,12 +109,12 @@ Planned from [REPORT.md](./REPORT.md) and all detailed analysis artifacts. No wo
   - Test Result: PASS — clean install, dependency tree, typecheck, 36 test files/95 tests, build, and diff checks passed.
   - Commit Hash: `9b7a2c019d260d95d09043e4111bb9a6d1288539`
 
-- [ ] Validate a clean npm installation
+- [x] Validate a clean npm installation
   - Importance Level: Medium
-  - Description: Confirm whether the reported invalid local `esbuild` peer state reproduces from the committed lockfile rather than stale `node_modules`. Evidence: [DEPENDENCIES.md](./DEPENDENCIES.md#high-priority-actions).
-  - Test Description: Run `npm ci` in a clean workspace, then run `npm ls --all` and the frontend build/test commands.
-  - Test Result: Not run
-  - Commit Hash: Not committed
+  - Description: A clean install reproduced the old invalid esbuild state before the Vite alignment and passed after the regenerated lockfile removed the nested Vite major. Evidence: [DEPENDENCIES.md](./DEPENDENCIES.md#high-priority-actions).
+  - Test Description: `npm ci --ignore-scripts`; `npm ls --all`; `npm run typecheck`; `npm test -- --run`; `npm run build`
+  - Test Result: PASS after the toolchain fix — clean install, dependency tree, typecheck, 36 test files/95 tests, and build passed.
+  - Commit Hash: `9b7a2c019d260d95d09043e4111bb9a6d1288539`
 
 - [x] Add a supported JavaScript runtime policy
   - Importance Level: Low
