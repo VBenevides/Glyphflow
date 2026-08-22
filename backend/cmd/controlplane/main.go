@@ -25,10 +25,16 @@ import (
 )
 
 func main() {
-	cfg, err := config.FromEnv(config.ControlPlane)
-	if err != nil {
+	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
+	}
+}
+
+func run() error {
+	cfg, err := config.FromEnv(config.ControlPlane)
+	if err != nil {
+		return err
 	}
 	for _, origin := range cfg.CORSOrigins {
 		if origin != "*" {
@@ -41,18 +47,14 @@ func main() {
 	defer stop()
 	db, err := pgxpool.New(ctx, cfg.DatabaseURL)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
+	defer db.Close()
 	if err := db.Ping(ctx); err != nil {
-		db.Close()
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
 	if err := store.ApplyMigrations(ctx, db, "migrations"); err != nil {
-		db.Close()
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
 	configStore := store.NewConfigStore(db)
 	for name, value := range map[string]any{
@@ -66,9 +68,7 @@ func main() {
 		"LOCKDOWN_SCHEDULER":           false,
 	} {
 		if err := configStore.SetIfAbsent(ctx, name, value); err != nil {
-			db.Close()
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+			return err
 		}
 	}
 	signingKeyPath := ""
@@ -77,16 +77,12 @@ func main() {
 	}
 	signingKey, err := loadControlPlaneSigningKey(cfg.ControlPlaneSigningPrivateKey, signingKeyPath)
 	if err != nil {
-		db.Close()
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
 	if len(cfg.SystemAdminEmails) == 0 {
 		var storedSystemAdminEmails []string
 		if found, err := configStore.Get(ctx, "GLYPHFLOW_SYSTEM_ADMINS", &storedSystemAdminEmails); err != nil {
-			db.Close()
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+			return err
 		} else if found {
 			cfg.SystemAdminEmails = storedSystemAdminEmails
 		}
@@ -94,37 +90,28 @@ func main() {
 	var storedPasswordLogin, storedPasswordRegistration, storedLockdownScheduler bool
 	var storedDefaultRoleID string
 	if found, err := configStore.Get(ctx, "ENABLE_PASSWORD_LOGIN", &storedPasswordLogin); err != nil {
-		db.Close()
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	} else if found {
 		cfg.PasswordLoginEnabled = storedPasswordLogin
 	}
 	if found, err := configStore.Get(ctx, "ENABLE_PASSWORD_REGISTRATION", &storedPasswordRegistration); err != nil {
-		db.Close()
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	} else if found {
 		cfg.PasswordRegistrationEnabled = storedPasswordRegistration
 	}
 	if found, err := configStore.Get(ctx, "DEFAULT_ROLE_ID", &storedDefaultRoleID); err != nil {
-		db.Close()
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	} else if found && strings.TrimSpace(storedDefaultRoleID) != "" {
 		cfg.DefaultRoleID = storedDefaultRoleID
 	}
 	if found, err := configStore.Get(ctx, "LOCKDOWN_SCHEDULER", &storedLockdownScheduler); err != nil {
-		db.Close()
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	} else if found {
 		cfg.LockdownScheduler = storedLockdownScheduler
 	}
 	authService, err := api.NewAuthService(cfg.AccessTokenSecret, cfg.PasswordLoginEnabled, cfg.PasswordRegistrationEnabled, []byte(cfg.PasswordPepper))
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
 	authService.SetUserRepository(store.NewUserRepository(db))
 	roleRepository := store.NewRoleRepository(db)
@@ -135,21 +122,16 @@ func main() {
 	authService.SetSessionRepository(sessionRepository)
 	authService.SetSSORepository(store.NewOIDCProviderRepository(db))
 	if err := authService.AddRole("admin", platform.PermissionCatalog...); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
 	if err := authService.AddRole("user", platform.UserPermissionCatalog...); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
 	if err := authService.AddRole("operator", platform.OperatorPermissionCatalog...); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
 	if err := authService.SetDefaultRoleID(cfg.DefaultRoleID); err != nil {
-		db.Close()
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
 	oidcService := api.NewOIDCService()
 	oidcService.SetDefaultCallback(strings.TrimRight(cfg.WebOrigin, "/") + "/api/v1/auth/oidc/callback")
@@ -158,16 +140,13 @@ func main() {
 	roles := api.NewRoleAdminService()
 	roles.SetRepository(roleRepository)
 	if err := roles.Seed("admin", platform.PermissionCatalog); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
 	if err := roles.Seed("user", platform.UserPermissionCatalog); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
 	if err := roles.Seed("operator", platform.OperatorPermissionCatalog); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
 	operations := api.NewOperationsService()
 	operations.SetTaskRepository(store.NewTaskRepository(db))
@@ -180,9 +159,7 @@ func main() {
 	runs.SetRepository(runRepository)
 	runnerRepository := store.NewRunnerRepository(db)
 	if err := runnerRepository.EnsurePool(ctx, "default", "default"); err != nil {
-		db.Close()
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
 	infrastructure := api.NewInfrastructureService()
 	infrastructure.SetRunnerRepository(runnerRepository)
@@ -214,15 +191,11 @@ func main() {
 		return nil
 	}}
 	if err := authService.SetSystemAdminEmails(cfg.SystemAdminEmails); err != nil {
-		db.Close()
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
 	if cfg.BootstrapUsername != "" && cfg.BootstrapPassword != "" {
 		if _, err := authService.EnsureBootstrap(cfg.BootstrapUsername, cfg.BootstrapPassword, "", ""); err != nil {
-			db.Close()
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+			return err
 		}
 	}
 	var jetstream *queue.JetStream
@@ -232,12 +205,10 @@ func main() {
 		jetstream, err = queue.ConnectJetStreamPlain(cfg.NATSURL)
 	}
 	if err != nil {
-		db.Close()
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
 	infrastructure.SetRunnerCapacityPublisher(jetstream, signingKey)
-	defer func() { jetstream.Close(); db.Close() }()
+	defer jetstream.Close()
 	go func() {
 		const sessionRetention = 14 * 24 * time.Hour
 		cleanup := func() {
@@ -328,7 +299,7 @@ func main() {
 	}()
 	fmt.Printf("Glyphflow control plane v%s\n", backend.Version)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
+	return nil
 }
