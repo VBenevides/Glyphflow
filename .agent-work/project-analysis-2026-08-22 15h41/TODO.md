@@ -162,9 +162,9 @@ Planned from [REPORT.md](./REPORT.md) and all detailed analysis artifacts. No wo
   - Test Result: PASS — focused metadata and environment failure tests passed; diff check passed.
   - Commit Hash: `a347de5d10ee46e37d4243bcc7fde5231f5a696c`
 
-- [ ] Close control-plane resources on startup errors
+- [x] Close control-plane resources on startup errors
   - Importance Level: Low
-  - Description: Install one cleanup path immediately after database/NATS resource creation and avoid startup exits that bypass deterministic close calls. Evidence: [CODE.md#code-004](./CODE.md#code-004).
-  - Test Description: Inject failures at each startup stage and assert every opened resource is closed.
-  - Test Result: Not run
-  - Commit Hash: Not committed
+  - Description: Control-plane startup now returns errors through one deferred cleanup path; database cleanup begins immediately after pool creation and JetStream closes on termination. Evidence: [CODE.md#code-004](./CODE.md#code-004).
+  - Test Description: `GOCACHE=/tmp/glyphflow-go-cache-todo-solver go test ./cmd/controlplane`; `GOCACHE=/tmp/glyphflow-go-cache-todo-solver go vet ./cmd/controlplane`; `git diff --check`
+  - Test Result: PASS — control-plane tests, vet, and diff checks passed.
+  - Commit Hash: `369cb176c4e642b2a65714294cf6ab9bcb4823d3`
