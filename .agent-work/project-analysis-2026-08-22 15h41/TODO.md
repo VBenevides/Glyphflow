@@ -1,6 +1,6 @@
 # TODO
 
-Planned from [REPORT.md](./REPORT.md) and all detailed analysis artifacts. No work has started. The duplicate cron findings CODE-002 and OPT-002 are one consolidated item.
+Planned from [REPORT.md](./REPORT.md) and all detailed analysis artifacts. Completed work and blockers are recorded per item. The duplicate cron findings CODE-002 and OPT-002 are one consolidated item.
 
 ## Features
 
