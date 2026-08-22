@@ -97,7 +97,8 @@ Planned from [REPORT.md](./REPORT.md) and all detailed analysis artifacts. No wo
   - Importance Level: Medium
   - Description: Profile count-plus-page queries, leading-wildcard filters, JSON decoding, and the unbounded `all=true` response before changing SQL or API limits. Evidence: [OPTIMIZATION.md#opt-004](./OPTIMIZATION.md#opt-004).
   - Test Description: Run representative unfiltered, date, actor, and text-filtered queries with `EXPLAIN (ANALYZE, BUFFERS)` and record page/count latency, buffer reads, decode time, and response size.
-  - Test Result: Not run
+  - Test Result: BLOCKED — no PostgreSQL audit dataset or profiling service is available, so execution plans, buffer reads, decode timings, and response-size distributions cannot be measured.
+  - Blocked: Requires representative audit data in a network-enabled PostgreSQL fixture.
   - Commit Hash: Not committed
 
 - [ ] Measure dispatch backlog behavior
