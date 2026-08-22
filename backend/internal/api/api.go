@@ -290,29 +290,24 @@ func isWriteMethod(method string) bool {
 func (s Server) withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestOrigin := r.Header.Get("Origin")
-		wildcard := false
 		allowed := false
 		for _, configuredOrigin := range s.CORSOrigins {
 			if configuredOrigin == "*" {
-				wildcard, allowed = true, true
-				break
+				continue
 			}
 			if configuredOrigin == requestOrigin {
 				allowed = true
+				break
 			}
 		}
 		if !allowed {
 			next.ServeHTTP(w, r)
 			return
 		}
-		origin := requestOrigin
-		if wildcard && origin == "" {
-			origin = "*"
-		}
-		if wildcard || len(s.CORSOrigins) > 1 {
+		if len(s.CORSOrigins) > 1 {
 			w.Header().Set("Vary", "Origin")
 		}
-		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Access-Control-Allow-Origin", requestOrigin)
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-CSRF-Token")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS")

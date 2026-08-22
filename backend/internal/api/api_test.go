@@ -22,14 +22,49 @@ func TestAuthAndPagination(t *testing.T) {
 	}
 }
 
-func TestCORSWildcardHandlesCredentialedPreflight(t *testing.T) {
+func TestCORSOnlyAllowsExactConfiguredOrigins(t *testing.T) {
 	h := (Server{CORSOrigins: []string{"http://localhost:5173", "*"}}).Handler()
-	request := httptest.NewRequest(http.MethodOptions, "/api/v1/auth/login", nil)
+	for _, test := range []struct {
+		name   string
+		origin string
+		allow  string
+	}{
+		{name: "trusted origin", origin: "http://localhost:5173", allow: "http://localhost:5173"},
+		{name: "untrusted origin", origin: "http://other.example"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "/api/v1/healthz", nil)
+			request.Header.Set("Origin", test.origin)
+			response := httptest.NewRecorder()
+			h.ServeHTTP(response, request)
+			if got := response.Header().Get("Access-Control-Allow-Origin"); got != test.allow {
+				t.Fatalf("allow origin = %q, want %q", got, test.allow)
+			}
+			wantCredentials := ""
+			if test.allow != "" {
+				wantCredentials = "true"
+			}
+			if got := response.Header().Get("Access-Control-Allow-Credentials"); got != wantCredentials {
+				t.Fatalf("allow credentials = %q, want %q", got, wantCredentials)
+			}
+		})
+	}
+}
+
+func TestCORSDoesNotBypassCSRFForUntrustedOrigin(t *testing.T) {
+	h := (Server{
+		CORSOrigins: []string{"*"},
+		CSRFOrigins: []string{"http://localhost:5173"},
+	}).Handler()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", nil)
 	request.Header.Set("Origin", "http://other.example")
 	response := httptest.NewRecorder()
 	h.ServeHTTP(response, request)
-	if response.Code != http.StatusNoContent || response.Header().Get("Access-Control-Allow-Origin") != "http://other.example" || response.Header().Get("Access-Control-Allow-Credentials") != "true" {
-		t.Fatalf("unexpected CORS response: %d %#v", response.Code, response.Header())
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("untrusted state-changing request returned %d", response.Code)
+	}
+	if response.Header().Get("Access-Control-Allow-Origin") != "" || response.Header().Get("Access-Control-Allow-Credentials") != "" {
+		t.Fatalf("untrusted origin received CORS headers: %#v", response.Header())
 	}
 }
 
