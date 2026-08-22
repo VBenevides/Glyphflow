@@ -50,7 +50,8 @@ Planned from [REPORT.md](./REPORT.md) and all detailed analysis artifacts. No wo
   - Importance Level: Medium
   - Description: Keep new domain decisions in application services and durable reads/writes in repositories without introducing a generic framework or broad rewrite. Evidence: [ARCHITECTURE.md#arc-003](./ARCHITECTURE.md#arc-003).
   - Test Description: Add characterization tests around existing SQL transaction boundaries and verify one migrated policy at a time.
-  - Test Result: Not run
+  - Test Result: BLOCKED — the report does not select a concrete policy or migration boundary; existing repository interfaces and dispatch transaction tests cover the current seam, so a broader refactor would be speculative.
+  - Blocked: Requires an approved domain-policy migration target before changing production boundaries.
   - Commit Hash: Not committed
 
 - [ ] Cover control-plane startup lifecycle
