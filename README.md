@@ -35,6 +35,10 @@ The current release uses one control-plane executable, one NATS JetStream deploy
 
 Service splitting is deferred until measured scaling, deployment, or ownership needs justify it.
 
+The base [`compose.yaml`](compose.yaml) is for local development. For a
+non-local deployment, use [`compose.production.yaml`](compose.production.yaml)
+with explicit application, database, and TLS secret values.
+
 ## Features
 
 - Define tasks with immutable versions, cron schedules, environment variables, secret references, selectors, retry policies, resource policies, and ambiguity policies.
