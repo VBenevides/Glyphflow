@@ -66,7 +66,8 @@ Planned from [REPORT.md](./REPORT.md) and all detailed analysis artifacts. No wo
   - Importance Level: Medium
   - Description: Add narrow tests for persisted state, enrollment failure, consumer setup, cancellation, cleanup, and status reporting in `runWorker`. Evidence: [CODE.md#code-006](./CODE.md#code-006).
   - Test Description: Run lifecycle tests under `go test -race` and verify all background goroutines terminate after cancellation.
-  - Test Result: Not run
+  - Test Result: BLOCKED — `runWorker` directly creates the embedded bootstrap, SQLite store, JetStream, consumers, and background loops; comprehensive cancellation/failure tests need an explicit runtime seam and live enrollment/NATS fixtures.
+  - Blocked: Requires a scoped worker runtime dependency seam and service fixtures.
   - Commit Hash: Not committed
 
 - [ ] Measure run-list placement cost
