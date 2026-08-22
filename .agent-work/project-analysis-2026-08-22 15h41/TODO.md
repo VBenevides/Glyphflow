@@ -148,12 +148,12 @@ Planned from [REPORT.md](./REPORT.md) and all detailed analysis artifacts. No wo
 
 ## Bug Fixes
 
-- [ ] Bound pagination arithmetic
+- [x] Bound pagination arithmetic
   - Importance Level: Medium
-  - Description: Prevent integer overflow in the shared page helper before calculating slice offsets; return a bounded empty page or client error for out-of-range page values. Evidence: [CODE.md#code-001](./CODE.md#code-001).
-  - Test Description: Cover maximum integer, negative, malformed, and very large `page` values on repository-backed and in-memory endpoints; verify no handler panic.
-  - Test Result: Not run
-  - Commit Hash: Not committed
+  - Description: Pagination offsets now avoid integer overflow and return bounded pages for extreme values. Evidence: [CODE.md#code-001](./CODE.md#code-001).
+  - Test Description: `GOCACHE=/tmp/glyphflow-go-cache-todo-solver go test ./internal/api -run '^TestTaskCollectionBoundsPaginationPage$' -count=1`
+  - Test Result: PASS — in-memory and repository-backed maximum, negative, malformed, and very large page cases passed.
+  - Commit Hash: `3837b53f073a24f2e11bcd09976d449b50fb10d5`
 
 - [ ] Handle corrupt worker boot metadata
   - Importance Level: Medium
