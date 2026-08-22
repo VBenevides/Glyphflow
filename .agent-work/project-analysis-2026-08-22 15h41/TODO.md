@@ -102,12 +102,12 @@ Planned from [REPORT.md](./REPORT.md) and all detailed analysis artifacts. No wo
   - Test Result: Not run
   - Commit Hash: Not committed
 
-- [ ] Align the Vite and Vitest toolchain
+- [x] Align the Vite and Vitest toolchain
   - Importance Level: Medium
-  - Description: Remove the direct Vite 5/Vitest 4 peer mismatch and avoid the nested second Vite major; regenerate only the frontend lockfile after selecting compatible versions. Evidence: [DEPENDENCIES.md#dep-001](./DEPENDENCIES.md#dep-001).
-  - Test Description: In a clean environment run `npm ci`, `npm ls --all`, `npm run typecheck`, `npm run build`, and `npm test`.
-  - Test Result: Not run
-  - Commit Hash: Not committed
+  - Description: Updated direct Vite to 7.3.6, compatible with Vitest 4, and regenerated the frontend lockfile so the nested Vite 8/esbuild mismatch is removed. Evidence: [DEPENDENCIES.md#dep-001](./DEPENDENCIES.md#dep-001).
+  - Test Description: `npm ci --ignore-scripts`; `npm ls --all`; `npm run typecheck`; `npm test -- --run`; `npm run build`; `git diff --check`
+  - Test Result: PASS — clean install, dependency tree, typecheck, 36 test files/95 tests, build, and diff checks passed.
+  - Commit Hash: `9b7a2c019d260d95d09043e4111bb9a6d1288539`
 
 - [ ] Validate a clean npm installation
   - Importance Level: Medium
