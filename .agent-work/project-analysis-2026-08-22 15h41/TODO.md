@@ -132,12 +132,12 @@ Planned from [REPORT.md](./REPORT.md) and all detailed analysis artifacts. No wo
 
 ## Security Patches
 
-- [ ] Harden non-local Compose deployments
+- [x] Harden non-local Compose deployments
   - Importance Level: High
-  - Description: Keep PostgreSQL and NATS private or loopback-only, remove reusable/default credentials and bootstrap values from deployment configuration, and require explicit production secrets plus authenticated TLS transport. Evidence: [SECURITY.md#sec-001](./SECURITY.md#sec-001).
-  - Test Description: Render the production Compose configuration; verify no exposed infrastructure ports or known defaults remain, and confirm unauthenticated PostgreSQL/NATS connections fail in an isolated network.
-  - Test Result: Not run
-  - Commit Hash: Not committed
+  - Description: Added a production Compose overlay with required secrets, TLS-authenticated PostgreSQL/NATS, private infrastructure ports, loopback-only web binding, and production PostgreSQL TLS validation. Evidence: [SECURITY.md#sec-001](./SECURITY.md#sec-001).
+  - Test Description: `env <required production values> docker compose -f compose.yaml -f compose.production.yaml config --quiet`; `GOCACHE=/tmp/glyphflow-go-cache-todo-solver go test ./internal/config`; `git diff --check`
+  - Test Result: PASS — production Compose rendered with explicit test secret paths; infrastructure ports were removed, config TLS tests passed, and diff checks passed. Live isolated PostgreSQL/NATS authentication was not run because no deployment network was available.
+  - Commit Hash: `39b7b11d618b46b40a2970c8d8ac6ad4746fa792`
 
 - [x] Reject wildcard credentialed CORS
   - Importance Level: Medium
