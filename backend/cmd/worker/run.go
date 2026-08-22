@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"crypto/ed25519"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -38,7 +40,9 @@ func runWorker(ctx context.Context, stdout, stderr io.Writer, status StatusSink)
 		if bootstrap != nil {
 			dataDir = filepath.Join(dataDir, bootstrap.RunnerID)
 		}
-		_ = os.Setenv("DATA_DIR", dataDir)
+		if err := setWorkerEnv("DATA_DIR", dataDir); err != nil {
+			return err
+		}
 	}
 	if err := os.MkdirAll(os.Getenv("DATA_DIR"), 0o700); err != nil {
 		return fmt.Errorf("create worker data directory: %w", err)
@@ -88,15 +92,23 @@ func runWorker(ctx context.Context, stdout, stderr io.Writer, status StatusSink)
 		}
 	}
 	if connection.RunnerID != "" {
-		_ = os.Setenv("RUNNER_ID", connection.RunnerID)
+		if err := setWorkerEnv("RUNNER_ID", connection.RunnerID); err != nil {
+			return err
+		}
 	}
 	if connection.NATSURL != "" {
-		_ = os.Setenv("NATS_URL", connection.NATSURL)
+		if err := setWorkerEnv("NATS_URL", connection.NATSURL); err != nil {
+			return err
+		}
 	}
 	if connection.MaxMessageBytes > 0 {
-		_ = os.Setenv("MAX_MESSAGE_BYTES", fmt.Sprintf("%d", connection.MaxMessageBytes))
+		if err := setWorkerEnv("MAX_MESSAGE_BYTES", fmt.Sprintf("%d", connection.MaxMessageBytes)); err != nil {
+			return err
+		}
 		if os.Getenv("MAX_OUTPUT_BYTES") == "" {
-			_ = os.Setenv("MAX_OUTPUT_BYTES", fmt.Sprintf("%d", connection.MaxMessageBytes))
+			if err := setWorkerEnv("MAX_OUTPUT_BYTES", fmt.Sprintf("%d", connection.MaxMessageBytes)); err != nil {
+				return err
+			}
 		}
 	}
 	controlPublicKey, err := base64.RawStdEncoding.DecodeString(connection.ControlPublicKey)
@@ -126,9 +138,9 @@ func runWorker(ctx context.Context, stdout, stderr io.Writer, status StatusSink)
 			return fmt.Errorf("save worker signing key: %w", err)
 		}
 	}
-	var previousBootID string
-	if raw, err := localStore.Get("worker.boot"); err == nil {
-		_ = json.Unmarshal(raw, &previousBootID)
+	previousBootID, err := loadPreviousBootID(localStore)
+	if err != nil {
+		return err
 	}
 	if previousBootID != "" {
 		if _, err := worker.RecoverDurableSigned(localStore, previousBootID, workerKey); err != nil {
@@ -224,6 +236,33 @@ func runWorker(ctx context.Context, stdout, stderr io.Writer, status StatusSink)
 	closeJetStream()
 	background.Wait()
 	return nil
+}
+
+var setenv = os.Setenv
+
+func setWorkerEnv(name, value string) error {
+	if err := setenv(name, value); err != nil {
+		return fmt.Errorf("set worker environment %s: %w", name, err)
+	}
+	return nil
+}
+
+func loadPreviousBootID(localStore *worker.LocalStore) (string, error) {
+	raw, err := localStore.Get("worker.boot")
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read worker boot metadata: %w", err)
+	}
+	var bootID string
+	if err := json.Unmarshal(raw, &bootID); err != nil {
+		return "", fmt.Errorf("decode worker boot metadata: %w", err)
+	}
+	if strings.TrimSpace(bootID) == "" {
+		return "", errors.New("worker boot metadata is empty")
+	}
+	return bootID, nil
 }
 
 func resolveNATSEndpoint(bootstrap *worker.Bootstrap, enrolled string) string {

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -67,5 +69,71 @@ func TestResolveControlPlaneEndpointPriority(t *testing.T) {
 	t.Setenv("RUNNER_CONTROL_PLANE_URL", "")
 	if got := resolveControlPlaneEndpoint(bootstrap); got != "http://embedded:8080" {
 		t.Fatalf("embedded endpoint = %q", got)
+	}
+}
+
+func TestLoadPreviousBootID(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		prepare func(*worker.LocalStore) error
+		want    string
+		wantErr string
+	}{
+		{name: "missing"},
+		{
+			name: "valid",
+			prepare: func(store *worker.LocalStore) error {
+				return store.Put("worker.boot", "boot-1")
+			},
+			want: "boot-1",
+		},
+		{
+			name: "malformed",
+			prepare: func(store *worker.LocalStore) error {
+				return store.Put("worker.boot", map[string]string{"boot_id": "boot-1"})
+			},
+			wantErr: "decode worker boot metadata",
+		},
+		{
+			name: "read failure",
+			prepare: func(store *worker.LocalStore) error {
+				return store.Close()
+			},
+			wantErr: "read worker boot metadata",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store, err := worker.OpenStore(t.TempDir() + "/runner.sqlite")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.prepare != nil {
+				if err := test.prepare(store); err != nil && test.name != "read failure" {
+					t.Fatal(err)
+				}
+			} else {
+				defer store.Close()
+			}
+			got, err := loadPreviousBootID(store)
+			if test.wantErr == "" {
+				if err != nil || got != test.want {
+					t.Fatalf("loadPreviousBootID() = %q, %v; want %q, nil", got, err, test.want)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("loadPreviousBootID() error = %v; want substring %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestSetWorkerEnvReportsFailure(t *testing.T) {
+	previous := setenv
+	setenv = func(string, string) error { return errors.New("environment locked") }
+	t.Cleanup(func() { setenv = previous })
+
+	if err := setWorkerEnv("NATS_URL", "nats://example:4222"); err == nil || !strings.Contains(err.Error(), "set worker environment NATS_URL") {
+		t.Fatalf("setWorkerEnv() error = %v", err)
 	}
 }
