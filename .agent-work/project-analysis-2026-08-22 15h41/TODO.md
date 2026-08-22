@@ -116,12 +116,12 @@ Planned from [REPORT.md](./REPORT.md) and all detailed analysis artifacts. No wo
   - Test Result: Not run
   - Commit Hash: Not committed
 
-- [ ] Add a supported JavaScript runtime policy
+- [x] Add a supported JavaScript runtime policy
   - Importance Level: Low
-  - Description: Document and enforce the Node.js version required by React Router, Vitest, and jsdom instead of documenting only “Node.js.” Evidence: [DEPENDENCIES.md](./DEPENDENCIES.md#high-priority-actions).
-  - Test Description: Verify the declared runtime against the build image and run a clean install, typecheck, test, and build on that runtime.
-  - Test Result: Not run
-  - Commit Hash: Not committed
+  - Description: Declared Node.js 22.22.2+ in package metadata, `.nvmrc`, README, and strict npm engine checks; the build image is pinned to Node 22.22.2. Evidence: [DEPENDENCIES.md](./DEPENDENCIES.md#high-priority-actions).
+  - Test Description: `npm pkg get engines.node`; `npm run typecheck`; `npm test -- --run`; `npm run build`; `git diff --check`
+  - Test Result: PASS — Node policy reported `>=22.22.2`; 36 frontend files and 95 tests passed; typecheck, build, and diff checks passed.
+  - Commit Hash: `5313cffa7e226bc56b7038848db7892e57764630`
 
 - [ ] Measure global-variable schedule overhead
   - Importance Level: Low
