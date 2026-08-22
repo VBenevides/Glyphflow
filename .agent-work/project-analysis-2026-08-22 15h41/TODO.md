@@ -134,7 +134,8 @@ Planned from [REPORT.md](./REPORT.md) and all detailed analysis artifacts. No wo
   - Importance Level: Low
   - Description: Measure repeated global-variable loading and snapshot resolution per due schedule before considering reuse or caching. Evidence: [OPTIMIZATION.md#opt-005](./OPTIMIZATION.md#opt-005).
   - Test Description: Compare scheduler throughput, transaction duration, row reads, and allocations with 1, 100, and 1,000 global variables across multiple due schedules while preserving freshness semantics.
-  - Test Result: Not run
+  - Test Result: BLOCKED — no PostgreSQL scheduler fixture or representative global-variable/schedule dataset is available, so transaction, row-read, throughput, and allocation measurements cannot be produced.
+  - Blocked: Requires a controlled PostgreSQL benchmark dataset and scheduler load harness.
   - Commit Hash: Not committed
 
 ## Security Patches
