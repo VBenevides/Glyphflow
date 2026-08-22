@@ -105,7 +105,8 @@ Planned from [REPORT.md](./REPORT.md) and all detailed analysis artifacts. No wo
   - Importance Level: Medium
   - Description: Measure sequential NATS publish plus database update cost and the pending-dispatch index/order mismatch before introducing batching, concurrency, or an index change. Evidence: [OPTIMIZATION.md#opt-006](./OPTIMIZATION.md#opt-006).
   - Test Description: Measure drain rate, publish/update latency, retries, backlog depth, and `EXPLAIN (ANALYZE, BUFFERS)` while preserving durable at-least-once delivery and required ordering.
-  - Test Result: Not run
+  - Test Result: BLOCKED — no PostgreSQL/NATS deployment or controlled backlog generator is available, so drain rate, publish/update latency, retries, and query plans cannot be measured.
+  - Blocked: Requires a live durable database/JetStream fixture and an ordering-preserving load harness.
   - Commit Hash: Not committed
 
 - [x] Align the Vite and Vitest toolchain
