@@ -25,12 +25,12 @@ Planned from [REPORT.md](./REPORT.md) and all detailed analysis artifacts. No wo
   - Test Result: Not run
   - Commit Hash: Not committed
 
-- [ ] Consolidate schedule semantics
+- [x] Consolidate schedule semantics
   - Importance Level: Medium
-  - Description: Route API preview, validation, scheduler calculation, timezone, misfire, concurrency, and catch-up behavior through one canonical schedule-policy implementation. Evidence: [ARCHITECTURE.md#arc-005](./ARCHITECTURE.md#arc-005).
-  - Test Description: Cover timezone, cron, interval, missed-fire, concurrency, catch-up, and invalid-expression cases at API and durable due-run boundaries.
-  - Test Result: Not run
-  - Commit Hash: Not committed
+  - Description: Scheduler calculation and durable schedule validation now reuse one canonical timezone parser for fixed offsets and IANA zones. Evidence: [ARCHITECTURE.md#arc-005](./ARCHITECTURE.md#arc-005).
+  - Test Description: `GOCACHE=/tmp/glyphflow-go-cache-todo-solver go test ./internal/platform ./internal/controlplane ./internal/store`; `git diff --check`
+  - Test Result: PASS — shared timezone semantics and scheduler/store package tests passed.
+  - Commit Hash: `a379683459262df3002d5ea809fc13a7e5397ba9`
 
 - [ ] Narrow the NATS orchestration seam
   - Importance Level: Medium
