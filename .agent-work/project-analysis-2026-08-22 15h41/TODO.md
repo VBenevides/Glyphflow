@@ -155,12 +155,12 @@ Planned from [REPORT.md](./REPORT.md) and all detailed analysis artifacts. No wo
   - Test Result: PASS — in-memory and repository-backed maximum, negative, malformed, and very large page cases passed.
   - Commit Hash: `3837b53f073a24f2e11bcd09976d449b50fb10d5`
 
-- [ ] Handle corrupt worker boot metadata
+- [x] Handle corrupt worker boot metadata
   - Importance Level: Medium
-  - Description: Distinguish missing boot metadata from read failures, reject or report malformed records, and handle `os.Setenv` failures so durable recovery is not silently skipped. Evidence: [CODE.md#code-003](./CODE.md#code-003).
-  - Test Description: Exercise missing, corrupt, unreadable, and environment-setting failure cases; verify recovery is attempted or startup fails explicitly.
-  - Test Result: Not run
-  - Commit Hash: Not committed
+  - Description: Worker startup now distinguishes missing, unreadable, malformed, and empty boot metadata and fails explicitly when environment updates fail. Evidence: [CODE.md#code-003](./CODE.md#code-003).
+  - Test Description: `GOCACHE=/tmp/glyphflow-go-cache-todo-solver go test ./cmd/worker -run 'Test(LoadPreviousBootID|SetWorkerEnvReportsFailure)$' -count=1`; `git diff --check`
+  - Test Result: PASS — focused metadata and environment failure tests passed; diff check passed.
+  - Commit Hash: `a347de5d10ee46e37d4243bcc7fde5231f5a696c`
 
 - [ ] Close control-plane resources on startup errors
   - Importance Level: Low
