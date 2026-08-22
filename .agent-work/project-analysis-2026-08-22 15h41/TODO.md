@@ -4,12 +4,12 @@ Planned from [REPORT.md](./REPORT.md) and all detailed analysis artifacts. No wo
 
 ## Features
 
-- [ ] Define runtime supervision and readiness
+- [x] Define runtime supervision and readiness
   - Importance Level: High
-  - Description: Track scheduler, dispatcher, heartbeat, start-claim, and housekeeping liveness separately from PostgreSQL/NATS connectivity; define singleton and replica-safe loop ownership. Evidence: [ARCHITECTURE.md#arc-001](./ARCHITECTURE.md#arc-001).
-  - Test Description: Exercise loop failure, recovery, readiness, shutdown, and concurrent control-plane instances with PostgreSQL row locking.
-  - Test Result: Not run
-  - Commit Hash: Not committed
+  - Description: Added explicit health state for session cleanup, heartbeat, dispatcher, start-claim, and scheduler loops; readiness now fails until each component starts or after a reported failure. The control plane remains a single process. Evidence: [ARCHITECTURE.md#arc-001](./ARCHITECTURE.md#arc-001).
+  - Test Description: `GOCACHE=/tmp/glyphflow-go-cache-todo-solver go test ./internal/controlplane ./cmd/controlplane`; `GOCACHE=/tmp/glyphflow-go-cache-todo-solver go vet ./internal/controlplane ./cmd/controlplane`; `git diff --check`
+  - Test Result: PASS — health recovery tests, control-plane tests, vet, and diff checks passed.
+  - Commit Hash: `cf3770a68ef7f78835f596e30d25ede8004734cb`
 
 - [ ] Require durable repositories in production
   - Importance Level: High
