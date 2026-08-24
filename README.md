@@ -56,13 +56,14 @@ systems must be safe to retry or provide their own idempotency.
 Open <http://localhost:5173> and use the development account described in the
 [technical documentation](docs/README.md#quick-start).
 
-## Explore the project
+## User guide and examples
 
-- [User guide](docs/USER-GUIDE.md)
+Start with the [User Guide](docs/USER-GUIDE.md), then follow the end-to-end
+[Examples](docs/examples/README.md) using isolated fake data.
+
 - [Admin guide](docs/ADMIN-GUIDE.md)
-- [Examples](docs/examples/README.md)
 - [Architecture](ARCHITECTURE.md)
 - [Deployment and configuration](docs/README.md#production-deployment)
-- [Technical documentation](docs/README.md)
+- [Complete documentation README](docs/README.md)
 
 Glyphflow is released under the [MIT License](LICENSE).
