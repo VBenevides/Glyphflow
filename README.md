@@ -8,6 +8,7 @@
   <a href="VERSION"><img src="https://img.shields.io/badge/version-v0.2.1-blue?style=flat-square" alt="Version v0.2.1"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/VBenevides/Glyphflow?style=flat-square" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/phase-alpha-orange?style=flat-square" alt="Phase alpha">
+  <a href="https://github.com/VBenevides/Glyphflow/actions/workflows/codeql.yml"><img src="https://github.com/VBenevides/Glyphflow/actions/workflows/codeql.yml/badge.svg?branch=main" alt="CodeQL"></a>
 </p>
 
 <p align="center">
