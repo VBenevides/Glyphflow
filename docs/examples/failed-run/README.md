@@ -20,6 +20,7 @@ failure command or real destination in a screenshot example.
 
 ## Screenshots
 
-![Illustrative failed run and retry dialog with fake data](screenshots/01-failed-retry.png)
+![Real white-mode console screenshot of the failure-drill task with fake data](screenshots/01-failed-retry.png)
 
-This illustrative mockup shows the failed result, exit code, and retry reason.
+This screenshot was captured from the local Glyphflow console before the run
+and shows the harmless fake command configured to exit with code `23`.

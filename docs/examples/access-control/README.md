@@ -19,6 +19,7 @@ include passwords or session tokens in screenshots.
 
 ## Screenshots
 
-![Illustrative role assignment and permissions with fake data](screenshots/01-role-assignment.png)
+![Real white-mode console screenshot of role assignment with fake data](screenshots/01-role-assignment.png)
 
-This illustrative mockup shows the fake operator role and permission summary.
+This screenshot was captured from the local Glyphflow console and shows the
+fake operator account's assigned roles.

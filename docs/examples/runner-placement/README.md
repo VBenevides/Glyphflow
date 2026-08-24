@@ -16,6 +16,8 @@ fake `Warehouse Snapshot` task.
 
 ## Screenshots
 
-![Illustrative runner placement and resource lease with fake data](screenshots/01-placement-lease.png)
+![Real white-mode console screenshot of runner placement with fake data](screenshots/01-placement-lease.png)
 
-This illustrative mockup shows the selected runner and active resource lease.
+This screenshot was captured from the local Glyphflow console and shows the
+fake task's `Northstar Linux` pool and online runner. The resource lease is
+visible after the run is dispatched.

@@ -35,6 +35,7 @@ runner, attempt, and final exit code.
 
 ## Screenshots
 
-![Illustrative successful run with fake data](screenshots/01-run-succeeded.png)
+![Real white-mode console screenshot of a successful run with fake data](screenshots/01-run-succeeded.png)
 
-This illustrative mockup uses fake names and data only.
+This screenshot was captured from the local Glyphflow console after the fake
+task completed successfully.

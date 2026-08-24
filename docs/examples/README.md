@@ -4,9 +4,9 @@ These examples are organized by user goal. Each flow has its own README and a
 `screenshots/` directory containing numbered images for the important steps
 and results. All example data is fake.
 
-The repository images are clearly labeled illustrative mockups, not browser
-captures from a live environment. Use them as visual aids until live captures
-are available.
+The repository images are captures from the local Glyphflow console in white
+mode. The records shown in them use fake names, credentials, hosts, commands,
+and identifiers.
 
 - [Create and inspect a first task](first-task/README.md)
 - [Schedule recurring work](scheduled-task/README.md)

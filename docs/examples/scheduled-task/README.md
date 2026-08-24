@@ -19,6 +19,7 @@ production destinations for this example.
 
 ## Screenshots
 
-![Illustrative schedule preview with fake data](screenshots/01-schedule-preview.png)
+![Real white-mode console screenshot of a schedule preview with fake data](screenshots/01-schedule-preview.png)
 
-This illustrative mockup shows the schedule preview and saved policy values.
+This screenshot was captured from the local Glyphflow console and shows the
+fake schedule's preview and policy values.
