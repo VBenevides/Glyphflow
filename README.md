@@ -5,6 +5,10 @@
 <h1 align="center">Glyphflow</h1>
 
 <p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/VBenevides/Glyphflow?style=flat-square" alt="MIT License"></a>
+</p>
+
+<p align="center">
   An open-source control plane for running commands across servers and virtual machines.
 </p>
 
