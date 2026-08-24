@@ -2,10 +2,11 @@ name: Security
 
 on:
   push:
-    branches: [main]
+    branches: ['**']
   pull_request:
+    branches: [main]
   schedule:
-    - cron: '17 3 * * 1'
+    - cron: '10 0 * * 1'
 
 permissions:
   contents: read
