@@ -31,6 +31,7 @@ them:
 | Task | `Customer Export Check` |
 | Task | `Nightly Invoice Archive` |
 | Task | `Warehouse Snapshot` |
+| Task | `Invoice Archive Failure Drill` |
 | Schedule | `Nightly Customer Export` |
 | Schedule | `Hourly Warehouse Snapshot` |
 | Resource | `warehouse-report-lock` |
