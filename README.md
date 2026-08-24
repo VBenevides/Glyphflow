@@ -5,6 +5,7 @@
 <h1 align="center">Glyphflow</h1>
 
 <p align="center">
+  <a href="https://github.com/VBenevides/Glyphflow/actions/workflows/security.yml"><img src="https://github.com/VBenevides/Glyphflow/actions/workflows/security.yml/badge.svg?branch=main" alt="Security"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/VBenevides/Glyphflow?style=flat-square" alt="MIT License"></a>
 </p>
 
