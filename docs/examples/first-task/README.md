@@ -18,7 +18,7 @@ Use a fresh local database seeded only with fake data.
 ## Flow
 
 1. Open the local Glyphflow console and sign in with the local development account.
-2. Open **Runners → Enroll runner**.
+2. Open **Runners and pools → Enroll runner**.
 3. Select `Northstar Linux`, Linux, AMD64, and **Headless**.
 4. Download the one-use binary and run it on the local target machine.
 5. Wait for `northstar-runner-01` to show **Online**.

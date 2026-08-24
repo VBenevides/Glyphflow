@@ -51,7 +51,7 @@ details](../backend/cmd/worker/README.md) for deployment-specific details.
 
 ### Create the enrollment
 
-1. Open **Runners & Pools** and select **Enroll runner**.
+1. Open **Runners and pools** and select **Enroll runner**.
 2. Enter a **Runner name**.
 3. Set **Control plane endpoint** if the target machine cannot reach the
    server's default endpoint. The target machine can override it with
@@ -103,7 +103,7 @@ new version.
    policy**.
 7. Optionally add **Environment variables**, **Resources**, and **Tags**.
    Tags are key/value requirements that must match runner capabilities, such as
-   `os` = `linux`.
+   `platform` = `linux` and `architecture` = `amd64`.
 8. Select **Create task**.
 
 For global values, use the `$ENV:VARIABLE_NAME` form where supported. When a

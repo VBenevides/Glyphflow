@@ -26,6 +26,12 @@ managed execution system. A central web console stores versioned task
 definitions, schedules runs, chooses an eligible worker, and gives operators
 one place to inspect what happened.
 
+## Documentation
+
+- [User guide](USER-GUIDE.md)
+- [Administrator guide](ADMIN-GUIDE.md)
+- [Examples](examples/README.md)
+
 Workers run on the machines that own the work. They connect outbound to the
 control plane's message bus, execute commands locally, and report signed
 lifecycle events and logs back to the console. PostgreSQL stays with the
@@ -55,7 +61,7 @@ include:
 - global-variable references such as `$ENV:BACKUP_ROOT`;
 - secret references kept separate from command text;
 - a runner pool or a specific runner;
-- capability selectors such as `os=linux`;
+- capability selectors such as `platform=linux` and `architecture=amd64`;
 - execution timeout and maximum attempts;
 - ambiguity handling for uncertain delivery outcomes; and
 - exclusive or non-blocking resource requirements.
@@ -195,7 +201,7 @@ later run can reuse local PostgreSQL and NATS data.
 
 ### Make your first run
 
-1. Open **Runners → Enroll runner**.
+1. Open **Runners and pools → Enroll runner**.
 2. Choose the default pool, `linux` / `amd64`, and **Headless** for a local service, or **GUI** / **TUI** when you want a visible worker.
 3. Download the one-use binary and run it on the target machine.
 4. Wait for the runner to show **Online**.
