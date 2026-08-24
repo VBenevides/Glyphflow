@@ -2,132 +2,404 @@
   <img src="assets/glyphflow.png" alt="Glyphflow logo" width="160">
 </p>
 
-# Glyphflow
+<h1 align="center">Glyphflow</h1>
 
-Glyphflow is an open-source platform for script orchestration across servers and virtual machines.
+<p align="center">
+  An open-source control plane for running commands across servers and virtual machines.
+</p>
 
-The platform has one central control plane and many remote workers. The control plane schedules work. Workers execute the work.
+<p align="center">
+  Define work once. Place it where it belongs. See every attempt, event, and log.
+</p>
 
-Glyphflow is an alpha application. The current version is defined in [`VERSION`](VERSION). The repository contains the Go control plane, Go workers, React frontend, PostgreSQL persistence, and NATS JetStream integration.
+<p align="center">
+  <a href="VERSION">v0.2.1</a> · <a href="LICENSE">MIT licensed</a> · self-hosted
+</p>
+
+Glyphflow turns scattered scripts and manually maintained cron jobs into a
+managed execution system. A central web console stores versioned task
+definitions, schedules runs, chooses an eligible worker, and gives operators
+one place to inspect what happened.
+
+Workers run on the machines that own the work. They connect outbound to the
+control plane's message bus, execute commands locally, and report signed
+lifecycle events and logs back to the console. PostgreSQL stays with the
+control plane; workers do not need database credentials or a PostgreSQL client.
+
+> Glyphflow is alpha software. The current version is in [`VERSION`](VERSION),
+> and APIs and deployment details may change while the project matures.
+
+## Why Glyphflow
+
+Glyphflow is for teams that need more control than “run this script somewhere”
+but less ceremony than a full container-orchestration platform.
+
+- **Central operations:** define tasks, schedules, runner pools, resources, and permissions in one console.
+- **Distributed execution:** run work on Linux or Windows machines without opening inbound worker ports.
+- **Useful history:** inspect attempts, state transitions, streamed stdout/stderr, exit codes, and audit events.
+- **Deliberate placement:** send work to a pool, pin it to a runner, or match runner capability tags.
+- **Recoverable delivery:** durable state, leases, fencing, local worker recovery, and signed messages handle restarts and redelivery.
+- **Self-hosted by design:** the required runtime is PostgreSQL, NATS JetStream, the Glyphflow control plane, and your workers.
+
+## What you can do
+
+### Define repeatable tasks
+
+Task versions are immutable after publication. A task can
+include:
+
+- an argument-array command, with no shell parsing;
+- a working directory and environment variables;
+- global-variable references such as `$ENV:BACKUP_ROOT`;
+- secret references kept separate from command text;
+- a runner pool or a specific runner;
+- capability selectors such as `os=linux`;
+- execution timeout and maximum attempts;
+- ambiguity handling for uncertain delivery outcomes; and
+- exclusive or non-blocking resource requirements.
+
+The command editor accepts one argument per line. For example:
+
+```text
+/usr/local/bin/backup
+--database
+production
+--output
+$ENV:BACKUP_ROOT
+```
+
+Glyphflow sends those arguments directly to the operating system. It does not
+turn the command into a shell string.
+
+### Schedule and observe execution
+
+Run tasks manually or trigger them with cron schedules. Schedules support
+explicit UTC offsets, occurrence previews, missed-occurrence policies, and
+overlap policies:
+
+- queue overlapping runs;
+- skip when a run is already active;
+- replace the active run; or
+- allow overlap up to a configured limit.
+
+The run view makes operations concrete instead of opaque. Filter by task,
+runner, state, trigger, and time range; then inspect attempts, state events,
+streamed logs, exit-code meanings, and downloadable log output. Cancel, retry,
+or reconcile runs when the situation requires an operator decision.
+
+### Manage a worker fleet
+
+Create a one-use enrollment artifact in the web console and run it on the
+target machine. The worker enrolls itself, receives its connection details,
+persists its identity locally, and begins sending heartbeats.
+
+From the console you can:
+
+- create and manage runner pools;
+- set execution capacity;
+- see desired state, observed state, heartbeat freshness, and active work;
+- drain a runner while allowing current work to finish;
+- revoke or re-enable a runner; and
+- archive a runner permanently.
+
+Enrollment currently supports Linux and Windows AMD64 binaries in three forms:
+
+- **GUI:** desktop status window and system-tray controls;
+- **TUI:** terminal UI with lower memory usage; or
+- **Headless:** no graphical or terminal UI, intended for services and VMs.
+
+Workers keep a local SQLite store for accepted orders, boot recovery, and
+events waiting to be published. A worker can therefore recover its durable
+state after a process, network, or queue interruption.
+
+### Keep administration accountable
+
+Glyphflow includes password authentication and OIDC, session management, CSRF
+protection, permission-aware routes, role-based access control, user and SSO
+administration, and audited administrative actions. The built-in roles are
+`admin`, `operator`, and `user`; permissions determine which operational and
+administrative views each role can use.
+
+The console also provides global variables, resource leases, exit-code
+meanings, and public API documentation. Once the control plane is running:
+
+- interactive API docs: `http://localhost:8080/docs`
+- OpenAPI document: `http://localhost:8080/openapi.json`
+- liveness: `http://localhost:8080/api/v1/healthz`
+- readiness: `http://localhost:8080/api/v1/readyz`
+
+## How it works
+
+```text
+Browser
+  │ task, schedule, and operator actions
+  ▼
+Control plane ───── PostgreSQL
+  │                  durable state, versions, leases, audit history
+  │
+  └─────────────── NATS JetStream
+                       signed orders and lifecycle events
+                           │
+                           ▼
+                     Outbound-only worker
+                       local SQLite + child process
+```
+
+For a scheduled run, the control plane:
+
+1. creates the run and dispatch outbox record in PostgreSQL;
+2. selects a healthy worker with capacity, matching capabilities, and available resources;
+3. signs and publishes the execution order through NATS JetStream;
+4. lets the worker verify, persist, and execute the order locally; and
+5. verifies signed worker events and applies them to the durable run history.
+
+The control plane is currently one process containing the HTTP API,
+scheduler, dispatcher, event ingestion, heartbeats, start claims, session
+cleanup, and readiness checks. Workers remain separate processes or machines.
+See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the implementation source of
+truth.
 
 ## Quick start
 
-Requirements: Docker Compose, Go, Node.js 22.22.2 or newer, and npm.
+### Requirements
 
-Run the local environment:
+- Docker Compose
+- Go 1.25 or newer
+- Node.js 22.22.2 or newer
+- npm
+
+### Start the development environment
 
 ```bash
+git clone https://github.com/VBenevides/Glyphflow.git
+cd Glyphflow
 ./dev_run.sh
 ```
 
-The script starts PostgreSQL and NATS, builds the Linux and Windows AMD64 worker binaries, and starts the frontend and control plane.
+`dev_run.sh` starts PostgreSQL and NATS with Docker Compose, builds local
+runner binaries, and starts the Go control plane and React development server.
 
-- Frontend: <http://localhost:5173>
-- Control plane: <http://localhost:8080>
-- Default email: `admin@example_domain.com`
-- Default password: `admin-password-123`
+Open <http://localhost:5173> and sign in with the development bootstrap
+account:
 
-Press `Ctrl-C` to stop the development processes. Docker volumes keep PostgreSQL and NATS data between runs.
+```text
+email:    admin@example_domain.com
+password: admin-password-123
+```
 
-## Deployment model
+This account and these credentials are for local development only. Press
+`Ctrl-C` to stop the processes. Development Docker volumes are retained so a
+later run can reuse local PostgreSQL and NATS data.
 
-The current release uses one control-plane executable, one NATS JetStream deployment, and any number of outbound-only workers. PostgreSQL remains private to the control plane. The scheduler, dispatcher, event ingestion, HTTP API, housekeeping, health checks, and internal runtime metrics run in the same control-plane process.
+### Make your first run
 
-Service splitting is deferred until measured scaling, deployment, or ownership needs justify it.
+1. Open **Runners → Enroll runner**.
+2. Choose the default pool, `linux` / `amd64`, and **Headless** for a local service, or **GUI** / **TUI** when you want a visible worker.
+3. Download the one-use binary and run it on the target machine.
+4. Wait for the runner to show **Online**.
+5. Create a task with an argument-array command, then start a manual run.
+6. Open the run to watch live output and inspect its final event history.
 
-The base [`compose.yaml`](compose.yaml) is for local development. For a
-non-local deployment, use [`compose.production.yaml`](compose.production.yaml)
-with explicit application, database, and TLS secret values.
+Enrollment credentials expire after 15 minutes by default and can be used only
+once. A downloaded binary is bound to the runner configuration that created
+it; generate a new artifact if the enrollment expires or is consumed.
 
-## Features
+## Production deployment
 
-- Define tasks with immutable versions, cron schedules, environment variables, secret references, selectors, retry policies, resource policies, and ambiguity policies.
-- Run tasks manually or on a schedule. View run attempts, state events, streamed logs, audit events, and task version history.
-- Cancel and retry runs with durable state transitions. Reconcile stale work after worker, queue, database, or network failures.
-- Enroll and manage workers and pools. Set execution capacity, view active runs, archive workers, and manage resource leases.
-- Use password or OIDC authentication with sessions, CSRF protection, RBAC, SSO, account management, and audited administration.
-- Use the responsive React console with light, dark, and neon themes, accessible dialogs, filters, pagination, and permission-aware routes.
-- Run persistent workers with SQLite recovery, signed messages, streamed output, concurrent execution, and headless, Gio desktop, or Bubble Tea TUI builds. The Windows TUI build supports minimizing the console to the system tray.
-- Select the worker UI during enrollment and binary generation: GUI (default), TUI (lower memory usage), or headless (lowest memory usage).
+The repository includes a container image and Compose files for a self-hosted
+deployment. Build the image from the repository root:
 
-## Architecture
+```bash
+docker build -f build/Dockerfile -t glyphflow:0.2.1 .
+docker tag glyphflow:0.2.1 glyphflow:latest
+```
 
-[`ARCHITECTURE.md`](ARCHITECTURE.md) is the current source of truth for
-topology, ownership, runtime readiness, deployment, and verification links.
+The base [`compose.yaml`](compose.yaml) is intentionally convenient for local
+use. It exposes PostgreSQL and NATS and contains development credentials. Do
+not use those defaults for a public deployment.
 
-## Authentication environment
+For production, provide the required values and secret files described in
+[`compose.production.yaml`](compose.production.yaml), then start the stack:
 
-The bootstrap administrator is created only when both `GLYPHFLOW_BOOTSTRAP_EMAIL` (an email address) and `GLYPHFLOW_BOOTSTRAP_PASSWORD` are set. If either is missing, no bootstrap administrator is created.
+```bash
+docker compose -f compose.yaml -f compose.production.yaml up -d
+```
 
-`GLYPHFLOW_SYSTEM_ADMINS` accepts unique administrator emails separated by spaces, commas, or semicolons. Matching users receive the immutable `admin` role and cannot be disabled or demoted.
+Production configuration requires, at minimum:
 
-`./dev_run.sh` defaults to `admin@example_domain.com` with password `admin-password-123` and includes that email in `GLYPHFLOW_SYSTEM_ADMINS`.
+| Area | Required configuration |
+| --- | --- |
+| Database | `DATABASE_URL` with `sslmode=verify-full`; PostgreSQL CA, certificate, key, and password files |
+| Messaging | `NATS_URL` using `tls://`; NATS client certificate, key, CA, username, and password |
+| Web security | An HTTPS `WEB_ORIGIN`, explicit `CORS_ORIGIN`, and `CSRF_ORIGINS` |
+| Application secrets | `ACCESS_TOKEN_SECRET` with at least 32 bytes, `PASSWORD_PEPPER` with at least 16 bytes when password login is enabled, and a persistent `CONTROL_PLANE_SIGNING_PRIVATE_KEY` |
+| Bootstrap | `GLYPHFLOW_BOOTSTRAP_EMAIL`, `GLYPHFLOW_BOOTSTRAP_PASSWORD`, and `GLYPHFLOW_SYSTEM_ADMINS` |
+| Network | `GLYPHFLOW_PORT` for the web listener; keep PostgreSQL and NATS private |
 
-The frontend uses TypeScript, React, React Router, TanStack Query, Vite, Vitest, and Lucide. The project does not require a second frontend framework.
+Set `ENVIRONMENT=production` and keep `ALLOW_INSECURE_TRANSPORT=false`.
+Use a secret manager or protected files for private keys, passwords, and
+pepper values. Do not commit them to the repository or put them in task
+commands and logs.
 
-## Task flow
+The production overlay binds the web listener to `127.0.0.1` by default so a
+reverse proxy can terminate public TLS. If the application is exposed through
+a different proxy or hostname, update `WEB_ORIGIN`, `CORS_ORIGIN`, and
+`CSRF_ORIGINS` together.
 
-1. A user creates a task in the web application.
-2. The Go API stores the task definition in PostgreSQL.
-3. The producer detects a due task and selects an active worker.
-4. One transaction creates the task run and its outbox record.
-5. The dispatcher signs the order and publishes it to JetStream.
-6. The assigned worker verifies and stores the order.
-7. The worker executes the command without a shell.
-8. The worker publishes signed lifecycle events.
-9. The control plane verifies each event and updates the task run.
-10. The frontend shows the current state and complete event history.
+## Worker deployment
 
-## Delivery model
+The recommended worker workflow is enrollment from the console:
 
-Glyphflow uses at-least-once delivery. A queue or service restart can deliver the same message again.
+1. create an enrollment for a runner name, pool, platform, architecture, capacity, and UI;
+2. download the generated binary;
+3. copy it to the target machine; and
+4. run it as a service or supervised process.
 
-Each order has a unique message identifier. Each event has a unique event identifier.
+The binary contains a short-lived bootstrap credential and the control-plane
+public key. On first start it enrolls over HTTP(S), receives its NATS
+connection, generates and persists its own signing key, and stores local state
+under its data directory. Set `GLYPHFLOW_CONTROL_PLANE_URL` or
+`GLYPHFLOW_NATS_ENDPOINT` on the target machine when the embedded endpoints
+are not reachable from that network.
 
-Workers store accepted message identifiers. The control plane stores accepted event identifiers.
+For maintainers building a worker from source:
 
-Glyphflow does not promise exactly-once command execution. Arbitrary commands can create external effects that the platform cannot reverse.
+```bash
+cd backend
+go build -o bin/glyphflow-worker ./cmd/worker
+go build -tags workerui -o bin/glyphflow-worker-gui ./cmd/worker
+go build -tags workerui_tui -o bin/glyphflow-worker-tui ./cmd/worker
+```
 
-Automatic retry requires an explicit retry-safe policy. Each retry uses a new attempt number and lease token.
+The default build is headless. Cross-platform release builds and embedded
+enrollment artifacts are produced by
+[`backend/build_runner_binaries.sh`](backend/build_runner_binaries.sh). See
+[`backend/cmd/worker/README.md`](backend/cmd/worker/README.md) for UI build
+details and desktop dependency requirements.
 
-## Security model
+## Configuration reference
 
-- Workers make outbound network connections only.
-- Workers do not contain PostgreSQL credentials or a PostgreSQL client.
-- Mutual TLS protects queue connections.
-- Queue permissions limit each worker to its own subjects.
-- Ed25519 signatures protect orders and events end to end.
-- The worker verifies an order before it parses or executes the payload.
-- Each worker generates and persists its private keys on its target machine.
-- A one-use enrollment token expires after 15 minutes by default.
-- Commands use argument arrays instead of shell command strings.
-- Workers restrict working directories, process resources, and output size.
-- Logs do not contain private keys, tokens, or secret values.
+The development script supplies safe local defaults. Outside development,
+Glyphflow validates the important security boundary at startup rather than
+silently accepting an insecure deployment.
 
-A valid signature proves the message source. It does not prove that a compromised worker reports correct results.
+### Control plane variables
 
-## Open-source policy
+| Variable | Purpose |
+| --- | --- |
+| `DATABASE_URL` | PostgreSQL connection URL |
+| `NATS_URL` | Control-plane NATS endpoint; use `tls://` outside development |
+| `NATS_CERT_FILE`, `NATS_KEY_FILE`, `NATS_CA_FILE` | NATS client TLS material |
+| `ACCESS_TOKEN_SECRET` | Session and access-token signing secret; minimum 32 bytes |
+| `CONTROL_PLANE_SIGNING_PRIVATE_KEY` | Persistent base64 raw Ed25519 private key outside development |
+| `PASSWORD_PEPPER` | Password hashing pepper; minimum 16 bytes when password login is enabled |
+| `WEB_ORIGIN` | Canonical browser origin, HTTPS outside development |
+| `CORS_ORIGIN` | Comma-separated CORS allowlist |
+| `CSRF_ORIGINS` | Comma-separated CSRF origin allowlist |
+| `ENVIRONMENT` | Use `development` locally and `production` for the production overlay |
+| `ALLOW_INSECURE_TRANSPORT` | Development-only escape hatch; keep `false` in production |
+| `GLYPHFLOW_BOOTSTRAP_EMAIL` / `GLYPHFLOW_BOOTSTRAP_PASSWORD` | Optional first administrator credentials |
+| `GLYPHFLOW_SYSTEM_ADMINS` | Administrator emails separated by spaces, commas, or semicolons |
+| `ENABLE_PASSWORD_LOGIN` | Enable password sign-in; production defaults to disabled in the overlay |
+| `ENABLE_PASSWORD_REGISTRATION` | Enable self-service password registration; production defaults to disabled |
+| `DEFAULT_ROLE_ID` | Role assigned to newly created users |
+| `DATA_DIR` | Persistent control-plane data, including the development signing key |
 
-Glyphflow uses open-source components with approved licenses. The preferred license is MIT.
+`GLYPHFLOW_BOOTSTRAP_EMAIL` and `GLYPHFLOW_BOOTSTRAP_PASSWORD` must both be
+set to create the bootstrap account. `GLYPHFLOW_SYSTEM_ADMINS` is independent:
+matching users receive the immutable `admin` role and cannot be demoted or
+disabled.
 
-The project also permits Apache-2.0, BSD, ISC, the PostgreSQL License, and public-domain software.
+### Worker variables
 
-Each release includes SPDX license information and a software bill of materials. The required deployment does not depend on proprietary services.
+Normally the enrollment artifact supplies the worker connection. For a worker
+started without an embedded bootstrap, configure:
+
+| Variable | Purpose |
+| --- | --- |
+| `RUNNER_ID` | Stable runner identifier |
+| `NATS_URL` | Worker NATS endpoint |
+| `DATA_DIR` | Persistent worker directory containing `runner.sqlite` and signing keys |
+| `MAX_MESSAGE_BYTES` | Maximum accepted protocol message size |
+| `MAX_OUTPUT_BYTES` | Maximum captured process output; cannot exceed `MAX_MESSAGE_BYTES` |
+| `ENVIRONMENT` | Use `development` for a plain local NATS endpoint and `production` for TLS validation |
+| `NATS_CERT_FILE`, `NATS_KEY_FILE`, `NATS_CA_FILE` | Worker NATS client TLS material in production |
+| `GLYPHFLOW_CONTROL_PLANE_URL` | Optional override for the enrollment endpoint |
+| `GLYPHFLOW_NATS_ENDPOINT` | Optional override for the NATS endpoint embedded in an artifact |
+
+Persist `DATA_DIR`. Deleting it removes the worker's local recovery state and
+identity, so the worker may need to be enrolled again.
+
+## Delivery and security model
+
+Glyphflow uses at-least-once message delivery. Restarts and network failures
+can cause a message to be delivered more than once. Unique order and event
+IDs, leases, fencing tokens, inbox/outbox records, and worker-local durable
+state make the platform recoverable and deduplicable.
+
+Glyphflow does **not** promise exactly-once command execution. An arbitrary
+command can change an external system, and the platform cannot undo that
+effect. Enable automatic retries only for commands that are safe to retry.
+
+The security boundaries are:
+
+- workers initiate outbound network connections;
+- workers do not receive PostgreSQL credentials;
+- NATS permissions can restrict each worker to its own subjects;
+- Ed25519 signatures authenticate orders and worker events end to end;
+- workers verify an order before parsing or executing its payload;
+- each worker creates and persists its private signing key locally;
+- enrollment credentials are short-lived and one-use;
+- command arguments are passed without a shell;
+- working directories, process resources, and output are bounded; and
+- logs redact private keys, tokens, passwords, and secret values.
+
+A valid signature proves the message source. It does not prove that a
+compromised worker reports correct results. Protect the worker host and use
+the runner lifecycle controls to revoke a worker that is no longer trusted.
+
+## Development
+
+Run the backend checks:
+
+```bash
+cd backend
+GOCACHE=/tmp/glyphflow-go-cache go test ./...
+GOCACHE=/tmp/glyphflow-go-cache go vet ./...
+go mod verify
+```
+
+Run the frontend checks:
+
+```bash
+cd frontend
+npm ci
+npm test -- --run
+npm run typecheck
+npm run build
+```
+
+The release baseline is available as:
+
+```bash
+./scripts/release-check.sh
+```
+
+The repository's current topology and verification links are in
+[`ARCHITECTURE.md`](ARCHITECTURE.md). Historical design and review notes live
+under [`internal/`](internal/); they are useful context, but they are not
+runtime contracts.
 
 ## Project structure
 
 ```text
-backend/    Go control plane and worker source
-frontend/   Default TypeScript and React application
-internal/   Design documents, migration notes, and project roadmap
+backend/       Go control plane, worker, protocol, queue, and persistence
+frontend/      React, TypeScript, Vite, and Vitest web console
+build/         Container image and Nginx configuration
+scripts/       Release, security, and SBOM checks
+internal/      Historical design records, reviews, and roadmap notes
 ```
-
-## Development notes
-
-Implementation and verification records are in [`internal/v2/TODO.md`](internal/v2/TODO.md) and [`internal/v2/TODO-2.md`](internal/v2/TODO-2.md).
-
-The design records in `internal/` describe the migration from the local script scheduler.
 
 ## License
 
-Glyphflow uses the MIT License. See [LICENSE](LICENSE).
+Glyphflow is released under the [MIT License](LICENSE).
