@@ -9,6 +9,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/VBenevides/Glyphflow?style=flat-square" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/phase-alpha-orange?style=flat-square" alt="Phase alpha">
   <a href="https://github.com/VBenevides/Glyphflow/actions/workflows/codeql.yml"><img src="https://github.com/VBenevides/Glyphflow/actions/workflows/codeql.yml/badge.svg?branch=main" alt="CodeQL"></a>
+  <a href="https://github.com/VBenevides/Glyphflow/actions/workflows/security.yml"><img src="https://github.com/VBenevides/Glyphflow/actions/workflows/security.yml/badge.svg?branch=main" alt="Security Analysis"></a>
 </p>
 
 <p align="center">
