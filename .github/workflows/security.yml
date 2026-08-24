@@ -40,7 +40,7 @@ jobs:
           path: .
           format: spdx-json
           output-file: ${{ runner.temp }}/SBOM.spdx.json
-          artifact-name: glyphflow-sbom
+          upload-artifact: false
           upload-release-assets: false
       - name: Validate SBOM
         env:
