@@ -1,0 +1,40 @@
+name: Security
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '10 0 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.2
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install govulncheck
+        env:
+          GOBIN: ${{ runner.temp }}/bin
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+      - name: Run security checks
+        env:
+          GOVULNCHECK_BIN: ${{ runner.temp }}/bin/govulncheck
+        run: ./scripts/security-check.sh
+      - name: Generate and validate SBOM
+        run: |
+          ./scripts/generate-sbom.sh "${{ runner.temp }}/SBOM.spdx.json"
+          test -s "${{ runner.temp }}/SBOM.spdx.json"
+          ! rg -n '"packages"[[:space:]]*:[[:space:]]*\[\]' "${{ runner.temp }}/SBOM.spdx.json"

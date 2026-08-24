@@ -5,15 +5,18 @@
 <h1 align="center">Glyphflow</h1>
 
 <p align="center">
+  <a href="VERSION"><img src="https://img.shields.io/badge/version-v0.2.1-blue?style=flat-square" alt="Version v0.2.1"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/VBenevides/Glyphflow?style=flat-square" alt="MIT License"></a>
+  <img src="https://img.shields.io/badge/phase-alpha-orange?style=flat-square" alt="Phase alpha">
+  <a href="https://github.com/VBenevides/Glyphflow/actions/workflows/codeql.yml"><img src="https://github.com/VBenevides/Glyphflow/actions/workflows/codeql.yml/badge.svg?branch=main" alt="CodeQL"></a>
+</p>
+
+<p align="center">
   An open-source control plane for running commands across servers and virtual machines.
 </p>
 
 <p align="center">
   Define work once. Place it where it belongs. See every attempt, event, and log.
-</p>
-
-<p align="center">
-  <a href="VERSION">v0.2.1</a> · <a href="LICENSE">MIT licensed</a> · self-hosted
 </p>
 
 Glyphflow turns scattered scripts and manually maintained cron jobs into a
@@ -25,9 +28,6 @@ Workers run on the machines that own the work. They connect outbound to the
 control plane's message bus, execute commands locally, and report signed
 lifecycle events and logs back to the console. PostgreSQL stays with the
 control plane; workers do not need database credentials or a PostgreSQL client.
-
-> Glyphflow is alpha software. The current version is in [`VERSION`](VERSION),
-> and APIs and deployment details may change while the project matures.
 
 ## Why Glyphflow
 
