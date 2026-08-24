@@ -1,4 +1,4 @@
-name: Security
+name: Dependency security
 
 on:
   push:
@@ -13,14 +13,15 @@ permissions:
 
 jobs:
   security:
+    name: Dependencies and SBOM
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22.22.2
           cache: npm
@@ -33,8 +34,17 @@ jobs:
         env:
           GOVULNCHECK_BIN: ${{ runner.temp }}/bin/govulncheck
         run: ./scripts/security-check.sh
-      - name: Generate and validate SBOM
+      - name: Generate SBOM
+        uses: anchore/sbom-action@43a17d6e7add2b5535efe4dcae9952337c479a93 # v0.20.11
+        with:
+          path: .
+          format: spdx-json
+          output-file: ${{ runner.temp }}/SBOM.spdx.json
+          artifact-name: glyphflow-sbom
+          upload-release-assets: false
+      - name: Validate SBOM
+        env:
+          SBOM_FILE: ${{ runner.temp }}/SBOM.spdx.json
         run: |
-          ./scripts/generate-sbom.sh "${{ runner.temp }}/SBOM.spdx.json"
-          test -s "${{ runner.temp }}/SBOM.spdx.json"
-          ! rg -n '"packages"[[:space:]]*:[[:space:]]*\[\]' "${{ runner.temp }}/SBOM.spdx.json"
+          test -s "$SBOM_FILE"
+          jq -e '(.spdxVersion | strings) and (.packages | type == "array" and length > 0)' "$SBOM_FILE" >/dev/null
