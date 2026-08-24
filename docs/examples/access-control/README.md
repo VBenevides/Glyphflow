@@ -19,5 +19,6 @@ include passwords or session tokens in screenshots.
 
 ## Screenshots
 
-Store numbered screenshots for user creation, role assignment, operator
-permissions, and role revocation in [`screenshots/`](screenshots/).
+![Illustrative role assignment and permissions with fake data](screenshots/01-role-assignment.png)
+
+This illustrative mockup shows the fake operator role and permission summary.

@@ -16,5 +16,6 @@ fake `Warehouse Snapshot` task.
 
 ## Screenshots
 
-Store numbered screenshots for the task placement settings, run placement,
-and resource lease in [`screenshots/`](screenshots/).
+![Illustrative runner placement and resource lease with fake data](screenshots/01-placement-lease.png)
+
+This illustrative mockup shows the selected runner and active resource lease.

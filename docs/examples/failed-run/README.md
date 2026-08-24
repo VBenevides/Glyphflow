@@ -20,5 +20,6 @@ failure command or real destination in a screenshot example.
 
 ## Screenshots
 
-Store numbered screenshots for the failed result, reason dialog, retry, and
-attempt history in [`screenshots/`](screenshots/).
+![Illustrative failed run and retry dialog with fake data](screenshots/01-failed-retry.png)
+
+This illustrative mockup shows the failed result, exit code, and retry reason.

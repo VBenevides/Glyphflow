@@ -35,5 +35,6 @@ runner, attempt, and final exit code.
 
 ## Screenshots
 
-Screenshots for this flow belong in [`screenshots/`](screenshots/), in step
-order, and must use fake names and data only.
+![Illustrative successful run with fake data](screenshots/01-run-succeeded.png)
+
+This illustrative mockup uses fake names and data only.

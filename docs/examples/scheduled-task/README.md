@@ -19,5 +19,6 @@ production destinations for this example.
 
 ## Screenshots
 
-Store numbered screenshots for the editor, preview, saved schedule, and first
-scheduled result in [`screenshots/`](screenshots/).
+![Illustrative schedule preview with fake data](screenshots/01-schedule-preview.png)
+
+This illustrative mockup shows the schedule preview and saved policy values.
