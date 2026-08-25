@@ -22,6 +22,10 @@ trap cleanup EXIT
 (cd backend && GOCACHE="${GOCACHE:-/tmp/glyphflow-go-cache}" go test ./...)
 (cd backend && GOCACHE="${GOCACHE:-/tmp/glyphflow-go-cache}" go vet ./...)
 (cd backend && GOCACHE="${GOCACHE:-/tmp/glyphflow-go-cache}" go mod verify)
+govulncheck_bin=${GOVULNCHECK_BIN:-govulncheck}
+command -v "$govulncheck_bin" >/dev/null 2>&1 || { echo "release check: govulncheck is required" >&2; exit 1; }
+(cd backend && GOCACHE="${GOCACHE:-/tmp/glyphflow-go-cache}" "$govulncheck_bin" ./...)
+(cd frontend && npm audit --omit=dev --audit-level=low)
 
 if [ -z "$release_database_url" ]; then
   if command -v pg_isready >/dev/null 2>&1 && pg_isready -h localhost -p 5432 -U glyphflow >/dev/null 2>&1; then
