@@ -175,7 +175,7 @@ func (*exhaustedMessage) InProgress() error                           { return n
 func (*exhaustedMessage) Term() error                                 { return nil }
 func (*exhaustedMessage) TermWithReason(string) error                 { return nil }
 
-func TestDeadLetterPersistenceFailureDoesNotAck(t *testing.T) {
+func TestDeadLetterPersistenceFailureNacksWithoutAck(t *testing.T) {
 	message := &exhaustedMessage{
 		subject: Subject("events", "runner-1"), data: []byte("signed-payload"),
 		headers: nats.Header{"Nats-Msg-Id": []string{"event-1"}, "X-Correlation-ID": []string{"corr-1"}},
@@ -189,14 +189,45 @@ func TestDeadLetterPersistenceFailureDoesNotAck(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "database unavailable") {
 		t.Fatalf("expected persistence error, got %v", err)
 	}
-	if message.acked || message.nacked {
-		t.Fatal("message was acknowledged after dead-letter persistence failed")
+	if message.acked || !message.nacked {
+		t.Fatal("message was not NACKed after dead-letter persistence failed")
 	}
 	if record.Stream != "GLYPHFLOW" || record.Consumer != "control-plane" || record.MessageID != "event-1" || record.RunnerID != "runner-1" || record.CorrelationID != "corr-1" {
 		t.Fatalf("dead-letter identity was not preserved: %#v", record)
 	}
 	if string(record.Payload) != "signed-payload" || len(record.Error) != 4096 || record.Attempts != 5 {
 		t.Fatalf("dead-letter bounds or diagnostics were not preserved: payload=%q error=%d attempts=%d", record.Payload, len(record.Error), record.Attempts)
+	}
+}
+
+func TestDeadLetterPublicationFailureNacksWithoutAck(t *testing.T) {
+	message := &exhaustedMessage{
+		subject: Subject("events", "runner-1"), data: []byte("signed-payload"),
+		meta: &jetstream.MsgMetadata{Stream: "GLYPHFLOW", Consumer: "control-plane", NumDelivered: 5, Timestamp: time.Now().UTC()},
+	}
+	stream := &JetStream{}
+	err := stream.processMessage(context.Background(), message, func(context.Context, Message) error { return errors.New("unknown attempt") })
+	if err == nil || !strings.Contains(err.Error(), "queue and message data are required") {
+		t.Fatalf("expected dead-letter publication error, got %v", err)
+	}
+	if message.acked || !message.nacked {
+		t.Fatal("message was not NACKed after dead-letter publication failed")
+	}
+}
+
+func TestDeadLetterNoticeFailureNacksWithoutAck(t *testing.T) {
+	message := &exhaustedMessage{
+		subject: Subject("events", "runner-1"), data: []byte("signed-payload"),
+		meta: &jetstream.MsgMetadata{Stream: "GLYPHFLOW", Consumer: "control-plane", NumDelivered: 5, Timestamp: time.Now().UTC()},
+	}
+	stream := &JetStream{}
+	stream.SetDeadLetterSink(func(context.Context, DeadLetter) error { return nil })
+	err := stream.processMessage(context.Background(), message, func(context.Context, Message) error { return errors.New("signature rejected") })
+	if err == nil || !strings.Contains(err.Error(), "queue and message data are required") {
+		t.Fatalf("expected dead-letter notice error, got %v", err)
+	}
+	if message.acked || !message.nacked {
+		t.Fatal("message was not NACKed after dead-letter notice failed")
 	}
 }
 

@@ -284,19 +284,23 @@ func (j *JetStream) processMessage(ctx context.Context, message jetstream.Msg, h
 			}
 			if j.deadLetterSink != nil {
 				if persistErr := j.deadLetterSink(ctx, record); persistErr != nil {
+					_ = message.Nak()
 					return persistErr
 				}
 			} else {
 				if publishErr := j.Publish(ctx, Message{Subject: "glyphflow.deadletter." + message.Subject(), Data: []byte(boundedError(err))}); publishErr != nil {
+					_ = message.Nak()
 					return publishErr
 				}
 			}
 			if j.deadLetterSink != nil {
 				notice, marshalErr := json.Marshal(map[string]any{"messageId": record.MessageID, "subject": record.Subject, "state": "OPEN"})
 				if marshalErr != nil {
+					_ = message.Nak()
 					return marshalErr
 				}
 				if publishErr := j.Publish(ctx, Message{Subject: "glyphflow.deadletter." + message.Subject(), Data: notice}); publishErr != nil {
+					_ = message.Nak()
 					return publishErr
 				}
 			}
