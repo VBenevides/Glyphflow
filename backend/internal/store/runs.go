@@ -188,9 +188,13 @@ func (s *RunStore) List(ctx context.Context) ([]RunRecord, error) {
 }
 
 func (s *RunStore) ListPage(ctx context.Context, filter RunListFilter) (RunPage, error) {
+	const (
+		maxRunPageLimit     = 100
+		defaultRunPageLimit = 50
+	)
 	limit := filter.Limit
-	if limit < 1 || limit > 100 {
-		limit = 50
+	if limit < 1 || limit > maxRunPageLimit {
+		limit = defaultRunPageLimit
 	}
 	safeLimit := limit
 	offset := filter.Offset
