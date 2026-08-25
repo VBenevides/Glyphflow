@@ -34,7 +34,7 @@ export function AccountPage() {
   const [password, setPassword] = useState({ current: '', next: '', confirm: '' })
   const [passwordError, setPasswordError] = useState('')
   useEffect(() => { if (query.data) { const value = query.data.displayName ?? ''; setDisplayName(value); setDisplayNameBaseline(value) } }, [query.data])
-  const saveProfile = async (event: FormEvent) => { event.preventDefault(); setProfileError(''); try { await api.put('/api/v1/me', { display_name: displayName.trim() }); await query.refetch() } catch (cause) { setProfileError(cause instanceof Error ? cause.message : 'Profile update failed') } }
+  const saveProfile = async (event: FormEvent) => { event.preventDefault(); setProfileError(''); try { const saved = await api.put<Profile>('/api/v1/me', { display_name: displayName.trim() }); setProfile(saved); await query.refetch() } catch (cause) { setProfileError(cause instanceof Error ? cause.message : 'Profile update failed') } }
   const changePassword = async (event: FormEvent) => { event.preventDefault(); setPasswordError(''); if (password.next !== password.confirm) { setPasswordError('New passwords must match.'); return } try { await api.post('/api/v1/me/password', { current_password: password.current, new_password: password.next }); setPassword({ current: '', next: '', confirm: '' }) } catch (cause) { setPasswordError(cause instanceof Error ? cause.message : 'Password update failed') } }
   const revoke = async (sessionId: string, current: boolean) => { await api.post(`/api/v1/me/sessions/revoke?session_id=${encodeURIComponent(sessionId)}`); if (current) { setProfile(null); navigate('/login', { replace: true }) } else await query.refetch() }
   const identities = query.data?.identities ?? []
