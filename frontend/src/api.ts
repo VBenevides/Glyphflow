@@ -53,6 +53,8 @@ export type AuthSession = { id: string; createdAt?: string; expiresAt?: string; 
 export type AdminSession = { id: string; userId: string; userEmail: string; expiresAt?: string; lastSeenAt?: string; userAgent?: string; ipAddress?: string }
 export type UserRecord = { id: string; username: string; email?: string; displayName?: string; status?: string; enabled?: boolean; systemAdmin?: boolean; loginMethods?: string[]; roles?: string[]; roleSources?: string[]; permissions?: string[]; identities?: Identity[]; sessions?: AuthSession[] }
 export type RoleDefinition = { id: string; name: string; description?: string; permissions: string[]; system?: boolean; assignedUsers?: number }
+export type SystemMetricAlert = { code: string; severity: string; status: string; value: number; threshold: number }
+export type SystemMetrics = { generatedAt: string; ready: boolean; metrics: Record<string, number>; signals: { queueLagSeconds: number; deadLetters: { open: number; oldestAgeSeconds: number }; stuckRuns: number; disk: { freeBytes: number; freePercent: number } }; alerts: SystemMetricAlert[] }
 
 const unsafeMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 
