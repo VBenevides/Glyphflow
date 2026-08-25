@@ -39,8 +39,7 @@ export function AuditPage() {
   const [filters, setFilters] = useState({ actor: '', action: '', target: '', result: '', correlation: '', from: '', to: '', excludeAuditReads: true, excludeRunLogs: true }); const [page, setPage] = useState(1); const [limit, setLimit] = useState(10)
   const [details, setDetails] = useState<AuditEvent | null>(null)
   const query = useQuery<AuditPage>({ queryKey: ['audit', filters, page, limit], queryFn: ({ signal }) => api.get<AuditPage>('/api/v1/audit', auditQuery(filters, page, limit), signal) })
-  const optionsQuery = useQuery<AuditPage>({ queryKey: ['audit-filter-options', filters.result, filters.from, filters.to, filters.excludeAuditReads, filters.excludeRunLogs], queryFn: ({ signal }) => api.get<AuditPage>('/api/v1/audit', { ...auditQuery({ ...filters, actor: '', action: '', target: '', correlation: '' }, 1), all: true }, signal) })
-  const auditOptions = optionsQuery.data?.items ?? query.data?.items ?? []
+  const auditOptions = query.data?.items ?? []
   const update = (key: keyof typeof filters, value: string) => { setFilters((current) => ({ ...current, [key]: value })); setPage(1) }
   return <main className="gf-content">
     <PageHeader title="Audit events" description="Trace security and scheduler changes with redacted values." />
