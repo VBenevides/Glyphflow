@@ -10,6 +10,9 @@ availability.
 
 A reverse proxy may provide the public HTTPS endpoint, but it does not make
 the control plane redundant. Keep PostgreSQL and NATS on private networks.
+The included Compose deployment does not provision per-runner NATS accounts or
+ACLs; select and configure that credential authority before treating workers
+as mutually isolated tenants.
 
 ## Service boundaries and targets
 
@@ -87,4 +90,3 @@ as a new identity, not as a recoverable session.
   event outbox; do not delete pending rows.
 - A host is untrusted: revoke or archive the runner, then rotate any secrets
   it could read.
-
