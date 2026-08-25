@@ -67,6 +67,30 @@ func TestAuthenticationAdministrationManagesSSOAndUsers(t *testing.T) {
 	}
 }
 
+func TestAuthenticationAdministrationRejectsUnknownProviderFields(t *testing.T) {
+	oidc := NewOIDCService()
+	server := Server{AuthAdmin: &AuthAdminService{OIDC: oidc}, Auth: func(*http.Request) (Claims, bool) {
+		return Claims{Roles: map[string]bool{"sso.manage": true}}, true
+	}}
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/auth/providers", bytes.NewBufferString(`{"key":"corp","issuer":"https://issuer.example","callback":"https://app.example/callback","clientId":"client","secretReference":"env://OIDC_SECRET","groupMapping":{"ops":"operator"},"claim_mapping":{"email":"email"},"enabled":true}`))
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("unknown provider field returned %d", recorder.Code)
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/auth/providers", bytes.NewBufferString(`{"key":"corp","issuer":"https://issuer.example","callback":"https://app.example/callback","clientId":"client","secretReference":"env://OIDC_SECRET","groupMapping":{"ops":"operator"},"enabled":true}`))
+	recorder = httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("canonical provider fields returned %d: %s", recorder.Code, recorder.Body.String())
+	}
+	provider, ok := oidc.Provider("corp")
+	if !ok || provider.ClientID != "client" || provider.SecretReference != "env://OIDC_SECRET" || provider.GroupMapping["ops"] != "operator" {
+		t.Fatalf("provider fields were not persisted: %#v", provider)
+	}
+}
+
 func TestAuthenticationAdministrationCreatesPromotesAndRevokesRoles(t *testing.T) {
 	auth, err := NewAuthService("01234567890123456789012345678901", true, false, nil)
 	if err != nil {

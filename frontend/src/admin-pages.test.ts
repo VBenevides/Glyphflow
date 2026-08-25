@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { filterAndSortRoles, roleMappingsValue, UserAccessEditor, UserCreationForm } from './admin-pages'
 import type { RoleDefinition, UserRecord } from './api'
 
@@ -38,5 +40,17 @@ describe('admin access workflow', () => {
     expect(html).toContain('Assigned roles')
     expect(html).toContain('Revoke')
     expect(html).toContain('admin')
+  })
+})
+
+describe('SSO provider contract', () => {
+  const source = readFileSync(resolve(process.cwd(), 'src/admin-pages.tsx'), 'utf8')
+
+  it('uses canonical provider fields and does not advertise unsupported claim mappings', () => {
+    expect(source).toContain('clientId: draft.clientId.trim()')
+    expect(source).toContain('secretReference: draft.secretReference.trim()')
+    expect(source).toContain('groupMapping: roleMappingsValue(groupMappings)')
+    expect(source).not.toContain('claim_mapping')
+    expect(source).not.toContain('Claim mapping')
   })
 })
