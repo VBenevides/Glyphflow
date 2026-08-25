@@ -74,6 +74,20 @@ func (s *RunService) collection(w http.ResponseWriter, r *http.Request) {
 		repository := s.repository
 		s.mu.RUnlock()
 		if repository != nil {
+			if paged, ok := repository.(store.RunPageRepository); ok {
+				filter, page, limit := runListFilter(r)
+				result, err := paged.ListPage(r.Context(), filter)
+				if err != nil {
+					writeError(w, http.StatusServiceUnavailable, "run storage unavailable", err)
+					return
+				}
+				items := make([]RunRecord, 0, len(result.Items))
+				for _, item := range result.Items {
+					items = append(items, runRecordFromStore(item))
+				}
+				writeRunPage(w, page, limit, result.Total, items)
+				return
+			}
 			items, err := repository.List(r.Context())
 			if err != nil {
 				writeError(w, http.StatusServiceUnavailable, "run storage unavailable", err)
@@ -99,6 +113,36 @@ func (s *RunService) collection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+}
+
+func runListFilter(r *http.Request) (store.RunListFilter, int, int) {
+	query := r.URL.Query()
+	page, _ := strconv.Atoi(query.Get("page"))
+	if page < 1 {
+		page = 1
+	}
+	limit, _ := strconv.Atoi(query.Get("limit"))
+	all := strings.EqualFold(query.Get("all"), "true")
+	if all {
+		page = 1
+		limit = 100
+	} else if limit < 1 || limit > 100 {
+		limit = 50
+	}
+	from, _ := parseFilterTime(query.Get("from"))
+	to, _ := parseFilterTime(query.Get("to"))
+	return store.RunListFilter{State: query.Get("state"), Task: query.Get("task"), Runner: query.Get("runner"), Trigger: query.Get("trigger"), From: from, To: to, Limit: limit, Offset: (page - 1) * limit}, page, limit
+}
+
+func writeRunPage(w http.ResponseWriter, page, limit, total int, items []RunRecord) {
+	pages := total / limit
+	if total%limit != 0 {
+		pages++
+	}
+	if pages == 0 {
+		pages = 1
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items, "page": page, "limit": limit, "total": total, "pages": pages})
 }
 
 func filterRuns(items []RunRecord, query url.Values) []RunRecord {

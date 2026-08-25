@@ -5,6 +5,8 @@ import { describe, expect, it } from 'vitest'
 import { canReadRunLogs, eligibleRunActions, hasActiveRuns, ManualRunPage, type ManualRunProps, runQuery, runStatusLabel, RunIDCell, RunTimeline, waitingRunMessage } from './run-pages'
 import { isTerminalRunState } from './run-logs'
 import { QueryProvider } from './query'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 describe('run inventory', () => {
   it('builds server-side filters and keeps terminal labels distinct', () => {
@@ -22,6 +24,12 @@ describe('run inventory', () => {
     expect(canReadRunLogs(['runs.read', 'logs.read'])).toBe(true)
     expect(isTerminalRunState('SUCCEEDED')).toBe(true)
     expect(isTerminalRunState('RUNNING')).toBe(false)
+  })
+
+  it('keeps runner discovery on the bounded runs query', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/run-pages.tsx'), 'utf8')
+    expect(source).not.toContain("queryKey: ['run-filter-options']")
+    expect(source).not.toContain('{ all: true }')
   })
 
   it('renders the detail timeline payload', () => {

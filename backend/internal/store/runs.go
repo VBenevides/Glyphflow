@@ -118,6 +118,21 @@ type RunRepository interface {
 	ListLogChunks(context.Context, string, string, int64) ([]RunLogChunkRecord, error)
 }
 
+type RunListFilter struct {
+	State, Task, Runner, Trigger string
+	From, To                     time.Time
+	Limit, Offset                int
+}
+
+type RunPage struct {
+	Items []RunRecord
+	Total int
+}
+
+type RunPageRepository interface {
+	ListPage(context.Context, RunListFilter) (RunPage, error)
+}
+
 // CancellationRepository is implemented by durable stores that can enqueue a
 // signed, attempt-specific cancel order. It is optional for API fakes.
 type CancellationRepository interface {
@@ -170,6 +185,82 @@ func (s *RunStore) List(ctx context.Context) ([]RunRecord, error) {
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+func (s *RunStore) ListPage(ctx context.Context, filter RunListFilter) (RunPage, error) {
+	limit := filter.Limit
+	if limit < 1 || limit > 100 {
+		limit = 50
+	}
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	where, args := runListWhere(filter)
+	var total int64
+	if err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM (`+runQuery+where+`) filtered`, args...).Scan(&total); err != nil {
+		return RunPage{}, err
+	}
+	listArgs := append(append([]any(nil), args...), limit, offset)
+	rows, err := s.pool.Query(ctx, runQuery+where+` ORDER BY r.created_at DESC, r.id LIMIT $`+strconv.Itoa(len(args)+1)+` OFFSET $`+strconv.Itoa(len(args)+2), listArgs...)
+	if err != nil {
+		return RunPage{}, err
+	}
+	defer rows.Close()
+	items := make([]RunRecord, 0, limit)
+	for rows.Next() {
+		item, err := scanRun(rows)
+		if err != nil {
+			return RunPage{}, err
+		}
+		if item.State == "WAITING" {
+			item.PlacementBlocker = s.placementBlocker(ctx, item.ID)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return RunPage{}, err
+	}
+	return RunPage{Items: items, Total: int(total)}, nil
+}
+
+func runListWhere(filter RunListFilter) (string, []any) {
+	clauses := make([]string, 0, 5)
+	args := make([]any, 0, 5)
+	add := func(clause string, value any) {
+		args = append(args, value)
+		clauses = append(clauses, strings.Replace(clause, "?", "$"+strconv.Itoa(len(args)), 1))
+	}
+	state := strings.ToUpper(strings.TrimSpace(filter.State))
+	if state == "ACTIVE" {
+		clauses = append(clauses, `r.state IN ('WAITING', 'DISPATCHED', 'RUNNING', 'RETRY_WAIT', 'CANCELLING')`)
+	} else if state != "" {
+		add("r.state = ?", state)
+	}
+	if task := strings.TrimSpace(filter.Task); task != "" {
+		pattern := "%" + task + "%"
+		args = append(args, pattern)
+		first := "$" + strconv.Itoa(len(args))
+		args = append(args, pattern)
+		second := "$" + strconv.Itoa(len(args))
+		clauses = append(clauses, "(r.task_id ILIKE "+first+" OR t.name ILIKE "+second+")")
+	}
+	if runner := strings.TrimSpace(filter.Runner); runner != "" {
+		add("latest.runner_id ILIKE ?", runner)
+	}
+	if trigger := strings.TrimSpace(filter.Trigger); trigger != "" {
+		add("r.trigger_type ILIKE ?", trigger)
+	}
+	if !filter.From.IsZero() {
+		add("r.scheduled_for >= ?", filter.From)
+	}
+	if !filter.To.IsZero() {
+		add("r.scheduled_for <= ?", filter.To)
+	}
+	if len(clauses) == 0 {
+		return "", args
+	}
+	return " WHERE " + strings.Join(clauses, " AND "), args
 }
 
 func (s *RunStore) Find(ctx context.Context, id string) (RunRecord, bool, error) {
