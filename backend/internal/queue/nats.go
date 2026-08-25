@@ -2,6 +2,7 @@ package queue
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	urlpkg "net/url"
@@ -14,9 +15,10 @@ import (
 )
 
 type JetStream struct {
-	conn   *nats.Conn
-	js     jetstream.JetStream
-	stream jetstream.Stream
+	conn           *nats.Conn
+	js             jetstream.JetStream
+	stream         jetstream.Stream
+	deadLetterSink DeadLetterSink
 }
 
 const UnlimitedPending = -1
@@ -79,6 +81,12 @@ func connectJetStream(url string, options ...nats.Option) (*JetStream, error) {
 func (j *JetStream) Close() {
 	if j != nil && j.conn != nil {
 		j.conn.Close()
+	}
+}
+
+func (j *JetStream) SetDeadLetterSink(sink DeadLetterSink) {
+	if j != nil {
+		j.deadLetterSink = sink
 	}
 }
 func (j *JetStream) StreamName() string {
@@ -253,16 +261,80 @@ func (j *JetStream) processMessage(ctx context.Context, message jetstream.Msg, h
 	} else {
 		metadata, metadataErr := message.Metadata()
 		if metadataErr == nil && metadata.NumDelivered >= 5 {
-			deadLetter := []byte(strings.TrimSpace(err.Error()))
-			if len(deadLetter) > 4096 {
-				deadLetter = deadLetter[:4096]
+			now := time.Now().UTC()
+			failedAt := now
+			stream, consumer := "", ""
+			attempts := metadata.NumDelivered
+			if metadata != nil {
+				stream, consumer, attempts = metadata.Stream, metadata.Consumer, metadata.NumDelivered
+				if !metadata.Timestamp.IsZero() {
+					failedAt = metadata.Timestamp.UTC()
+				}
 			}
-			if publishErr := j.Publish(ctx, Message{Subject: "glyphflow.deadletter." + message.Subject(), Data: deadLetter}); publishErr != nil {
-				return publishErr
+			messageID := queueMessage.ID
+			if messageID == "" && metadata != nil {
+				messageID = fmt.Sprintf("%s:%d", stream, metadata.Sequence.Stream)
+			}
+			record := DeadLetter{
+				Stream: stream, Consumer: consumer, Subject: message.Subject(), MessageID: messageID,
+				RunnerID: runnerIDFromSubject(message.Subject()), CorrelationID: correlationID(message.Headers()),
+				Payload: append([]byte(nil), message.Data()...), Error: boundedError(err), Attempts: attempts,
+				FirstFailedAt: failedAt, LastFailedAt: now,
+			}
+			if j.deadLetterSink != nil {
+				if persistErr := j.deadLetterSink(ctx, record); persistErr != nil {
+					return persistErr
+				}
+			} else {
+				if publishErr := j.Publish(ctx, Message{Subject: "glyphflow.deadletter." + message.Subject(), Data: []byte(boundedError(err))}); publishErr != nil {
+					return publishErr
+				}
+			}
+			if j.deadLetterSink != nil {
+				notice, marshalErr := json.Marshal(map[string]any{"messageId": record.MessageID, "subject": record.Subject, "state": "OPEN"})
+				if marshalErr != nil {
+					return marshalErr
+				}
+				if publishErr := j.Publish(ctx, Message{Subject: "glyphflow.deadletter." + message.Subject(), Data: notice}); publishErr != nil {
+					return publishErr
+				}
 			}
 			return message.Ack()
 		}
 		return message.Nak()
+	}
+}
+
+func boundedError(err error) string {
+	if err == nil {
+		return ""
+	}
+	value := strings.TrimSpace(err.Error())
+	if len(value) > 4096 {
+		return value[:4096]
+	}
+	return value
+}
+
+func correlationID(headers nats.Header) string {
+	for _, name := range []string{"X-Correlation-ID", "Correlation-ID", "Nats-Correlation-ID"} {
+		if value := strings.TrimSpace(headers.Get(name)); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func runnerIDFromSubject(subject string) string {
+	parts := strings.Split(subject, ".")
+	if len(parts) < 3 || parts[0] != "glyphflow" {
+		return ""
+	}
+	switch parts[1] {
+	case "orders", "events", "control":
+		return strings.Join(parts[2:], ".")
+	default:
+		return ""
 	}
 }
 

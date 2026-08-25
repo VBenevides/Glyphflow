@@ -2,6 +2,8 @@ package queue
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -148,5 +150,61 @@ func TestConsumeConcurrentCancelsBlockedHandler(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("consumer did not stop after cancellation")
+	}
+}
+
+type exhaustedMessage struct {
+	subject string
+	data    []byte
+	headers nats.Header
+	meta    *jetstream.MsgMetadata
+	acked   bool
+	nacked  bool
+}
+
+func (m *exhaustedMessage) Metadata() (*jetstream.MsgMetadata, error) { return m.meta, nil }
+func (m *exhaustedMessage) Data() []byte                              { return m.data }
+func (m *exhaustedMessage) Headers() nats.Header                      { return m.headers }
+func (m *exhaustedMessage) Subject() string                           { return m.subject }
+func (m *exhaustedMessage) Reply() string                             { return "" }
+func (m *exhaustedMessage) Ack() error                                { m.acked = true; return nil }
+func (m *exhaustedMessage) DoubleAck(context.Context) error           { m.acked = true; return nil }
+func (m *exhaustedMessage) Nak() error                                { m.nacked = true; return nil }
+func (*exhaustedMessage) NakWithDelay(time.Duration) error            { return nil }
+func (*exhaustedMessage) InProgress() error                           { return nil }
+func (*exhaustedMessage) Term() error                                 { return nil }
+func (*exhaustedMessage) TermWithReason(string) error                 { return nil }
+
+func TestDeadLetterPersistenceFailureDoesNotAck(t *testing.T) {
+	message := &exhaustedMessage{
+		subject: Subject("events", "runner-1"), data: []byte("signed-payload"),
+		headers: nats.Header{"Nats-Msg-Id": []string{"event-1"}, "X-Correlation-ID": []string{"corr-1"}},
+		meta:    &jetstream.MsgMetadata{Stream: "GLYPHFLOW", Consumer: "control-plane", NumDelivered: 5, Timestamp: time.Now().Add(-time.Minute), Sequence: jetstream.SequencePair{Stream: 42}},
+	}
+	var record DeadLetter
+	stream := &JetStream{}
+	stream.SetDeadLetterSink(func(_ context.Context, got DeadLetter) error { record = got; return errors.New("database unavailable") })
+	tooLong := strings.Repeat("diagnostic ", 1000)
+	err := stream.processMessage(context.Background(), message, func(context.Context, Message) error { return errors.New(tooLong) })
+	if err == nil || !strings.Contains(err.Error(), "database unavailable") {
+		t.Fatalf("expected persistence error, got %v", err)
+	}
+	if message.acked || message.nacked {
+		t.Fatal("message was acknowledged after dead-letter persistence failed")
+	}
+	if record.Stream != "GLYPHFLOW" || record.Consumer != "control-plane" || record.MessageID != "event-1" || record.RunnerID != "runner-1" || record.CorrelationID != "corr-1" {
+		t.Fatalf("dead-letter identity was not preserved: %#v", record)
+	}
+	if string(record.Payload) != "signed-payload" || len(record.Error) != 4096 || record.Attempts != 5 {
+		t.Fatalf("dead-letter bounds or diagnostics were not preserved: payload=%q error=%d attempts=%d", record.Payload, len(record.Error), record.Attempts)
+	}
+}
+
+func TestRunnerIDFromSubjectKeepsDottedIDs(t *testing.T) {
+	if got := runnerIDFromSubject("glyphflow.events.runner.eu-west"); got != "runner.eu-west" {
+		t.Fatalf("runner ID = %q", got)
+	}
+	if got := runnerIDFromSubject("glyphflow.deadletter.glyphflow.events.runner-1"); got != "" {
+		t.Fatalf("dead-letter subject was treated as a runner subject: %q", got)
 	}
 }

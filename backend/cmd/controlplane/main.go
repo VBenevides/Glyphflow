@@ -212,6 +212,14 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	deadLetterRepository := store.NewDeadLetterRepository(db, []byte(cfg.AccessTokenSecret))
+	jetstream.SetDeadLetterSink(func(ctx context.Context, record queue.DeadLetter) error {
+		return deadLetterRepository.Persist(ctx, store.DeadLetterRecord{
+			RunnerID: record.RunnerID, Stream: record.Stream, Consumer: record.Consumer, Subject: record.Subject,
+			MessageID: record.MessageID, Payload: record.Payload, Error: record.Error, Attempts: record.Attempts,
+			FirstFailedAt: record.FirstFailedAt, LastFailedAt: record.LastFailedAt, CorrelationID: record.CorrelationID,
+		})
+	})
 	infrastructure.SetRunnerCapacityPublisher(jetstream, signingKey)
 	defer jetstream.Close()
 	go func() {
