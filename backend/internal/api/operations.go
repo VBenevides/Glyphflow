@@ -140,6 +140,13 @@ func taskDefinition(id string, input taskInput) store.TaskDefinition {
 	return store.TaskDefinition{ID: id, Name: strings.TrimSpace(input.Name), RunnerPoolID: strings.TrimSpace(input.RunnerPool), PinnedRunnerID: strings.TrimSpace(input.PinnedRunner), Command: append([]string(nil), input.Command...), WorkingDirectory: input.WorkingDirectory, PlacementSelectors: input.PlacementSelectors, Environment: input.Environment, SecretReferences: input.SecretReferences, TimeoutSeconds: input.TimeoutSeconds, MaxOutputBytes: input.MaxOutputBytes, MaxAttempts: input.MaxAttempts, AmbiguityPolicy: input.AmbiguityPolicy, ResourceIDs: append([]string(nil), input.Resources...), Enabled: true}
 }
 
+func validateTaskSecrets(input taskInput) error {
+	if len(input.SecretReferences) > 0 {
+		return errors.New("task secret references are not supported")
+	}
+	return nil
+}
+
 func scheduleRecordFromStore(schedule store.ScheduleRecord) ScheduleRecord {
 	nextFireAt := ""
 	if schedule.NextFireAt != nil {
@@ -199,6 +206,10 @@ func (o *OperationsService) taskCollection(w http.ResponseWriter, r *http.Reques
 	var input taskInput
 	if json.NewDecoder(r.Body).Decode(&input) != nil || strings.TrimSpace(input.Name) == "" || len(input.Command) == 0 || strings.TrimSpace(input.RunnerPool) == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "task name, command, and runner pool are required"})
+		return
+	}
+	if err := validateTaskSecrets(input); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 	o.mu.RLock()
@@ -304,6 +315,10 @@ func (o *OperationsService) taskPath(w http.ResponseWriter, r *http.Request) {
 		var input taskInput
 		if json.NewDecoder(r.Body).Decode(&input) != nil || len(input.Command) == 0 {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "command is required"})
+			return
+		}
+		if err := validateTaskSecrets(input); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
 		o.mu.RLock()
