@@ -61,8 +61,11 @@ done
 (cd backend && DATABASE_URL="$release_database_url" GOCACHE="${GOCACHE:-/tmp/glyphflow-go-cache}" go test ./...)
 
 ./scripts/generate-sbom.sh "$release_tmp/SBOM.spdx.json"
-(cd backend && GOCACHE="${GOCACHE:-/tmp/glyphflow-go-cache}" go build -o "$release_tmp/controlplane" ./cmd/controlplane)
-(cd backend && GOCACHE="${GOCACHE:-/tmp/glyphflow-go-cache}" go build -o "$release_tmp/worker" ./cmd/worker)
+release_version=$(tr -d '[:space:]' < VERSION)
+[ -n "$release_version" ] || { echo "release check: VERSION is empty" >&2; exit 1; }
+release_ldflags="-s -w -X github.com/VBenevides/Glyphflow/backend.Version=$release_version"
+(cd backend && GOCACHE="${GOCACHE:-/tmp/glyphflow-go-cache}" go build -trimpath -ldflags="$release_ldflags" -o "$release_tmp/controlplane" ./cmd/controlplane)
+(cd backend && GOCACHE="${GOCACHE:-/tmp/glyphflow-go-cache}" go build -trimpath -ldflags="$release_ldflags" -o "$release_tmp/worker" ./cmd/worker)
 test -s "$release_tmp/SBOM.spdx.json"
 ! rg -n '"packages"[[:space:]]*:[[:space:]]*\[\]' "$release_tmp/SBOM.spdx.json"
 test -s "$release_tmp/controlplane"
