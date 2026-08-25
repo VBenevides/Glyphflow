@@ -1,9 +1,12 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 import { Activity, AlertTriangle, HardDrive, Inbox, Server, Timer } from 'lucide-react'
-import { api, type SystemMetrics } from './api'
-import { DataTable, EmptyState, MetricCard, PageHeader, StatusPill, type MetricTone } from './components'
+import { api, type DeadLetter, type DeadLetterPage, type SystemMetrics } from './api'
+import { DataTable, EmptyState, Input, MetricCard, PageHeader, StatusPill, Button, type MetricTone } from './components'
 import { formatDateTime } from './format'
 import { QueryState } from './query'
+import { hasPermission } from './permissions'
+import { useAuth } from './auth'
 
 export function alertTone(severity?: string): MetricTone {
   if (severity === 'critical') return 'danger'
@@ -51,12 +54,30 @@ export function SystemMetricsView({ data }: { data: SystemMetrics }) {
   </>
 }
 
+function DeadLetterRecovery({ canManage }: { canManage: boolean }) {
+  const queryClient = useQueryClient()
+  const [page, setPage] = useState(1)
+  const [reasons, setReasons] = useState<Record<string, string>>({})
+  const query = useQuery<DeadLetterPage>({ queryKey: ['dead-letters', page], queryFn: ({ signal }) => api.get<DeadLetterPage>('/api/v1/admin/dead-letters', { state: 'OPEN', page, limit: 20 }, signal), staleTime: 10_000, refetchInterval: 15_000 })
+  const action = useMutation({ mutationFn: ({ id, state, reason }: { id: string; state: 'retry' | 'reconcile'; reason: string }) => api.post(`/api/v1/admin/dead-letters/${encodeURIComponent(id)}/${state}`, state === 'reconcile' ? { state: 'DISCARDED', reason } : { reason }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['dead-letters'] }) })
+  return <section className="gf-card-panel"><div className="gf-section-heading"><h2>Dead-letter recovery</h2><small>Payloads remain hidden</small></div>{action.isError && <p role="alert">Recovery action failed. The record was not acknowledged as recovered.</p>}<QueryState query={query} empty="No open dead letters.">{(data) => <DeadLetterTable data={data} canManage={canManage} page={page} setPage={setPage} reasons={reasons} setReasons={setReasons} action={action} />}</QueryState></section>
+}
+
+function DeadLetterTable({ data, canManage, page, setPage, reasons, setReasons, action }: { data: DeadLetterPage; canManage: boolean; page: number; setPage: (page: number) => void; reasons: Record<string, string>; setReasons: (reasons: Record<string, string>) => void; action: { isPending: boolean; mutate: (input: { id: string; state: 'retry' | 'reconcile'; reason: string }) => void } }) {
+  const rows = data.items.map((item) => ({ ...item, id: item.id }))
+  return <>
+    {rows.length ? <DataTable<DeadLetter> caption="Dead-letter records" rows={rows} columns={[{ key: 'id', label: 'Record' }, { key: 'runnerId', label: 'Runner' }, { key: 'subject', label: 'Subject' }, { key: 'messageId', label: 'Message' }, { key: 'attempts', label: 'Attempts' }, { key: 'state', label: 'State', render: (item) => <StatusPill status={item.state} /> }, { key: 'error', label: 'Diagnostic', render: (item) => <span title={item.error}>{item.error ? `${item.error.slice(0, 160)}${item.error.length > 160 ? '…' : ''}` : '—'}</span> }, ...(canManage ? [{ key: 'actions', label: 'Actions', render: (item: DeadLetter) => <div className="gf-inline-actions"><Input aria-label={`Reason for ${item.id}`} value={reasons[item.id] ?? ''} maxLength={512} placeholder="Operator reason" onChange={(event) => setReasons({ ...reasons, [item.id]: event.target.value })} /><Button busy={action.isPending} disabled={!reasons[item.id]?.trim()} onClick={() => action.mutate({ id: item.id, state: 'retry', reason: reasons[item.id].trim() })}>Retry</Button><Button variant="danger" busy={action.isPending} disabled={!reasons[item.id]?.trim()} onClick={() => action.mutate({ id: item.id, state: 'reconcile', reason: reasons[item.id].trim() })}>Discard</Button></div> }] : [])]} /> : <EmptyState title="No open dead letters">The queue has no records requiring operator action.</EmptyState>}
+    {data.pages && data.pages > 1 && <nav className="gf-pagination" aria-label="Dead-letter pagination"><Button variant="secondary" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</Button><span>Page {page} of {data.pages}</span><Button variant="secondary" disabled={page >= data.pages} onClick={() => setPage(page + 1)}>Next</Button></nav>}
+  </>
+}
+
 export function SystemMetricsPage() {
+  const { permissions } = useAuth()
   const query = useQuery<SystemMetrics>({
     queryKey: ['system-metrics'],
     queryFn: ({ signal }) => api.get<SystemMetrics>('/api/v1/admin/system/metrics', undefined, signal),
     staleTime: 10_000,
     refetchInterval: 15_000,
   })
-  return <main className="gf-content"><PageHeader title="System Metrics" description="Operational readiness, queue pressure, storage, and recovery signals." meta="Refreshes every 15 seconds" /><QueryState query={query} empty="System metrics are not available.">{(data) => <SystemMetricsView data={data} />}</QueryState></main>
+  return <main className="gf-content"><PageHeader title="System Metrics" description="Operational readiness, queue pressure, storage, and recovery signals." meta="Refreshes every 15 seconds" /><QueryState query={query} empty="System metrics are not available.">{(data) => <><SystemMetricsView data={data} />{hasPermission(permissions, 'system.deadletter.read') && <DeadLetterRecovery canManage={hasPermission(permissions, 'system.deadletter.manage')} />}</>}</QueryState></main>
 }

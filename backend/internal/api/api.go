@@ -82,6 +82,7 @@ type Server struct {
 	ExitCodes                  store.ExitCodeRepository
 	GlobalVariables            *GlobalVariableService
 	SystemMetrics              *SystemMetricsService
+	DeadLetters                *DeadLetterService
 	RequireDurableRepositories bool
 }
 
@@ -103,6 +104,9 @@ func (s Server) ValidateDurableRepositories() error {
 	}
 	if s.AuditQuery == nil || !s.AuditQuery.hasDurableRepository() {
 		return errors.New("audit repository is required")
+	}
+	if s.DeadLetters == nil || s.DeadLetters.repository == nil {
+		return errors.New("dead-letter repository is required")
 	}
 	if s.ExitCodes == nil {
 		return errors.New("exit-code repository is required")
@@ -137,6 +141,9 @@ func (s Server) Handler() http.Handler {
 	}
 	if s.SystemMetrics == nil {
 		s.SystemMetrics = NewSystemMetricsService(s.Metrics, s.Ready, s.Logger)
+	}
+	if s.DeadLetters == nil {
+		s.DeadLetters = NewDeadLetterService(nil, nil)
 	}
 	if s.AuthAdmin == nil && s.AuthService != nil {
 		s.AuthAdmin = &AuthAdminService{Auth: s.AuthService, Sessions: s.AuthService.sessions, OIDC: s.OIDC}
@@ -226,6 +233,18 @@ func (s Server) Handler() http.Handler {
 	mux.Handle("/api/v1/runs", s.require("run.read", http.HandlerFunc(s.Runs.collection)))
 	mux.Handle("/api/v1/audit", s.require("audit.read", http.HandlerFunc(s.AuditQuery.query)))
 	mux.Handle("/api/v1/admin/system/metrics", s.require("system.metrics.read", http.HandlerFunc(s.SystemMetrics.metrics)))
+	mux.Handle("/api/v1/admin/dead-letters", s.requireMethodRole(func(r *http.Request) string {
+		if r.Method == http.MethodGet {
+			return "system.deadletter.read"
+		}
+		return "system.deadletter.manage"
+	}, http.HandlerFunc(s.DeadLetters.collection)))
+	mux.Handle("/api/v1/admin/dead-letters/", s.requireMethodRole(func(r *http.Request) string {
+		if r.Method == http.MethodGet {
+			return "system.deadletter.read"
+		}
+		return "system.deadletter.manage"
+	}, http.HandlerFunc(s.DeadLetters.path)))
 	for path, role := range map[string]string{"/api/v1/events": "event.read"} {
 		mux.Handle(path, s.require(role, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			writeJSON(w, http.StatusGone, map[string]string{"error": "endpoint is deprecated; use /api/v1/runs/{run_id}/events"})

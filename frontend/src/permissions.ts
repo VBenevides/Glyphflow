@@ -2,7 +2,7 @@ export const PERMISSIONS = [
   'users.read', 'users.manage', 'roles.read', 'roles.manage', 'sso.read', 'sso.manage',
   'auth.settings.manage', 'tasks.read', 'tasks.manage', 'runs.read', 'runs.execute',
   'runs.cancel', 'runs.retry', 'logs.read', 'resources.read', 'resources.manage',
-  'runners.read', 'runners.manage', 'audit.read', 'system.metrics.read',
+  'runners.read', 'runners.manage', 'audit.read', 'system.metrics.read', 'system.deadletter.read', 'system.deadletter.manage',
 ] as const
 
 export type Permission = (typeof PERMISSIONS)[number]

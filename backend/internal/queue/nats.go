@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -312,6 +313,9 @@ func boundedError(err error) string {
 	value := strings.TrimSpace(err.Error())
 	if len(value) > 4096 {
 		return value[:4096]
+	}
+	for !utf8.ValidString(value) {
+		value = value[:len(value)-1]
 	}
 	return value
 }

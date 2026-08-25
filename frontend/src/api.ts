@@ -55,6 +55,8 @@ export type UserRecord = { id: string; username: string; email?: string; display
 export type RoleDefinition = { id: string; name: string; description?: string; permissions: string[]; system?: boolean; assignedUsers?: number }
 export type SystemMetricAlert = { code: string; severity: string; status: string; value: number; threshold: number }
 export type SystemMetrics = { generatedAt: string; ready: boolean; metrics: Record<string, number>; signals: { queueLagSeconds: number; deadLetters: { open: number; oldestAgeSeconds: number }; stuckRuns: number; disk: { freeBytes: number; freePercent: number } }; alerts: SystemMetricAlert[] }
+export type DeadLetter = { id: string; runnerId?: string; stream: string; consumer: string; subject: string; messageId: string; payloadSha256?: string; error?: string; correlationId?: string; state: string; attempts: number; firstFailedAt: string; lastFailedAt: string }
+export type DeadLetterPage = Page<DeadLetter>
 
 const unsafeMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 

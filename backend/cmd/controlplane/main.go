@@ -186,7 +186,8 @@ func run() error {
 		_ = logger.Event("audit.append_failed", map[string]string{"id": event.ID, "actor": event.Actor, "error": err.Error(), "count": strconv.FormatUint(metrics.AuditAppendErrors.Load(), 10)})
 	})
 	health := controlplane.NewHealth("session-cleanup", "heartbeat", "dispatcher", "start-claim", "scheduler")
-	application := api.Server{AuthService: authService, AuthAdmin: &api.AuthAdminService{Auth: authService, OIDC: oidcService, Sessions: authService.SessionManager()}, Sessions: authService.SessionManager(), OIDC: oidcService, Roles: roles, Auth: authService.Authenticator(), Permissions: authService.Permissions, Metrics: metrics, Logger: logger, CSRFOrigin: cfg.WebOrigin, CSRFOrigins: cfg.CSRFOrigins, CORSOrigins: cfg.CORSOrigins, Operations: operations, Runs: runs, Infrastructure: infrastructure, AuditQuery: audit, ExitCodes: store.NewExitCodeRepository(db), GlobalVariables: globalVariables, Ready: func(ctx context.Context) error {
+	deadLetterRepository := store.NewDeadLetterRepository(db, []byte(cfg.AccessTokenSecret))
+	application := api.Server{AuthService: authService, AuthAdmin: &api.AuthAdminService{Auth: authService, OIDC: oidcService, Sessions: authService.SessionManager()}, Sessions: authService.SessionManager(), OIDC: oidcService, Roles: roles, Auth: authService.Authenticator(), Permissions: authService.Permissions, Metrics: metrics, Logger: logger, CSRFOrigin: cfg.WebOrigin, CSRFOrigins: cfg.CSRFOrigins, CORSOrigins: cfg.CORSOrigins, Operations: operations, Runs: runs, Infrastructure: infrastructure, AuditQuery: audit, ExitCodes: store.NewExitCodeRepository(db), GlobalVariables: globalVariables, DeadLetters: api.NewDeadLetterService(deadLetterRepository, nil), Ready: func(ctx context.Context) error {
 		if err := db.Ping(ctx); err != nil {
 			return err
 		}
@@ -212,7 +213,6 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	deadLetterRepository := store.NewDeadLetterRepository(db, []byte(cfg.AccessTokenSecret))
 	jetstream.SetDeadLetterSink(func(ctx context.Context, record queue.DeadLetter) error {
 		return deadLetterRepository.Persist(ctx, store.DeadLetterRecord{
 			RunnerID: record.RunnerID, Stream: record.Stream, Consumer: record.Consumer, Subject: record.Subject,
@@ -220,6 +220,14 @@ func run() error {
 			FirstFailedAt: record.FirstFailedAt, LastFailedAt: record.LastFailedAt, CorrelationID: record.CorrelationID,
 		})
 	})
+	application.DeadLetters.SetPublisher(jetstream)
+	deadLetterSignals := func(ctx context.Context) (platform.OperationalSignals, error) {
+		stats, err := deadLetterRepository.Stats(ctx)
+		if err != nil {
+			return platform.OperationalSignals{}, err
+		}
+		return platform.OperationalSignals{DeadLetters: platform.DeadLetterSignals{Open: stats.Open, OldestAgeSeconds: stats.OldestAgeSeconds}}, nil
+	}
 	infrastructure.SetRunnerCapacityPublisher(jetstream, signingKey)
 	defer jetstream.Close()
 	go func() {
@@ -308,6 +316,8 @@ func run() error {
 				}
 				return health.Ready()
 			}
+			application.SystemMetrics = api.NewSystemMetricsService(metrics, application.Ready, logger)
+			application.SystemMetrics.Signals = deadLetterSignals
 			return application.Handler()
 		}(),
 		ReadHeaderTimeout: 5 * time.Second,
