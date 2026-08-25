@@ -18,6 +18,7 @@ const openAPISpec = `{
       "RefreshRequest": {"type": "object", "required": ["session_id", "refresh_token"], "properties": {"session_id": {"type": "string"}, "refresh_token": {"type": "string"}}},
       "SessionRequest": {"type": "object", "required": ["session_id"], "properties": {"session_id": {"type": "string"}}},
       "AuthResponse": {"type": "object", "properties": {"status": {"type": "string"}}},
+      "SystemMetrics": {"type": "object", "required": ["generatedAt", "ready", "metrics", "signals", "alerts"], "properties": {"generatedAt": {"type": "string", "format": "date-time"}, "ready": {"type": "boolean"}, "metrics": {"type": "object", "additionalProperties": {"type": "integer"}}, "signals": {"type": "object"}, "alerts": {"type": "array", "items": {"type": "object"}}}},
       "Error": {"type": "object", "properties": {"error": {"type": "string"}}}
     }
   },
@@ -72,6 +73,7 @@ const openAPISpec = `{
     "/api/v1/runners/enrollments": {"post": {"tags": ["Runners"], "summary": "Create a one-use runner binary enrollment", "security": [{"bearerAuth": []}], "responses": {"201": {"description": "Executable enrollment artifact"}, "400": {"description": "Unsupported platform"}, "503": {"description": "Runner binaries unavailable"}}}},
     "/api/v1/runners/enroll": {"post": {"tags": ["Runners"], "summary": "Consume a one-use runner enrollment", "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["runner_id", "token"]}}}}, "responses": {"200": {"description": "Runner connection"}, "401": {"description": "Invalid or used enrollment"}}}},
     "/api/v1/audit": {"get": {"tags": ["Administration"], "summary": "List audit events", "security": [{"bearerAuth": []}], "responses": {"200": {"description": "Audit page"}}}},
+    "/api/v1/admin/system/metrics": {"get": {"tags": ["Administration"], "summary": "Get operational system metrics", "security": [{"bearerAuth": []}], "responses": {"200": {"description": "System metrics", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SystemMetrics"}}}}, "503": {"description": "Metrics unavailable"}}}},
     "/api/v1/runs/execute": {"post": {"tags": ["Runs"], "summary": "Execute a task", "security": [{"bearerAuth": []}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["task_id"]}}}}, "responses": {"201": {"description": "Run created"}, "400": {"description": "Invalid task request"}, "503": {"description": "Run storage unavailable"}}}},
     "/api/v1/runs/retry": {"post": {"deprecated": true, "tags": ["Runs"], "summary": "Deprecated run retry", "description": "Use /api/v1/runs/{run_id}/retry.", "security": [{"bearerAuth": []}], "responses": {"410": {"description": "Gone"}}}},
     "/api/v1/runs/cancel": {"post": {"deprecated": true, "tags": ["Runs"], "summary": "Deprecated run cancellation", "description": "Use /api/v1/runs/{run_id}/cancel.", "security": [{"bearerAuth": []}], "responses": {"410": {"description": "Gone"}}}},

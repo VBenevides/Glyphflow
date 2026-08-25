@@ -1,0 +1,79 @@
+package api
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/VBenevides/Glyphflow/backend/internal/platform"
+)
+
+func TestSystemMetricsRouteIsProtectedAndReturnsContract(t *testing.T) {
+	metrics := new(platform.Metrics)
+	metrics.SignatureRejects.Add(2)
+	granted := false
+	server := Server{
+		Auth: func(*http.Request) (Claims, bool) { return Claims{}, true },
+		Permissions: func(Claims) map[string]bool {
+			if granted {
+				return map[string]bool{"system.metrics.read": true}
+			}
+			return nil
+		},
+		SystemMetrics: &SystemMetricsService{
+			Metrics: metrics,
+			Signals: func(context.Context) (platform.OperationalSignals, error) {
+				return platform.OperationalSignals{QueueLagSeconds: 4, Disk: platform.DiskSignals{FreePercent: 80}}, nil
+			},
+			Thresholds: platform.DefaultAlertThresholds(),
+			Tracker:    platform.NewAlertTracker(),
+			Logger:     &platform.Logger{Out: &bytes.Buffer{}},
+		},
+	}
+	handler := server.Handler()
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/admin/system/metrics", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("forbidden status = %d", response.Code)
+	}
+	granted = true
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("allowed status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var body platform.SystemMetricsResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Metrics["signature_rejects"] != 2 || body.Signals.QueueLagSeconds != 4 || !body.Ready {
+		t.Fatalf("unexpected system metrics: %+v", body)
+	}
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/admin/system/metrics", nil))
+	if response.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("method status = %d", response.Code)
+	}
+}
+
+func TestSystemMetricsRouteReportsSignalProviderFailure(t *testing.T) {
+	server := Server{
+		Auth:        func(*http.Request) (Claims, bool) { return Claims{}, true },
+		Permissions: func(Claims) map[string]bool { return map[string]bool{"system.metrics.read": true} },
+		SystemMetrics: &SystemMetricsService{
+			Signals: func(context.Context) (platform.OperationalSignals, error) {
+				return platform.OperationalSignals{}, errors.New("database unavailable")
+			},
+		},
+	}
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/admin/system/metrics", nil))
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("failure status = %d, body = %s", response.Code, response.Body.String())
+	}
+}

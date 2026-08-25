@@ -59,6 +59,8 @@ type RuntimeConfig struct {
 type Server struct {
 	Auth                       Authenticator
 	Permissions                func(Claims) map[string]bool
+	Metrics                    *platform.Metrics
+	Logger                     *platform.Logger
 	PasswordAuth               *PasswordAuthService
 	AuthService                *AuthService
 	Sessions                   *SessionManager
@@ -79,6 +81,7 @@ type Server struct {
 	AuditQuery                 *AuditQueryService
 	ExitCodes                  store.ExitCodeRepository
 	GlobalVariables            *GlobalVariableService
+	SystemMetrics              *SystemMetricsService
 	RequireDurableRepositories bool
 }
 
@@ -131,6 +134,9 @@ func (s Server) Handler() http.Handler {
 	}
 	if s.GlobalVariables == nil {
 		s.GlobalVariables = NewGlobalVariableService()
+	}
+	if s.SystemMetrics == nil {
+		s.SystemMetrics = NewSystemMetricsService(s.Metrics, s.Ready, s.Logger)
 	}
 	if s.AuthAdmin == nil && s.AuthService != nil {
 		s.AuthAdmin = &AuthAdminService{Auth: s.AuthService, Sessions: s.AuthService.sessions, OIDC: s.OIDC}
@@ -219,6 +225,7 @@ func (s Server) Handler() http.Handler {
 	}
 	mux.Handle("/api/v1/runs", s.require("run.read", http.HandlerFunc(s.Runs.collection)))
 	mux.Handle("/api/v1/audit", s.require("audit.read", http.HandlerFunc(s.AuditQuery.query)))
+	mux.Handle("/api/v1/admin/system/metrics", s.require("system.metrics.read", http.HandlerFunc(s.SystemMetrics.metrics)))
 	for path, role := range map[string]string{"/api/v1/events": "event.read"} {
 		mux.Handle(path, s.require(role, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			writeJSON(w, http.StatusGone, map[string]string{"error": "endpoint is deprecated; use /api/v1/runs/{run_id}/events"})
