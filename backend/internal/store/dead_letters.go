@@ -97,6 +97,11 @@ func (s *DeadLetterStore) Persist(ctx context.Context, record DeadLetterRecord) 
 
 const deadLetterSummarySelect = `SELECT id, runner_id, stream, consumer, subject, message_id, payload_sha256, error_text, attempts, first_failed_at, last_failed_at, correlation_id, state FROM dead_letters`
 
+const (
+	defaultDeadLetterListLimit = 50
+	maxDeadLetterListLimit     = 100
+)
+
 type deadLetterScanner interface {
 	Scan(...any) error
 }
@@ -118,8 +123,8 @@ func (s *DeadLetterStore) List(ctx context.Context, filter DeadLetterFilter) ([]
 	if filter.Page < 1 {
 		filter.Page = 1
 	}
-	if filter.Limit < 1 || filter.Limit > 100 {
-		filter.Limit = 50
+	if filter.Limit < 1 || filter.Limit > maxDeadLetterListLimit {
+		filter.Limit = defaultDeadLetterListLimit
 	}
 	where := ` WHERE ($1 = '' OR state = $1) AND ($2 = '' OR runner_id = $2) AND ($3 = '' OR subject = $3)`
 	var total int
@@ -131,7 +136,8 @@ func (s *DeadLetterStore) List(ctx context.Context, filter DeadLetterFilter) ([]
 		return nil, 0, err
 	}
 	defer rows.Close()
-	items := make([]DeadLetterSummary, 0, filter.Limit)
+	capacity := filter.Limit
+	items := make([]DeadLetterSummary, 0, capacity)
 	for rows.Next() {
 		item, err := scanDeadLetterSummary(rows)
 		if err != nil {
