@@ -319,7 +319,7 @@ func (s *LocalStore) CompactPublishedEvents(olderThan time.Duration, limit int) 
 		limit = 1000
 	}
 	cutoff := time.Now().UTC().Add(-olderThan).Format(time.RFC3339Nano)
-	result, err := s.db.Exec(`DELETE FROM event_outbox WHERE event_id IN (SELECT event_id FROM event_outbox WHERE state='PUBLISHED' AND published_at IS NOT NULL AND published_at < ? ORDER BY published_at, event_id LIMIT ?)`, cutoff, limit)
+	result, err := s.db.Exec(`DELETE FROM event_outbox WHERE event_id IN (SELECT old.event_id FROM event_outbox old WHERE old.state='PUBLISHED' AND old.published_at IS NOT NULL AND old.published_at < ? AND EXISTS (SELECT 1 FROM event_outbox newer WHERE newer.order_id = old.order_id AND newer.event_channel = old.event_channel AND newer.channel_sequence > old.channel_sequence) ORDER BY old.published_at, old.event_id LIMIT ?)`, cutoff, limit)
 	if err != nil {
 		return 0, err
 	}
