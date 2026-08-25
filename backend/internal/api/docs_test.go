@@ -84,6 +84,46 @@ func TestOpenAPICoversRegisteredAPIRoutes(t *testing.T) {
 	}
 }
 
+func TestOpenAPICanonicalizesImplementedAndDeprecatedOperations(t *testing.T) {
+	var document struct {
+		Paths map[string]map[string]struct {
+			Deprecated bool                       `json:"deprecated"`
+			Responses  map[string]json.RawMessage `json:"responses"`
+		} `json:"paths"`
+	}
+	if err := json.Unmarshal([]byte(openAPISpec), &document); err != nil {
+		t.Fatal(err)
+	}
+	for path, methodStatuses := range map[string]map[string]string{
+		"/api/v1/tasks":        {"post": "201"},
+		"/api/v1/schedules":    {"get": "200", "post": "201"},
+		"/api/v1/runs":         {"get": "200"},
+		"/api/v1/audit":        {"get": "200"},
+		"/api/v1/runs/execute": {"post": "201"},
+	} {
+		for method, status := range methodStatuses {
+			operation := document.Paths[path][method]
+			if _, ok := operation.Responses[status]; !ok {
+				t.Fatalf("OpenAPI %s %s is missing live status %s", method, path, status)
+			}
+		}
+	}
+	for path, methods := range map[string][]string{
+		"/api/v1/roles": {"get", "post"}, "/api/v1/sso": {"get", "post"}, "/api/v1/logs": {"get"},
+		"/api/v1/events": {"get"}, "/api/v1/runs/retry": {"post"}, "/api/v1/runs/cancel": {"post"},
+	} {
+		for _, method := range methods {
+			operation := document.Paths[path][method]
+			if !operation.Deprecated {
+				t.Fatalf("legacy operation %s %s is not marked deprecated", method, path)
+			}
+			if _, ok := operation.Responses["410"]; !ok {
+				t.Fatalf("legacy operation %s %s is missing 410 response", method, path)
+			}
+		}
+	}
+}
+
 func documentedRoute(paths map[string]map[string]json.RawMessage, pattern string) bool {
 	if _, ok := paths[pattern]; ok {
 		return true

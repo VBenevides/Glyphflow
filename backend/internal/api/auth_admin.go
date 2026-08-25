@@ -294,7 +294,7 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 			return
 		}
 		if s.AuthAdmin.Auth == nil {
-			writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "user details unavailable"})
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "user details unavailable"})
 			return
 		}
 		claims, _ := s.authenticator()(r)
