@@ -116,6 +116,81 @@ func TestDeadLetterRecoveryUsesCASAndNewDeliveryIdentity(t *testing.T) {
 	}
 }
 
+func TestDeadLetterInspectionRedactsSensitiveDiagnostics(t *testing.T) {
+	repository := &deadLetterRepositoryStub{state: "OPEN", item: store.DeadLetterSummary{ID: "dead-sensitive", Subject: "glyphflow.events.runner-1", MessageID: "event-sensitive", Error: "password=top-secret token=abc", FirstFailedAt: time.Now().UTC(), LastFailedAt: time.Now().UTC()}}
+	server := Server{
+		Auth:        func(*http.Request) (Claims, bool) { return Claims{UserID: "operator"}, true },
+		Permissions: func(Claims) map[string]bool { return map[string]bool{"system.deadletter.read": true} },
+		DeadLetters: NewDeadLetterService(repository, nil),
+	}
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/admin/dead-letters/dead-sensitive", nil))
+	body := response.Body.String()
+	if response.Code != http.StatusOK || !strings.Contains(body, "[REDACTED]") || strings.Contains(body, "top-secret") || strings.Contains(body, "abc") {
+		t.Fatalf("sensitive diagnostic response = %d %s", response.Code, body)
+	}
+}
+
+func TestDeadLetterRecoveryAuditContainsIdentityAndRedactsReason(t *testing.T) {
+	repository := &deadLetterRepositoryStub{state: "OPEN", item: store.DeadLetterSummary{ID: "dead-audit", Subject: "glyphflow.events.runner-1", MessageID: "event-audit", FirstFailedAt: time.Now().UTC(), LastFailedAt: time.Now().UTC()}}
+	audit := NewAuditQueryService()
+	server := Server{
+		Auth: func(*http.Request) (Claims, bool) { return Claims{UserID: "operator"}, true },
+		Permissions: func(Claims) map[string]bool {
+			return map[string]bool{"system.deadletter.read": true, "system.deadletter.manage": true}
+		},
+		AuditQuery:  audit,
+		DeadLetters: NewDeadLetterService(repository, &deadLetterPublisherStub{}),
+	}
+	handler := server.Handler()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/dead-letters/dead-audit/retry", strings.NewReader(`{"reason":"replay after review"}`))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("retry status = %d, body = %s", response.Code, response.Body.String())
+	}
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/dead-letters/dead-audit/retry", strings.NewReader(`{"reason":"token=do-not-store"}`))
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("duplicate retry status = %d", response.Code)
+	}
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/dead-letters/dead-audit/reconcile", strings.NewReader(`{"state":"DISCARDED","reason":"confirmed invalid signature"}`))
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("reconcile status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var retryAudit, deniedRetryAudit, reconcileAudit *AuditEvent
+	for index := range audit.events {
+		event := &audit.events[index]
+		switch event.Target {
+		case "/api/v1/admin/dead-letters/dead-audit/retry":
+			if retryAudit == nil {
+				retryAudit = event
+			} else {
+				deniedRetryAudit = event
+			}
+		case "/api/v1/admin/dead-letters/dead-audit/reconcile":
+			reconcileAudit = event
+		}
+	}
+	if retryAudit == nil || reconcileAudit == nil || retryAudit.Actor != "operator" || retryAudit.Result != "success" || reconcileAudit.Result != "success" {
+		t.Fatalf("recovery audit events = %#v", audit.events)
+	}
+	retryInput := retryAudit.Input.(map[string]any)
+	if retryInput["deadLetterId"] != "dead-audit" || retryInput["messageId"] != "event-audit" || retryInput["deliveryId"] == nil || retryInput["body"].(map[string]any)["reason"] != "replay after review" {
+		t.Fatalf("retry audit input = %#v", retryInput)
+	}
+	reconcileInput := reconcileAudit.Input.(map[string]any)
+	if reconcileInput["deadLetterId"] != "dead-audit" || reconcileInput["messageId"] != "event-audit" {
+		t.Fatalf("reconcile audit input = %#v", reconcileInput)
+	}
+	if deniedRetryAudit == nil || deniedRetryAudit.Input.(map[string]any)["body"].(map[string]any)["reason"] != "[REDACTED]" {
+		t.Fatalf("sensitive retry reason audit = %#v", deniedRetryAudit)
+	}
+}
+
 func TestDeadLetterReadPermissionCannotMutate(t *testing.T) {
 	server := Server{
 		Auth:        func(*http.Request) (Claims, bool) { return Claims{}, true },

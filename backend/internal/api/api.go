@@ -42,8 +42,16 @@ func recordRequestError(r *http.Request, err error) {
 	if !ok {
 		return
 	}
-	details.Error = err.Error()
-	details.Traceback = string(debug.Stack())
+	details.Error = redactSensitiveText(err.Error())
+	details.Traceback = redactSensitiveText(string(debug.Stack()))
+}
+
+func recordRequestAuditField(r *http.Request, key string, value any) {
+	details, ok := r.Context().Value(requestAuditContextKey{}).(*requestAuditDetails)
+	if !ok || details.Input == nil || key == "" {
+		return
+	}
+	details.Input[key] = value
 }
 
 type RuntimeConfig struct {
@@ -423,7 +431,7 @@ func (s Server) require(role string, next http.Handler) http.Handler {
 		next.ServeHTTP(recorder, r)
 		if s.AuditQuery != nil {
 			if recorder.status >= http.StatusBadRequest && auditDetails.Error == "" {
-				auditDetails.Error = auditResponseError(recorder.body, recorder.status)
+				auditDetails.Error = redactSensitiveText(auditResponseError(recorder.body, recorder.status))
 				auditDetails.Traceback = string(debug.Stack())
 			}
 			actorName, actorEmail := s.auditActor(claims.UserID)

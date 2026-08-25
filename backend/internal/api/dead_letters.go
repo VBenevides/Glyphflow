@@ -27,6 +27,17 @@ type DeadLetterView struct {
 	LastFailedAt  time.Time `json:"lastFailedAt"`
 }
 
+const deadLetterDiagnosticLimit = 256
+
+func safeDeadLetterDiagnostic(value string) string {
+	value = redactSensitiveText(value)
+	runes := []rune(value)
+	if len(runes) > deadLetterDiagnosticLimit {
+		return string(runes[:deadLetterDiagnosticLimit])
+	}
+	return value
+}
+
 type DeadLetterService struct {
 	repository store.DeadLetterRepository
 	publisher  queue.Publisher
@@ -49,7 +60,7 @@ func (s *DeadLetterService) SetPublisher(publisher queue.Publisher) {
 }
 
 func deadLetterView(item store.DeadLetterSummary) DeadLetterView {
-	return DeadLetterView{ID: item.ID, RunnerID: item.RunnerID, Stream: item.Stream, Consumer: item.Consumer, Subject: item.Subject, MessageID: item.MessageID, PayloadSHA256: item.PayloadSHA256, Error: item.Error, CorrelationID: item.CorrelationID, State: item.State, Attempts: item.Attempts, FirstFailedAt: item.FirstFailedAt.UTC(), LastFailedAt: item.LastFailedAt.UTC()}
+	return DeadLetterView{ID: item.ID, RunnerID: item.RunnerID, Stream: item.Stream, Consumer: item.Consumer, Subject: item.Subject, MessageID: item.MessageID, PayloadSHA256: item.PayloadSHA256, Error: safeDeadLetterDiagnostic(item.Error), CorrelationID: item.CorrelationID, State: item.State, Attempts: item.Attempts, FirstFailedAt: item.FirstFailedAt.UTC(), LastFailedAt: item.LastFailedAt.UTC()}
 }
 
 func (s *DeadLetterService) collection(w http.ResponseWriter, r *http.Request) {
@@ -148,6 +159,7 @@ func decodeDeadLetterAction(r *http.Request) (deadLetterActionInput, error) {
 	if input.Reason == "" || len(input.Reason) > 512 {
 		return input, errInvalidDeadLetterReason
 	}
+	input.Reason = safeDeadLetterDiagnostic(input.Reason)
 	return input, nil
 }
 
@@ -162,6 +174,7 @@ func (s *DeadLetterService) retry(w http.ResponseWriter, r *http.Request, id str
 		writeError(w, http.StatusServiceUnavailable, "dead-letter recovery unavailable", nil)
 		return
 	}
+	recordRequestAuditField(r, "deadLetterId", id)
 	input, err := decodeDeadLetterAction(r)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -174,9 +187,13 @@ func (s *DeadLetterService) retry(w http.ResponseWriter, r *http.Request, id str
 		return
 	}
 	if !claimed {
+		if retry.MessageID != "" {
+			recordRequestAuditField(r, "messageId", retry.MessageID)
+		}
 		s.writeTransitionConflict(w, r, id)
 		return
 	}
+	recordRequestAuditField(r, "messageId", retry.MessageID)
 	deliveryID, err := randomID()
 	if err != nil {
 		recordRequestError(r, err)
@@ -188,6 +205,7 @@ func (s *DeadLetterService) retry(w http.ResponseWriter, r *http.Request, id str
 		writeError(w, http.StatusServiceUnavailable, "dead-letter retry could not be published", err)
 		return
 	}
+	recordRequestAuditField(r, "deliveryId", "dead-letter-retry-"+deliveryID)
 	writeJSON(w, http.StatusAccepted, map[string]any{"id": retry.ID, "messageId": retry.MessageID, "deliveryId": "dead-letter-retry-" + deliveryID, "state": "RETRY_QUEUED", "reason": input.Reason})
 }
 
@@ -196,6 +214,7 @@ func (s *DeadLetterService) reconcile(w http.ResponseWriter, r *http.Request, id
 		writeError(w, http.StatusServiceUnavailable, "dead-letter storage unavailable", nil)
 		return
 	}
+	recordRequestAuditField(r, "deadLetterId", id)
 	input, err := decodeDeadLetterAction(r)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -206,6 +225,17 @@ func (s *DeadLetterService) reconcile(w http.ResponseWriter, r *http.Request, id
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "state must be RECONCILED or DISCARDED"})
 		return
 	}
+	item, found, err := s.repository.Find(r.Context(), id)
+	if err != nil {
+		recordRequestError(r, err)
+		writeError(w, http.StatusServiceUnavailable, "dead-letter reconciliation unavailable", err)
+		return
+	}
+	if !found {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "dead letter not found"})
+		return
+	}
+	recordRequestAuditField(r, "messageId", item.MessageID)
 	changed, err := s.repository.Reconcile(r.Context(), id, input.State)
 	if err != nil {
 		recordRequestError(r, err)
