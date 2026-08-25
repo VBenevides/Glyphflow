@@ -99,6 +99,10 @@ func OpenStore(path string) (*LocalStore, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS event_outbox_pending_idx ON event_outbox(available_at, created_at, event_id) WHERE state = 'PENDING'`); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	// Upgrade stores created before attempt numbers were persisted.
 	_, _ = db.Exec(`ALTER TABLE order_inbox ADD COLUMN attempt_number INTEGER NOT NULL DEFAULT 1`)
 	var journal, synchronous, foreignKeys string
@@ -282,7 +286,10 @@ func (s *LocalStore) PutEvent(event OutboxEvent) error {
 	return err
 }
 func (s *LocalStore) PendingEvents(limit int) ([]OutboxEvent, error) {
-	rows, err := s.db.Query(`SELECT event_id, order_id, event_channel, channel_sequence, event_type, envelope, state FROM event_outbox WHERE state='PENDING' ORDER BY created_at LIMIT ?`, limit)
+	if limit < 1 {
+		limit = 100
+	}
+	rows, err := s.db.Query(`SELECT event_id, order_id, event_channel, channel_sequence, event_type, envelope, state FROM event_outbox WHERE state='PENDING' AND available_at <= ? ORDER BY available_at, created_at, event_id LIMIT ?`, time.Now().UTC().Format(time.RFC3339Nano), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -302,6 +309,21 @@ func (s *LocalStore) PendingEvents(limit int) ([]OutboxEvent, error) {
 func (s *LocalStore) MarkEventPublished(eventID string) error {
 	_, err := s.db.Exec(`UPDATE event_outbox SET state='PUBLISHED', published_at=? WHERE event_id=? AND state='PENDING'`, time.Now().UTC().Format(time.RFC3339Nano), eventID)
 	return err
+}
+
+func (s *LocalStore) CompactPublishedEvents(olderThan time.Duration, limit int) (int64, error) {
+	if olderThan < 0 {
+		return 0, errors.New("published event retention must not be negative")
+	}
+	if limit < 1 {
+		limit = 1000
+	}
+	cutoff := time.Now().UTC().Add(-olderThan).Format(time.RFC3339Nano)
+	result, err := s.db.Exec(`DELETE FROM event_outbox WHERE event_id IN (SELECT event_id FROM event_outbox WHERE state='PUBLISHED' AND published_at IS NOT NULL AND published_at < ? ORDER BY published_at, event_id LIMIT ?)`, cutoff, limit)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 func (s *LocalStore) Close() error { return s.db.Close() }

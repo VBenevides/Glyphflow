@@ -286,5 +286,6 @@ func PublishPendingEvents(ctx context.Context, store *LocalStore, publisher queu
 			return err
 		}
 	}
-	return nil
+	_, err = store.CompactPublishedEvents(24*time.Hour, 1000)
+	return err
 }
