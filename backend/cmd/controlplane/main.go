@@ -175,6 +175,7 @@ func run() error {
 	}
 	infrastructure.SetRunnerArtifactConfig(runnerNATSURL, cfg.MaxMessageBytes)
 	infrastructure.SetRunnerControlPlaneURL(runnerControlPlaneURL)
+	infrastructure.SetRunnerEndpointPolicy(cfg.AllowInsecureTransport)
 	infrastructure.SetControlPlanePublicKey(base64.RawStdEncoding.EncodeToString(signingKey.Public.PublicKey))
 	audit := api.NewAuditQueryService()
 	audit.SetRepository(store.NewAuditRepository(db))
