@@ -20,6 +20,7 @@ var UserPermissionCatalog = []string{
 var OperatorPermissionCatalog = []string{
 	"tasks.read", "tasks.manage", "runs.read", "runs.execute",
 	"resources.read", "resources.manage", "runners.read", "runners.manage",
+	"system.metrics.read", "system.deadletter.read", "system.deadletter.manage",
 }
 
 type SeedRole struct {

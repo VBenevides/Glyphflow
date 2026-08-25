@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/VBenevides/Glyphflow/backend/internal/platform"
 	"github.com/VBenevides/Glyphflow/backend/internal/queue"
 	"github.com/VBenevides/Glyphflow/backend/internal/store"
 )
@@ -125,5 +126,21 @@ func TestDeadLetterReadPermissionCannotMutate(t *testing.T) {
 	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/admin/dead-letters/dead-1/retry", strings.NewReader(`{"reason":"operator review"}`)))
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("read-only retry status = %d", response.Code)
+	}
+}
+
+func TestPermissionDenialIsCountedAndAuditedWithoutRequestBody(t *testing.T) {
+	audit := NewAuditQueryService()
+	metrics := new(platform.Metrics)
+	server := Server{Auth: func(*http.Request) (Claims, bool) { return Claims{UserID: "operator"}, true }, Permissions: func(Claims) map[string]bool { return map[string]bool{"system.deadletter.read": true} }, Metrics: metrics, AuditQuery: audit, DeadLetters: NewDeadLetterService(&deadLetterRepositoryStub{state: "OPEN"}, &deadLetterPublisherStub{})}
+	response := server.Handler()
+	recorded := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/dead-letters/dead-1/retry", strings.NewReader(`{"reason":"do not store this payload"}`))
+	response.ServeHTTP(recorded, req)
+	if recorded.Code != http.StatusForbidden || metrics.PermissionDenials.Load() != 1 || len(audit.events) != 1 {
+		t.Fatalf("denial status=%d metric=%d audit=%d", recorded.Code, metrics.PermissionDenials.Load(), len(audit.events))
+	}
+	if audit.events[0].Input != nil || audit.events[0].Target != "/api/v1/admin/dead-letters/dead-1/retry" {
+		t.Fatalf("denial audit exposed input: %#v", audit.events[0])
 	}
 }

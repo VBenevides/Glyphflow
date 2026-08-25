@@ -401,6 +401,13 @@ func (s Server) require(role string, next http.Handler) http.Handler {
 		}
 		permissions := s.effectivePermissions(claims)
 		if !hasPermission(permissions, role) {
+			if s.Metrics != nil {
+				s.Metrics.PermissionDenials.Add(1)
+			}
+			if s.AuditQuery != nil {
+				actorName, actorEmail := s.auditActor(claims.UserID)
+				_ = s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: "failure", CorrelationID: r.Header.Get("X-Correlation-ID"), Output: map[string]any{"status": http.StatusForbidden, "error": "forbidden"}})
+			}
 			writeJSON(w, 403, map[string]string{"error": "forbidden"})
 			return
 		}
