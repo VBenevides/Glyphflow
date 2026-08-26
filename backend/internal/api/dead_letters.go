@@ -198,19 +198,33 @@ func (s *DeadLetterService) retry(w http.ResponseWriter, r *http.Request, id str
 		return
 	}
 	recordRequestAuditField(r, "messageId", retry.MessageID)
-	deliveryID, err := randomID()
-	if err != nil {
-		recordRequestError(r, err)
-		writeError(w, http.StatusServiceUnavailable, "dead-letter recovery unavailable", err)
-		return
+	deliveryID := retry.DeliveryID
+	if deliveryID == "" {
+		deliveryID, err = randomID()
+		if err != nil {
+			recordRequestError(r, err)
+			writeError(w, http.StatusServiceUnavailable, "dead-letter recovery unavailable", err)
+			return
+		}
 	}
-	if err := s.publisher.Publish(r.Context(), queue.Message{Subject: retry.Subject, Data: retry.Payload, ID: "dead-letter-retry-" + deliveryID}); err != nil {
+	deliveryID = "dead-letter-retry-" + deliveryID
+	if err := s.publisher.Publish(r.Context(), queue.Message{Subject: retry.Subject, Data: retry.Payload, ID: deliveryID}); err != nil {
+		if lifecycle, ok := s.repository.(store.DeadLetterRetryLifecycle); ok {
+			_ = lifecycle.MarkRetryFailed(r.Context(), id, err.Error(), time.Now().UTC().Add(store.DeadLetterRetryBackoff(retry.Attempts)))
+		}
 		recordRequestError(r, err)
 		writeError(w, http.StatusServiceUnavailable, "dead-letter retry could not be published", err)
 		return
 	}
-	recordRequestAuditField(r, "deliveryId", "dead-letter-retry-"+deliveryID)
-	writeJSON(w, http.StatusAccepted, map[string]any{"id": retry.ID, "messageId": retry.MessageID, "deliveryId": "dead-letter-retry-" + deliveryID, "state": "RETRY_QUEUED", "reason": input.Reason})
+	if lifecycle, ok := s.repository.(store.DeadLetterRetryLifecycle); ok {
+		if err := lifecycle.MarkRetryPublished(r.Context(), id); err != nil {
+			recordRequestError(r, err)
+			writeError(w, http.StatusServiceUnavailable, "dead-letter retry state could not be recorded", err)
+			return
+		}
+	}
+	recordRequestAuditField(r, "deliveryId", deliveryID)
+	writeJSON(w, http.StatusAccepted, map[string]any{"id": retry.ID, "messageId": retry.MessageID, "deliveryId": deliveryID, "state": "RETRY_QUEUED", "reason": input.Reason})
 }
 
 func (s *DeadLetterService) reconcile(w http.ResponseWriter, r *http.Request, id string) {

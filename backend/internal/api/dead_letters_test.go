@@ -18,6 +18,7 @@ import (
 type deadLetterRepositoryStub struct {
 	item       store.DeadLetterSummary
 	state      string
+	deliveryID string
 	beginCalls int
 	listCalls  int
 	lastFilter store.DeadLetterFilter
@@ -46,7 +47,7 @@ func (s *deadLetterRepositoryStub) BeginRetry(context.Context, string) (store.De
 		return store.DeadLetterRetry{ID: s.item.ID, Subject: s.item.Subject, MessageID: s.item.MessageID}, false, nil
 	}
 	s.state = "RETRY_QUEUED"
-	return store.DeadLetterRetry{ID: s.item.ID, Subject: s.item.Subject, MessageID: s.item.MessageID, Payload: []byte("exact-payload")}, true, nil
+	return store.DeadLetterRetry{ID: s.item.ID, Subject: s.item.Subject, MessageID: s.item.MessageID, Payload: []byte("exact-payload"), DeliveryID: s.deliveryID, Attempts: 1}, true, nil
 }
 func (s *deadLetterRepositoryStub) Reconcile(_ context.Context, _ string, state string) (bool, error) {
 	if s.state != "OPEN" && s.state != "RETRY_QUEUED" {
@@ -118,6 +119,21 @@ func TestDeadLetterRecoveryUsesCASAndNewDeliveryIdentity(t *testing.T) {
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK || repository.state != "DISCARDED" {
 		t.Fatalf("reconcile status = %d, state = %s", response.Code, repository.state)
+	}
+}
+
+func TestDeadLetterRecoveryUsesPersistedDeliveryIdentity(t *testing.T) {
+	repository := &deadLetterRepositoryStub{state: "OPEN", deliveryID: "delivery-1", item: store.DeadLetterSummary{ID: "dead-persisted", Subject: "glyphflow.events.runner-1", MessageID: "event-persisted", FirstFailedAt: time.Now().UTC(), LastFailedAt: time.Now().UTC()}}
+	publisher := &deadLetterPublisherStub{}
+	server := NewDeadLetterService(repository, publisher)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/dead-letters/dead-persisted/retry", strings.NewReader(`{"reason":"operator review"}`))
+	response := httptest.NewRecorder()
+	server.retry(response, request, "dead-persisted")
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("retry status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if publisher.message.ID != "dead-letter-retry-delivery-1" {
+		t.Fatalf("delivery ID = %q", publisher.message.ID)
 	}
 }
 
