@@ -1,7 +1,7 @@
 # Glyphflow architecture
 
 Status: current implementation source of truth. Updated 2026-08-25 for the
-`version/0.2.3` checkout. Dated reviews in `internal/` and `.agent-work/` are
+`version/0.2.4` checkout. Dated reviews in `internal/` and `.agent-work/` are
 historical evidence or target designs, not runtime contracts.
 
 ## Topology
@@ -84,14 +84,14 @@ multi-replica leader election or a load/failover guarantee.
 - Container image: [`build/Dockerfile`](build/Dockerfile), containing the built
   frontend, Nginx, the control-plane binary, the canonical schema, and runner
   binaries.
-- Version 0.2.3 is clean-install-only. The control plane initializes a new
+- Version 0.2.4 is clean-install-only. The control plane initializes a new
   PostgreSQL database from
   [`backend/migrations/001_canonical.sql`](backend/migrations/001_canonical.sql);
   it does not upgrade an earlier schema.
 - Runtime services: one isolated stack per client containing one control-plane
   instance, PostgreSQL, NATS JetStream, Nginx/web, and any number of separately
   deployed workers. Shared tenancy and service replicas are unsupported in
-  version 0.2.3.
+  version 0.2.4.
 - Outside development, configuration validation requires HTTPS, NATS TLS,
   signing-key material, and production client certificates where applicable
   ([`backend/internal/config/config.go`](backend/internal/config/config.go)).

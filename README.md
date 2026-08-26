@@ -5,7 +5,7 @@
 <h1 align="center">Glyphflow</h1>
 
 <p align="center">
-  <a href="VERSION"><img src="https://img.shields.io/badge/version-v0.2.3-blue?style=flat-square" alt="Version v0.2.3"></a>
+  <a href="VERSION"><img src="https://img.shields.io/badge/version-v0.2.4-blue?style=flat-square" alt="Version v0.2.4"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/VBenevides/Glyphflow?style=flat-square" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/phase-alpha-orange?style=flat-square" alt="Phase alpha">
   <a href="https://github.com/VBenevides/Glyphflow/actions/workflows/ci.yml"><img src="https://github.com/VBenevides/Glyphflow/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
@@ -223,7 +223,7 @@ Registry when a GitHub release is published. The release tag must match
 `latest` tag.
 
 ```bash
-export GLYPHFLOW_IMAGE=ghcr.io/vbenevides/glyphflow:0.2.3
+export GLYPHFLOW_IMAGE=ghcr.io/vbenevides/glyphflow:0.2.4
 docker pull "$GLYPHFLOW_IMAGE"
 ```
 
@@ -231,11 +231,11 @@ The GitHub release also contains a Linux AMD64 image archive and SHA-256
 checksum for environments without registry access:
 
 ```bash
-sha256sum -c glyphflow-0.2.3-linux-amd64.tar.gz.sha256
-docker load -i glyphflow-0.2.3-linux-amd64.tar.gz
+sha256sum -c glyphflow-0.2.4-linux-amd64.tar.gz.sha256
+docker load -i glyphflow-0.2.4-linux-amd64.tar.gz
 ```
 
-Version 0.2.3 is clean-install-only. On first start, the image applies its
+Version 0.2.4 is clean-install-only. On first start, the image applies its
 single canonical PostgreSQL schema to a new database; it does not upgrade
 databases from earlier releases.
 
@@ -250,7 +250,7 @@ For production, provide the required values and secret files described in
 COMPOSE_PROJECT_NAME=client-example docker compose -f compose.yaml -f compose.production.yaml up -d
 ```
 
-Version 0.2.3 supports one isolated production stack per client. Use a unique
+Version 0.2.4 supports one isolated production stack per client. Use a unique
 `COMPOSE_PROJECT_NAME` for each client so its PostgreSQL data, NATS authority,
 network, secrets, backups, and administrator scope stay separate. Shared
 tenancy and scaling any service beyond one replica are unsupported in this
