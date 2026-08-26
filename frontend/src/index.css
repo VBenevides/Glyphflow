@@ -172,7 +172,10 @@ a {
 .gf-run-id-cell { display: flex; align-items: center; gap: 0.35rem; width: 12rem; max-width: 12rem; min-width: 0; }
 .gf-run-id-cell-compact { width: 100px; max-width: 100px; }
 .gf-run-id { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gf-run-id-copy { flex: 0 0 auto; padding: 0.25rem; line-height: 1; }
+.gf-run-id-copy, .gf-identifier-copy { flex: 0 0 auto; padding: 0.25rem; line-height: 1; }
+.gf-identifier { display: inline-flex; align-items: center; gap: 0.35rem; min-width: 0; max-width: 100%; }
+.gf-identifier > :first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gf-identifier-copy { flex: 0 0 auto; padding: 0.25rem; line-height: 1; }
 .gf-pagination { display: flex; align-items: center; justify-content: flex-start; gap: 1rem; margin-top: 1rem; }
 .gf-pagination-size { display: inline-flex; align-items: center; gap: 0.4rem; color: var(--gf-muted); font-size: 0.8rem; }
 .gf-pagination-size .gf-input { width: auto; min-width: 4.5rem; padding: 0.35rem 0.5rem; }

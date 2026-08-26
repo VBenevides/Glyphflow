@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { act } from 'react'
 import { createElement } from 'react'
+import { createRoot } from 'react-dom/client'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -35,11 +37,16 @@ describe('admin access workflow', () => {
   })
 
   it('renders role assignment and revoke controls for a user', () => {
-    const html = renderToStaticMarkup(createElement(UserAccessEditor, { user, roles, onChanged: async () => undefined, onClose: () => undefined }))
-    expect(html).toContain('Assign role')
-    expect(html).toContain('Assigned roles')
-    expect(html).toContain('Revoke')
-    expect(html).toContain('admin')
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const root = createRoot(host)
+    act(() => root.render(createElement(UserAccessEditor, { user, roles, onChanged: async () => undefined, onClose: () => undefined })))
+    expect(document.body.innerHTML).toContain('Assign role')
+    expect(document.body.innerHTML).toContain('Assigned roles')
+    expect(document.body.innerHTML).toContain('Revoke')
+    expect(document.body.innerHTML).toContain('admin')
+    act(() => root.unmount())
+    host.remove()
   })
 
   it('exposes approval settings and the pending-user approval action', () => {

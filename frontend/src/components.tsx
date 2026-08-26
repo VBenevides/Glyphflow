@@ -1,7 +1,8 @@
 import * as TabsPrimitive from '@radix-ui/react-tabs'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu'
-import { MoreHorizontal } from 'lucide-react'
+import { Copy, MoreHorizontal } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { Children, forwardRef, useId, useState, type ButtonHTMLAttributes, type ComponentPropsWithoutRef, type ComponentType, type ElementRef, type InputHTMLAttributes, type ReactNode } from 'react'
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -38,6 +39,14 @@ export function FilterInput({ label, options = [], value, onChange, id, ...props
 
 export function InfoTooltip({ text }: { text: string }) {
   return <span className="gf-info-tooltip"><button type="button" className="gf-info-tooltip-trigger" aria-label="More information" title={text}>i</button></span>
+}
+
+export function Identifier({ id, name, href, className, linkClassName, copyLabel = 'Copy identifier' }: { id?: string; name?: string; href?: string; className?: string; linkClassName?: string; copyLabel?: string }) {
+  if (!id) return <span>—</span>
+  const compact = id.length > 5 ? `…${id.slice(-5)}` : id
+  const label = name ? `${name} · ${compact}` : compact
+  const content = href ? <Link className={linkClassName} to={href} title={id}>{label}</Link> : <span title={id}>{label}</span>
+  return <span className={`gf-identifier${className ? ` ${className}` : ''}`}>{content}<Button variant="ghost" className="gf-identifier-copy" aria-label={copyLabel} onClick={() => { void navigator.clipboard?.writeText(id).catch(() => undefined) }}><Copy size={15} aria-hidden="true" /></Button></span>
 }
 
 export function FieldLabel({ children, info, htmlFor }: { children: ReactNode; info?: string; htmlFor?: string }) {

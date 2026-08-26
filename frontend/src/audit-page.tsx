@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { api, type AuditEvent, type Page } from './api'
 import { AuditValue, SafeLink } from './safe'
-import { Button, DataTable, Dialog, EmptyState, FilterInput, MetricCard, PageHeader, Pagination, StatusPill } from './components'
+import { Button, DataTable, Dialog, EmptyState, FilterInput, Identifier, MetricCard, PageHeader, Pagination, StatusPill } from './components'
 import { QueryState } from './query'
 import { hasPermission } from './permissions'
 import { useAuth } from './auth'
@@ -25,7 +25,7 @@ function AuditMetadata({ event }: { event: AuditEvent }) {
     <div><dt>Method</dt><dd>{event.action ?? '—'}</dd></div>
     <div><dt>Endpoint</dt><dd>{event.target ?? '—'}</dd></div>
     <div><dt>Result</dt><dd><StatusPill status={event.result ?? '—'} /></dd></div>
-    <div><dt>Event ID</dt><dd>{event.id}</dd></div>
+    <div><dt>Event ID</dt><dd><Identifier id={event.id} copyLabel="Copy event ID" /></dd></div>
   </dl>
 }
 
@@ -46,7 +46,7 @@ export function AuditPage() {
     <div className="gf-filter-bar"><FilterInput label="Actor" options={auditOptions.flatMap((event) => [event.actorName, event.actor, event.actorEmail].filter((value): value is string => Boolean(value)))} value={filters.actor} onChange={(value) => update('actor', value)} /><FilterInput label="Action" options={auditOptions.flatMap((event) => event.action ? [event.action] : [])} value={filters.action} onChange={(value) => update('action', value)} /><FilterInput label="Target" options={auditOptions.flatMap((event) => event.target ? [event.target] : [])} value={filters.target} onChange={(value) => update('target', value)} /><label>Result<select className="gf-input" value={filters.result} onChange={(event) => update('result', event.target.value)}><option value="">All</option><option>success</option><option>failure</option></select></label><FilterInput label="Correlation ID" options={auditOptions.flatMap((event) => event.correlationId ? [event.correlationId] : [])} value={filters.correlation} onChange={(value) => update('correlation', value)} /><label><input type="checkbox" checked={filters.excludeAuditReads} onChange={(event) => { setFilters((current) => ({ ...current, excludeAuditReads: event.target.checked })); setPage(1) }} /> Exclude audit reads</label><label><input type="checkbox" checked={filters.excludeRunLogs} onChange={(event) => { setFilters((current) => ({ ...current, excludeRunLogs: event.target.checked })); setPage(1) }} /> Exclude run logs</label><label><input type="checkbox" checked={filters.excludeGet} onChange={(event) => { setFilters((current) => ({ ...current, excludeGet: event.target.checked })); setPage(1) }} /> Exclude GET requests</label></div>
     <QueryState query={query} empty="No audit events match these filters.">{(data) => <><div className="gf-metric-grid"><MetricCard label="Number of events" value={data.total ?? 0} detail="Events matching the filters" /><MetricCard label="Number of failure events" value={data.failureCount ?? 0} detail="Filtered events with failure results" /><MetricCard label="Number of write events" value={data.writeCount ?? 0} detail="Filtered POST, PUT, and DELETE events" /></div>{data.items.length ? <><DataTable className="gf-audit-table" caption="Audit events" rows={data.items} columns={[
       { key: 'createdAt', label: 'Time', className: 'gf-cell-nowrap', render: (event) => <time dateTime={event.createdAt}>{formatDateTime(event.createdAt)}</time> },
-      { key: 'actor', label: 'Actor', className: 'gf-cell-actor', render: (event) => { const name = event.actorName ?? event.actor ?? '—'; return event.actor && (canOpenUsers || event.actor === profile?.id) ? <Link to={`/admin/users/${encodeURIComponent(event.actor)}`} title={name}>{name}</Link> : name } },
+      { key: 'actor', label: 'Actor', className: 'gf-cell-actor', render: (event) => { const name = event.actorName ?? event.actor; return event.actor && (canOpenUsers || event.actor === profile?.id) ? <Identifier id={event.actor} name={name} href={`/admin/users/${encodeURIComponent(event.actor)}`} copyLabel="Copy actor ID" /> : event.actor ? <Identifier id={event.actor} name={name} copyLabel="Copy actor ID" /> : '—' } },
       { key: 'description', label: 'Description', render: (event) => event.description ?? '—' },
       { key: 'action', label: 'Method', className: 'gf-cell-nowrap' },
       { key: 'target', label: 'Endpoint', className: 'gf-cell-endpoint', render: (event) => event.target ? <SafeLink href={event.target}><span title={event.target}>{event.target}</span></SafeLink> : '—' },

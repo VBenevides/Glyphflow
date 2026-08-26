@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from './auth'
 import { api, type Page, type Resource } from './api'
 import { DangerousAction } from './actions'
-import { Button, DataTable, DropdownMenuItem, EmptyState, Input, MetricCard, PageHeader, Pagination, StatusPill, TableActions } from './components'
+import { Button, DataTable, DropdownMenuItem, EmptyState, Identifier, Input, MetricCard, PageHeader, Pagination, StatusPill, TableActions } from './components'
 import { QueryState } from './query'
 import { hasPermission } from './permissions'
 import { formatDateTime } from './format'
@@ -56,10 +56,10 @@ export function ResourceInventoryPage() {
     <QueryState query={query} empty="Create a resource for task placement.">
       {(data) => data.items.length ? <>
         <DataTable caption="Resources" rows={data.items} columns={[
-          { key: 'name', label: 'Resource', render: (resource) => <Link to={`/resources/${resource.id}`}>{resource.name}</Link> },
+          { key: 'name', label: 'Resource', render: (resource) => <Identifier id={resource.id} name={resource.name} href={`/resources/${resource.id}`} copyLabel="Copy resource ID" /> },
           { key: 'kind', label: 'Type', render: (resource) => resourceKindLabel(resource.kind) },
           { key: 'enabled', label: 'State', render: (resource) => <StatusPill status={resourceState(resource)} /> },
-          { key: 'holder', label: 'Holder', render: (resource) => resource.holder ? <Link to={`/runs/${resource.holder}`}>{resource.holder}</Link> : '—' },
+          { key: 'holder', label: 'Holder', render: (resource) => resource.holder ? <Identifier id={resource.holder} href={`/runs/${resource.holder}`} copyLabel="Copy run ID" /> : '—' },
           { key: 'expiresAt', label: 'Lease expiry', className: 'gf-cell-nowrap', render: (resource) => <time dateTime={resource.expiresAt}>{formatDateTime(resource.expiresAt)}</time> },
           { key: 'fencingToken', label: 'Fencing token' },
           { key: 'actions', label: 'Actions', render: (resource) => manage && <TableActions label={`Actions for ${resource.name}`}>
@@ -81,7 +81,7 @@ export function ResourceDetailPage() {
   return <main className="gf-content"><QueryState query={query}>{(resource) => <>
     <PageHeader title={resource.name} description="Lease ownership and fencing state." />
     <section className="gf-metric-grid"><div className="gf-metric"><span>State</span><strong><StatusPill status={resourceState(resource)} /></strong></div><div className="gf-metric"><span>Fencing counter</span><strong>{resource.fencingToken ?? 0}</strong></div><div className="gf-metric"><span>Expiry</span><strong><time dateTime={resource.expiresAt}>{formatDateTime(resource.expiresAt)}</time></strong></div></section>
-    <section className="gf-card-panel"><h2>Active holder</h2>{resource.holder ? <Link to={`/runs/${resource.holder}`}>{resource.holder}</Link> : <p className="gf-muted">No active lease.</p>}</section>
+    <section className="gf-card-panel"><h2>Active holder</h2>{resource.holder ? <Identifier id={resource.holder} href={`/runs/${resource.holder}`} copyLabel="Copy run ID" /> : <p className="gf-muted">No active lease.</p>}</section>
     {manage && <div className="gf-dialog-actions"><DangerousAction label="Delete resource" onConfirm={() => api.delete(`/api/v1/resources/${encodeURIComponent(resource.id)}`).then(() => navigate('/resources'))} /></div>}
   </>}</QueryState></main>
 }
