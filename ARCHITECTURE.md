@@ -21,7 +21,8 @@ In the container deployment, Nginx serves the built React application and
 proxies `/api/`, `/docs`, and `/openapi.json` to the control plane
 ([`build/nginx.conf`](build/nginx.conf)). In local development, `dev_run.sh`
 runs Vite and the control plane directly and starts only PostgreSQL and NATS
-with Compose.
+with Compose. Set `GLYPHFLOW_DISABLE_NGINX=true` when private ingress routes
+directly to the control-plane listener on port `8080`.
 
 The control plane is one process. Its HTTP API, scheduler, dispatcher,
 heartbeat monitor, start-claim server, session cleanup, and readiness state

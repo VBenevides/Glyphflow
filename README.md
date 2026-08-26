@@ -340,6 +340,10 @@ with `_FILE` or `_SOURCE`.
 | `ENABLE_PASSWORD_REGISTRATION` | Enable self-service password registration; production defaults to disabled |
 | `DEFAULT_ROLE_ID` | Role assigned to newly created users |
 | `DATA_DIR` | Persistent control-plane data, including the development signing key |
+| `GLYPHFLOW_DISABLE_NGINX` | Set to `true` when private ingress targets the control-plane listener directly on port `8080`; defaults to `false` and starts Nginx on port `80` |
+
+For private container ingress such as ACA, set `GLYPHFLOW_DISABLE_NGINX=true`
+and route ingress to port `8080`.
 
 `GLYPHFLOW_BOOTSTRAP_EMAIL` and either `GLYPHFLOW_BOOTSTRAP_PASSWORD` (local
 development) or the protected `GLYPHFLOW_BOOTSTRAP_PASSWORD_FILE` (production
