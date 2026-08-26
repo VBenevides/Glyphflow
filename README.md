@@ -5,7 +5,7 @@
 <h1 align="center">Glyphflow</h1>
 
 <p align="center">
-  <a href="VERSION"><img src="https://img.shields.io/badge/version-v0.2.2-blue?style=flat-square" alt="Version v0.2.2"></a>
+  <a href="VERSION"><img src="https://img.shields.io/badge/version-v0.2.3-blue?style=flat-square" alt="Version v0.2.3"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/VBenevides/Glyphflow?style=flat-square" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/phase-alpha-orange?style=flat-square" alt="Phase alpha">
   <a href="https://github.com/VBenevides/Glyphflow/actions/workflows/ci.yml"><img src="https://github.com/VBenevides/Glyphflow/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
@@ -219,8 +219,9 @@ The repository includes a container image and Compose files for a self-hosted
 deployment. Build the image from the repository root:
 
 ```bash
-docker build -f build/Dockerfile -t glyphflow:0.2.2 .
-docker tag glyphflow:0.2.2 glyphflow:latest
+version="$(tr -d '[:space:]' < VERSION)"
+docker build -f build/Dockerfile -t "glyphflow:${version}" .
+docker tag "glyphflow:${version}" glyphflow:latest
 ```
 
 The base [`compose.yaml`](compose.yaml) is intentionally convenient for local

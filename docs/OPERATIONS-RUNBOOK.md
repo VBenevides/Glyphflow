@@ -2,7 +2,7 @@
 
 ## Supported topology
 
-Glyphflow 0.2.2 supports one control-plane process connected to one
+Glyphflow 0.2.3 supports one control-plane process connected to one
 PostgreSQL database and one NATS JetStream deployment. Workers are separate
 processes or hosts and connect outbound. This is a singleton operating model;
 the release does not claim control-plane, PostgreSQL, or NATS high

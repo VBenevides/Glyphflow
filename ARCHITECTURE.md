@@ -1,7 +1,7 @@
 # Glyphflow architecture
 
-Status: current implementation source of truth. Updated 2026-08-22 for the
-`version/0.2.1` checkout. Dated reviews in `internal/` and `.agent-work/` are
+Status: current implementation source of truth. Updated 2026-08-25 for the
+`version/0.2.3` checkout. Dated reviews in `internal/` and `.agent-work/` are
 historical evidence or target designs, not runtime contracts.
 
 ## Topology
