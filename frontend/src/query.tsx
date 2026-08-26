@@ -26,8 +26,9 @@ export function QueryRefresh<T>({ query }: { query: UseQueryResult<T> | UseQuery
     return () => { window.removeEventListener('online', onOnline); window.removeEventListener('offline', onOffline) }
   }, [])
   const updated = dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString(undefined, { timeZone: 'UTC' }) : '—'
-  const status = isFetching ? 'Refreshing…' : !online ? `Offline; showing data from ${updated} UTC` : isStale ? `Stale; last refresh at ${updated} UTC` : `Last refresh at ${updated} UTC`
-  return <div className="gf-query-status" aria-live="polite"><span>{status}</span><Button type="button" variant="secondary" className="gf-query-refresh-button" aria-label="Refresh" disabled={isFetching} onClick={() => { void Promise.all(queries.map((item) => item.refetch())) }}><RefreshCw size={16} className={`gf-query-spinner${isFetching ? ' is-spinning' : ''}`} aria-hidden="true" /></Button></div>
+  const staleLabel = isStale ? ' (Stale)' : ''
+  const status = isFetching ? 'Refreshing…' : !online ? `Offline; showing data from ${updated} UTC${staleLabel}` : `Last refresh at ${updated} UTC${staleLabel}`
+  return <div className="gf-query-status" aria-live="polite"><Button type="button" variant="secondary" className="gf-query-refresh-button" aria-label="Refresh" disabled={isFetching} onClick={() => { void Promise.all(queries.map((item) => item.refetch())) }}><RefreshCw size={16} className={`gf-query-spinner${isFetching ? ' is-spinning' : ''}`} aria-hidden="true" /></Button><span>{status}</span></div>
 }
 
 export function QueryState<T>({ query, children, empty = 'Nothing to show yet.' }: { query: UseQueryResult<T>; children: (data: T) => ReactNode; empty?: string }) {
