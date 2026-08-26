@@ -143,6 +143,11 @@ type RetryRepository interface {
 	Retry(context.Context, string, string) (RunRecord, bool, error)
 }
 
+var (
+	ErrStorageExhausted   = errors.New("storage_exhausted")
+	ErrStorageUnavailable = errors.New("storage_unavailable")
+)
+
 type StartClaimInput struct {
 	RunID, RunnerID, RunnerSessionID, LeaseToken, ExecutionSpecDigest string
 	Attempt                                                           int
@@ -153,7 +158,10 @@ type StartClaimRepository interface {
 	ClaimStart(context.Context, StartClaimInput) (time.Time, bool, error)
 }
 
-type RunStore struct{ pool *pgxpool.Pool }
+type RunStore struct {
+	pool            *pgxpool.Pool
+	storagePressure func(context.Context) (platform.StoragePressure, error)
+}
 
 const defaultStartDelay = time.Minute
 
@@ -164,6 +172,27 @@ const (
 )
 
 func NewRunRepository(pool *pgxpool.Pool) *RunStore { return &RunStore{pool: pool} }
+
+func (s *RunStore) SetStoragePressureProvider(provider func(context.Context) (platform.StoragePressure, error)) {
+	s.storagePressure = provider
+}
+
+func (s *RunStore) ensureStorageAvailable(ctx context.Context) error {
+	if s.storagePressure == nil {
+		return nil
+	}
+	pressure, err := s.storagePressure(ctx)
+	if err != nil {
+		return err
+	}
+	if pressure.State == platform.StorageUnavailable {
+		return ErrStorageUnavailable
+	}
+	if pressure.RejectNewRuns() {
+		return ErrStorageExhausted
+	}
+	return nil
+}
 
 const runQuery = `SELECT r.id, r.task_id, t.name, r.state, r.trigger_type, r.scheduled_for, COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = r.id), 1), COALESCE(latest.runner_id, ''), latest.exit_code, COALESCE(ec.meaning, ''), COALESCE(latest.termination_reason, ''), COALESCE(latest.max_memory_used_bytes, 0), COALESCE(latest.average_memory_used_bytes, 0) FROM runs r JOIN tasks t ON t.id = r.task_id LEFT JOIN LATERAL (SELECT runner_id, exit_code, termination_reason, max_memory_used_bytes, average_memory_used_bytes FROM execution_attempts WHERE run_id = r.id ORDER BY attempt_number DESC LIMIT 1) latest ON true LEFT JOIN exit_code ec ON ec.code = latest.exit_code`
 
@@ -444,6 +473,9 @@ func scanRun(row interface{ Scan(...any) error }) (RunRecord, error) {
 }
 
 func (s *RunStore) Create(ctx context.Context, definition RunDefinition) (RunRecord, error) {
+	if err := s.ensureStorageAvailable(ctx); err != nil {
+		return RunRecord{}, err
+	}
 	if definition.TriggerType == "" {
 		definition.TriggerType = "MANUAL"
 	}

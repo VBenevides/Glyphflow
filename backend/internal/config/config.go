@@ -50,6 +50,8 @@ type Config struct {
 	Environment                   string
 	AllowInsecureTransport        bool
 	DataDir                       string
+	LogMonthsKeep                 int
+	AuditMonthsKeep               int
 	RunnerID                      string
 	MaxMessageBytes               int
 	MaxOutputBytes                int
@@ -96,6 +98,8 @@ func FromEnv(role Role) (Config, error) {
 		SystemAdminEmails:             systemAdminEmails,
 		Environment:                   strings.ToLower(strings.TrimSpace(os.Getenv("ENVIRONMENT"))),
 		DataDir:                       os.Getenv("DATA_DIR"),
+		LogMonthsKeep:                 3,
+		AuditMonthsKeep:               12,
 		RunnerID:                      os.Getenv("RUNNER_ID"),
 	}
 	if config.AllowInsecureTransport, err = envBool("ALLOW_INSECURE_TRANSPORT", false); err != nil {
@@ -106,6 +110,14 @@ func FromEnv(role Role) (Config, error) {
 	}
 	if role == Worker {
 		if config.MaxOutputBytes, err = envInt("MAX_OUTPUT_BYTES"); err != nil {
+			return Config{}, err
+		}
+	}
+	if role == ControlPlane {
+		if config.LogMonthsKeep, err = envIntDefault("LOG_MONTHS_KEEP", 3); err != nil {
+			return Config{}, err
+		}
+		if config.AuditMonthsKeep, err = envIntDefault("AUDIT_MONTHS_KEEP", 12); err != nil {
 			return Config{}, err
 		}
 	}
@@ -148,6 +160,9 @@ func (c Config) Validate() error {
 	}
 	if c.MaxMessageBytes <= 0 {
 		return errors.New("MAX_MESSAGE_BYTES must be greater than zero")
+	}
+	if c.Role == ControlPlane && (c.LogMonthsKeep <= 0 || c.AuditMonthsKeep <= 0) {
+		return errors.New("LOG_MONTHS_KEEP and AUDIT_MONTHS_KEEP must be greater than zero")
 	}
 	if c.Role == ControlPlane {
 		if len([]byte(c.AccessTokenSecret)) < 32 {
@@ -256,6 +271,14 @@ func envInt(name string) (int, error) {
 		return 0, fmt.Errorf("%s must be an integer", name)
 	}
 	return parsed, nil
+}
+
+func envIntDefault(name string, fallback int) (int, error) {
+	value, ok := os.LookupEnv(name)
+	if !ok || strings.TrimSpace(value) == "" {
+		return fallback, nil
+	}
+	return envInt(name)
 }
 
 func envBoolDefault(name string, fallback bool) bool {

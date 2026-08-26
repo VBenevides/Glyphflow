@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 	"sort"
@@ -255,6 +256,14 @@ func (s *RunService) execute(w http.ResponseWriter, r *http.Request) {
 		}
 		created, err := repository.Create(r.Context(), store.RunDefinition{ID: id, TaskID: input.TaskID, TriggerType: "MANUAL", IdempotencyKey: idempotencyKey, ScheduledFor: time.Now().UTC()})
 		if err != nil {
+			if errors.Is(err, store.ErrStorageExhausted) {
+				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "storage_exhausted"})
+				return
+			}
+			if errors.Is(err, store.ErrStorageUnavailable) {
+				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "storage_unavailable"})
+				return
+			}
 			writeError(w, http.StatusConflict, "run creation failed", err)
 			return
 		}

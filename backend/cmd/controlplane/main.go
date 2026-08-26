@@ -22,6 +22,7 @@ import (
 	"github.com/VBenevides/Glyphflow/backend/internal/platform"
 	"github.com/VBenevides/Glyphflow/backend/internal/queue"
 	"github.com/VBenevides/Glyphflow/backend/internal/store"
+	"github.com/shirou/gopsutil/v4/disk"
 )
 
 func main() {
@@ -151,11 +152,22 @@ func run() error {
 	operations := api.NewOperationsService()
 	operations.SetTaskRepository(store.NewTaskRepository(db))
 	scheduleRepository := store.NewScheduleRepository(db)
+	retentionRepository := store.NewRetentionRepository(db)
+	storageMonitor := new(platform.StoragePressureMonitor)
+	storagePressure := func(context.Context) (platform.StoragePressure, error) {
+		usage, err := disk.Usage(cfg.DataDir)
+		if err != nil || usage.Total == 0 {
+			return platform.StoragePressure{State: platform.StorageUnavailable, Code: "storage_unavailable"}, nil
+		}
+		return storageMonitor.Observe(float64(usage.Free) * 100 / float64(usage.Total)), nil
+	}
 	operations.SetScheduleRepository(scheduleRepository)
 	globalVariables := api.NewGlobalVariableService()
 	globalVariables.SetRepository(store.NewGlobalVariableRepository(db))
 	runs := api.NewRunService()
 	runRepository := store.NewRunRepository(db)
+	runRepository.SetStoragePressureProvider(storagePressure)
+	scheduleRepository.SetStoragePressureProvider(storagePressure)
 	runs.SetRepository(runRepository)
 	runnerRepository := store.NewRunnerRepository(db)
 	if err := runnerRepository.EnsurePool(ctx, "default", "default"); err != nil {
@@ -242,6 +254,37 @@ func run() error {
 		}
 		cleanup()
 		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				cleanup()
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	go func() {
+		policy := store.RetentionPolicy{LogMonthsKeep: cfg.LogMonthsKeep, AuditMonthsKeep: cfg.AuditMonthsKeep}
+		cleanup := func() {
+			if _, err := retentionRepository.Purge(ctx, time.Now().UTC(), policy, 100); err != nil && ctx.Err() == nil {
+				logger.Event("retention.cleanup_failed", map[string]string{"error": err.Error()})
+				return
+			}
+			pressure, _ := storagePressure(ctx)
+			if pressure.State != platform.StorageCritical && pressure.State != platform.StorageEmergency {
+				return
+			}
+			_, _ = retentionRepository.PurgeCriticalRuns(ctx, time.Now().UTC(), func() (float64, error) {
+				usage, err := disk.Usage(cfg.DataDir)
+				if err != nil || usage.Total == 0 {
+					return 0, fmt.Errorf("storage usage unavailable")
+				}
+				return float64(usage.Free) * 100 / float64(usage.Total), nil
+			}, 100)
+		}
+		cleanup()
+		ticker := time.NewTicker(time.Hour)
 		defer ticker.Stop()
 		for {
 			select {

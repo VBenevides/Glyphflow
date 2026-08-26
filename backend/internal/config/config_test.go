@@ -18,6 +18,8 @@ func TestValidateControlPlane(t *testing.T) {
 		AccessTokenSecret:      "01234567890123456789012345678901",
 		WebOrigin:              "https://console.example",
 		DataDir:                "/var/lib/glyphflow",
+		LogMonthsKeep:          3,
+		AuditMonthsKeep:        12,
 		MaxMessageBytes:        1 << 20,
 		Environment:            "development",
 		AllowInsecureTransport: true,
@@ -52,6 +54,8 @@ func TestValidateControlPlaneRequiresPasswordPepper(t *testing.T) {
 		PasswordLoginEnabled:   true,
 		WebOrigin:              "https://console.example",
 		DataDir:                "/var/lib/glyphflow",
+		LogMonthsKeep:          3,
+		AuditMonthsKeep:        12,
 		MaxMessageBytes:        1 << 20,
 		Environment:            "development",
 		AllowInsecureTransport: true,
@@ -78,6 +82,8 @@ func TestFromEnvParsesSystemAdminEmails(t *testing.T) {
 	t.Setenv("ENVIRONMENT", "development")
 	t.Setenv("ALLOW_INSECURE_TRANSPORT", "true")
 	t.Setenv("GLYPHFLOW_SYSTEM_ADMINS", "one@example.com, two@example.com;one@example.com")
+	t.Setenv("LOG_MONTHS_KEEP", "3")
+	t.Setenv("AUDIT_MONTHS_KEEP", "12")
 
 	config, err := FromEnv(ControlPlane)
 	if err != nil {
@@ -91,6 +97,9 @@ func TestFromEnvParsesSystemAdminEmails(t *testing.T) {
 	}
 	if got, want := strings.Join(config.CSRFOrigins, ","), "https://console.example,http://localhost:5173"; got != want {
 		t.Fatalf("CSRF origins = %q", got)
+	}
+	if config.LogMonthsKeep != 3 || config.AuditMonthsKeep != 12 {
+		t.Fatalf("retention months = %d/%d", config.LogMonthsKeep, config.AuditMonthsKeep)
 	}
 }
 
@@ -127,6 +136,8 @@ func TestValidateControlPlaneRequiresPostgresTLS(t *testing.T) {
 		PasswordPepper:                "0123456789012345",
 		WebOrigin:                     "https://console.example",
 		DataDir:                       "/var/lib/glyphflow",
+		LogMonthsKeep:                 3,
+		AuditMonthsKeep:               12,
 		MaxMessageBytes:               1 << 20,
 		Environment:                   "staging",
 	}
