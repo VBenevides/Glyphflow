@@ -218,6 +218,17 @@ func (s *OIDCService) AddProvider(provider OIDCProvider) error {
 	if _, err := secureURL(provider.Issuer); err != nil {
 		return err
 	}
+	if provider.SecretReference != "" && !strings.HasPrefix(provider.SecretReference, "env://") {
+		s.mu.RLock()
+		resolverConfigured := s.secretResolver != nil
+		s.mu.RUnlock()
+		if !resolverConfigured {
+			return errors.New("OIDC secret reference requires a configured resolver")
+		}
+	}
+	if strings.HasPrefix(provider.SecretReference, "env://") && strings.TrimPrefix(provider.SecretReference, "env://") == "" {
+		return errors.New("OIDC environment secret reference is incomplete")
+	}
 	callbacks := provider.Callbacks
 	if len(callbacks) == 0 {
 		callbacks = []string{provider.Callback}
