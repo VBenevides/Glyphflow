@@ -61,6 +61,7 @@ func TestAuditQueryFiltersRedactsAndPaginates(t *testing.T) {
 	audit.Add(AuditEvent{ID: "write", Actor: "user-1", Action: http.MethodPost, Target: "/api/v1/tasks", Result: "success", CreatedAt: "2026-08-09T10:00:00Z"})
 	audit.Add(AuditEvent{ID: "new", Actor: "user-1", Action: "user.updated", Target: "user-1", Result: "failure", CorrelationID: "corr-2", CreatedAt: "2026-08-14T10:00:00Z", After: map[string]any{"nested": map[string]any{"password": "secret"}}})
 	audit.Add(AuditEvent{ID: "audit-read", Actor: "system:audit", Action: "GET", Target: "/api/v1/audit", Result: "success", CreatedAt: "2026-08-14T11:00:00Z"})
+	audit.Add(AuditEvent{ID: "task-read", Actor: "system:tasks", Action: "GET", Target: "/api/v1/tasks", Result: "success", CreatedAt: "2026-08-14T11:30:00Z"})
 	audit.Add(AuditEvent{ID: "run-log-read", Actor: "system:runner", Action: "GET", Target: "/api/v1/runs/run-1/logs", Result: "success", CreatedAt: "2026-08-14T12:00:00Z"})
 	if audit.events[0].Before["token"] != "[REDACTED]" || audit.events[2].After["nested"].(map[string]any)["password"] != "[REDACTED]" {
 		t.Fatal("audit secrets were not redacted")
@@ -86,8 +87,17 @@ func TestAuditQueryFiltersRedactsAndPaginates(t *testing.T) {
 	request = httptest.NewRequest(http.MethodGet, "/api/v1/audit", nil)
 	response = httptest.NewRecorder()
 	audit.query(response, request)
-	if !bytes.Contains(response.Body.Bytes(), []byte(`"id":"audit-read"`)) {
-		t.Fatalf("audit-read event missing without exclusion: %s", response.Body.String())
+	if bytes.Contains(response.Body.Bytes(), []byte(`"id":"audit-read"`)) || bytes.Contains(response.Body.Bytes(), []byte(`"id":"task-read"`)) || bytes.Contains(response.Body.Bytes(), []byte(`"id":"run-log-read"`)) || !bytes.Contains(response.Body.Bytes(), []byte(`"id":"write"`)) {
+		t.Fatalf("GET events were not excluded by default: %s", response.Body.String())
+	}
+	var filtered struct {
+		Total, FailureCount, WriteCount int
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &filtered); err != nil {
+		t.Fatal(err)
+	}
+	if filtered.Total != 3 || filtered.FailureCount != 1 || filtered.WriteCount != 1 {
+		t.Fatalf("default audit counts = %+v, want total=3 failures=1 writes=1", filtered)
 	}
 	request = httptest.NewRequest(http.MethodGet, "/api/v1/audit?exclude_run_logs=true", nil)
 	response = httptest.NewRecorder()
@@ -98,8 +108,40 @@ func TestAuditQueryFiltersRedactsAndPaginates(t *testing.T) {
 	request = httptest.NewRequest(http.MethodGet, "/api/v1/audit", nil)
 	response = httptest.NewRecorder()
 	audit.query(response, request)
-	if !bytes.Contains(response.Body.Bytes(), []byte(`"id":"run-log-read"`)) {
-		t.Fatalf("run-log event missing without exclusion: %s", response.Body.String())
+	if bytes.Contains(response.Body.Bytes(), []byte(`"id":"run-log-read"`)) {
+		t.Fatalf("run-log GET event returned by default: %s", response.Body.String())
+	}
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/audit?include_get=true", nil)
+	response = httptest.NewRecorder()
+	audit.query(response, request)
+	if !bytes.Contains(response.Body.Bytes(), []byte(`"id":"audit-read"`)) || !bytes.Contains(response.Body.Bytes(), []byte(`"id":"task-read"`)) || !bytes.Contains(response.Body.Bytes(), []byte(`"id":"run-log-read"`)) {
+		t.Fatalf("GET events missing with explicit opt-in: %s", response.Body.String())
+	}
+}
+
+type recordingAuditRepository struct {
+	filter store.AuditFilter
+}
+
+func (r *recordingAuditRepository) Append(context.Context, store.AuditEventRecord) error { return nil }
+func (r *recordingAuditRepository) Query(_ context.Context, filter store.AuditFilter) ([]store.AuditEventRecord, store.AuditCounts, error) {
+	r.filter = filter
+	return nil, store.AuditCounts{}, nil
+}
+
+func TestAuditQueryPassesDefaultAndOptInMethodFiltersToRepository(t *testing.T) {
+	repository := &recordingAuditRepository{}
+	audit := NewAuditQueryService()
+	audit.SetRepository(repository)
+	response := httptest.NewRecorder()
+	audit.query(response, httptest.NewRequest(http.MethodGet, "/api/v1/audit", nil))
+	if response.Code != http.StatusOK || repository.filter.ExcludeMethod != http.MethodGet {
+		t.Fatalf("default repository filter = %+v, status=%d", repository.filter, response.Code)
+	}
+	response = httptest.NewRecorder()
+	audit.query(response, httptest.NewRequest(http.MethodGet, "/api/v1/audit?include_get=true", nil))
+	if response.Code != http.StatusOK || repository.filter.ExcludeMethod != "" {
+		t.Fatalf("opt-in repository filter = %+v, status=%d", repository.filter, response.Code)
 	}
 }
 

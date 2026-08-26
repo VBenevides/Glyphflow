@@ -323,6 +323,10 @@ func (s *AuditQueryService) query(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	excludeTarget := strings.TrimSpace(r.URL.Query().Get("exclude_target"))
+	excludeMethod := strings.TrimSpace(r.URL.Query().Get("exclude_method"))
+	if excludeMethod == "" && !strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("include_get")), "true") {
+		excludeMethod = http.MethodGet
+	}
 	excludeRunLogs := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("exclude_run_logs")), "true")
 	all := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("all")), "true")
 	s.mu.RLock()
@@ -331,7 +335,7 @@ func (s *AuditQueryService) query(w http.ResponseWriter, r *http.Request) {
 	if repository != nil {
 		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-		items, counts, err := repository.Query(r.Context(), store.AuditFilter{Actor: filters["actor"], Action: filters["action"], Target: filters["target"], Result: filters["result"], CorrelationID: filters["correlationId"], ExcludeTarget: excludeTarget, ExcludeRunLogs: excludeRunLogs, All: all, From: from, To: to, Page: page, Limit: limit})
+		items, counts, err := repository.Query(r.Context(), store.AuditFilter{Actor: filters["actor"], Action: filters["action"], Target: filters["target"], Result: filters["result"], CorrelationID: filters["correlationId"], ExcludeMethod: excludeMethod, ExcludeTarget: excludeTarget, ExcludeRunLogs: excludeRunLogs, All: all, From: from, To: to, Page: page, Limit: limit})
 		if err != nil {
 			writeError(w, http.StatusServiceUnavailable, "audit storage unavailable", err)
 			return
@@ -367,7 +371,7 @@ func (s *AuditQueryService) query(w http.ResponseWriter, r *http.Request) {
 	items := make([]AuditEvent, 0, len(s.events))
 	for _, event := range s.events {
 		created, err := time.Parse(time.RFC3339Nano, event.CreatedAt)
-		if err != nil || (excludeTarget != "" && strings.EqualFold(event.Target, excludeTarget)) || (excludeRunLogs && isRunLogAudit(event.Target, event.Request)) || !auditMatches(event, filters, created, from, to) {
+		if err != nil || (excludeMethod != "" && strings.EqualFold(event.Action, excludeMethod)) || (excludeTarget != "" && strings.EqualFold(event.Target, excludeTarget)) || (excludeRunLogs && isRunLogAudit(event.Target, event.Request)) || !auditMatches(event, filters, created, from, to) {
 			continue
 		}
 		items = append(items, event)
