@@ -70,14 +70,17 @@ func nextCronMinute(now time.Time, expression string) (time.Time, error) {
 	if err != nil {
 		return time.Time{}, err
 	}
-	domAny := fields[2] == "*"
-	dowAny := fields[4] == "*"
-	for i := 1; i <= 24*60*370; i++ {
+	domAny := cronFieldIsAny(dom, 1, 31)
+	dowAny := cronFieldIsAny(dow, 0, 6)
+	for i := 1; i <= 24*60*366*8; i++ {
 		candidate := now.Truncate(time.Minute).Add(time.Duration(i) * time.Minute)
 		dayMatch := dom[candidate.Day()] || dow[int(candidate.Weekday())]
-		if domAny {
+		switch {
+		case domAny && dowAny:
+			dayMatch = true
+		case domAny:
 			dayMatch = dow[int(candidate.Weekday())]
-		} else if dowAny {
+		case dowAny:
 			dayMatch = dom[candidate.Day()]
 		}
 		if minute[candidate.Minute()] && hour[candidate.Hour()] && dayMatch && month[int(candidate.Month())] {
@@ -85,6 +88,10 @@ func nextCronMinute(now time.Time, expression string) (time.Time, error) {
 		}
 	}
 	return time.Time{}, errors.New("cron has no occurrence in search window")
+}
+
+func cronFieldIsAny(values map[int]bool, min, max int) bool {
+	return len(values) == max-min+1
 }
 
 func splitFields(value string) []string {
@@ -99,7 +106,8 @@ func parseCronField(field string, min, max int) (map[int]bool, error) {
 		}
 		step := 1
 		base := part
-		if slash := strings.IndexByte(part, '/'); slash >= 0 {
+		slash := strings.IndexByte(part, '/')
+		if slash >= 0 {
 			base = part[:slash]
 			parsed, err := strconv.Atoi(part[slash+1:])
 			if err != nil || parsed <= 0 {
@@ -125,7 +133,9 @@ func parseCronField(field string, min, max int) (map[int]bool, error) {
 				if err != nil {
 					return nil, errors.New("cron value is invalid")
 				}
-				end = start
+				if slash < 0 {
+					end = start
+				}
 			}
 		}
 		if start < min || end > max {
