@@ -251,6 +251,22 @@ func TestOIDCCallbackExchangesCodeAndIgnoresQueryClaims(t *testing.T) {
 	}
 }
 
+func TestOIDCFetchRejectsOversizedResponse(t *testing.T) {
+	service := NewOIDCService()
+	service.SetHTTPClient(&http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(strings.Repeat("x", maxOIDCResponseBytes+1))), Header: make(http.Header)}, nil
+	})})
+	if _, err := service.fetch("https://issuer.example", nil); err == nil {
+		t.Fatal("oversized OIDC response was accepted")
+	}
+}
+
+func TestOIDCSafeDialRejectsPrivateEndpoint(t *testing.T) {
+	if _, err := safeDialContext(context.Background(), "tcp", "127.0.0.1:443"); err == nil {
+		t.Fatal("private OIDC endpoint was dialed")
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (fn roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
