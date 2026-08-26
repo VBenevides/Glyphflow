@@ -178,7 +178,8 @@ func runWorker(ctx context.Context, stdout, stderr io.Writer, status StatusSink)
 		status.SetRunningSource(activeOrders.Count)
 	}
 	runtime := worker.OrderRuntime{Store: localStore, Publisher: jetstream, StartClaimer: worker.NewNATSStartClaimer(jetstream, workerKey, ed25519.PublicKey(controlPublicKey)), RunnerID: cfg.RunnerID, ExecutorBootID: bootID, ProcessID: int64(os.Getpid()), ControlPublicKey: ed25519.PublicKey(controlPublicKey), SigningKey: workerKey, Active: activeOrders, Executor: worker.Executor{Roots: []string{cfg.DataDir, "."}, MaxOutputBytes: cfg.MaxOutputBytes}, Writer: stdout}
-	consumer, err := jetstream.Consumer(ctx, "runner-"+cfg.RunnerID, queue.Subject("orders", cfg.RunnerID), queue.UnlimitedPending)
+	orderSlots := make(chan struct{}, capacity)
+	consumer, err := jetstream.Consumer(ctx, "runner-"+cfg.RunnerID, queue.Subject("orders", cfg.RunnerID), capacity)
 	if err != nil {
 		return fmt.Errorf("create order consumer: %w", err)
 	}
@@ -192,6 +193,12 @@ func runWorker(ctx context.Context, stdout, stderr io.Writer, status StatusSink)
 		defer background.Done()
 		for ctx.Err() == nil {
 			if err := jetstream.ConsumeConcurrent(ctx, consumer, func(handlerCtx context.Context, message queue.Message) error {
+				select {
+				case orderSlots <- struct{}{}:
+				case <-handlerCtx.Done():
+					return handlerCtx.Err()
+				}
+				defer func() { <-orderSlots }()
 				return runtime.Handle(handlerCtx, message)
 			}); err != nil && ctx.Err() == nil {
 				fmt.Fprintln(stderr, "runner order consumer:", err)
