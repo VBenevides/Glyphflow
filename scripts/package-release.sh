@@ -34,8 +34,9 @@ application_digest=$(image_digest "$application_image")
 nats_digest=$(image_digest "$nats_image")
 postgres_digest=$(image_digest "$postgres_image")
 
-cp "$repo_root"/compose.yaml "$repo_root"/compose.production.yaml "$repo_root"/README.md \
-  "$repo_root"/LICENSE "$repo_root"/THIRD-PARTY-NOTICES "$bundle_dir/"
+cp "$repo_root"/compose.yaml "$repo_root"/compose.production.yaml "$repo_root"/compose.partial.yaml \
+  "$repo_root"/README.md "$repo_root"/docs/DEPLOYMENT.md "$repo_root"/LICENSE \
+  "$repo_root"/THIRD-PARTY-NOTICES "$bundle_dir/"
 cat > "$bundle_dir/images.env" <<EOF
 GLYPHFLOW_IMAGE=$application_image
 NATS_IMAGE=$nats_image
@@ -52,7 +53,8 @@ import sys
 
 manifest = {
     "version": os.environ["VERSION"],
-    "compose": ["compose.yaml", "compose.production.yaml"],
+    "compose": ["compose.yaml", "compose.production.yaml", "compose.partial.yaml"],
+    "documentation": "DEPLOYMENT.md",
     "environment": "images.env",
     "images": {
         "glyphflow": {"reference": os.environ["APPLICATION_IMAGE"], "digest": os.environ["APPLICATION_DIGEST"]},

@@ -217,6 +217,10 @@ it; generate a new artifact if the enrollment expires or is consumed.
 
 ## Production deployment
 
+The released [deployment contract](docs/DEPLOYMENT.md) covers both the full
+Compose stack and a partial deployment with separately managed NATS and
+PostgreSQL services.
+
 The release workflow publishes a ready-to-use image to GitHub Container
 Registry when a GitHub release is published. The release tag must match
 `VERSION`, with or without a leading `v`. Stable releases also receive the
