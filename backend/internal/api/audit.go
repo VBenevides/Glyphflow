@@ -203,6 +203,8 @@ type AuditQueryService struct {
 	appendFailureHandler func(AuditEvent, error)
 }
 
+const auditAllLimit = 1000
+
 func auditCounts(events []AuditEvent) store.AuditCounts {
 	counts := store.AuditCounts{Total: len(events)}
 	for _, event := range events {
@@ -344,6 +346,10 @@ func (s *AuditQueryService) query(w http.ResponseWriter, r *http.Request) {
 		if all {
 			page = 1
 			limit = len(result)
+			if limit > auditAllLimit {
+				result = result[:auditAllLimit]
+				limit = auditAllLimit
+			}
 			if limit == 0 {
 				limit = 1
 			}
@@ -377,6 +383,10 @@ func (s *AuditQueryService) query(w http.ResponseWriter, r *http.Request) {
 	if all {
 		page = 1
 		limit = len(items)
+		if limit > auditAllLimit {
+			items = items[:auditAllLimit]
+			limit = auditAllLimit
+		}
 		if limit == 0 {
 			limit = 1
 		}

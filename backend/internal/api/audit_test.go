@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -93,6 +94,28 @@ func TestAuditDetailsRedactInputAndOutput(t *testing.T) {
 	input := event.Input.(map[string]any)
 	if input["password"] != "[REDACTED]" || input["nested"].([]any)[0].(map[string]any)["token"] != "[REDACTED]" || event.Output.(map[string]any)["status"] != "ok" || event.Traceback != "trace" {
 		t.Fatalf("audit details were not preserved safely: %#v", event)
+	}
+}
+
+func TestAuditAllExportIsBounded(t *testing.T) {
+	audit := NewAuditQueryService()
+	for i := 0; i <= auditAllLimit; i++ {
+		audit.Add(AuditEvent{ID: fmt.Sprintf("audit-%04d", i), CreatedAt: fmt.Sprintf("2026-08-14T10:%02d:00Z", i%60)})
+	}
+	response := httptest.NewRecorder()
+	audit.query(response, httptest.NewRequest(http.MethodGet, "/api/v1/audit?all=true", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("audit export status = %d", response.Code)
+	}
+	var page struct {
+		Items []AuditEvent `json:"items"`
+		Total int          `json:"total"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&page); err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) != auditAllLimit || page.Total != auditAllLimit+1 {
+		t.Fatalf("audit export = %d items, total %d", len(page.Items), page.Total)
 	}
 }
 
