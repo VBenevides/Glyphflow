@@ -20,6 +20,8 @@ RUN apt-get update \
         git \
         libgtk-3-dev \
         libgtk-4-dev \
+        libx11-xcb-dev \
+        libxkbcommon-x11-dev \
         libwebkit2gtk-4.1-dev \
         libwebkitgtk-6.0-dev \
         libsoup-3.0-dev \
