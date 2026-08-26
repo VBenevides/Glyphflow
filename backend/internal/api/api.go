@@ -419,6 +419,13 @@ func (s Server) require(role string, next http.Handler) http.Handler {
 			writeJSON(w, 403, map[string]string{"error": "forbidden"})
 			return
 		}
+		if isMutatingMethod(r.Method) && s.AuditQuery != nil && s.AuditQuery.hasDurableRepository() {
+			actorName, actorEmail := s.auditActor(claims.UserID)
+			if err := s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: "accepted", CorrelationID: r.Header.Get("X-Correlation-ID")}); err != nil {
+				writeError(w, http.StatusServiceUnavailable, "audit storage unavailable", err)
+				return
+			}
+		}
 		auditDetails := &requestAuditDetails{}
 		auditDetails.Input = captureAuditInput(r)
 		ctx := context.WithValue(r.Context(), requestClaimsContextKey{}, claims)
@@ -450,6 +457,10 @@ func (s Server) require(role string, next http.Handler) http.Handler {
 			}
 		}
 	})
+}
+
+func isMutatingMethod(method string) bool {
+	return method == http.MethodPost || method == http.MethodPut || method == http.MethodPatch || method == http.MethodDelete
 }
 
 func captureAuditInput(r *http.Request) map[string]any {

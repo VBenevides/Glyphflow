@@ -39,6 +39,22 @@ func TestAuditAppendFailureIsSignalled(t *testing.T) {
 	}
 }
 
+func TestDurableAuditFailureBlocksMutation(t *testing.T) {
+	audit := NewAuditQueryService()
+	audit.SetRepository(failingAuditRepository{err: errors.New("audit database unavailable")})
+	mutated := false
+	server := Server{Auth: func(*http.Request) (Claims, bool) { return Claims{UserID: "user-1"}, true }, Permissions: func(Claims) map[string]bool { return map[string]bool{"runners.manage": true} }, AuditQuery: audit}
+	handler := server.require("runners.manage", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mutated = true
+		writeJSON(w, http.StatusCreated, map[string]string{"id": "runner-1"})
+	}))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/runners/enrollments", nil))
+	if response.Code != http.StatusServiceUnavailable || mutated {
+		t.Fatalf("audit gate: status=%d mutated=%t body=%s", response.Code, mutated, response.Body.String())
+	}
+}
+
 func TestAuditQueryFiltersRedactsAndPaginates(t *testing.T) {
 	audit := NewAuditQueryService()
 	audit.Add(AuditEvent{ID: "old", Actor: "system:scheduler", Action: "run.created", Target: "run-1", Result: "success", CorrelationID: "corr-1", CreatedAt: "2026-08-13T10:00:00Z", Before: map[string]any{"token": "secret"}})
