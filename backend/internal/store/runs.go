@@ -23,15 +23,16 @@ type RunDefinition struct {
 }
 
 type RunRecord struct {
-	ID, TaskID, TaskName, State, TriggerType   string
-	Runner                                     string
-	PlacementBlocker                           string
-	Attempt                                    int
-	ExitCode                                   *int
-	ExitCodeMeaning                            string
-	Error                                      string
-	ScheduledFor                               time.Time
-	MaxMemoryUsedBytes, AverageMemoryUsedBytes int64
+	ID, TaskID, TaskVersionID, ScheduleID, ScheduleVersionID string
+	TaskName, State, TriggerType                             string
+	Runner                                                   string
+	PlacementBlocker                                         string
+	Attempt                                                  int
+	ExitCode                                                 *int
+	ExitCodeMeaning                                          string
+	Error                                                    string
+	ScheduledFor                                             time.Time
+	MaxMemoryUsedBytes, AverageMemoryUsedBytes               int64
 }
 
 type RunLogChunkRecord struct {
@@ -198,7 +199,7 @@ func (s *RunStore) ensureStorageAvailable(ctx context.Context) error {
 	return nil
 }
 
-const runQuery = `SELECT r.id, r.task_id, t.name, r.state, r.trigger_type, r.scheduled_for, COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = r.id), 1), COALESCE(latest.runner_id, ''), latest.exit_code, COALESCE(ec.meaning, ''), COALESCE(latest.termination_reason, ''), COALESCE(latest.max_memory_used_bytes, 0), COALESCE(latest.average_memory_used_bytes, 0) FROM runs r JOIN tasks t ON t.id = r.task_id LEFT JOIN LATERAL (SELECT runner_id, exit_code, termination_reason, max_memory_used_bytes, average_memory_used_bytes FROM execution_attempts WHERE run_id = r.id ORDER BY attempt_number DESC LIMIT 1) latest ON true LEFT JOIN exit_code ec ON ec.code = latest.exit_code`
+const runQuery = `SELECT r.id, r.task_id, r.task_version_id, COALESCE(sv.schedule_id, ''), COALESCE(r.schedule_version_id, ''), t.name, r.state, r.trigger_type, r.scheduled_for, COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = r.id), 1), COALESCE(latest.runner_id, ''), latest.exit_code, COALESCE(ec.meaning, ''), COALESCE(latest.termination_reason, ''), COALESCE(latest.max_memory_used_bytes, 0), COALESCE(latest.average_memory_used_bytes, 0) FROM runs r JOIN tasks t ON t.id = r.task_id LEFT JOIN schedule_versions sv ON sv.id = r.schedule_version_id LEFT JOIN LATERAL (SELECT runner_id, exit_code, termination_reason, max_memory_used_bytes, average_memory_used_bytes FROM execution_attempts WHERE run_id = r.id ORDER BY attempt_number DESC LIMIT 1) latest ON true LEFT JOIN exit_code ec ON ec.code = latest.exit_code`
 
 func (s *RunStore) List(ctx context.Context) ([]RunRecord, error) {
 	rows, err := s.pool.Query(ctx, runQuery+` ORDER BY r.created_at DESC, r.id`)
@@ -470,7 +471,7 @@ FROM task`, runIDs)
 
 func scanRun(row interface{ Scan(...any) error }) (RunRecord, error) {
 	var item RunRecord
-	if err := row.Scan(&item.ID, &item.TaskID, &item.TaskName, &item.State, &item.TriggerType, &item.ScheduledFor, &item.Attempt, &item.Runner, &item.ExitCode, &item.ExitCodeMeaning, &item.Error, &item.MaxMemoryUsedBytes, &item.AverageMemoryUsedBytes); err != nil {
+	if err := row.Scan(&item.ID, &item.TaskID, &item.TaskVersionID, &item.ScheduleID, &item.ScheduleVersionID, &item.TaskName, &item.State, &item.TriggerType, &item.ScheduledFor, &item.Attempt, &item.Runner, &item.ExitCode, &item.ExitCodeMeaning, &item.Error, &item.MaxMemoryUsedBytes, &item.AverageMemoryUsedBytes); err != nil {
 		return RunRecord{}, err
 	}
 	return item, nil

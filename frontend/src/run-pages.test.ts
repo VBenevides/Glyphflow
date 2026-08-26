@@ -1,8 +1,10 @@
 import { createElement, type ComponentType } from 'react'
+import { act } from 'react'
+import { createRoot } from 'react-dom/client'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
-import { canReadRunLogs, eligibleRunActions, hasActiveRuns, ManualRunPage, type ManualRunProps, runQuery, runStatusLabel, RunIDCell, RunTimeline, waitingRunMessage } from './run-pages'
+import { canReadRunLogs, eligibleRunActions, hasActiveRuns, ManualRunPage, type ManualRunProps, runImmutableLinks, runQuery, runStatusLabel, RunIDCell, RunTimeline, waitingRunMessage } from './run-pages'
 import { isTerminalRunState } from './run-logs'
 import { QueryProvider } from './query'
 import { readFileSync } from 'node:fs'
@@ -56,10 +58,23 @@ describe('run inventory', () => {
     expect(markup).toContain('aria-label="Copy run ID"')
   })
 
+  it('links only available immutable run versions', () => {
+    expect(runImmutableLinks({ taskId: 'task/1', taskVersionId: 'task/1-v2', scheduleId: 'schedule/1', scheduleVersionId: 'schedule/1-v3' })).toEqual([
+      { label: 'Task version', to: '/tasks/task%2F1?version=task%2F1-v2' },
+      { label: 'Schedule version', to: '/schedules/schedule%2F1/edit?version=schedule%2F1-v3' },
+    ])
+    expect(runImmutableLinks({ taskId: 'task-1' })).toEqual([])
+  })
+
   it('renders manual runs in a focused dialog with a preselected task', () => {
-    const markup = renderToStaticMarkup(createElement(QueryProvider, null, createElement(MemoryRouter, null, createElement(ManualRunPage as ComponentType<ManualRunProps>, { inDialog: true, initialTaskId: 'task-1' }))))
-    expect(markup).toContain('role="dialog"')
-    expect(markup).toContain('Start manual run')
-    expect(markup).toContain('value="task-1"')
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const root = createRoot(host)
+    act(() => root.render(createElement(QueryProvider, null, createElement(MemoryRouter, null, createElement(ManualRunPage as ComponentType<ManualRunProps>, { inDialog: true, initialTaskId: 'task-1' })))) )
+    expect(document.body.innerHTML).toContain('role="dialog"')
+    expect(document.body.innerHTML).toContain('Start manual run')
+    expect(document.body.innerHTML).toContain('value="task-1"')
+    act(() => root.unmount())
+    host.remove()
   })
 })

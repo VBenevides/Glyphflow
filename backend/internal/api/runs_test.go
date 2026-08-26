@@ -96,9 +96,12 @@ func TestInMemoryRunLogDownloadResumesAfterSequence(t *testing.T) {
 }
 
 func TestRunRecordIncludesExecutionError(t *testing.T) {
-	run := runRecordFromStore(store.RunRecord{ID: "run-1", Error: "exec: file not found"})
+	run := runRecordFromStore(store.RunRecord{ID: "run-1", TaskVersionID: "task-1-v2", ScheduleID: "schedule-1", ScheduleVersionID: "schedule-1-v3", Error: "exec: file not found"})
 	if run.Error != "exec: file not found" {
 		t.Fatalf("run error = %q", run.Error)
+	}
+	if run.TaskVersionID != "task-1-v2" || run.ScheduleID != "schedule-1" || run.ScheduleVersionID != "schedule-1-v3" {
+		t.Fatalf("run version references = %#v", run)
 	}
 }
 
