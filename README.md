@@ -187,6 +187,8 @@ cd Glyphflow
 
 `dev_run.sh` starts PostgreSQL and NATS with Docker Compose, builds local
 runner binaries, and starts the Go control plane and React development server.
+The provisional, non-guaranteed development targets are in
+[`docs/DEV-PROFILE.md`](docs/DEV-PROFILE.md).
 
 Open <http://localhost:5173> and sign in with the development bootstrap
 account:

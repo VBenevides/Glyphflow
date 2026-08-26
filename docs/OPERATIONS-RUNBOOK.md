@@ -1,5 +1,8 @@
 # Production operations runbook
 
+For local development only, use the [best-effort development
+profile](DEV-PROFILE.md). Its values are not production guarantees.
+
 ## Supported topology
 
 Glyphflow 0.2.3 supports one isolated stack per client: one control-plane
