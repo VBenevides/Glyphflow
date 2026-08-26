@@ -65,12 +65,18 @@ permissions, linked identities, and active sessions. A user's email is the
 login identifier in the current password flow. Users can manage their own
 display name, password, linked OIDC identities, and sessions from **Account**.
 
+The Users view shows counts for registered accounts (active and disabled) and
+pending accounts. Use the **Roles** filter to select one or more roles; a user
+must have every selected role to match.
+
 ### Sessions
 
 Use **Users and sessions → Sessions** to review active sessions across users.
 An administrator with `users.manage` can revoke one session. A user's details
 page also provides **Revoke All**. Revocation immediately invalidates the
 selected session(s); it does not disable the user.
+
+The Sessions view shows the total number of active sessions.
 
 Users can revoke their own sessions from **Account → Sessions**. The console
 shows session ID, client information when available, last interaction, and

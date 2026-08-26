@@ -4,7 +4,7 @@ import { MoreHorizontal } from 'lucide-react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api, type AdminSession, type ExitCode, type OidcProvider, type Page, type QueryValue, type RoleDefinition, type UserRecord } from './api'
 import { DangerousAction } from './actions'
-import { Button, DataTable, Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuSeparator, DropdownMenuTrigger, EmptyState, FilterInput, Identifier, Input, PageHeader, Pagination, StatusPill, TableActions, Tabs, TabsList, TabsTrigger } from './components'
+import { Button, DataTable, Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuSeparator, DropdownMenuTrigger, EmptyState, FilterInput, Identifier, Input, MetricCard, PageHeader, Pagination, StatusPill, TableActions, Tabs, TabsList, TabsTrigger } from './components'
 import { QueryRefresh, QueryState } from './query'
 import { hasPermission, permissionPrivilegeLevel, sortedPermissions } from './permissions'
 import { useAuth } from './auth'
@@ -26,8 +26,16 @@ function asPage(value: Page<UserRecord> | UserRecord[], page = 1, limit = 10): P
   return Array.isArray(value) ? { items: value.slice((page - 1) * limit, page * limit), page, limit, total: value.length, pages: Math.max(1, Math.ceil(value.length / limit)) } : value
 }
 
-export function userListQuery(page: number, limit: number, email: string, status: string): Record<string, QueryValue> {
-  return { page, limit, email: email.trim() || undefined, status: status || undefined }
+export function filterUsersPage(users: UserRecord[], page: number, limit: number, email: string, status: string, role: string): Page<UserRecord> {
+  const emailNeedle = email.trim().toLowerCase()
+  const roleNeedle = role.trim().toLowerCase()
+  const filtered = users.filter((user) => (!emailNeedle || (user.email ?? user.username).toLowerCase().includes(emailNeedle)) && (!status || user.status === status) && (!roleNeedle || user.roles?.some((assigned) => assigned.toLowerCase() === roleNeedle)))
+  const start = (page - 1) * limit
+  return { items: filtered.slice(start, start + limit), page, limit, total: filtered.length, pages: Math.max(1, Math.ceil(filtered.length / limit)) }
+}
+
+export function userListQuery(page: number, limit: number, email: string, status: string, role = ''): Record<string, QueryValue> {
+  return { page, limit, email: email.trim() || undefined, status: status || undefined, roles: role.trim() || undefined }
 }
 
 function InlinePills({ values, markElevated = false }: { values?: string[]; markElevated?: boolean }) {
@@ -90,31 +98,41 @@ export function UserManagementPage({ view = 'users' }: { view?: IdentityView } =
   const [limit, setLimit] = useState(10)
   const [email, setEmail] = useState('')
   const [status, setStatus] = useState('')
+  const [roleFilter, setRoleFilter] = useState('')
   const [creating, setCreating] = useState(false)
   const [accessUserID, setAccessUserID] = useState<string | null>(null)
-  const query = useQuery({ queryKey: ['admin-users', page, limit, email, status], queryFn: ({ signal }) => api.get<Page<UserRecord> | UserRecord[]>('/api/v1/users', userListQuery(page, limit, email, status), signal).then((value) => asPage(value, page, limit)) })
+  const query = useQuery({ queryKey: ['admin-users', page, limit, email, status, roleFilter], queryFn: ({ signal }) => api.get<Page<UserRecord> | UserRecord[]>('/api/v1/users', userListQuery(page, limit, email, status, roleFilter), signal).then((value) => asPage(value, page, limit)) })
   const optionsQuery = useQuery({ queryKey: ['admin-user-filter-options'], queryFn: ({ signal }) => api.get<Page<UserRecord> | UserRecord[]>('/api/v1/users', { all: true }, signal).then((value) => asPage(value)) })
+  const pendingUsersQuery = useQuery({ queryKey: ['admin-pending-users'], queryFn: ({ signal }) => api.get<Page<UserRecord> | UserRecord[]>('/api/v1/users', { page: 1, limit: 1, status: 'pending' }, signal).then((value) => asPage(value, 1, 1)) })
   const rolesQuery = useQuery({ queryKey: ['admin-user-role-options'], queryFn: ({ signal }) => api.get<RoleDefinition[]>('/api/v1/admin/roles', undefined, signal), enabled: manage })
-  const disable = async (user: UserRecord) => { await api.post(`/api/v1/admin/auth/users/${encodeURIComponent(user.id)}/disable`); await query.refetch() }
-  const approve = async (user: UserRecord) => { await api.post(`/api/v1/admin/auth/users/${encodeURIComponent(user.id)}/approve`); await query.refetch() }
-  const refreshUsers = async () => { await query.refetch() }
-  const created = async (userID: string) => { setCreating(false); setAccessUserID(userID); await query.refetch() }
-  return <IdentityAdminLayout view={view} title="Users and sessions" description="Review identity methods, role sources, permissions, and active sessions." refresh={<QueryRefresh query={query} />}>
+  const filterUsers = optionsQuery.data?.items ?? query.data?.items ?? []
+  const roleOptions = [...new Set([...filterUsers.flatMap((user) => user.roles ?? []), ...(rolesQuery.data ?? []).map((role) => role.name), ...(roleFilter ? [roleFilter] : [])])].sort()
+  const totalUsers = optionsQuery.data?.total
+  const pendingUsers = pendingUsersQuery.data?.total ?? pendingUsersQuery.data?.items.length
+  const registeredUsers = totalUsers !== undefined && pendingUsers !== undefined ? totalUsers - pendingUsers : '—'
+  const refreshUsers = async () => { await Promise.all([query.refetch(), optionsQuery.refetch(), pendingUsersQuery.refetch()]) }
+  const disable = async (user: UserRecord) => { await api.post(`/api/v1/admin/auth/users/${encodeURIComponent(user.id)}/disable`); await refreshUsers() }
+  const approve = async (user: UserRecord) => { await api.post(`/api/v1/admin/auth/users/${encodeURIComponent(user.id)}/approve`); await refreshUsers() }
+  const created = async (userID: string) => { setCreating(false); setAccessUserID(userID); await refreshUsers() }
+  return <IdentityAdminLayout view={view} title="Users and sessions" description="Review identity methods, role sources, permissions, and active sessions." refresh={<QueryRefresh query={[query, optionsQuery, pendingUsersQuery]} />}>
     {creating && <Dialog open title="Create user" onClose={() => setCreating(false)}><UserCreationForm onCreated={created} /></Dialog>}
-    <div className="gf-filter-bar"><FilterInput label="Email" type="email" value={email} options={(optionsQuery.data?.items ?? query.data?.items ?? []).map((user) => user.email ?? user.username)} onChange={(value) => { setEmail(value); setPage(1) }} placeholder="Filter by email" /><label>Status<select className="gf-input" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1) }}><option value="">All statuses</option><option value="active">Active</option><option value="pending">Pending</option><option value="disabled">Disabled</option></select></label></div>
+    <div className="gf-metric-grid gf-identity-metrics"><MetricCard label="Number of Registered Users" value={registeredUsers} detail="Active and disabled accounts" /><MetricCard label="Number of Pending Users" value={pendingUsers ?? '—'} detail="Awaiting administrator approval" tone={pendingUsers ? 'warning' : 'default'} /></div>
+    <div className="gf-filter-bar"><FilterInput label="Email" type="email" value={email} options={filterUsers.map((user) => user.email ?? user.username)} onChange={(value) => { setEmail(value); setPage(1) }} placeholder="Filter by email" /><label>Status<select className="gf-input" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1) }}><option value="">All statuses</option><option value="active">Active</option><option value="pending">Pending</option><option value="disabled">Disabled</option></select></label><label>Roles<select className="gf-input" value={roleFilter} onChange={(event) => { setRoleFilter(event.target.value); setPage(1) }}><option value="">All roles</option>{roleOptions.map((role) => <option key={role} value={role}>{role}</option>)}</select></label></div>
     {manage && <div className="gf-table-toolbar"><Button onClick={() => setCreating((value) => !value)}>{creating ? 'Cancel' : 'Create user'}</Button></div>}
     <QueryState query={query} empty="No users are available.">{(raw) => {
       const data = asPage(raw)
-      if (!data.items.length) return <EmptyState title="No users">Create or provision a user before managing access.</EmptyState>
-      const accessUser = data.items.find((user) => user.id === accessUserID)
-      return <><DataTable caption="Users" rows={data.items} columns={[
+      const serverIgnoredRole = roleFilter && data.items.some((user) => !user.roles?.some((assigned) => assigned.toLowerCase() === roleFilter.toLowerCase()))
+      const visibleData = serverIgnoredRole ? filterUsersPage(optionsQuery.data?.items ?? data.items, page, limit, email, status, roleFilter) : data
+      if (!visibleData.items.length) return <EmptyState title="No users">Create or provision a user before managing access.</EmptyState>
+      const accessUser = visibleData.items.find((user) => user.id === accessUserID)
+      return <><DataTable caption="Users" rows={visibleData.items} columns={[
         { key: 'email', label: 'User', render: (user) => <span><strong>{user.displayName ?? user.email ?? user.username}</strong><br /><small>{user.email ?? user.username}</small></span> },
         { key: 'status', label: 'Status', render: (user) => <StatusPill status={user.status ?? (user.enabled === false ? 'disabled' : 'active')} /> },
         { key: 'loginMethods', label: 'Login methods', render: (user) => <InlinePills values={user.loginMethods} /> },
         { key: 'roles', label: 'Roles', render: (user) => <InlinePills values={user.roles} /> },
         { key: 'actions', label: 'Actions', render: (user) => <UserActionsMenu user={user} manage={manage} onAccess={() => setAccessUserID(user.id)} onDisable={() => disable(user)} onApprove={() => approve(user)} /> },
       ]} />
-      <Pagination page={data.page ?? page} pages={data.pages ?? 1} limit={limit} onChange={setPage} onLimitChange={(next) => { setLimit(next); setPage(1) }} />
+      <Pagination page={visibleData.page ?? page} pages={visibleData.pages ?? 1} limit={limit} onChange={setPage} onLimitChange={(next) => { setLimit(next); setPage(1) }} />
       {accessUser && <UserAccessEditor user={accessUser} roles={rolesQuery.data} onChanged={refreshUsers} onClose={() => setAccessUserID(null)} />}
     </> }}</QueryState>
   </IdentityAdminLayout>
@@ -128,6 +146,7 @@ export function SessionManagementPage() {
   const optionsQuery = useQuery({ queryKey: ['admin-session-filter-options'], queryFn: ({ signal }) => api.get<Page<AdminSession>>('/api/v1/admin/auth/sessions', { all: true }, signal) })
   const revoke = async (session: AdminSession) => { await api.post(`/api/v1/admin/auth/sessions/revoke?session_id=${encodeURIComponent(session.id)}`); await query.refetch() }
   return <IdentityAdminLayout view="sessions" title="Sessions" description="Review active authentication sessions across users." refresh={<QueryRefresh query={query} />}>
+    <div className="gf-metric-grid gf-identity-metrics"><MetricCard label="Number of Sessions" value={optionsQuery.data?.total ?? '—'} detail="Active authentication sessions" /></div>
     <div className="gf-filter-bar"><FilterInput label="User email" type="email" value={email} options={(optionsQuery.data?.items ?? query.data?.items ?? []).map((session) => session.userEmail)} onChange={(value) => { setEmail(value); setPage(1) }} placeholder="Filter by user email" /></div>
     <QueryState query={query} empty="No active sessions match this filter.">{(data) => data.items.length ? <><DataTable caption="Sessions" rows={data.items} columns={[{ key: 'userEmail', label: 'User', render: (session) => <Link to={`/admin/users/${encodeURIComponent(session.userId)}`}>{session.userEmail}</Link> }, { key: 'id', label: 'Session ID', render: (session) => <Identifier id={session.id} copyLabel="Copy session ID" /> }, { key: 'lastSeenAt', label: 'Last seen', render: (session) => session.lastSeenAt ? formatDateTime(session.lastSeenAt) : '—' }, { key: 'expiresAt', label: 'Expires', render: (session) => session.expiresAt ? formatDateTime(session.expiresAt) : '—' }, { key: 'userAgent', label: 'Device', render: (session) => sessionDeviceLabel(session.userAgent, session.ipAddress) }, { key: 'actions', label: 'Actions', render: (session) => manage && <TableActions label={`Actions for ${session.userEmail}`}><DangerousAction label="Revoke" warning="This will immediately invalidate the session." onConfirm={() => revoke(session)} renderTrigger={(open) => <DropdownMenuItem onSelect={(event) => { event.preventDefault(); open() }}>Revoke</DropdownMenuItem>} /></TableActions> }]} /><Pagination page={data.page} pages={data.pages ?? 1} limit={limit} onChange={setPage} onLimitChange={(next) => { setLimit(next); setPage(1) }} /></> : <EmptyState title="No active sessions">No active sessions match this filter.</EmptyState>}</QueryState>
   </IdentityAdminLayout>

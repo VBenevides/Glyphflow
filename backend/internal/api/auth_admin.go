@@ -17,6 +17,23 @@ type AuthAdminService struct {
 	Auth     *AuthService
 }
 
+func userHasRoles(user map[string]any, required []string) bool {
+	assigned, _ := user["roles"].([]string)
+	for _, wanted := range required {
+		found := false
+		for _, role := range assigned {
+			if strings.EqualFold(role, wanted) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
 func (s Server) authAdminRoutes(mux routeRegistrar) {
 	if s.AuthAdmin == nil {
 		return
@@ -284,6 +301,16 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 				for _, user := range users {
 					userEmail, _ := user["email"].(string)
 					if strings.Contains(strings.ToLower(userEmail), email) {
+						filtered = append(filtered, user)
+					}
+				}
+				users = filtered
+			}
+			roles := uniqueStrings(strings.Split(strings.ToLower(r.URL.Query().Get("roles")), ","))
+			if len(roles) > 0 {
+				filtered := users[:0]
+				for _, user := range users {
+					if userHasRoles(user, roles) {
 						filtered = append(filtered, user)
 					}
 				}

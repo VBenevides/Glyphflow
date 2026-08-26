@@ -90,3 +90,49 @@ func TestUserStatusFilteringAndPagination(t *testing.T) {
 		t.Fatalf("invalid status: %d %s", response.Code, response.Body.String())
 	}
 }
+
+func TestUserRoleFilteringRequiresEverySelectedRole(t *testing.T) {
+	auth, err := NewAuthService("01234567890123456789012345678901", true, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.AddRole("user"); err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.AddRole("operator"); err != nil {
+		t.Fatal(err)
+	}
+	auth.SetDefaultRole("user")
+	if _, err := auth.Register("user-only@example.com", "correct horse user"); err != nil {
+		t.Fatal(err)
+	}
+	operator, err := auth.Register("operator@example.com", "correct horse operator")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	server := Server{AuthAdmin: &AuthAdminService{Auth: auth}, Auth: func(*http.Request) (Claims, bool) {
+		return Claims{Roles: map[string]bool{"users.read": true, "users.manage": true}}, true
+	}}
+	assign := httptest.NewRecorder()
+	server.Handler().ServeHTTP(assign, httptest.NewRequest(http.MethodPost, "/api/v1/admin/auth/users/"+operator.ID+"/roles", bytes.NewBufferString(`{"role":"operator"}`)))
+	if assign.Code != http.StatusNoContent {
+		t.Fatalf("assign role: %d %s", assign.Code, assign.Body.String())
+	}
+
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/users?roles=user,operator", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("filter users: %d %s", response.Code, response.Body.String())
+	}
+	var page struct {
+		Items []map[string]any `json:"items"`
+		Total int              `json:"total"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &page); err != nil {
+		t.Fatal(err)
+	}
+	if page.Total != 1 || len(page.Items) != 1 || page.Items[0]["email"] != "operator@example.com" {
+		t.Fatalf("role combination filter returned %#v", page)
+	}
+}

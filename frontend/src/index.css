@@ -361,7 +361,7 @@ body { background-image: var(--gf-page-glow); }
 .gf-page-header-meta { display: inline-flex; align-items: center; gap: 0.375rem; padding: 0.3rem 0.65rem; color: var(--gf-muted); background: color-mix(in oklab, var(--gf-card), transparent 35%); border: 1px solid var(--gf-border); border-radius: 999px; font-size: 0.72rem; }
 .gf-page-header-meta::before { content: ''; width: 0.375rem; height: 0.375rem; border-radius: 50%; background: var(--gf-action); box-shadow: 0 0 8px var(--gf-action); }
 .gf-metric-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.75rem; padding-bottom: 1rem; border-bottom: 1px solid var(--gf-border); }
-.gf-metric { padding: 0.9rem 1rem; box-shadow: none; background: color-mix(in oklab, var(--gf-card), transparent 18%); }
+.gf-metric { width: 100%; max-width: 32rem; box-sizing: border-box; justify-self: start; padding: 0.9rem 1rem; box-shadow: none; background: color-mix(in oklab, var(--gf-card), transparent 18%); }
 .gf-metric-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.6rem; }
 .gf-metric-icon { display: grid; place-items: center; width: 2rem; height: 2rem; color: var(--gf-action); background: color-mix(in oklab, var(--gf-action), transparent 88%); border: 1px solid color-mix(in oklab, var(--gf-action), transparent 68%); border-radius: 0.45rem; }
 .gf-metric-success .gf-metric-icon { color: var(--gf-success); background: color-mix(in oklab, var(--gf-success), transparent 88%); border-color: color-mix(in oklab, var(--gf-success), transparent 68%); }
@@ -472,7 +472,7 @@ body { background-image: var(--gf-page-glow); }
 .gf-sidebar.is-collapsed .gf-sidebar-actions .gf-button:first-child { flex: 0 0 auto; }
 .gf-sidebar.is-collapsed .gf-theme-toggle .gf-theme-option:not(.is-current), .gf-sidebar.is-collapsed .gf-theme-switch { display: none; }
 .gf-sidebar.is-collapsed .gf-theme-toggle .gf-theme-option.is-current { display: inline-flex; }
-.gf-content { max-width: 100rem; padding: 1.5rem; }
+.gf-content { width: 90%; max-width: none; padding: 1.5rem 0; }
 .gf-collapse-button { display: none; }
 
 /* Keep compact controls and collection states consistent across pages. */
@@ -523,7 +523,7 @@ body { background-image: var(--gf-page-glow); }
 }
 
 /* Shared polish: improve hierarchy without changing page markup or selectors. */
-.gf-content { padding: clamp(1rem, 2.5vw, 1.75rem); }
+.gf-content { padding: clamp(1rem, 2.5vw, 1.75rem) 0; }
 .gf-page-header { align-items: center; gap: 1.5rem; }
 .gf-page-header > div:first-child { flex: 1 1 auto; }
 .gf-page-header-actions { margin-left: auto; justify-content: flex-end; }
@@ -561,6 +561,8 @@ body { background-image: var(--gf-page-glow); }
 .gf-page-header h1, .gf-card-panel h2, .gf-dashboard-widget h2 { color: var(--gf-text); font-weight: 750; }
 .gf-card-panel, .gf-dashboard-widget, .gf-editor-form { border-radius: 0.9rem; border-color: var(--gf-border); }
 .gf-metric { min-height: 6rem; padding: 0.8rem 0.9rem; border-color: var(--gf-border); border-radius: 0.9rem; }
+.gf-identity-metrics { display: flex; flex-wrap: wrap; justify-content: flex-start; gap: 0.75rem; }
+.gf-identity-metrics .gf-metric { flex: 1 1 20rem; }
 .gf-metric-icon { width: 1.85rem; height: 1.85rem; border-radius: 0.55rem; }
 .gf-metric-danger .gf-metric-icon { color: var(--gf-danger); background: color-mix(in oklab, var(--gf-danger), transparent 88%); border-color: color-mix(in oklab, var(--gf-danger), transparent 68%); }
 .gf-metric-danger strong { color: var(--gf-danger); }

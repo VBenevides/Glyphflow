@@ -5,7 +5,7 @@ import { createRoot } from 'react-dom/client'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { filterAndSortRoles, roleMappingsValue, userListQuery, UserAccessEditor, UserCreationForm } from './admin-pages'
+import { filterAndSortRoles, filterUsersPage, roleMappingsValue, userListQuery, UserAccessEditor, UserCreationForm } from './admin-pages'
 import type { RoleDefinition, UserRecord } from './api'
 
 describe('role selectors', () => {
@@ -57,9 +57,17 @@ describe('admin access workflow', () => {
     expect(source).toContain('user.status === \'pending\'')
   })
 
-  it('builds combined email and status user queries', () => {
-    expect(userListQuery(2, 10, ' alice@example.com ', 'pending')).toEqual({ page: 2, limit: 10, email: 'alice@example.com', status: 'pending' })
+  it('builds email, status, and role user queries', () => {
+    expect(userListQuery(2, 10, ' alice@example.com ', 'pending', ' admin ')).toEqual({ page: 2, limit: 10, email: 'alice@example.com', status: 'pending', roles: 'admin' })
     expect(userListQuery(1, 10, '', '')).toEqual({ page: 1, limit: 10, email: undefined, status: undefined })
+  })
+
+  it('filters users by the selected role and keeps pagination', () => {
+    const users: UserRecord[] = [
+      { id: '1', username: 'admin@example.com', email: 'admin@example.com', status: 'active', roles: ['admin'] },
+      { id: '2', username: 'operator@example.com', email: 'operator@example.com', status: 'active', roles: ['operator'] },
+    ]
+    expect(filterUsersPage(users, 1, 1, '', '', 'operator')).toMatchObject({ items: [users[1]], total: 1, pages: 1 })
   })
 })
 
