@@ -64,6 +64,21 @@ jobs:
       - name: Build image
         run: docker build --platform linux/amd64 --file build/Dockerfile --tag "$GLYPHFLOW_IMAGE:$GLYPHFLOW_VERSION" .
 
+      - name: Generate image SBOM
+        uses: anchore/sbom-action@43a17d6e7add2b5535efe4dcae9952337c479a93 # v0.20.11
+        with:
+          image: ${{ env.GLYPHFLOW_IMAGE }}:${{ env.GLYPHFLOW_VERSION }}
+          format: spdx-json
+          output-file: glyphflow-${{ env.GLYPHFLOW_VERSION }}-sbom.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Verify image license files
+        run: |
+          set -Eeuo pipefail
+          docker run --rm "$GLYPHFLOW_IMAGE:$GLYPHFLOW_VERSION" test -s /usr/share/doc/glyphflow/LICENSE
+          docker run --rm "$GLYPHFLOW_IMAGE:$GLYPHFLOW_VERSION" test -s /usr/share/doc/glyphflow/THIRD-PARTY-NOTICES
+
       - name: Publish image
         run: |
           set -Eeuo pipefail
@@ -86,4 +101,6 @@ jobs:
         run: |
           set -Eeuo pipefail
           archive="glyphflow-${GLYPHFLOW_VERSION}-linux-amd64.tar.gz"
-          gh release upload "$RELEASE_TAG" "$archive" "$archive.sha256" --clobber
+          sbom="glyphflow-${GLYPHFLOW_VERSION}-sbom.spdx.json"
+          test -s "$sbom"
+          gh release upload "$RELEASE_TAG" "$archive" "$archive.sha256" LICENSE THIRD-PARTY-NOTICES "$sbom" --clobber

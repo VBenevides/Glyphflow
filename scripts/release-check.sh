@@ -24,6 +24,8 @@ trap cleanup EXIT
 (cd backend && GOCACHE="${GOCACHE:-/tmp/glyphflow-go-cache}" go mod verify)
 govulncheck_bin=${GOVULNCHECK_BIN:-govulncheck}
 command -v "$govulncheck_bin" >/dev/null 2>&1 || { echo "release check: govulncheck is required" >&2; exit 1; }
+[ -s LICENSE ] || { echo "release check: LICENSE is missing" >&2; exit 1; }
+[ -s THIRD-PARTY-NOTICES ] || { echo "release check: THIRD-PARTY-NOTICES is missing" >&2; exit 1; }
 (cd backend && GOCACHE="${GOCACHE:-/tmp/glyphflow-go-cache}" "$govulncheck_bin" ./...)
 (cd frontend && npm audit --omit=dev --audit-level=low)
 

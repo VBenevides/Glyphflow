@@ -439,4 +439,8 @@ internal/      Historical design records, reviews, and roadmap notes
 
 ## License
 
-Glyphflow is released under the [MIT License](LICENSE).
+Glyphflow's original source is released under the [MIT License](LICENSE).
+Redistributed images and binaries also contain third-party components; keep
+[`THIRD-PARTY-NOTICES`](THIRD-PARTY-NOTICES) with copies of the project.
+PostgreSQL, NATS, and container base images referenced by Compose keep their
+own licenses and terms.

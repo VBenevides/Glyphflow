@@ -44,3 +44,4 @@ COPY --from=backend-build /out/glyphflow-controlplane /usr/local/bin/glyphflow-c
 COPY --from=backend-build /src/backend/migrations ./migrations
 COPY --from=backend-build /src/backend/runner-binaries ./runner-binaries
 COPY build/nginx.conf /etc/nginx/nginx.conf
+COPY LICENSE THIRD-PARTY-NOTICES /usr/share/doc/glyphflow/
