@@ -2,7 +2,7 @@ export const PERMISSIONS = [
   'users.read', 'users.manage', 'roles.read', 'roles.manage', 'sso.read', 'sso.manage',
   'auth.settings.manage', 'tasks.read', 'tasks.manage', 'runs.read', 'runs.execute',
   'runs.cancel', 'runs.retry', 'logs.read', 'resources.read', 'resources.manage',
-  'runners.read', 'runners.manage', 'audit.read',
+  'runners.read', 'runners.manage', 'audit.read', 'system.metrics.read', 'system.deadletter.read', 'system.deadletter.manage',
 ] as const
 
 export type Permission = (typeof PERMISSIONS)[number]
@@ -24,6 +24,7 @@ export const ROUTES: RouteRule[] = [
   { path: '/admin/sso', label: 'SSO', access: 'permission', permission: 'sso.read|sso.manage' },
   { path: '/admin/auth', label: 'General Settings', access: 'permission', permission: 'auth.settings.manage' },
   { path: '/admin/execution-status', label: 'Execution Status', access: 'permission', permission: 'auth.settings.manage' },
+  { path: '/admin/system', label: 'System Metrics', access: 'permission', permission: 'system.metrics.read' },
 ]
 
 export function hasPermission(grants: Iterable<string>, required?: string): boolean {

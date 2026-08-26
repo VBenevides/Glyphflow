@@ -466,7 +466,19 @@ func redactAuditValue(value any) any {
 			out[index] = redactAuditValue(item)
 		}
 		return out
+	case string:
+		return redactSensitiveText(value)
 	default:
 		return value
 	}
+}
+
+func redactSensitiveText(value string) string {
+	lower := strings.ToLower(value)
+	for _, marker := range []string{"password", "token", "secret", "private_key", "private-key", "authorization", "bearer ", "api_key", "api-key"} {
+		if strings.Contains(lower, marker) {
+			return "[REDACTED]"
+		}
+	}
+	return value
 }

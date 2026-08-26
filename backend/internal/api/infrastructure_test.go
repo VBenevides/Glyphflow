@@ -97,6 +97,35 @@ func TestRunnerEnrollmentExplainsTokenFailure(t *testing.T) {
 	}
 }
 
+func TestRunnerEndpointPolicyRequiresApprovedTLSInProduction(t *testing.T) {
+	if err := validateRunnerEndpoints("http://control.example", "nats://broker:4222", "https://control.example", "tls://broker:4222", false); err == nil {
+		t.Fatal("insecure runner endpoints were accepted")
+	}
+	if err := validateRunnerEndpoints("https://other.example", "tls://broker:4222", "https://control.example", "tls://broker:4222", false); err == nil {
+		t.Fatal("unapproved control-plane endpoint was accepted")
+	}
+	if err := validateRunnerEndpoints("https://control.example", "tls://broker:4222", "https://control.example", "tls://broker:4222", false); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunnerBootstrapEnrollmentIsRateLimited(t *testing.T) {
+	s := NewInfrastructureService()
+	s.SetRunnerArtifactConfig("nats://localhost:4222", 1<<20)
+	for attempt := 0; attempt < 10; attempt++ {
+		response := httptest.NewRecorder()
+		s.enrollRunner(response, httptest.NewRequest(http.MethodPost, "/api/v1/runners/enroll", bytes.NewBufferString(`{"runner_id":"runner-1","token":"bad","key_id":"runner:runner-1","public_key":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}`)))
+		if response.Code == http.StatusTooManyRequests {
+			t.Fatalf("rate limit triggered too early on attempt %d", attempt+1)
+		}
+	}
+	response := httptest.NewRecorder()
+	s.enrollRunner(response, httptest.NewRequest(http.MethodPost, "/api/v1/runners/enroll", bytes.NewBufferString(`{"runner_id":"runner-1","token":"bad","key_id":"runner:runner-1","public_key":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}`)))
+	if response.Code != http.StatusTooManyRequests {
+		t.Fatalf("rate limit status = %d", response.Code)
+	}
+}
+
 func TestRunnerEnrollmentBuildsBootstrapBinaryAndConsumesToken(t *testing.T) {
 	s := NewInfrastructureService()
 	directory := t.TempDir()

@@ -98,3 +98,42 @@ func TestLocalStoreClaimsRecoversOrdersAndPublishesEvents(t *testing.T) {
 		t.Fatalf("recovery: %#v %v", ids, err)
 	}
 }
+
+func TestLocalStoreCompactsOnlyExpiredPublishedEvents(t *testing.T) {
+	store, err := OpenStore(t.TempDir() + "/runner.sqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.PutEvent(OutboxEvent{EventID: "published", OrderID: "order", Channel: "state", Sequence: 1, EventType: "started", Envelope: "event"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkEventPublished("published"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PutEvent(OutboxEvent{EventID: "pending", OrderID: "order", Channel: "state", Sequence: 2, EventType: "finished", Envelope: "event"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PutEvent(OutboxEvent{EventID: "only", OrderID: "other-order", Channel: "state", Sequence: 1, EventType: "started", Envelope: "event"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkEventPublished("only"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec(`UPDATE event_outbox SET published_at=? WHERE event_id='published'`, time.Now().UTC().Add(-48*time.Hour).Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec(`UPDATE event_outbox SET published_at=? WHERE event_id='only'`, time.Now().UTC().Add(-48*time.Hour).Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	if removed, err := store.CompactPublishedEvents(24*time.Hour, 10); err != nil || removed != 1 {
+		t.Fatalf("compaction removed=%d err=%v", removed, err)
+	}
+	var count int
+	if err := store.db.QueryRow(`SELECT count(*) FROM event_outbox WHERE event_id='pending'`).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("pending event count=%d err=%v", count, err)
+	}
+	if err := store.db.QueryRow(`SELECT count(*) FROM event_outbox WHERE event_id='only'`).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("sequence high-water event count=%d err=%v", count, err)
+	}
+}

@@ -18,6 +18,7 @@ import { AuthenticationSettingsPage, ExecutionStatusPage, RoleManagementPage, Se
 import { AccountPage } from './account-pages'
 import { UserDetailsPage } from './user-details-page'
 import { GlobalVariablesPage } from './global-variables-page'
+import { SystemMetricsPage } from './system-metrics-page'
 
 function Placeholder({ title }: { title: string }) {
   return <section className="gf-content"><PageHeader title={title} description="This workspace is ready for its data view." /></section>
@@ -26,6 +27,7 @@ function Placeholder({ title }: { title: string }) {
 const IMPLEMENTED_ROUTE_PATHS = new Set([
   '/', '/tasks', '/schedules', '/runs', '/runners', '/runners/pools', '/resources', '/audit',
   '/global-variables', '/admin/users', '/admin/roles', '/admin/sso', '/admin/auth', '/admin/execution-status',
+  '/admin/system',
 ])
 
 export function placeholderRoutes(routes: typeof ROUTES = ROUTES) {
@@ -73,6 +75,7 @@ export function AppRoutes() {
     <Route path="/admin/sso" element={<PermissionRoute permission="sso.read|sso.manage"><SsoSettingsPage /></PermissionRoute>} />
     <Route path="/admin/auth" element={<PermissionRoute permission="auth.settings.manage"><AuthenticationSettingsPage /></PermissionRoute>} />
     <Route path="/admin/execution-status" element={<PermissionRoute permission="auth.settings.manage"><ExecutionStatusPage /></PermissionRoute>} />
+    <Route path="/admin/system" element={<PermissionRoute permission="system.metrics.read"><SystemMetricsPage /></PermissionRoute>} />
     <Route path="/global-variables" element={<PermissionRoute permission="users.manage"><GlobalVariablesPage /></PermissionRoute>} />
     <Route path="/account" element={<AccountPage />} />
     <Route path="/account/password" element={<AccountPage />} />

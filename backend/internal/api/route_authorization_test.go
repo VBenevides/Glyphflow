@@ -24,7 +24,7 @@ func TestRouteAuthorizationCoverage(t *testing.T) {
 		request := httptest.NewRequest(http.MethodGet, path, nil)
 		response := httptest.NewRecorder()
 		server.Handler().ServeHTTP(response, request)
-		if response.Code != http.StatusForbidden && response.Code != http.StatusNotImplemented {
+		if response.Code != http.StatusForbidden && response.Code != http.StatusNotImplemented && response.Code != http.StatusServiceUnavailable {
 			t.Fatalf("%s denied with %d", route.Pattern, response.Code)
 		}
 		server.Auth = func(*http.Request) (Claims, bool) {

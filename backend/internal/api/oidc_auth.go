@@ -260,16 +260,14 @@ func (s *OIDCService) ConfiguredProviders() []OIDCProvider {
 		}
 		out := []OIDCProvider{}
 		for _, provider := range providers {
-			if provider.Enabled {
-				converted := providerFromRecord(provider)
-				if mappings, err := repository.ListGroupRoleMappings(context.Background(), provider.ID); err == nil {
-					converted.GroupMapping = map[string]string{}
-					for _, mapping := range mappings {
-						converted.GroupMapping[mapping.GroupName] = mapping.RoleID
-					}
+			converted := providerFromRecord(provider)
+			if mappings, err := repository.ListGroupRoleMappings(context.Background(), provider.ID); err == nil {
+				converted.GroupMapping = map[string]string{}
+				for _, mapping := range mappings {
+					converted.GroupMapping[mapping.GroupName] = mapping.RoleID
 				}
-				out = append(out, converted)
 			}
+			out = append(out, converted)
 		}
 		return out
 	}
@@ -277,15 +275,24 @@ func (s *OIDCService) ConfiguredProviders() []OIDCProvider {
 	defer s.mu.RUnlock()
 	var out []OIDCProvider
 	for _, p := range s.providers {
-		if p.Enabled {
-			out = append(out, p)
+		out = append(out, p)
+	}
+	return out
+}
+
+func (s *OIDCService) EnabledProviders() []OIDCProvider {
+	configured := s.ConfiguredProviders()
+	out := make([]OIDCProvider, 0, len(configured))
+	for _, provider := range configured {
+		if provider.Enabled {
+			out = append(out, provider)
 		}
 	}
 	return out
 }
 
 func (s *OIDCService) Providers() []OIDCProviderPublic {
-	configured := s.ConfiguredProviders()
+	configured := s.EnabledProviders()
 	result := make([]OIDCProviderPublic, 0, len(configured))
 	for _, provider := range configured {
 		result = append(result, OIDCProviderPublic{ID: provider.Key, Name: provider.Name})

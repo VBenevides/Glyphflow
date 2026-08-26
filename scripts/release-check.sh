@@ -22,6 +22,10 @@ trap cleanup EXIT
 (cd backend && GOCACHE="${GOCACHE:-/tmp/glyphflow-go-cache}" go test ./...)
 (cd backend && GOCACHE="${GOCACHE:-/tmp/glyphflow-go-cache}" go vet ./...)
 (cd backend && GOCACHE="${GOCACHE:-/tmp/glyphflow-go-cache}" go mod verify)
+govulncheck_bin=${GOVULNCHECK_BIN:-govulncheck}
+command -v "$govulncheck_bin" >/dev/null 2>&1 || { echo "release check: govulncheck is required" >&2; exit 1; }
+(cd backend && GOCACHE="${GOCACHE:-/tmp/glyphflow-go-cache}" "$govulncheck_bin" ./...)
+(cd frontend && npm audit --omit=dev --audit-level=low)
 
 if [ -z "$release_database_url" ]; then
   if command -v pg_isready >/dev/null 2>&1 && pg_isready -h localhost -p 5432 -U glyphflow >/dev/null 2>&1; then
@@ -61,8 +65,11 @@ done
 (cd backend && DATABASE_URL="$release_database_url" GOCACHE="${GOCACHE:-/tmp/glyphflow-go-cache}" go test ./...)
 
 ./scripts/generate-sbom.sh "$release_tmp/SBOM.spdx.json"
-(cd backend && GOCACHE="${GOCACHE:-/tmp/glyphflow-go-cache}" go build -o "$release_tmp/controlplane" ./cmd/controlplane)
-(cd backend && GOCACHE="${GOCACHE:-/tmp/glyphflow-go-cache}" go build -o "$release_tmp/worker" ./cmd/worker)
+release_version=$(tr -d '[:space:]' < VERSION)
+[ -n "$release_version" ] || { echo "release check: VERSION is empty" >&2; exit 1; }
+release_ldflags="-s -w -X github.com/VBenevides/Glyphflow/backend.Version=$release_version"
+(cd backend && GOCACHE="${GOCACHE:-/tmp/glyphflow-go-cache}" go build -trimpath -ldflags="$release_ldflags" -o "$release_tmp/controlplane" ./cmd/controlplane)
+(cd backend && GOCACHE="${GOCACHE:-/tmp/glyphflow-go-cache}" go build -trimpath -ldflags="$release_ldflags" -o "$release_tmp/worker" ./cmd/worker)
 test -s "$release_tmp/SBOM.spdx.json"
 ! rg -n '"packages"[[:space:]]*:[[:space:]]*\[\]' "$release_tmp/SBOM.spdx.json"
 test -s "$release_tmp/controlplane"

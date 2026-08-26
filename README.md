@@ -62,6 +62,7 @@ Start with the [User Guide](docs/USER-GUIDE.md), then follow the end-to-end
 [Examples](docs/examples/README.md) using isolated fake data.
 
 - [Admin guide](docs/ADMIN-GUIDE.md)
+- [Production operations runbook](docs/OPERATIONS-RUNBOOK.md)
 - [Architecture](ARCHITECTURE.md)
 - [Deployment and configuration](docs/README.md#production-deployment)
 - [Complete documentation README](docs/README.md)

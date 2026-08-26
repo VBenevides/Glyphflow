@@ -276,7 +276,7 @@ func TestManagementRoutesFailClosedUntilBackedByStorage(t *testing.T) {
 		if item.path == "/api/v1/tasks/run-1/cancel" && w.Code != http.StatusNotFound {
 			t.Fatalf("missing task action returned %d", w.Code)
 		}
-		if item.path != "/api/v1/tasks/run-1/cancel" && item.path != "/api/v1/runs" && item.path != "/api/v1/runners" && w.Code != http.StatusNotImplemented {
+		if item.path != "/api/v1/tasks/run-1/cancel" && item.path != "/api/v1/runs" && item.path != "/api/v1/runners" && w.Code != http.StatusGone {
 			t.Fatalf("%s returned %d", item.path, w.Code)
 		}
 	}

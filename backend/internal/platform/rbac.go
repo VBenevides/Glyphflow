@@ -9,7 +9,7 @@ import (
 var PermissionCatalog = []string{
 	"users.read", "users.manage", "roles.read", "roles.manage", "sso.read", "sso.manage",
 	"auth.settings.manage", "tasks.read", "tasks.manage", "runs.read", "runs.execute", "runs.cancel",
-	"runs.retry", "logs.read", "resources.read", "resources.manage", "runners.read", "runners.manage", "audit.read",
+	"runs.retry", "logs.read", "resources.read", "resources.manage", "runners.read", "runners.manage", "audit.read", "system.metrics.read", "system.deadletter.read", "system.deadletter.manage",
 }
 
 var UserPermissionCatalog = []string{
@@ -20,6 +20,7 @@ var UserPermissionCatalog = []string{
 var OperatorPermissionCatalog = []string{
 	"tasks.read", "tasks.manage", "runs.read", "runs.execute",
 	"resources.read", "resources.manage", "runners.read", "runners.manage",
+	"system.metrics.read", "system.deadletter.read", "system.deadletter.manage",
 }
 
 type SeedRole struct {

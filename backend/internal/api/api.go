@@ -42,8 +42,16 @@ func recordRequestError(r *http.Request, err error) {
 	if !ok {
 		return
 	}
-	details.Error = err.Error()
-	details.Traceback = string(debug.Stack())
+	details.Error = redactSensitiveText(err.Error())
+	details.Traceback = redactSensitiveText(string(debug.Stack()))
+}
+
+func recordRequestAuditField(r *http.Request, key string, value any) {
+	details, ok := r.Context().Value(requestAuditContextKey{}).(*requestAuditDetails)
+	if !ok || details.Input == nil || key == "" {
+		return
+	}
+	details.Input[key] = value
 }
 
 type RuntimeConfig struct {
@@ -59,6 +67,8 @@ type RuntimeConfig struct {
 type Server struct {
 	Auth                       Authenticator
 	Permissions                func(Claims) map[string]bool
+	Metrics                    *platform.Metrics
+	Logger                     *platform.Logger
 	PasswordAuth               *PasswordAuthService
 	AuthService                *AuthService
 	Sessions                   *SessionManager
@@ -79,6 +89,8 @@ type Server struct {
 	AuditQuery                 *AuditQueryService
 	ExitCodes                  store.ExitCodeRepository
 	GlobalVariables            *GlobalVariableService
+	SystemMetrics              *SystemMetricsService
+	DeadLetters                *DeadLetterService
 	RequireDurableRepositories bool
 }
 
@@ -100,6 +112,9 @@ func (s Server) ValidateDurableRepositories() error {
 	}
 	if s.AuditQuery == nil || !s.AuditQuery.hasDurableRepository() {
 		return errors.New("audit repository is required")
+	}
+	if s.DeadLetters == nil || s.DeadLetters.repository == nil {
+		return errors.New("dead-letter repository is required")
 	}
 	if s.ExitCodes == nil {
 		return errors.New("exit-code repository is required")
@@ -131,6 +146,12 @@ func (s Server) Handler() http.Handler {
 	}
 	if s.GlobalVariables == nil {
 		s.GlobalVariables = NewGlobalVariableService()
+	}
+	if s.SystemMetrics == nil {
+		s.SystemMetrics = NewSystemMetricsService(s.Metrics, s.Ready, s.Logger)
+	}
+	if s.DeadLetters == nil {
+		s.DeadLetters = NewDeadLetterService(nil, nil)
 	}
 	if s.AuthAdmin == nil && s.AuthService != nil {
 		s.AuthAdmin = &AuthAdminService{Auth: s.AuthService, Sessions: s.AuthService.sessions, OIDC: s.OIDC}
@@ -214,20 +235,33 @@ func (s Server) Handler() http.Handler {
 			}
 			return managePermission
 		}, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "endpoint is not implemented"})
+			writeJSON(w, http.StatusGone, map[string]string{"error": "endpoint is deprecated; use the canonical administration or run endpoint"})
 		})))
 	}
 	mux.Handle("/api/v1/runs", s.require("run.read", http.HandlerFunc(s.Runs.collection)))
 	mux.Handle("/api/v1/audit", s.require("audit.read", http.HandlerFunc(s.AuditQuery.query)))
+	mux.Handle("/api/v1/admin/system/metrics", s.require("system.metrics.read", http.HandlerFunc(s.SystemMetrics.metrics)))
+	mux.Handle("/api/v1/admin/dead-letters", s.requireMethodRole(func(r *http.Request) string {
+		if r.Method == http.MethodGet {
+			return "system.deadletter.read"
+		}
+		return "system.deadletter.manage"
+	}, http.HandlerFunc(s.DeadLetters.collection)))
+	mux.Handle("/api/v1/admin/dead-letters/", s.requireMethodRole(func(r *http.Request) string {
+		if r.Method == http.MethodGet {
+			return "system.deadletter.read"
+		}
+		return "system.deadletter.manage"
+	}, http.HandlerFunc(s.DeadLetters.path)))
 	for path, role := range map[string]string{"/api/v1/events": "event.read"} {
 		mux.Handle(path, s.require(role, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "endpoint is not implemented"})
+			writeJSON(w, http.StatusGone, map[string]string{"error": "endpoint is deprecated; use /api/v1/runs/{run_id}/events"})
 		})))
 	}
 	mux.Handle("/api/v1/runs/execute", s.require("runs.execute", http.HandlerFunc(s.Runs.execute)))
 	for path, permission := range map[string]string{"/api/v1/runs/retry": "runs.retry", "/api/v1/runs/cancel": "runs.cancel"} {
 		mux.Handle(path, s.require(permission, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "run action is not implemented"})
+			writeJSON(w, http.StatusGone, map[string]string{"error": "endpoint is deprecated; use /api/v1/runs/{run_id}/retry or /cancel"})
 		})))
 	}
 	mux.Handle("/api/v1/tasks/", s.requireMethodRole(func(r *http.Request) string {
@@ -375,6 +409,13 @@ func (s Server) require(role string, next http.Handler) http.Handler {
 		}
 		permissions := s.effectivePermissions(claims)
 		if !hasPermission(permissions, role) {
+			if s.Metrics != nil {
+				s.Metrics.PermissionDenials.Add(1)
+			}
+			if s.AuditQuery != nil {
+				actorName, actorEmail := s.auditActor(claims.UserID)
+				_ = s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: "failure", CorrelationID: r.Header.Get("X-Correlation-ID"), Output: map[string]any{"status": http.StatusForbidden, "error": "forbidden"}})
+			}
 			writeJSON(w, 403, map[string]string{"error": "forbidden"})
 			return
 		}
@@ -390,7 +431,7 @@ func (s Server) require(role string, next http.Handler) http.Handler {
 		next.ServeHTTP(recorder, r)
 		if s.AuditQuery != nil {
 			if recorder.status >= http.StatusBadRequest && auditDetails.Error == "" {
-				auditDetails.Error = auditResponseError(recorder.body, recorder.status)
+				auditDetails.Error = redactSensitiveText(auditResponseError(recorder.body, recorder.status))
 				auditDetails.Traceback = string(debug.Stack())
 			}
 			actorName, actorEmail := s.auditActor(claims.UserID)

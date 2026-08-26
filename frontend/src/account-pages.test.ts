@@ -11,6 +11,11 @@ describe('account dirty baseline', () => {
     expect(source).toContain('value={displayName} onChange=')
   })
 
+  it('updates shared profile state after saving', () => {
+    expect(source).toContain("const saved = await api.put<Profile>('/api/v1/me'")
+    expect(source).toContain('setProfile(saved)')
+  })
+
   it('does not mark the loaded profile dirty', () => {
     expect(accountDirty('Ada', 'Ada', { current: '', next: '', confirm: '' })).toBe(false)
   })

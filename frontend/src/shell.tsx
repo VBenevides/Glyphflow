@@ -15,7 +15,7 @@ export const NAVIGATION_GROUPS: Group[] = [
   { name: 'Operations', icon: LayoutDashboard, paths: ['/', '/tasks', '/schedules', '/runs'] },
   { name: 'Infrastructure', icon: Server, paths: ['/runners', '/resources', '/admin/execution-status'] },
   { name: 'Security', icon: Shield, paths: ['/audit'] },
-  { name: 'Administration', icon: Users, paths: ['/admin/users', '/admin/roles', '/admin/auth', '/global-variables'] },
+  { name: 'Administration', icon: Users, paths: ['/admin/users', '/admin/roles', '/admin/auth', '/global-variables', '/admin/system'] },
 ]
 
 export function groupedRoutes(routes: RouteRule[]): Array<{ group: Group; routes: RouteRule[] }> {
@@ -49,6 +49,7 @@ function routeIcon(path: string) {
   if (path === '/audit' || path === '/admin/sso') return Shield
   if (path === '/resources' || path === '/global-variables' || path === '/admin/roles' || path === '/admin/auth') return KeyRound
   if (path === '/admin/execution-status') return Activity
+  if (path === '/admin/system') return Activity
   if (path.startsWith('/admin')) return Users
   if (path === '/tasks' || path === '/schedules') return FolderKanban
   return Server

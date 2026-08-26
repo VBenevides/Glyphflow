@@ -20,5 +20,12 @@ func TestLocalStoreCreatesDurableInboxAndOutbox(t *testing.T) {
 			t.Fatalf("missing table %s", table)
 		}
 	}
+	var indexCount int
+	if err := store.db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name = 'event_outbox_pending_idx'").Scan(&indexCount); err != nil {
+		t.Fatal(err)
+	}
+	if indexCount != 1 {
+		t.Fatal("missing pending event outbox index")
+	}
 	var _ *sql.DB
 }

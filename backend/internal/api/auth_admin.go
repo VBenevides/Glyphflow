@@ -155,7 +155,9 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 			writeJSON(w, 200, s.AuthAdmin.OIDC.ConfiguredProviders())
 		case http.MethodPost:
 			var provider OIDCProvider
-			if err := json.NewDecoder(r.Body).Decode(&provider); err != nil {
+			decoder := json.NewDecoder(r.Body)
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&provider); err != nil {
 				writeError(w, http.StatusBadRequest, "invalid SSO provider request", err)
 				return
 			}
@@ -292,7 +294,7 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 			return
 		}
 		if s.AuthAdmin.Auth == nil {
-			writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "user details unavailable"})
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "user details unavailable"})
 			return
 		}
 		claims, _ := s.authenticator()(r)

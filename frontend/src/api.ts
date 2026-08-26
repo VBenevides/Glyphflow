@@ -32,7 +32,7 @@ export type Identity = { id: string; provider: string; subject?: string; email?:
 export type Profile = { id: string; username: string; displayName?: string; status?: string; email?: string; permissions?: string[]; roles?: string[]; sessions?: AuthSession[]; identities?: Identity[] }
 export type PermissionSnapshot = { permissions: string[]; roles?: string[] }
 export type RuntimeConfig = { brand: string; passwordLogin: boolean; registration: boolean; oidc: boolean; csrfCookie: string; defaultRoleId?: string; lockdownScheduler?: boolean }
-export type OidcProvider = { id?: string; key: string; name?: string; issuer: string; icon?: string; enabled?: boolean; clientId?: string; secretReference?: string; claimMapping?: Record<string, string>; groupMapping?: Record<string, string> }
+export type OidcProvider = { id?: string; key: string; name?: string; issuer: string; icon?: string; enabled?: boolean; clientId?: string; secretReference?: string; groupMapping?: Record<string, string> }
 export type TaskVersion = { id: string; version: number; pool?: string; pinnedRunner?: string; command?: string[]; workingDirectory?: string; timeoutSeconds?: number; maxAttempts?: number; ambiguityPolicy?: string; resources?: string[]; executionSpecDigest?: string; createdAt?: string }
 export type Task = { id: string; name: string; enabled?: boolean; isDeleted?: boolean; state?: string; activeVersion?: number; pool?: string; pinnedRunner?: string; command?: string[]; workingDirectory?: string; placementSelectors?: Record<string, unknown>; environment?: Record<string, string>; timeoutSeconds?: number; maxAttempts?: number; ambiguityPolicy?: string; resources?: string[]; latestRun?: Run }
 export type Schedule = { id: string; name: string; taskId: string; enabled?: boolean; nextFireAt?: string; state?: string; timezone?: string; expression?: string; misfirePolicy?: string; catchupLimit?: number; deadlineSeconds?: number; concurrencyPolicy?: string; maxConcurrentRuns?: number }
@@ -53,6 +53,10 @@ export type AuthSession = { id: string; createdAt?: string; expiresAt?: string; 
 export type AdminSession = { id: string; userId: string; userEmail: string; expiresAt?: string; lastSeenAt?: string; userAgent?: string; ipAddress?: string }
 export type UserRecord = { id: string; username: string; email?: string; displayName?: string; status?: string; enabled?: boolean; systemAdmin?: boolean; loginMethods?: string[]; roles?: string[]; roleSources?: string[]; permissions?: string[]; identities?: Identity[]; sessions?: AuthSession[] }
 export type RoleDefinition = { id: string; name: string; description?: string; permissions: string[]; system?: boolean; assignedUsers?: number }
+export type SystemMetricAlert = { code: string; severity: string; status: string; value: number; threshold: number }
+export type SystemMetrics = { generatedAt: string; ready: boolean; metrics: Record<string, number>; signals: { queueLagSeconds: number; deadLetters: { open: number; oldestAgeSeconds: number }; stuckRuns: number; disk: { freeBytes: number; freePercent: number } }; alerts: SystemMetricAlert[] }
+export type DeadLetter = { id: string; runnerId?: string; stream: string; consumer: string; subject: string; messageId: string; payloadSha256?: string; error?: string; correlationId?: string; state: string; attempts: number; firstFailedAt: string; lastFailedAt: string }
+export type DeadLetterPage = Page<DeadLetter>
 
 const unsafeMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 

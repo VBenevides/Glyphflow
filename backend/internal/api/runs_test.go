@@ -86,3 +86,10 @@ func TestRunCollectionFiltersActiveRuns(t *testing.T) {
 		t.Fatalf("active runs = %#v", page.Items)
 	}
 }
+
+func TestRunListFilterKeepsPageRequestsBounded(t *testing.T) {
+	filter, page, limit := runListFilter(httptest.NewRequest(http.MethodGet, "/api/v1/runs?all=true&page=2&limit=1000&task=client", nil))
+	if page != 1 || limit != 100 || filter.Limit != 100 || filter.Offset != 0 {
+		t.Fatalf("run page filter = %#v page=%d limit=%d", filter, page, limit)
+	}
+}

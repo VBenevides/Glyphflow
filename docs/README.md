@@ -30,6 +30,7 @@ one place to inspect what happened.
 
 - [User guide](USER-GUIDE.md)
 - [Administrator guide](ADMIN-GUIDE.md)
+- [Production operations runbook](OPERATIONS-RUNBOOK.md)
 - [Examples](examples/README.md)
 
 Workers run on the machines that own the work. They connect outbound to the

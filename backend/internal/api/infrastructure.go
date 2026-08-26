@@ -8,7 +8,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -84,13 +86,15 @@ type InfrastructureService struct {
 	runnerControlPlaneURL    string
 	runnerNATSURL            string
 	runnerMaxMessageBytes    int
+	allowInsecureTransport   bool
+	enrollmentRateLimiter    *platform.RateLimiter
 	controlPlanePublicKey    string
 	runnerCapacityPublisher  queue.Publisher
 	runnerCapacitySigningKey protocol.SigningKey
 }
 
 func NewInfrastructureService() *InfrastructureService {
-	return &InfrastructureService{runners: map[string]RunnerRecord{}, pools: map[string]RunnerPoolRecord{"default": {ID: "default", Name: "default", Description: "Default Runner Pool", Enabled: true}}, resources: map[string]ResourceRecord{}, enrollments: map[string]*enrollment{}, runnerKeys: map[string]runnerKey{}, runnerBinaryDir: "runner-binaries"}
+	return &InfrastructureService{runners: map[string]RunnerRecord{}, pools: map[string]RunnerPoolRecord{"default": {ID: "default", Name: "default", Description: "Default Runner Pool", Enabled: true}}, resources: map[string]ResourceRecord{}, enrollments: map[string]*enrollment{}, runnerKeys: map[string]runnerKey{}, runnerBinaryDir: "runner-binaries", allowInsecureTransport: true, enrollmentRateLimiter: platform.NewRateLimiter(10, time.Minute)}
 }
 
 func (s *InfrastructureService) SetRunnerRepository(repository store.RunnerRepository) {
@@ -134,6 +138,12 @@ func (s *InfrastructureService) SetRunnerArtifactConfig(natsURL string, maxMessa
 	s.mu.Lock()
 	s.runnerNATSURL = strings.TrimSpace(natsURL)
 	s.runnerMaxMessageBytes = maxMessageBytes
+	s.mu.Unlock()
+}
+
+func (s *InfrastructureService) SetRunnerEndpointPolicy(allowInsecure bool) {
+	s.mu.Lock()
+	s.allowInsecureTransport = allowInsecure
 	s.mu.Unlock()
 }
 
@@ -612,6 +622,13 @@ func (s *InfrastructureService) enrollRunner(w http.ResponseWriter, r *http.Requ
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
+	s.mu.RLock()
+	limiter := s.enrollmentRateLimiter
+	s.mu.RUnlock()
+	if limiter != nil && !limiter.AllowSource("runner-bootstrap", remoteAddress(r), time.Now().UTC()) {
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "runner enrollment rate limit exceeded"})
+		return
+	}
 	var input struct {
 		RunnerID  string `json:"runner_id"`
 		Token     string `json:"token"`
@@ -715,6 +732,13 @@ func (s *InfrastructureService) deleteRunner(w http.ResponseWriter, r *http.Requ
 func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+		return
+	}
+	s.mu.RLock()
+	limiter := s.enrollmentRateLimiter
+	s.mu.RUnlock()
+	if limiter != nil && !limiter.AllowSource("runner-artifact", remoteAddress(r), time.Now().UTC()) {
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "runner enrollment rate limit exceeded"})
 		return
 	}
 	var input struct {
@@ -871,6 +895,7 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 func (s *InfrastructureService) buildRunnerArtifact(r *http.Request, platformName, architecture, runnerID, token, controlPlaneURL, embeddedNATSEndpoint, ui string) ([]byte, string, error) {
 	s.mu.RLock()
 	directory, defaultControlPlaneURL, maxMessageBytes, controlPlanePublicKey, repository := s.runnerBinaryDir, s.runnerControlPlaneURL, s.runnerMaxMessageBytes, s.controlPlanePublicKey, s.runnerRepository
+	approvedNATSEndpoint, allowInsecure := s.runnerNATSURL, s.allowInsecureTransport
 	if controlPlaneURL == "" {
 		controlPlaneURL = s.runners[runnerID].ControlPlaneURL
 	}
@@ -903,8 +928,42 @@ func (s *InfrastructureService) buildRunnerArtifact(r *http.Request, platformNam
 	if controlPlaneURL == "" {
 		controlPlaneURL = requestBaseURL(r)
 	}
+	if embeddedNATSEndpoint == "" {
+		embeddedNATSEndpoint = approvedNATSEndpoint
+	}
+	if err := validateRunnerEndpoints(controlPlaneURL, embeddedNATSEndpoint, defaultControlPlaneURL, approvedNATSEndpoint, allowInsecure); err != nil {
+		return nil, "", err
+	}
 	packed, err := worker.PackBootstrap(raw, worker.Bootstrap{Token: token, RunnerID: runnerID, ControlPlaneURL: controlPlaneURL, ControlPublicKey: controlPlanePublicKey, NATSURL: strings.TrimSpace(embeddedNATSEndpoint), MaxMessageBytes: maxMessageBytes})
 	return packed, filename, err
+}
+
+func validateRunnerEndpoints(controlPlaneURL, natsEndpoint, approvedControlPlaneURL, approvedNATSEndpoint string, allowInsecure bool) error {
+	control, err := url.Parse(strings.TrimRight(strings.TrimSpace(controlPlaneURL), "/"))
+	if err != nil || control.Host == "" || control.User != nil || (control.Scheme != "https" && !(allowInsecure && control.Scheme == "http")) {
+		return errors.New("runner control-plane endpoint must use the approved HTTPS URL")
+	}
+	nats, err := url.Parse(strings.TrimSpace(natsEndpoint))
+	if err != nil || nats.Host == "" || nats.User != nil || (nats.Scheme != "tls" && !(allowInsecure && nats.Scheme == "nats")) {
+		return errors.New("runner NATS endpoint must use the approved TLS URL")
+	}
+	if !allowInsecure && approvedControlPlaneURL != "" && strings.TrimRight(strings.TrimSpace(approvedControlPlaneURL), "/") != control.String() {
+		return errors.New("runner control-plane endpoint is not approved")
+	}
+	if !allowInsecure && approvedNATSEndpoint != "" && strings.TrimSpace(approvedNATSEndpoint) != nats.String() {
+		return errors.New("runner NATS endpoint is not approved")
+	}
+	return nil
+}
+
+func remoteAddress(r *http.Request) string {
+	if r == nil || r.RemoteAddr == "" {
+		return "unknown"
+	}
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
+	}
+	return r.RemoteAddr
 }
 
 func requestBaseURL(r *http.Request) string {

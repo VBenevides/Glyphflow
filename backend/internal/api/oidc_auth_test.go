@@ -89,6 +89,20 @@ func TestOIDCProviderPublicProjectionExposesNoConfiguration(t *testing.T) {
 	}
 }
 
+func TestOIDCConfiguredProvidersIncludesDisabledAdminEntries(t *testing.T) {
+	s := NewOIDCService()
+	if err := s.AddProvider(OIDCProvider{Key: "disabled", Issuer: "https://id.example", Callback: "https://app.example/callback", Enabled: false}); err != nil {
+		t.Fatal(err)
+	}
+	configured := s.ConfiguredProviders()
+	if len(configured) != 1 || configured[0].Enabled {
+		t.Fatalf("configured providers = %#v", configured)
+	}
+	if providers := s.Providers(); len(providers) != 0 {
+		t.Fatalf("public providers = %#v", providers)
+	}
+}
+
 func TestOIDCLinkChallengeUsesLinkPurpose(t *testing.T) {
 	s := NewOIDCService()
 	if err := s.AddProvider(OIDCProvider{Key: "corp", Issuer: "https://id.example", AuthURL: "https://id.example/authorize", ClientID: "client", Callback: "https://app.example/callback", Enabled: true}); err != nil {

@@ -12,6 +12,17 @@ type Message struct {
 	Data    []byte
 	ID      string
 }
+
+type DeadLetter struct {
+	Stream, Consumer, Subject, MessageID, RunnerID, CorrelationID string
+	Payload                                                       []byte
+	Error                                                         string
+	Attempts                                                      uint64
+	FirstFailedAt, LastFailedAt                                   time.Time
+}
+
+type DeadLetterSink func(context.Context, DeadLetter) error
+
 type Publisher interface {
 	Publish(context.Context, Message) error
 }
