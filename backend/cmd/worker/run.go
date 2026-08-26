@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -62,6 +63,9 @@ func runWorker(ctx context.Context, stdout, stderr io.Writer, status StatusSink)
 	}
 	if bootstrap != nil && needsRunnerEnrollment(bootstrap, found, foundKey, storedKey) {
 		bootstrap.ControlPlaneURL = resolveControlPlaneEndpoint(bootstrap)
+		if err := validateWorkerControlPlaneEndpoint(bootstrap.ControlPlaneURL); err != nil {
+			return fmt.Errorf("worker control-plane endpoint: %w", err)
+		}
 		enrollmentKey := storedKey
 		enrollmentKey, err = protocol.GenerateSigningKey("runner:"+bootstrap.RunnerID, time.Now().UTC(), 365*24*time.Hour)
 		if err != nil {
@@ -296,6 +300,20 @@ func resolveControlPlaneEndpoint(bootstrap *worker.Bootstrap) string {
 		}
 	}
 	return ""
+}
+
+func validateWorkerControlPlaneEndpoint(endpoint string) error {
+	parsed, err := url.Parse(endpoint)
+	if err != nil || parsed.Host == "" || parsed.User != nil {
+		return errors.New("must be a URL with a host and no credentials")
+	}
+	if parsed.Scheme == "https" {
+		return nil
+	}
+	if parsed.Scheme == "http" && strings.EqualFold(strings.TrimSpace(os.Getenv("ENVIRONMENT")), "development") && strings.EqualFold(strings.TrimSpace(os.Getenv("ALLOW_INSECURE_TRANSPORT")), "true") {
+		return nil
+	}
+	return errors.New("must use HTTPS outside development")
 }
 
 func workerHeartbeat(ctx context.Context, jetstream *queue.JetStream, runnerID, bootID string, signingKey protocol.SigningKey, capacity *atomic.Int64, stderr io.Writer) {

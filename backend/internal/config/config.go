@@ -214,6 +214,14 @@ func (c Config) Validate() error {
 	if c.Environment == "production" && (c.NATSCertFile == "" || c.NATSKeyFile == "" || c.NATSCAFile == "") {
 		return errors.New("production requires NATS client certificate, key, and CA files")
 	}
+	if parsed, err := url.Parse(c.NATSURL); err != nil || parsed.User != nil {
+		return errors.New("NATS_URL must not contain credentials")
+	}
+	if !c.AllowInsecureTransport || c.Environment != "development" {
+		if !strings.HasPrefix(c.NATSURL, "tls://") {
+			return errors.New("NATS_URL must use TLS outside development")
+		}
+	}
 	return nil
 }
 

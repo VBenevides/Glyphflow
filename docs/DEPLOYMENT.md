@@ -49,6 +49,8 @@ with private ingress, such as ACA: route the ingress to port 8080, set an
 HTTPS `WEB_ORIGIN`, and keep the platform's TLS termination outside the image.
 
 Workers must use an HTTPS `GLYPHFLOW_CONTROL_PLANE_URL` and a `tls://`
-`GLYPHFLOW_NATS_ENDPOINT` (or equivalent enrollment values). Do not share the
+`GLYPHFLOW_NATS_ENDPOINT` (or equivalent enrollment values). Plain HTTP/NATS
+endpoints are accepted only in development with
+`ALLOW_INSECURE_TRANSPORT=true`. Do not share the
 database, JetStream authority, signing key, or worker subject policy between
 clients.

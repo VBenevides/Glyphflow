@@ -72,6 +72,34 @@ func TestResolveControlPlaneEndpointPriority(t *testing.T) {
 	}
 }
 
+func TestValidateWorkerControlPlaneEndpoint(t *testing.T) {
+	for _, test := range []struct {
+		name, environment, allow, endpoint, wantErr string
+	}{
+		{name: "secure production", environment: "production", allow: "false", endpoint: "https://control.example"},
+		{name: "insecure development opt in", environment: "development", allow: "true", endpoint: "http://control.example"},
+		{name: "production rejects HTTP", environment: "production", allow: "false", endpoint: "http://control.example", wantErr: "HTTPS"},
+		{name: "development requires opt in", environment: "development", allow: "false", endpoint: "http://control.example", wantErr: "HTTPS"},
+		{name: "missing host", environment: "production", allow: "false", endpoint: "https://", wantErr: "URL"},
+		{name: "userinfo", environment: "production", allow: "false", endpoint: "https://user@control.example", wantErr: "URL"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("ENVIRONMENT", test.environment)
+			t.Setenv("ALLOW_INSECURE_TRANSPORT", test.allow)
+			err := validateWorkerControlPlaneEndpoint(test.endpoint)
+			if test.wantErr == "" {
+				if err != nil {
+					t.Fatalf("validateWorkerControlPlaneEndpoint() error = %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("validateWorkerControlPlaneEndpoint() error = %v; want %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
 func TestLoadPreviousBootID(t *testing.T) {
 	for _, test := range []struct {
 		name    string

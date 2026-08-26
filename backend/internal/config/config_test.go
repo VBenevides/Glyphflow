@@ -45,6 +45,34 @@ func TestValidateWorkerRejectsOversizedOutput(t *testing.T) {
 	}
 }
 
+func TestValidateWorkerRequiresNATSTLSOutsideDevelopment(t *testing.T) {
+	config := Config{
+		Role:            Worker,
+		NATSURL:         "nats://localhost:4222",
+		NATSCertFile:    "/run/secrets/nats-cert",
+		NATSKeyFile:     "/run/secrets/nats-key",
+		NATSCAFile:      "/run/secrets/nats-ca",
+		DataDir:         "/var/lib/glyphflow",
+		RunnerID:        "worker-1",
+		MaxMessageBytes: 1024,
+		MaxOutputBytes:  1024,
+		Environment:     "production",
+	}
+	if err := config.Validate(); err == nil || !strings.Contains(err.Error(), "must use TLS") {
+		t.Fatalf("plaintext NATS URL error = %v", err)
+	}
+	config.NATSURL = "tls://localhost:4222"
+	if err := config.Validate(); err != nil {
+		t.Fatalf("TLS NATS URL rejected: %v", err)
+	}
+	config.Environment = "development"
+	config.AllowInsecureTransport = true
+	config.NATSURL = "nats://localhost:4222"
+	if err := config.Validate(); err != nil {
+		t.Fatalf("development NATS URL rejected: %v", err)
+	}
+}
+
 func TestValidateControlPlaneRequiresPasswordPepper(t *testing.T) {
 	config := Config{
 		Role:                   ControlPlane,

@@ -367,10 +367,14 @@ started without an embedded bootstrap, configure:
 | `DATA_DIR` | Persistent worker directory containing `runner.sqlite` and signing keys |
 | `MAX_MESSAGE_BYTES` | Maximum accepted protocol message size |
 | `MAX_OUTPUT_BYTES` | Maximum captured process output; cannot exceed `MAX_MESSAGE_BYTES` |
-| `ENVIRONMENT` | Use `development` for a plain local NATS endpoint and `production` for TLS validation |
+| `ENVIRONMENT` | Use `development` with `ALLOW_INSECURE_TRANSPORT=true` only for plain local endpoints; production requires HTTPS and NATS TLS |
 | `NATS_CERT_FILE`, `NATS_KEY_FILE`, `NATS_CA_FILE` | Worker NATS client TLS material in production |
 | `GLYPHFLOW_CONTROL_PLANE_URL` | Optional override for the enrollment endpoint |
 | `GLYPHFLOW_NATS_ENDPOINT` | Optional override for the NATS endpoint embedded in an artifact |
+
+Outside development, the effective control-plane endpoint must use `https://`
+and the NATS endpoint must use `tls://`. Plain `http://` and `nats://` values
+require both `ENVIRONMENT=development` and `ALLOW_INSECURE_TRANSPORT=true`.
 
 Persist `DATA_DIR`. Deleting it removes the worker's local recovery state and
 identity, so the worker may need to be enrolled again.
