@@ -118,6 +118,10 @@ type RunRepository interface {
 	ListLogChunks(context.Context, string, string, int64) ([]RunLogChunkRecord, error)
 }
 
+const MaxRunLogChunksPerRead = 1000
+
+var ErrRunLogBudgetExceeded = errors.New("run log read exceeds chunk budget")
+
 type RunListFilter struct {
 	State, Task, Runner, Trigger string
 	From, To                     time.Time
@@ -1203,7 +1207,7 @@ func sha256Hex(value []byte) string {
 }
 
 func (s *RunStore) ListLogChunks(ctx context.Context, runID, stream string, after int64) ([]RunLogChunkRecord, error) {
-	rows, err := s.pool.Query(ctx, `SELECT l.chunk_sequence, l.stream, convert_from(l.payload, 'UTF8') FROM execution_log_chunks l JOIN execution_attempts a ON a.id = l.execution_attempt_id WHERE a.run_id = $1 AND l.stream = $2 AND l.chunk_sequence > $3 ORDER BY l.chunk_sequence`, runID, stream, after)
+	rows, err := s.pool.Query(ctx, `SELECT l.chunk_sequence, l.stream, convert_from(l.payload, 'UTF8') FROM execution_log_chunks l JOIN execution_attempts a ON a.id = l.execution_attempt_id WHERE a.run_id = $1 AND l.stream = $2 AND l.chunk_sequence > $3 ORDER BY l.chunk_sequence LIMIT $4`, runID, stream, after, MaxRunLogChunksPerRead+1)
 	if err != nil {
 		return nil, err
 	}
@@ -1216,5 +1220,11 @@ func (s *RunStore) ListLogChunks(ctx context.Context, runID, stream string, afte
 		}
 		items = append(items, item)
 	}
-	return items, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(items) > MaxRunLogChunksPerRead {
+		return nil, ErrRunLogBudgetExceeded
+	}
+	return items, nil
 }

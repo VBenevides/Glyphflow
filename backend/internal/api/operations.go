@@ -718,6 +718,8 @@ func (o *OperationsService) deleteSchedule(id string) bool {
 	return true
 }
 
+const maxCollectionPageLimit = 100
+
 func writePage[T any](w http.ResponseWriter, r *http.Request, items []T) {
 	all := strings.EqualFold(r.URL.Query().Get("all"), "true")
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
@@ -727,11 +729,8 @@ func writePage[T any](w http.ResponseWriter, r *http.Request, items []T) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	if all {
 		page = 1
-		limit = len(items)
-		if limit == 0 {
-			limit = 1
-		}
-	} else if limit < 1 || limit > 100 {
+		limit = maxCollectionPageLimit
+	} else if limit < 1 || limit > maxCollectionPageLimit {
 		limit = 50
 	}
 	start := 0

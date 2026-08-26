@@ -36,6 +36,8 @@ type LogChunk struct {
 	Text     string `json:"text"`
 }
 
+const maxRunLogResponseBytes = 8 << 20
+
 type RunService struct {
 	mu         sync.RWMutex
 	runs       map[string]RunRecord
@@ -335,8 +337,20 @@ func (s *RunService) logsResponse(w http.ResponseWriter, r *http.Request, id str
 		after, _ := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)
 		chunks, err := repository.ListLogChunks(r.Context(), id, stream, after)
 		if err != nil {
+			if errors.Is(err, store.ErrRunLogBudgetExceeded) {
+				writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "log_budget_exceeded"})
+				return
+			}
 			writeError(w, http.StatusServiceUnavailable, "log storage unavailable", err)
 			return
+		}
+		bytes := 0
+		for _, chunk := range chunks {
+			if len(chunk.Text) > maxRunLogResponseBytes-bytes {
+				writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "log_budget_exceeded"})
+				return
+			}
+			bytes += len(chunk.Text)
 		}
 		if strings.HasSuffix(r.URL.Path, "/download") {
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -360,19 +374,30 @@ func (s *RunService) logsResponse(w http.ResponseWriter, r *http.Request, id str
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "run not found"})
 		return
 	}
+	after, _ := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)
+	filtered := make([]LogChunk, 0, len(chunks))
+	bytes := 0
+	for _, chunk := range chunks {
+		if int64(chunk.Sequence) <= after {
+			continue
+		}
+		if len(filtered) == store.MaxRunLogChunksPerRead || len(chunk.Text) > maxRunLogResponseBytes-bytes {
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "log_budget_exceeded"})
+			return
+		}
+		filtered = append(filtered, chunk)
+		bytes += len(chunk.Text)
+	}
 	if strings.HasSuffix(r.URL.Path, "/download") {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		for _, chunk := range chunks {
+		for _, chunk := range filtered {
 			_, _ = w.Write([]byte(chunk.Text))
 		}
 		return
 	}
 	w.Header().Set("Content-Type", "application/x-ndjson")
-	after, _ := strconv.Atoi(r.URL.Query().Get("after"))
-	for _, chunk := range chunks {
-		if chunk.Sequence > after {
-			_ = json.NewEncoder(w).Encode(chunk)
-		}
+	for _, chunk := range filtered {
+		_ = json.NewEncoder(w).Encode(chunk)
 	}
 }
 

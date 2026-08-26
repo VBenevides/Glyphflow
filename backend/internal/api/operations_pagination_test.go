@@ -89,3 +89,26 @@ func TestTaskCollectionBoundsPaginationPage(t *testing.T) {
 		}
 	}
 }
+
+func TestCollectionAllUsesBoundedLimit(t *testing.T) {
+	o := NewOperationsService()
+	for i := 0; i < maxCollectionPageLimit+1; i++ {
+		o.tasks[strconv.Itoa(i)] = TaskRecord{ID: strconv.Itoa(i)}
+	}
+	response := httptest.NewRecorder()
+	o.taskCollection(response, httptest.NewRequest(http.MethodGet, "/api/v1/tasks?all=true", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var page struct {
+		Items []TaskRecord `json:"items"`
+		Limit int          `json:"limit"`
+		Total int          `json:"total"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&page); err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) != maxCollectionPageLimit || page.Limit != maxCollectionPageLimit || page.Total != maxCollectionPageLimit+1 {
+		t.Fatalf("page = len(%d) limit(%d) total(%d)", len(page.Items), page.Limit, page.Total)
+	}
+}

@@ -19,6 +19,16 @@ type runPageRepositoryStub struct {
 	listPageCalls int
 }
 
+type runLogRepositoryStub struct {
+	store.RunRepository
+	err    error
+	chunks []store.RunLogChunkRecord
+}
+
+func (s runLogRepositoryStub) ListLogChunks(context.Context, string, string, int64) ([]store.RunLogChunkRecord, error) {
+	return s.chunks, s.err
+}
+
 func (s *runPageRepositoryStub) ListPage(_ context.Context, filter store.RunListFilter) (store.RunPage, error) {
 	s.filter = filter
 	s.listPageCalls++
@@ -61,6 +71,27 @@ func TestRunActionsAndResumableLogs(t *testing.T) {
 	runs.path(conflict, httptest.NewRequest(http.MethodPost, "/api/v1/runs/"+run.ID+"/retry", bytes.NewBufferString(`{"reason":"repeat"}`)))
 	if conflict.Code != http.StatusConflict {
 		t.Fatalf("illegal retry status = %d", conflict.Code)
+	}
+}
+
+func TestRunLogsRejectBudgetOverflow(t *testing.T) {
+	runs := NewRunService()
+	runs.SetRepository(runLogRepositoryStub{err: store.ErrRunLogBudgetExceeded})
+	response := httptest.NewRecorder()
+	runs.path(response, httptest.NewRequest(http.MethodGet, "/api/v1/runs/run-1/logs?stream=stdout", nil))
+	if response.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestInMemoryRunLogDownloadResumesAfterSequence(t *testing.T) {
+	runs := NewRunService()
+	runs.runs["run-1"] = RunRecord{ID: "run-1"}
+	runs.logs["run-1"] = map[string][]LogChunk{"stdout": {{Sequence: 1, Text: "old\n"}, {Sequence: 2, Text: "new\n"}}}
+	response := httptest.NewRecorder()
+	runs.path(response, httptest.NewRequest(http.MethodGet, "/api/v1/runs/run-1/logs/download?stream=stdout&after=1", nil))
+	if response.Code != http.StatusOK || response.Body.String() != "new\n" {
+		t.Fatalf("status = %d, body = %q", response.Code, response.Body.String())
 	}
 }
 
