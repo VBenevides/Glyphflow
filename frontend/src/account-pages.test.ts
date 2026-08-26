@@ -27,9 +27,9 @@ describe('account dirty baseline', () => {
 
   it('exposes session identity and lifecycle metadata with fallbacks', () => {
     const metadata = sessionMetadata({ id: 'session-1', userAgent: 'Chrome on Linux', ipAddress: '127.0.0.1', lastSeenAt: '2026-08-17T12:00:00Z', expiresAt: '2026-08-18T12:00:00Z' })
-    expect(metadata).toEqual(expect.arrayContaining([{ label: 'User agent', value: 'Chrome on Linux' }, { label: 'IP address', value: '127.0.0.1' }]))
+    expect(metadata).toEqual(expect.arrayContaining([{ label: 'Device', value: 'Desktop · Chrome · 127.0.0.1' }, { label: 'IP address', value: '127.0.0.1' }]))
     expect(metadata.find((item) => item.label === 'Last seen')?.value).toContain('2026')
     expect(metadata.find((item) => item.label === 'Expires')?.value).toContain('2026')
-    expect(sessionMetadata({ id: 'session-2' })).toEqual(expect.arrayContaining([{ label: 'User agent', value: 'Unknown' }, { label: 'IP address', value: 'Unknown' }, { label: 'Last seen', value: '—' }, { label: 'Created', value: '—' }, { label: 'Expires', value: '—' }]))
+    expect(sessionMetadata({ id: 'session-2' })).toEqual(expect.arrayContaining([{ label: 'Device', value: 'Unknown device' }, { label: 'IP address', value: 'Unknown' }, { label: 'Last seen', value: '—' }, { label: 'Created', value: '—' }, { label: 'Expires', value: '—' }]))
   })
 })

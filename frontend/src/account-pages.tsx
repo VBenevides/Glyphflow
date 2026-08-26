@@ -8,6 +8,7 @@ import { QueryState as DataState } from './query'
 import { useAuth } from './auth'
 import { useUnsavedChanges } from './unsaved'
 import { formatDateTime } from './format'
+import { sessionDeviceLabel } from './session-device'
 
 export function accountDirty(displayName: string, baseline: string, password: { current: string; next: string; confirm: string }): boolean {
   return displayName !== baseline || Boolean(password.current || password.next || password.confirm)
@@ -15,7 +16,7 @@ export function accountDirty(displayName: string, baseline: string, password: { 
 
 export function sessionMetadata(session: AuthSession): Array<{ label: string; value: string }> {
   return [
-    { label: 'User agent', value: session.userAgent ?? 'Unknown' },
+    { label: 'Device', value: sessionDeviceLabel(session.userAgent, session.ipAddress) },
     { label: 'IP address', value: session.ipAddress ?? 'Unknown' },
     { label: 'Last seen', value: formatDateTime(session.lastSeenAt) },
     { label: 'Created', value: formatDateTime(session.createdAt) },
