@@ -312,7 +312,7 @@ func workerHeartbeat(ctx context.Context, jetstream *queue.JetStream, runnerID, 
 		if err != nil {
 			return
 		}
-		if err := jetstream.Publish(ctx, queue.Message{Subject: queue.Subject("events", runnerID), Data: raw, ID: "heartbeat:" + bootID + ":" + now.UTC().Format(time.RFC3339Nano)}); err != nil {
+		if err := jetstream.Publish(ctx, queue.Message{Subject: queue.Subject("heartbeats", runnerID), Data: raw, ID: "heartbeat:" + bootID + ":" + now.UTC().Format(time.RFC3339Nano)}); err != nil {
 			fmt.Fprintln(stderr, "runner heartbeat:", err)
 		}
 	}
