@@ -10,7 +10,7 @@ COPY VERSION /src/VERSION
 RUN npm run build
 
 FROM ubuntu:24.04 AS backend-build
-ARG GO_VERSION=1.25.0
+ARG GO_VERSION=1.25.13
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
