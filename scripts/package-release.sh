@@ -5,8 +5,8 @@ output_dir=${1:?usage: $0 OUTPUT_DIR VERSION APPLICATION_IMAGE}
 version=${2:?usage: $0 OUTPUT_DIR VERSION APPLICATION_IMAGE}
 application_image=${3:?usage: $0 OUTPUT_DIR VERSION APPLICATION_IMAGE}
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-nats_image=${NATS_IMAGE_REF:-nats:2.10-alpine}
-postgres_image=${POSTGRES_IMAGE_REF:-postgres:16-alpine}
+nats_image=${NATS_IMAGE_REF:-nats@sha256:b83efabe3e7def1e0a4a31ec6e078999bb17c80363f881df35edc70fcb6bb927}
+postgres_image=${POSTGRES_IMAGE_REF:-postgres@sha256:44c4ee9810eff91f7eab4d822642e01115b1a9eccce4bcbdde7604752d68eac6}
 mkdir -p "$output_dir"
 output_dir="$(cd -- "$output_dir" && pwd)"
 bundle_dir="$output_dir/glyphflow-$version"

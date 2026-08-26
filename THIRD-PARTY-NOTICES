@@ -40,12 +40,13 @@ transitive and base-image packages.
 
 ## Runtime and base images
 
-The Compose file references `postgres:16-alpine` and `nats:2.10-alpine`
-as external runtime images. They are not included in the Glyphflow image.
+The Compose file references pinned PostgreSQL and NATS runtime images as
+external dependencies. Their exact release digests are recorded in each
+release manifest; they are not included in the Glyphflow application image.
 NATS Server is Apache-2.0; PostgreSQL, Alpine, and other image-layer
 components retain their own licenses and notices.
 
-The distributed Glyphflow image is based on `nginx:1.29-alpine`. The
+The distributed Glyphflow image is based on pinned `nginx:1.29-alpine`. The
 underlying Nginx, Alpine, and other base-image components retain their own
 licenses. Each release includes an SPDX SBOM for the exact image so
 redistributors can review those components and their applicable terms.

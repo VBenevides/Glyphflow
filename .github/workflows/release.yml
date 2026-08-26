@@ -62,12 +62,17 @@ jobs:
           printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
 
       - name: Build image
-        run: docker build --platform linux/amd64 --file build/Dockerfile --tag "$GLYPHFLOW_IMAGE:$GLYPHFLOW_VERSION" .
+        run: |
+          set -Eeuo pipefail
+          docker buildx build --platform linux/amd64 --file build/Dockerfile \
+            --tag "$GLYPHFLOW_IMAGE:$GLYPHFLOW_VERSION" \
+            --provenance=mode=max --sbom=true --push .
+          docker pull "$GLYPHFLOW_IMAGE:$GLYPHFLOW_VERSION"
 
       - name: Validate deployment topologies
         env:
-          NATS_IMAGE_REF: nats:2.10-alpine
-          POSTGRES_IMAGE_REF: postgres:16-alpine
+          NATS_IMAGE_REF: nats@sha256:b83efabe3e7def1e0a4a31ec6e078999bb17c80363f881df35edc70fcb6bb927
+          POSTGRES_IMAGE_REF: postgres@sha256:44c4ee9810eff91f7eab4d822642e01115b1a9eccce4bcbdde7604752d68eac6
         run: ./scripts/deployment-check.sh "$GLYPHFLOW_IMAGE:$GLYPHFLOW_VERSION"
 
       - name: Generate image SBOM
@@ -103,8 +108,8 @@ jobs:
 
       - name: Package deployment bundle
         env:
-          NATS_IMAGE_REF: nats:2.10-alpine
-          POSTGRES_IMAGE_REF: postgres:16-alpine
+          NATS_IMAGE_REF: nats@sha256:b83efabe3e7def1e0a4a31ec6e078999bb17c80363f881df35edc70fcb6bb927
+          POSTGRES_IMAGE_REF: postgres@sha256:44c4ee9810eff91f7eab4d822642e01115b1a9eccce4bcbdde7604752d68eac6
         run: |
           set -Eeuo pipefail
           mkdir -p release

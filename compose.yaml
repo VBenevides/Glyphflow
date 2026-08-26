@@ -48,7 +48,7 @@ services:
       - "${GLYPHFLOW_PORT:-80}:80"
 
   postgres:
-    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
+    image: ${POSTGRES_IMAGE:-postgres@sha256:44c4ee9810eff91f7eab4d822642e01115b1a9eccce4bcbdde7604752d68eac6}
     environment:
       POSTGRES_DB: glyphflow
       POSTGRES_USER: glyphflow
@@ -64,7 +64,7 @@ services:
       retries: 10
 
   nats:
-    image: ${NATS_IMAGE:-nats:2.10-alpine}
+    image: ${NATS_IMAGE:-nats@sha256:b83efabe3e7def1e0a4a31ec6e078999bb17c80363f881df35edc70fcb6bb927}
     command: ["--jetstream", "--store_dir", "/data", "--http_port", "8222"]
     ports:
       - "${NATS_HOST_PORT:-127.0.0.1:4222}:4222"

@@ -4,8 +4,8 @@ set -Eeuo pipefail
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 image=${1:?usage: $0 APPLICATION_IMAGE}
-nats_image=${NATS_IMAGE_REF:-nats:2.10-alpine}
-postgres_image=${POSTGRES_IMAGE_REF:-postgres:16-alpine}
+nats_image=${NATS_IMAGE_REF:-nats@sha256:b83efabe3e7def1e0a4a31ec6e078999bb17c80363f881df35edc70fcb6bb927}
+postgres_image=${POSTGRES_IMAGE_REF:-postgres@sha256:44c4ee9810eff91f7eab4d822642e01115b1a9eccce4bcbdde7604752d68eac6}
 project="glyphflow-deployment-check-$$"
 network="$project-network"
 partial_nats="$project-nats"
