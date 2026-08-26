@@ -3,7 +3,7 @@
 FROM node:22.22.2-bookworm-slim AS frontend-build
 WORKDIR /src/frontend
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm install --no-audit --no-fund
+RUN npm ci --no-audit --no-fund
 COPY assets/ /src/assets/
 COPY frontend/ ./
 COPY VERSION /src/VERSION
