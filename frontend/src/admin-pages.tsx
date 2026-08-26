@@ -6,7 +6,7 @@ import { api, type AdminSession, type ExitCode, type OidcProvider, type Page, ty
 import { DangerousAction } from './actions'
 import { Button, DataTable, Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuSeparator, DropdownMenuTrigger, EmptyState, FilterInput, Identifier, Input, PageHeader, Pagination, StatusPill, TableActions, Tabs, TabsList, TabsTrigger } from './components'
 import { QueryRefresh, QueryState } from './query'
-import { hasPermission, PERMISSIONS } from './permissions'
+import { hasPermission, permissionPrivilegeLevel, sortedPermissions } from './permissions'
 import { useAuth } from './auth'
 import { useUnsavedChanges } from './unsaved'
 import { formatDateTime } from './format'
@@ -30,8 +30,8 @@ export function userListQuery(page: number, limit: number, email: string, status
   return { page, limit, email: email.trim() || undefined, status: status || undefined }
 }
 
-function InlinePills({ values }: { values?: string[] }) {
-  return values?.length ? <span className="gf-pill-list">{values.map((value) => <span className="gf-inline-pill" key={value}>{value}</span>)}</span> : '—'
+function InlinePills({ values, markElevated = false }: { values?: string[]; markElevated?: boolean }) {
+  return values?.length ? <span className="gf-pill-list">{values.map((value) => <span className={`gf-inline-pill${markElevated && permissionPrivilegeLevel(value) === 'elevated' ? ' gf-permission-elevated' : ''}`} key={value}>{value}</span>)}</span> : '—'
 }
 
 export function filterAndSortRoles(roles: RoleDefinition[], search: string): RoleDefinition[] {
@@ -138,6 +138,7 @@ function RoleEditor({ role, onDone }: { role?: RoleDefinition; onDone: () => voi
   const [selected, setSelected] = useState(() => new Set(role?.permissions ?? []))
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const permissionOptions = sortedPermissions()
   useUnsavedChanges(Boolean(name.trim() || selected.size))
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setBusy(true); setError('')
@@ -149,7 +150,7 @@ function RoleEditor({ role, onDone }: { role?: RoleDefinition; onDone: () => voi
   }
   return <form className="gf-editor-form" onSubmit={submit}>
     <label htmlFor="role-name">Role name<Input id="role-name" value={name} onChange={(event) => setName(event.target.value)} disabled={role?.system} required /></label>
-    <fieldset><legend>Permissions</legend><div className="gf-permission-grid">{PERMISSIONS.map((permission) => <label key={permission}><input type="checkbox" checked={selected.has(permission)} onChange={(event) => setSelected((current) => { const next = new Set(current); event.target.checked ? next.add(permission) : next.delete(permission); return next })} /> {permission}</label>)}</div></fieldset>
+    <fieldset><legend>Permissions</legend><div className="gf-permission-grid">{permissionOptions.map(({ name, privilegeLevel }) => <label className={privilegeLevel === 'elevated' ? 'gf-permission-elevated' : undefined} key={name}><input type="checkbox" checked={selected.has(name)} onChange={(event) => setSelected((current) => { const next = new Set(current); event.target.checked ? next.add(name) : next.delete(name); return next })} /> {name}</label>)}</div></fieldset>
     {error && <p className="gf-form-error" role="alert">{error}</p>}
     <div className="gf-dialog-actions"><Button type="submit" busy={busy}>{role ? 'Save permissions' : 'Create role'}</Button><Button type="button" variant="ghost" onClick={onDone}>Cancel</Button></div>
   </form>
@@ -169,7 +170,7 @@ export function RoleManagementPage() {
     <QueryState query={query} empty="No roles are configured.">{(roles) => { const filteredRoles = filterAndSortRoles(roles, search); return <><div className="gf-filter-bar"><FilterInput label="Search" options={roles.flatMap((role) => [role.name, role.id, ...role.permissions])} value={search} onChange={(value) => { setSearch(value); setPage(1) }} placeholder="Role name, key, or permission" /></div>{manage && <div className="gf-table-toolbar"><Button onClick={() => setEditing(null)}>Create role</Button></div>}{filteredRoles.length ? <div className="gf-role-table"><DataTable caption="Roles" rows={filteredRoles.slice((page - 1) * limit, page * limit)} columns={[
       { key: 'name', label: 'Role', render: (role) => <strong>{role.name}</strong> },
       { key: 'system', label: 'Source', render: (role) => <StatusPill status={role.system ? 'system' : 'custom'} /> },
-      { key: 'permissions', label: 'Permissions', render: (role) => <InlinePills values={role.permissions} /> },
+      { key: 'permissions', label: 'Permissions', render: (role) => <InlinePills values={role.permissions} markElevated /> },
       { key: 'assignedUsers', label: 'Affected users', render: (role) => role.assignedUsers ?? 0 },
       { key: 'actions', label: 'Actions', render: (role) => manage && !role.system && <TableActions label={`Actions for ${role.name}`}><DropdownMenuItem onSelect={() => setEditing(role)}>Edit</DropdownMenuItem><DropdownMenuSeparator /><DangerousAction label="Delete" warning={`Review ${role.assignedUsers ?? 0} affected users before deleting this role.`} onConfirm={() => remove(role)} renderTrigger={(open) => <DropdownMenuItem onSelect={(event) => { event.preventDefault(); open() }}>Delete</DropdownMenuItem>} /></TableActions> },
     ]} /><Pagination page={page} pages={Math.max(1, Math.ceil(filteredRoles.length / limit))} limit={limit} onChange={setPage} onLimitChange={(next) => { setLimit(next); setPage(1) }} /></div> : <EmptyState title="No matching roles">Try another role name, key, or permission.</EmptyState>}</> }}</QueryState>
