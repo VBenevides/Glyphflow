@@ -29,15 +29,12 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 			Enabled       *bool   `json:"enabled"`
 			Registration  *bool   `json:"registration"`
 			DefaultRoleID *string `json:"default_role_id"`
-			LegacyRole    *string `json:"default_role"`
 			Lockdown      *bool   `json:"lockdown_scheduler"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&in); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid authentication settings request", err)
-			return
-		}
-		if in.LegacyRole != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "default_role is no longer accepted; use default_role_id"})
 			return
 		}
 		before := map[string]any{}

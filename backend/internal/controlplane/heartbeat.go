@@ -60,10 +60,6 @@ func RunRunnerHeartbeatMonitor(ctx context.Context, events queue.EventStream, re
 	}
 }
 
-func recordRunnerHeartbeat(ctx context.Context, repository RunnerHeartbeatRepository, raw []byte) error {
-	return recordRunnerHeartbeatForSubject(ctx, repository, "", raw)
-}
-
 func recordRunnerHeartbeatForSubject(ctx context.Context, repository RunnerHeartbeatRepository, subject string, raw []byte) error {
 	envelope, err := protocol.DecodeEnvelope(raw)
 	if err != nil {
@@ -86,7 +82,7 @@ func recordRunnerHeartbeatForSubject(ctx context.Context, repository RunnerHeart
 	if strings.TrimSpace(heartbeat.RunnerID) == "" || strings.TrimSpace(heartbeat.BootID) == "" || strings.TrimSpace(heartbeat.At) == "" {
 		return errors.New("runner heartbeat fields are required")
 	}
-	if subject != "" && subject != queue.Subject("events", heartbeat.RunnerID) && subject != queue.Subject("heartbeats", heartbeat.RunnerID) {
+	if subject != queue.Subject("heartbeats", heartbeat.RunnerID) {
 		return errors.New("runner heartbeat subject does not match runner")
 	}
 	keyRepository, ok := repository.(interface {

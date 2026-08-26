@@ -156,7 +156,7 @@ func TestLoadInstallationEncryptionKey(t *testing.T) {
 	if err := os.WriteFile(path, []byte(base64.StdEncoding.EncodeToString(key)+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := loadInstallationEncryptionKey("production", path, "legacy")
+	loaded, err := loadInstallationEncryptionKey("production", path, "fallback")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestLoadInstallationEncryptionKey(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if _, err := loadInstallationEncryptionKey("production", casePath, "legacy"); err == nil {
+			if _, err := loadInstallationEncryptionKey("production", casePath, "fallback"); err == nil {
 				t.Fatal("invalid installation key file was accepted")
 			}
 		})
@@ -191,13 +191,13 @@ func TestLoadInstallationEncryptionKey(t *testing.T) {
 }
 
 func TestFromEnvLoadsInstallationKeyOnceAndKeepsDevelopmentFallback(t *testing.T) {
-	legacy := "01234567890123456789012345678901"
+	fallback := "01234567890123456789012345678901"
 	t.Setenv("DATABASE_URL", "postgres://user:pass@db/glyphflow?sslmode=verify-full")
 	t.Setenv("NATS_URL", "tls://nats:4222")
 	t.Setenv("NATS_CERT_FILE", "/run/secrets/nats-cert")
 	t.Setenv("NATS_KEY_FILE", "/run/secrets/nats-key")
 	t.Setenv("NATS_CA_FILE", "/run/secrets/nats-ca")
-	t.Setenv("ACCESS_TOKEN_SECRET", legacy)
+	t.Setenv("ACCESS_TOKEN_SECRET", fallback)
 	t.Setenv("CONTROL_PLANE_SIGNING_PRIVATE_KEY", base64.RawStdEncoding.EncodeToString(make([]byte, ed25519.PrivateKeySize)))
 	t.Setenv("PASSWORD_PEPPER", "0123456789012345")
 	t.Setenv("WEB_ORIGIN", "https://console.example")
@@ -234,7 +234,7 @@ func TestFromEnvLoadsInstallationKeyOnceAndKeepsDevelopmentFallback(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(development.InstallationEncryptionKey, []byte(legacy)) {
+	if !bytes.Equal(development.InstallationEncryptionKey, []byte(fallback)) {
 		t.Fatalf("development fallback = %q, want access-token secret", development.InstallationEncryptionKey)
 	}
 }

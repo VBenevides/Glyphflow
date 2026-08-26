@@ -103,8 +103,6 @@ func OpenStore(path string) (*LocalStore, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	// Upgrade stores created before attempt numbers were persisted.
-	_, _ = db.Exec(`ALTER TABLE order_inbox ADD COLUMN attempt_number INTEGER NOT NULL DEFAULT 1`)
 	var journal, synchronous, foreignKeys string
 	if err := db.QueryRow("PRAGMA journal_mode").Scan(&journal); err != nil || journal != "wal" {
 		_ = db.Close()
@@ -355,11 +353,7 @@ func (s *LocalStore) AcceptOrder(raw []byte, keys protocol.Keyring, now time.Tim
 	if err := s.Put(payload.OrderID, payload); err != nil {
 		return protocol.OrderPayload{}, err
 	}
-	session := payload.RunnerSessionID
-	if session == "" {
-		session = "legacy"
-	}
-	if err := s.PutOrder(InboxOrder{OrderID: payload.OrderID, ExecutionAttemptID: payload.OrderID + "-attempt", RunID: payload.RunID, TaskVersionID: payload.TaskID, RunnerID: payload.RunnerID, RunnerSessionID: session, Envelope: string(raw), State: "RECEIVED", LeaseToken: payload.LeaseToken, FencingToken: int64(payload.FencingToken), LeaseNotAfter: payload.ExpiresAt, ExecutionSpecDigest: payload.ExecutionSpecDigest, AttemptNumber: int(payload.Attempt)}); err != nil {
+	if err := s.PutOrder(InboxOrder{OrderID: payload.OrderID, ExecutionAttemptID: payload.OrderID + "-attempt", RunID: payload.RunID, TaskVersionID: payload.TaskID, RunnerID: payload.RunnerID, RunnerSessionID: payload.RunnerSessionID, Envelope: string(raw), State: "RECEIVED", LeaseToken: payload.LeaseToken, FencingToken: int64(payload.FencingToken), LeaseNotAfter: payload.ExpiresAt, ExecutionSpecDigest: payload.ExecutionSpecDigest, AttemptNumber: int(payload.Attempt)}); err != nil {
 		return protocol.OrderPayload{}, err
 	}
 	return payload, nil

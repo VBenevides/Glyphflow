@@ -62,11 +62,11 @@ func FromEnv(role Role) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("GLYPHFLOW_SYSTEM_ADMINS: %w", err)
 	}
-	passwordLogin, err := envBoolAlias("ENABLE_PASSWORD_LOGIN", "PASSWORD_LOGIN_ENABLED", true)
+	passwordLogin, err := envBool("ENABLE_PASSWORD_LOGIN", true)
 	if err != nil {
 		return Config{}, err
 	}
-	passwordRegistration, err := envBoolAlias("ENABLE_PASSWORD_REGISTRATION", "PASSWORD_REGISTRATION_ENABLED", true)
+	passwordRegistration, err := envBool("ENABLE_PASSWORD_REGISTRATION", true)
 	if err != nil {
 		return Config{}, err
 	}
@@ -219,9 +219,9 @@ func (c Config) Validate() error {
 
 const installationEncryptionKeySize = 32
 
-func loadInstallationEncryptionKey(environment, path, legacySecret string) ([]byte, error) {
+func loadInstallationEncryptionKey(environment, path, fallbackSecret string) ([]byte, error) {
 	if environment == "development" && path == "" {
-		return []byte(legacySecret), nil
+		return []byte(fallbackSecret), nil
 	}
 	if path == "" {
 		return nil, errors.New("SECRET_ENCRYPTION_KEY_FILE is required outside development")
@@ -281,18 +281,6 @@ func envIntDefault(name string, fallback int) (int, error) {
 	return envInt(name)
 }
 
-func envBoolDefault(name string, fallback bool) bool {
-	value, ok := os.LookupEnv(name)
-	if !ok || strings.TrimSpace(value) == "" {
-		return fallback
-	}
-	parsed, err := strconv.ParseBool(value)
-	if err != nil {
-		return fallback
-	}
-	return parsed
-}
-
 func envBool(name string, fallback bool) (bool, error) {
 	value, ok := os.LookupEnv(name)
 	if !ok || strings.TrimSpace(value) == "" {
@@ -303,13 +291,6 @@ func envBool(name string, fallback bool) (bool, error) {
 		return false, fmt.Errorf("%s must be a boolean", name)
 	}
 	return parsed, nil
-}
-
-func envBoolAlias(primary, legacy string, fallback bool) (bool, error) {
-	if _, ok := os.LookupEnv(primary); ok {
-		return envBool(primary, fallback)
-	}
-	return envBool(legacy, fallback)
 }
 
 func envStringDefault(name, fallback string) string {

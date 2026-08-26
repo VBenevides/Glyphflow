@@ -24,20 +24,18 @@ import (
 )
 
 type OIDCProvider struct {
-	Key                string            `json:"key"`
-	Name               string            `json:"name,omitempty"`
-	Issuer             string            `json:"issuer"`
-	ClientID           string            `json:"clientId,omitempty"`
-	LegacyClientID     string            `json:"client_id,omitempty"`
-	Callback           string            `json:"callback"`
-	AuthURL            string            `json:"authUrl,omitempty"`
-	Audience           string            `json:"audience,omitempty"`
-	SecretReference    string            `json:"secretReference,omitempty"`
-	Enabled            bool              `json:"enabled"`
-	AutoProvision      bool              `json:"autoProvision,omitempty"`
-	Callbacks          []string          `json:"callbacks,omitempty"`
-	GroupMapping       map[string]string `json:"groupMapping,omitempty"`
-	LegacyGroupMapping map[string]string `json:"group_mapping,omitempty"`
+	Key             string            `json:"key"`
+	Name            string            `json:"name,omitempty"`
+	Issuer          string            `json:"issuer"`
+	ClientID        string            `json:"clientId,omitempty"`
+	Callback        string            `json:"callback"`
+	AuthURL         string            `json:"authUrl,omitempty"`
+	Audience        string            `json:"audience,omitempty"`
+	SecretReference string            `json:"secretReference,omitempty"`
+	Enabled         bool              `json:"enabled"`
+	AutoProvision   bool              `json:"autoProvision,omitempty"`
+	Callbacks       []string          `json:"callbacks,omitempty"`
+	GroupMapping    map[string]string `json:"groupMapping,omitempty"`
 }
 
 // OIDCProviderPublic is the provider projection used by the public login page.
@@ -198,9 +196,6 @@ func providerFromRecord(record store.OIDCProviderRecord) OIDCProvider {
 }
 
 func (s *OIDCService) AddProvider(provider OIDCProvider) error {
-	if provider.ClientID == "" {
-		provider.ClientID = provider.LegacyClientID
-	}
 	if provider.Name == "" {
 		provider.Name = provider.Key
 	}
@@ -208,9 +203,6 @@ func (s *OIDCService) AddProvider(provider OIDCProvider) error {
 		s.mu.RLock()
 		provider.Callback = s.defaultCallback
 		s.mu.RUnlock()
-	}
-	if len(provider.GroupMapping) == 0 {
-		provider.GroupMapping = provider.LegacyGroupMapping
 	}
 	if provider.Key == "" || provider.Issuer == "" || provider.Callback == "" {
 		return errors.New("OIDC provider is incomplete")

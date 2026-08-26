@@ -32,7 +32,7 @@ func TestEnrollmentRedactionAndPaths(t *testing.T) {
 	if !AllowedPath(filepath.Join(root, "tasks"), filepath.Join(root, "tasks", "job")) || AllowedPath(filepath.Join(root, "tasks"), "/tmp") {
 		t.Fatal("path boundary failed")
 	}
-	if !AllowedSubject("glyphflow.orders.worker-1", "worker-1") || !AllowedSubject("glyphflow.control.worker-1", "worker-1") || AllowedSubject("glyphflow.orders.worker-2", "worker-1") {
+	if !AllowedSubject("glyphflow.orders.worker-1", "worker-1") || !AllowedSubject("glyphflow.heartbeats.worker-1", "worker-1") || !AllowedSubject("glyphflow.control.worker-1", "worker-1") || AllowedSubject("glyphflow.orders.worker-2", "worker-1") {
 		t.Fatal("subject boundary failed")
 	}
 }

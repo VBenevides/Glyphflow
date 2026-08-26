@@ -2,6 +2,28 @@
 
 All notable changes to Glyphflow are documented here.
 
+## [0.2.3] - 2026-08-25
+
+### Features
+
+- Added protected installation-key validation, retention/legal holds, storage-pressure run rejection, and durable dead-letter retry state.
+- Added isolated production Compose topology with non-root services, read-only boundaries, private data volumes, and explicit resource limits.
+
+### Bugfixes
+
+- Bounded collection, audit, worker-order, and run-log reads; rejected unsafe pagination offsets and preserved resumable log ordering.
+- Gated durable mutation auditing, hardened OIDC endpoint handling, and preserved worker event/recovery delivery across broker interruptions.
+
+### Other
+
+- Hardened production transport/security headers, separated runner event subjects, synchronized release documentation/toolchains, and aligned frontend build metadata.
+- Added a provisional, non-guaranteed development profile for local test inputs.
+
+### Breaking Changes
+
+- Production Compose now requires protected file-based secrets and a unique client project name; shared/default deployment inputs are unsupported.
+- Runner heartbeats now use dedicated `glyphflow.heartbeats.<runner>` subjects; legacy event-subject routing is rejected.
+
 ## [0.2.2] - 2026-08-25
 
 ### Features

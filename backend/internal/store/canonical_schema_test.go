@@ -9,202 +9,92 @@ import (
 
 func canonicalMigrationSQL(t *testing.T) string {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join("..", "..", "migrations", "001_canonical.sql"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return strings.ToLower(string(raw))
-}
-
-func TestMigrationsHaveCanonicalBaseline(t *testing.T) {
 	migrations, err := LoadMigrations(filepath.Join("..", "..", "migrations"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(migrations) < 1 || migrations[0].Version != 1 || migrations[0].Name != "canonical" {
-		t.Fatalf("migrations = %#v, want 001_canonical.sql as the baseline", migrations)
+	if len(migrations) != 1 || migrations[0].Version != 1 || migrations[0].Name != "canonical" {
+		t.Fatalf("migrations = %#v, want only 001_canonical.sql", migrations)
 	}
-	for _, migration := range migrations {
-		if strings.Contains(migration.SQL, "_v1") || strings.Contains(migration.SQL, "_v2") || strings.Contains(migration.SQL, "_vx") {
-			t.Fatalf("migration %d contains a version-suffixed identifier", migration.Version)
-		}
-	}
+	return strings.ToLower(migrations[0].SQL)
 }
 
-func TestRunnerPendingStateMigration(t *testing.T) {
-	migrations, err := LoadMigrations(filepath.Join("..", "..", "migrations"))
+func TestCanonicalSchemaIsSingleCleanBaseline(t *testing.T) {
+	directory := filepath.Join("..", "..", "migrations")
+	entries, err := os.ReadDir(directory)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(migrations) < 2 || migrations[1].Version != 2 || migrations[1].Name != "runner_pending_state" {
-		t.Fatalf("migrations = %#v, want runner pending state migration", migrations)
+	var sqlFiles []string
+	for _, entry := range entries {
+		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".sql" {
+			sqlFiles = append(sqlFiles, entry.Name())
+		}
 	}
-	sql := strings.ToLower(migrations[1].SQL)
-	for _, fragment := range []string{"drop constraint", "runners_observed_state_check", "'pending'", "set default 'pending'"} {
-		if !strings.Contains(sql, fragment) {
-			t.Errorf("pending state migration does not contain %q", fragment)
+	if len(sqlFiles) != 1 || sqlFiles[0] != "001_canonical.sql" {
+		t.Fatalf("SQL files = %#v, want only 001_canonical.sql", sqlFiles)
+	}
+	sql := canonicalMigrationSQL(t)
+	for _, fragment := range []string{
+		"alter table tasks add column",
+		"alter table runners add column",
+		"drop ",
+		"\nupdate ",
+		"\ndelete from ",
+		"schema_migrations",
+	} {
+		if strings.Contains(sql, fragment) {
+			t.Errorf("canonical schema contains compatibility operation %q", fragment)
 		}
 	}
 }
 
-func TestRunnerCapacityDefaultMigration(t *testing.T) {
-	migrations, err := LoadMigrations(filepath.Join("..", "..", "migrations"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var capacityMigration Migration
-	for _, migration := range migrations {
-		if migration.Name == "runner_capacity_default" {
-			capacityMigration = migration
-		}
-	}
-	if capacityMigration.Version != 10 || !strings.Contains(strings.ToLower(capacityMigration.SQL), "alter table runners alter column capacity set default 10") {
-		t.Fatalf("runner capacity migration = %#v", capacityMigration)
-	}
-}
-
-func TestRunnerCurrentCapacityMigration(t *testing.T) {
-	migrations, err := LoadMigrations(filepath.Join("..", "..", "migrations"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var currentCapacity Migration
-	for _, migration := range migrations {
-		if migration.Name == "runner_current_capacity" {
-			currentCapacity = migration
-		}
-	}
-	if currentCapacity.Version != 11 || !strings.Contains(strings.ToLower(currentCapacity.SQL), "add column current_capacity") {
-		t.Fatalf("runner current capacity migration = %#v", currentCapacity)
-	}
-}
-
-func TestTaskDeletionMigrationKeepsVersionsImmutableButDeletable(t *testing.T) {
-	migrations, err := LoadMigrations(filepath.Join("..", "..", "migrations"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var taskDeletion Migration
-	for _, migration := range migrations {
-		if migration.Name == "task_deletion" {
-			taskDeletion = migration
-		}
-	}
-	sql := strings.ToLower(taskDeletion.SQL)
-	if taskDeletion.Version != 13 || !strings.Contains(sql, "drop trigger if exists task_versions_immutable") || !strings.Contains(sql, "before update on task_versions") || strings.Contains(sql, "before update or delete on task_versions") {
-		t.Fatalf("task deletion migration = %#v", taskDeletion)
-	}
-}
-
-func TestScheduleDeletionMigrationKeepsVersionsImmutableButDeletable(t *testing.T) {
-	migrations, err := LoadMigrations(filepath.Join("..", "..", "migrations"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var scheduleDeletion Migration
-	for _, migration := range migrations {
-		if migration.Name == "schedule_version_deletion" {
-			scheduleDeletion = migration
-		}
-	}
-	sql := strings.ToLower(scheduleDeletion.SQL)
-	if scheduleDeletion.Version != 16 || !strings.Contains(sql, "drop trigger if exists schedule_versions_immutable") || !strings.Contains(sql, "before update on schedule_versions") || strings.Contains(sql, "before update or delete on schedule_versions") {
-		t.Fatalf("schedule deletion migration = %#v", scheduleDeletion)
-	}
-}
-
-func TestTaskArchivalMigrationAddsDeletionFlag(t *testing.T) {
-	migrations, err := LoadMigrations(filepath.Join("..", "..", "migrations"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var taskArchival Migration
-	for _, migration := range migrations {
-		if migration.Name == "task_archival" {
-			taskArchival = migration
-		}
-	}
-	sql := strings.ToLower(taskArchival.SQL)
-	if taskArchival.Version != 14 || !strings.Contains(sql, "add column if not exists is_deleted") || !strings.Contains(sql, "tasks_active_idx") || !strings.Contains(sql, "before update or delete on task_versions") {
-		t.Fatalf("task archival migration = %#v", taskArchival)
-	}
-}
-
-func TestRunnerPoolArchivalMigrationAddsDeletionFlag(t *testing.T) {
-	migrations, err := LoadMigrations(filepath.Join("..", "..", "migrations"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var poolArchival Migration
-	for _, migration := range migrations {
-		if migration.Name == "runner_pool_archival" {
-			poolArchival = migration
-		}
-	}
-	sql := strings.ToLower(poolArchival.SQL)
-	if poolArchival.Version != 15 || !strings.Contains(sql, "add column if not exists is_deleted") || !strings.Contains(sql, "runner_pools_name_ci_idx") || !strings.Contains(sql, "runner_pools_active_idx") {
-		t.Fatalf("runner pool archival migration = %#v", poolArchival)
-	}
-}
-
-func TestGlobalVariableMigration(t *testing.T) {
-	migrations, err := LoadMigrations(filepath.Join("..", "..", "migrations"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var globalMigration Migration
-	for _, migration := range migrations {
-		if migration.Name == "global_variables" {
-			globalMigration = migration
-		}
-	}
-	if globalMigration.Version != 6 {
-		t.Fatalf("migrations = %#v, want global variable migration", migrations)
-	}
-	sql := strings.ToLower(globalMigration.SQL)
-	for _, fragment := range []string{"create table global_variables", "global_variable_references", "on delete restrict"} {
-		if !strings.Contains(sql, fragment) {
-			t.Errorf("global variable migration does not contain %q", fragment)
-		}
-	}
-}
-
-func TestCronOnlyMigration(t *testing.T) {
-	migrations, err := LoadMigrations(filepath.Join("..", "..", "migrations"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var cronMigration Migration
-	for _, migration := range migrations {
-		if migration.Name == "cron_only" {
-			cronMigration = migration
-		}
-	}
-	if cronMigration.Version != 7 || !strings.Contains(strings.ToLower(cronMigration.SQL), "drop column schedule_type") {
-		t.Fatalf("cron-only migration = %#v", cronMigration)
-	}
-}
-
-func TestCanonicalMigrationContainsTargetTables(t *testing.T) {
+func TestCanonicalSchemaContainsFinalTables(t *testing.T) {
 	sql := canonicalMigrationSQL(t)
 	for _, table := range []string{
 		"config", "users", "user_passwords", "auth_sessions", "roles", "permissions", "role_permissions", "role_assignments",
-		"sso_providers", "sso_group_role_mappings", "user_sso_identities", "sso_authorization_states", "audit_events",
-		"runner_pools", "runners", "runner_sessions", "runner_keys", "runner_enrollments", "tasks", "task_versions",
-		"schedules", "schedule_versions", "runs", "execution_attempts", "run_events", "execution_log_chunks", "resources",
-		"task_resource_requirements", "resource_leases", "dispatch_outbox", "event_inbox",
+		"sso_providers", "sso_group_role_mappings", "user_sso_identities", "sso_authorization_states", "audit_events", "exit_code",
+		"global_variables", "global_variable_references", "runner_pools", "runners", "runner_sessions", "runner_keys", "runner_enrollments",
+		"tasks", "task_versions", "schedules", "schedule_versions", "runs", "execution_attempts", "run_events", "execution_log_chunks",
+		"resources", "task_resource_requirements", "resource_leases", "dispatch_outbox", "event_inbox", "dead_letters", "retention_legal_holds",
 	} {
 		if !strings.Contains(sql, "create table "+table+" ") {
-			t.Errorf("canonical migration does not define %s", table)
+			t.Errorf("canonical schema does not define %s", table)
 		}
 	}
 }
 
-func TestCanonicalMigrationHasIntegrityGuards(t *testing.T) {
+func TestCanonicalSchemaContainsFinalShape(t *testing.T) {
+	sql := canonicalMigrationSQL(t)
+	for _, fragment := range []string{
+		"observed_state text not null default 'pending' check (observed_state in ('pending', 'online', 'offline', 'revoked'))",
+		"capacity integer not null default 10",
+		"current_capacity integer check (current_capacity > 0)",
+		"is_archived boolean not null default false",
+		"is_deleted boolean not null default false",
+		"resolved_global_variables jsonb not null default '{}'::jsonb",
+		"max_memory_used_bytes bigint not null default 0",
+		"average_memory_used_bytes bigint not null default 0",
+		"foreign key (exit_code) references exit_code(code)",
+		"retry_delivery_id text not null default ''",
+		"name ~ '^[a-z_][a-z0-9_]*$'",
+	} {
+		if !strings.Contains(sql, fragment) {
+			t.Errorf("canonical schema does not contain %q", fragment)
+		}
+	}
+	if strings.Contains(sql, "schedule_type") || strings.Contains(sql, "\n    deleted boolean") {
+		t.Fatal("canonical schema contains removed compatibility columns")
+	}
+}
+
+func TestCanonicalSchemaHasIntegrityGuards(t *testing.T) {
 	sql := canonicalMigrationSQL(t)
 	for _, fragment := range []string{
 		"check (name !~ '^state\\.')",
 		"foreign key (current_version_id, id) references task_versions",
+		"unique index runner_pools_name_ci_idx on runner_pools (lower(name)) where not is_deleted",
+		"unique index runners_name_ci_idx on runners (lower(name)) where not is_archived and not is_deleted",
 		"unique index runner_sessions_active_idx",
 		"unique index resource_leases_active_idx",
 		"unique (execution_attempt_id, state_sequence)",
@@ -217,23 +107,7 @@ func TestCanonicalMigrationHasIntegrityGuards(t *testing.T) {
 		"create trigger run_events_append_only",
 	} {
 		if !strings.Contains(sql, fragment) {
-			t.Errorf("canonical migration does not contain %q", fragment)
-		}
-	}
-}
-
-func TestCanonicalMigrationHasIdentityConstraints(t *testing.T) {
-	sql := canonicalMigrationSQL(t)
-	for _, fragment := range []string{
-		"check (email <> '' and email = lower(btrim(email)))",
-		"check (username <> '' and username = lower(btrim(username)))",
-		"password_hash ~ '^\\$argon2id\\$v=19\\$m=",
-		"unique index roles_name_ci_idx on roles (lower(name))",
-		"create trigger roles_system_immutable",
-		"role_id text not null references roles(id) on delete restrict",
-	} {
-		if !strings.Contains(sql, fragment) {
-			t.Errorf("canonical migration does not contain identity constraint %q", fragment)
+			t.Errorf("canonical schema does not contain %q", fragment)
 		}
 	}
 }

@@ -238,6 +238,9 @@ func TestRunnerIDFromSubjectKeepsDottedIDs(t *testing.T) {
 	if got := runnerIDFromSubject("glyphflow.events.runner.eu-west"); got != "runner.eu-west" {
 		t.Fatalf("runner ID = %q", got)
 	}
+	if got := runnerIDFromSubject("glyphflow.heartbeats.runner.eu-west"); got != "runner.eu-west" {
+		t.Fatalf("heartbeat runner ID = %q", got)
+	}
 	if got := runnerIDFromSubject("glyphflow.deadletter.glyphflow.events.runner-1"); got != "" {
 		t.Fatalf("dead-letter subject was treated as a runner subject: %q", got)
 	}

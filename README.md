@@ -217,14 +217,27 @@ it; generate a new artifact if the enrollment expires or is consumed.
 
 ## Production deployment
 
-The repository includes a container image and Compose files for a self-hosted
-deployment. Build the image from the repository root:
+The release workflow publishes a ready-to-use image to GitHub Container
+Registry when a GitHub release is published. The release tag must match
+`VERSION`, with or without a leading `v`. Stable releases also receive the
+`latest` tag.
 
 ```bash
-version="$(tr -d '[:space:]' < VERSION)"
-docker build -f build/Dockerfile -t "glyphflow:${version}" .
-docker tag "glyphflow:${version}" glyphflow:latest
+export GLYPHFLOW_IMAGE=ghcr.io/vbenevides/glyphflow:0.2.3
+docker pull "$GLYPHFLOW_IMAGE"
 ```
+
+The GitHub release also contains a Linux AMD64 image archive and SHA-256
+checksum for environments without registry access:
+
+```bash
+sha256sum -c glyphflow-0.2.3-linux-amd64.tar.gz.sha256
+docker load -i glyphflow-0.2.3-linux-amd64.tar.gz
+```
+
+Version 0.2.3 is clean-install-only. On first start, the image applies its
+single canonical PostgreSQL schema to a new database; it does not upgrade
+databases from earlier releases.
 
 The base [`compose.yaml`](compose.yaml) is intentionally convenient for local
 use. It exposes PostgreSQL and NATS and contains development credentials. Do

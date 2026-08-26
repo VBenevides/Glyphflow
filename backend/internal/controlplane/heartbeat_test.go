@@ -24,7 +24,7 @@ func TestRecordRunnerHeartbeatIgnoresRunnerEventEnvelope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := recordRunnerHeartbeat(context.Background(), repository, raw); err == nil {
+	if err := recordRunnerHeartbeatForSubject(context.Background(), repository, queue.Subject("heartbeats", "runner-1"), raw); err == nil {
 		t.Fatal("unsigned heartbeat envelope was accepted")
 	}
 	if repository.id != "" {
@@ -69,7 +69,7 @@ func TestRecordRunnerHeartbeat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := recordRunnerHeartbeat(context.Background(), repository, raw); err != nil {
+	if err := recordRunnerHeartbeatForSubject(context.Background(), repository, queue.Subject("heartbeats", "runner-1"), raw); err != nil {
 		t.Fatal(err)
 	}
 	if repository.id != "runner-1" || repository.at.IsZero() || repository.capacity != 42 {
@@ -83,7 +83,7 @@ func TestRecordRunnerHeartbeat(t *testing.T) {
 	}
 }
 
-func TestDispatcherHandlesLegacyHeartbeatSubject(t *testing.T) {
+func TestDispatcherRejectsHeartbeatOnRunnerEventSubject(t *testing.T) {
 	repository := &heartbeatRepository{}
 	key, err := protocol.GenerateSigningKey("runner:1", time.Now().UTC(), time.Hour)
 	if err != nil {
@@ -99,17 +99,17 @@ func TestDispatcherHandlesLegacyHeartbeatSubject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := applyRunnerEvent(context.Background(), repository, nil, queue.Message{Subject: queue.Subject("events", "runner-1"), Data: raw}); err != nil {
-		t.Fatal(err)
+	if err := applyRunnerEvent(context.Background(), repository, nil, queue.Message{Subject: queue.Subject("events", "runner-1"), Data: raw}); err == nil {
+		t.Fatal("heartbeat on the runner event subject was accepted")
 	}
-	if repository.id != "runner-1" {
-		t.Fatalf("legacy heartbeat was not recorded: %q", repository.id)
+	if repository.id != "" {
+		t.Fatalf("heartbeat on the runner event subject was recorded: %q", repository.id)
 	}
 }
 
 func TestRecordRunnerHeartbeatRejectsInvalidPayload(t *testing.T) {
 	repository := &heartbeatRepository{}
-	if err := recordRunnerHeartbeat(context.Background(), repository, []byte(`{"runner_id":"runner-1"}`)); err == nil {
+	if err := recordRunnerHeartbeatForSubject(context.Background(), repository, queue.Subject("heartbeats", "runner-1"), []byte(`{"runner_id":"runner-1"}`)); err == nil {
 		t.Fatal("invalid heartbeat was accepted")
 	}
 }

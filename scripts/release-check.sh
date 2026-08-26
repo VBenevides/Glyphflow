@@ -54,14 +54,23 @@ if [ -z "$release_database_url" ]; then
   release_db_owned=true
 fi
 
-for migration in backend/migrations/*.sql; do
-  if [ "$release_db_with_docker" = true ]; then
-    docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U glyphflow -d "$release_db_name" < "$migration" >/dev/null
-  else
-    command -v psql >/dev/null 2>&1 || { echo "release check: psql is required with RELEASE_DATABASE_URL" >&2; exit 1; }
-    psql "$release_database_url" -v ON_ERROR_STOP=1 -f "$migration" >/dev/null
-  fi
-done
+canonical_schema=backend/migrations/001_canonical.sql
+[ -f "$canonical_schema" ] || { echo "release check: canonical schema is missing" >&2; exit 1; }
+migration_count=$(find backend/migrations -maxdepth 1 -type f -name '*.sql' | wc -l | tr -d ' ')
+[ "$migration_count" = 1 ] || { echo "release check: exactly one canonical SQL file is required" >&2; exit 1; }
+if [ "$release_db_with_docker" = true ]; then
+	docker compose exec -T postgres psql -1 -v ON_ERROR_STOP=1 -U glyphflow -d "$release_db_name" < "$canonical_schema" >/dev/null
+else
+	command -v psql >/dev/null 2>&1 || { echo "release check: psql is required with RELEASE_DATABASE_URL" >&2; exit 1; }
+	psql "$release_database_url" -1 -v ON_ERROR_STOP=1 -f "$canonical_schema" >/dev/null
+fi
+canonical_checksum=$(sha256sum "$canonical_schema" | cut -d' ' -f1)
+schema_metadata_sql="CREATE TABLE schema_migrations (version integer PRIMARY KEY, name text NOT NULL, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now()); INSERT INTO schema_migrations (version, name, checksum) VALUES (1, 'canonical', '$canonical_checksum');"
+if [ "$release_db_with_docker" = true ]; then
+	docker compose exec -T postgres psql -1 -v ON_ERROR_STOP=1 -U glyphflow -d "$release_db_name" -c "$schema_metadata_sql" >/dev/null
+else
+	psql "$release_database_url" -1 -v ON_ERROR_STOP=1 -c "$schema_metadata_sql" >/dev/null
+fi
 (cd backend && DATABASE_URL="$release_database_url" GOCACHE="${GOCACHE:-/tmp/glyphflow-go-cache}" go test ./...)
 
 ./scripts/generate-sbom.sh "$release_tmp/SBOM.spdx.json"

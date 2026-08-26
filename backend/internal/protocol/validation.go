@@ -12,7 +12,7 @@ const MaxEventErrorBytes = 4096
 var secretRefPattern = regexp.MustCompile(`^[A-Za-z0-9._/-]+$`)
 
 func (p OrderPayload) ValidateExecution() error {
-	if p.OrderID == "" || p.RunID == "" || p.RunnerID == "" || p.LeaseToken == "" || p.WorkingDir == "" || p.TimeoutSeconds == 0 || len(p.Command) == 0 {
+	if p.OrderID == "" || p.RunID == "" || p.RunnerID == "" || p.RunnerSessionID == "" || p.LeaseToken == "" || p.WorkingDir == "" || p.TimeoutSeconds == 0 || len(p.Command) == 0 {
 		return errors.New("order execution fields are required")
 	}
 	for _, arg := range p.Command {

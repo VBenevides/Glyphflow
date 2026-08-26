@@ -10,7 +10,7 @@ import (
 	"github.com/VBenevides/Glyphflow/backend/internal/worker"
 )
 
-func TestNeedsRunnerEnrollmentForLegacyStore(t *testing.T) {
+func TestNeedsRunnerEnrollmentForUnenrolledStore(t *testing.T) {
 	bootstrap := &worker.Bootstrap{RunnerID: "runner-1"}
 	validKey, err := protocol.GenerateSigningKey("runner:runner-1", time.Now().UTC(), time.Hour)
 	if err != nil {
@@ -25,7 +25,7 @@ func TestNeedsRunnerEnrollmentForLegacyStore(t *testing.T) {
 		want                      bool
 	}{
 		{name: "new store", want: true},
-		{name: "legacy store without key", connectionFound: true, want: true},
+		{name: "stored connection without key", connectionFound: true, want: true},
 		{name: "changed key identity", connectionFound: true, keyFound: true, key: protocol.SigningKey{ID: "runner:old"}, want: true},
 		{name: "expired key", connectionFound: true, keyFound: true, key: expiredKey, want: true},
 		{name: "enrolled store", connectionFound: true, keyFound: true, key: validKey, want: false},

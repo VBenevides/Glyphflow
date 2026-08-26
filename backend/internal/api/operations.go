@@ -379,7 +379,9 @@ func (o *OperationsService) scheduleCollection(w http.ResponseWriter, r *http.Re
 		return
 	}
 	var input scheduleInput
-	if json.NewDecoder(r.Body).Decode(&input) != nil {
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&input) != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid schedule"})
 		return
 	}
@@ -502,7 +504,9 @@ func (o *OperationsService) schedulePath(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var input scheduleInput
-	if json.NewDecoder(r.Body).Decode(&input) != nil {
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&input) != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid schedule"})
 		return
 	}
@@ -534,7 +538,9 @@ func (o *OperationsService) preview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input scheduleInput
-	if json.NewDecoder(r.Body).Decode(&input) != nil || input.Expression == "" {
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&input) != nil || input.Expression == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "schedule expression is required"})
 		return
 	}

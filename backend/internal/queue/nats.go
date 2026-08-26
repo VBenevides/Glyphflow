@@ -339,7 +339,7 @@ func runnerIDFromSubject(subject string) string {
 		return ""
 	}
 	switch parts[1] {
-	case "orders", "events", "control":
+	case "orders", "events", "heartbeats", "control":
 		return strings.Join(parts[2:], ".")
 	default:
 		return ""

@@ -54,7 +54,7 @@ func TestOrderRuntimeExecutesOrderAndPublishesEvents(t *testing.T) {
 	}
 	directory := t.TempDir()
 	now := time.Now().UTC()
-	order := protocol.OrderPayload{Version: protocol.ProtocolVersion, OrderID: "attempt-1", RunID: "run-1", TaskID: "task-1", TaskName: "Example task", TaskVersion: 2, Attempt: 1, LeaseToken: "lease-1", RunnerID: "runner-1", IssuedAt: now, NotBefore: now, ExpiresAt: now.Add(time.Minute), Type: protocol.OrderExecute, Command: []string{"printf", "ok"}, WorkingDir: directory, TimeoutSeconds: 1}
+	order := protocol.OrderPayload{Version: protocol.ProtocolVersion, OrderID: "attempt-1", RunID: "run-1", TaskID: "task-1", TaskName: "Example task", TaskVersion: 2, Attempt: 1, LeaseToken: "lease-1", RunnerID: "runner-1", RunnerSessionID: "session-1", IssuedAt: now, NotBefore: now, ExpiresAt: now.Add(time.Minute), Type: protocol.OrderExecute, Command: []string{"printf", "ok"}, WorkingDir: directory, TimeoutSeconds: 1}
 	rawPayload, err := protocol.EncodeOrderPayload(order)
 	if err != nil {
 		t.Fatal(err)
@@ -148,7 +148,7 @@ func TestOrderRuntimeRunsOrdersConcurrently(t *testing.T) {
 	for index := range orders {
 		now := time.Now().UTC()
 		command := fmt.Sprintf("touch %q; while [ ! -f %q ] || [ ! -f %q ]; do sleep 0.01; done; printf x >> %q", started[index], started[0], started[1], finished)
-		order := protocol.OrderPayload{Version: protocol.ProtocolVersion, OrderID: fmt.Sprintf("attempt-%d", index+1), RunID: fmt.Sprintf("run-%d", index+1), TaskID: "task-1", Attempt: 1, LeaseToken: fmt.Sprintf("lease-%d", index+1), RunnerID: "runner-1", IssuedAt: now, NotBefore: now, ExpiresAt: now.Add(time.Minute), Type: protocol.OrderExecute, Command: []string{"sh", "-c", command}, WorkingDir: directory, TimeoutSeconds: 2}
+		order := protocol.OrderPayload{Version: protocol.ProtocolVersion, OrderID: fmt.Sprintf("attempt-%d", index+1), RunID: fmt.Sprintf("run-%d", index+1), TaskID: "task-1", Attempt: 1, LeaseToken: fmt.Sprintf("lease-%d", index+1), RunnerID: "runner-1", RunnerSessionID: fmt.Sprintf("session-%d", index+1), IssuedAt: now, NotBefore: now, ExpiresAt: now.Add(time.Minute), Type: protocol.OrderExecute, Command: []string{"sh", "-c", command}, WorkingDir: directory, TimeoutSeconds: 2}
 		rawPayload, err := protocol.EncodeOrderPayload(order)
 		if err != nil {
 			t.Fatal(err)
@@ -207,7 +207,7 @@ func TestOrderRuntimeReportsTimeoutWithSystemCode(t *testing.T) {
 	}
 	directory := t.TempDir()
 	now := time.Now().UTC()
-	order := protocol.OrderPayload{Version: protocol.ProtocolVersion, OrderID: "attempt-timeout", RunID: "run-timeout", TaskID: "task-timeout", Attempt: 1, LeaseToken: "lease-timeout", RunnerID: "runner-1", IssuedAt: now, NotBefore: now, ExpiresAt: now.Add(time.Minute), Type: protocol.OrderExecute, Command: []string{"sh", "-c", "sleep 2"}, WorkingDir: directory, TimeoutSeconds: 1}
+	order := protocol.OrderPayload{Version: protocol.ProtocolVersion, OrderID: "attempt-timeout", RunID: "run-timeout", TaskID: "task-timeout", Attempt: 1, LeaseToken: "lease-timeout", RunnerID: "runner-1", RunnerSessionID: "session-timeout", IssuedAt: now, NotBefore: now, ExpiresAt: now.Add(time.Minute), Type: protocol.OrderExecute, Command: []string{"sh", "-c", "sleep 2"}, WorkingDir: directory, TimeoutSeconds: 1}
 	rawPayload, err := protocol.EncodeOrderPayload(order)
 	if err != nil {
 		t.Fatal(err)
@@ -268,7 +268,7 @@ func TestOrderRuntimeDiscardsRejectedStartClaim(t *testing.T) {
 	directory := t.TempDir()
 	marker := directory + "/started"
 	now := time.Now().UTC()
-	order := protocol.OrderPayload{Version: protocol.ProtocolVersion, OrderID: "attempt-rejected", RunID: "run-rejected", TaskID: "task-rejected", Attempt: 1, LeaseToken: "lease-rejected", RunnerID: "runner-1", IssuedAt: now, NotBefore: now, ExpiresAt: now.Add(time.Minute), Type: protocol.OrderExecute, Command: []string{"touch", marker}, WorkingDir: directory, TimeoutSeconds: 1}
+	order := protocol.OrderPayload{Version: protocol.ProtocolVersion, OrderID: "attempt-rejected", RunID: "run-rejected", TaskID: "task-rejected", Attempt: 1, LeaseToken: "lease-rejected", RunnerID: "runner-1", RunnerSessionID: "session-rejected", IssuedAt: now, NotBefore: now, ExpiresAt: now.Add(time.Minute), Type: protocol.OrderExecute, Command: []string{"touch", marker}, WorkingDir: directory, TimeoutSeconds: 1}
 	orderBytes, err := protocol.EncodeOrderPayload(order)
 	if err != nil {
 		t.Fatal(err)
