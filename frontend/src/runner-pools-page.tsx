@@ -1,17 +1,17 @@
-import { useState, type FormEvent } from 'react'
+import { useState, type FormEvent, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from './auth'
 import { api, type Page, type RunnerPool } from './api'
 import { DangerousAction } from './actions'
 import { Button, DataTable, Dialog, DropdownMenuItem, DropdownMenuSeparator, EmptyState, Input, MetricCard, PageHeader, Pagination, StatusPill, TableActions } from './components'
 import { describeError } from './errors'
-import { QueryState } from './query'
+import { QueryRefresh, QueryState } from './query'
 import { hasPermission } from './permissions'
 
 type PoolDraft = { name: string; description: string; enabled: boolean }
 const emptyDraft: PoolDraft = { name: '', description: '', enabled: true }
 
-export function RunnerPoolsPage({ embedded = false }: { embedded?: boolean } = {}) {
+export function RunnerPoolsPage({ navigation, title = 'Pools', description = 'Group runners for task placement and enrollment.' }: { navigation?: ReactNode; title?: string; description?: string } = {}) {
   const { permissions } = useAuth()
   const manage = hasPermission(permissions, 'runners.manage')
   const [draft, setDraft] = useState<PoolDraft>(emptyDraft)
@@ -54,7 +54,6 @@ export function RunnerPoolsPage({ embedded = false }: { embedded?: boolean } = {
     </form>
   </Dialog> : null
   const content = <>
-    {embedded && <div className="gf-section-heading"><h2>Pools</h2>{create}</div>}
     {form}
     <QueryState query={query} empty="Create a pool before enrolling runners.">
       {(data) => <>
@@ -75,5 +74,5 @@ export function RunnerPoolsPage({ embedded = false }: { embedded?: boolean } = {
       </>}
     </QueryState>
   </>
-  return embedded ? content : <main className="gf-content"><PageHeader title="Pools" description="Group runners for task placement and enrollment." action={create} />{content}</main>
+  return <main className="gf-content"><PageHeader title={title} description={description} action={create} refresh={<QueryRefresh query={query} />} />{navigation}{content}</main>
 }

@@ -17,6 +17,6 @@ describe('audit filters', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/audit-page.tsx'), 'utf8')
     expect(source).not.toContain("queryKey: ['audit-filter-options'")
     expect(source).not.toContain('all: true')
-    expect(source).toContain('Exclude GET requests')
+    expect(source).toContain('Hide GET requests')
   })
 })

@@ -4,7 +4,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { api, type AuthSession, type Profile } from './api'
 import { DangerousAction } from './actions'
 import { Button, Identifier, Input, PageHeader, StatusPill } from './components'
-import { QueryState as DataState } from './query'
+import { QueryRefresh, QueryState as DataState } from './query'
 import { useAuth } from './auth'
 import { useUnsavedChanges } from './unsaved'
 import { formatDateTime } from './format'
@@ -43,7 +43,7 @@ export function AccountPage() {
   const section = location.pathname.split('/')[2] ?? 'profile'
   useUnsavedChanges(accountDirty(displayName, displayNameBaseline, password))
   const accountTabs = <nav className="gf-account-tabs" aria-label="Account sections"><Link className={section === 'profile' || section === 'account' ? 'is-active' : ''} to="/account">Profile</Link><Link className={section === 'password' ? 'is-active' : ''} to="/account/password">Password</Link><Link className={section === 'identities' ? 'is-active' : ''} to="/account/identities">Identities</Link><Link className={section === 'sessions' ? 'is-active' : ''} to="/account/sessions">Sessions</Link></nav>
-  return <main className="gf-content"><PageHeader title="Account" description="Manage your profile, login methods, and active sessions." />
+  return <main className="gf-content"><PageHeader title="Account" description="Manage your profile, login methods, and active sessions." refresh={<QueryRefresh query={query} />} />
     <DataState query={query}>{(profile) => <>
       {accountTabs}
       {(section === 'profile' || section === 'account') && <section className="gf-card-panel"><h2>Profile</h2><form className="gf-editor-form" onSubmit={saveProfile}><label htmlFor="account-email">Email<Input id="account-email" type="text" inputMode="email" value={profile.email ?? profile.username} readOnly disabled /></label><label htmlFor="account-display-name">Display name<Input id="account-display-name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></label>{profileError && <p className="gf-form-error" role="alert">{profileError}</p>}{profile.email && <p className="gf-muted">Email is used as the login identifier.</p>}<Button type="submit">Save profile</Button></form></section>}

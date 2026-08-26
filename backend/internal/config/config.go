@@ -72,7 +72,7 @@ func FromEnv(role Role) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	userApproval, err := envBool("REQUIRE_USER_APPROVAL", false)
+	userApproval, err := envBool("REQUIRE_USER_APPROVAL", true)
 	if err != nil {
 		return Config{}, err
 	}

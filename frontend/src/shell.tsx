@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Activity, ChevronDown, ChevronRight, FolderKanban, KeyRound, LayoutDashboard, LogOut, Menu, Moon, PanelLeftClose, PanelLeftOpen, Server, Shield, Sun, Users, X } from 'lucide-react'
+import { Activity, ChevronDown, ChevronRight, FolderKanban, KeyRound, LayoutDashboard, LogOut, Menu, Moon, PanelLeftClose, PanelLeftOpen, Server, Settings, Shield, Sun, Users, Variable, X } from 'lucide-react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from './auth'
 import { api } from './api'
@@ -47,7 +47,9 @@ function routeIcon(path: string) {
   if (path === '/') return LayoutDashboard
   if (path === '/runs') return Activity
   if (path === '/audit' || path === '/admin/sso') return Shield
-  if (path === '/resources' || path === '/global-variables' || path === '/admin/roles' || path === '/admin/auth') return KeyRound
+  if (path === '/global-variables') return Variable
+  if (path === '/admin/auth') return Settings
+  if (path === '/resources' || path === '/admin/roles') return KeyRound
   if (path === '/admin/execution-status') return Activity
   if (path === '/admin/system') return Activity
   if (path.startsWith('/admin')) return Users

@@ -6,6 +6,7 @@ import { useAuth } from './auth'
 import { api, type Page, type Run, type Runner, type Schedule } from './api'
 import { EmptyState, ErrorState, LoadingState, MetricCard, PageHeader, StatusPill } from './components'
 import { hasPermission } from './permissions'
+import { QueryRefresh } from './query'
 
 type Widget = { key: string; label: string; permission: string; path: string; kind: 'metric' | 'list'; tone?: 'default' | 'success' | 'warning' | 'danger' | 'info'; icon?: ComponentType<{ className?: string; size?: string | number }> }
 export const DASHBOARD_WIDGETS: Widget[] = [
@@ -35,5 +36,5 @@ export function DashboardPage() {
   const metricWidgets = widgets.filter((widget) => widget.kind === 'metric')
   const listWidgets = widgets.filter((widget) => widget.kind === 'list')
   const resultFor = (widget: Widget) => results[widgets.indexOf(widget)]
-  return <main className="gf-content"><PageHeader title="Overview" description="A live view of the scheduler resources you can access." meta="Live scheduler data" /><div className="gf-metric-grid">{metricWidgets.map((widget) => <WidgetState key={widget.key} widget={widget} result={resultFor(widget)} />)}</div><div className="gf-dashboard-grid">{listWidgets.map((widget) => <WidgetState key={widget.key} widget={widget} result={resultFor(widget)} />)}</div>{!widgets.length && <EmptyState title="No dashboard widgets available">Ask an administrator for a read permission.</EmptyState>}<p className="gf-dashboard-links"><Link to="/runs">Review runs</Link><Link to="/tasks">Manage tasks</Link></p></main>
+  return <main className="gf-content"><PageHeader title="Overview" description="A live view of the scheduler resources you can access." meta="Live scheduler data" refresh={<QueryRefresh query={results} />} /><div className="gf-metric-grid">{metricWidgets.map((widget) => <WidgetState key={widget.key} widget={widget} result={resultFor(widget)} />)}</div><div className="gf-dashboard-grid">{listWidgets.map((widget) => <WidgetState key={widget.key} widget={widget} result={resultFor(widget)} />)}</div>{!widgets.length && <EmptyState title="No dashboard widgets available">Ask an administrator for a read permission.</EmptyState>}<p className="gf-dashboard-links"><Link to="/runs">Review runs</Link><Link to="/tasks">Manage tasks</Link></p></main>
 }

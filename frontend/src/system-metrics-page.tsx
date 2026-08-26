@@ -4,7 +4,7 @@ import { Activity, AlertTriangle, HardDrive, Inbox, Server, Timer } from 'lucide
 import { api, type DeadLetter, type DeadLetterPage, type SystemMetrics } from './api'
 import { DataTable, EmptyState, Identifier, Input, MetricCard, PageHeader, StatusPill, Button, type MetricTone } from './components'
 import { formatDateTime } from './format'
-import { QueryState } from './query'
+import { QueryRefresh, QueryState } from './query'
 import { hasPermission } from './permissions'
 import { useAuth } from './auth'
 
@@ -79,5 +79,5 @@ export function SystemMetricsPage() {
     staleTime: 10_000,
     refetchInterval: 15_000,
   })
-  return <main className="gf-content"><PageHeader title="System Metrics" description="Operational readiness, queue pressure, storage, and recovery signals." meta="Refreshes every 15 seconds" /><QueryState query={query} empty="System metrics are not available.">{(data) => <><SystemMetricsView data={data} />{hasPermission(permissions, 'system.deadletter.read') && <DeadLetterRecovery canManage={hasPermission(permissions, 'system.deadletter.manage')} />}</>}</QueryState></main>
+  return <main className="gf-content"><PageHeader title="System Metrics" description="Operational readiness, queue pressure, storage, and recovery signals." meta="Refreshes every 15 seconds" refresh={<QueryRefresh query={query} />} /><QueryState query={query} empty="System metrics are not available.">{(data) => <><SystemMetricsView data={data} />{hasPermission(permissions, 'system.deadletter.read') && <DeadLetterRecovery canManage={hasPermission(permissions, 'system.deadletter.manage')} />}</>}</QueryState></main>
 }

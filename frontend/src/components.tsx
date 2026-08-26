@@ -63,8 +63,8 @@ export function StatusPill({ status }: { status: string }) {
   return <span className={`gf-status gf-status-${normalized}`}>{status}</span>
 }
 
-export function PageHeader({ title, description, action, meta }: { title: string; description?: string; action?: ReactNode; meta?: ReactNode }) {
-  return <header className="gf-page-header"><div><h1>{title}</h1>{description && <p>{description}</p>}</div><div className="gf-page-header-actions">{meta && <div className="gf-page-header-meta">{meta}</div>}{action}</div></header>
+export function PageHeader({ title, description, action, meta, refresh }: { title: string; description?: string; action?: ReactNode; meta?: ReactNode; refresh?: ReactNode }) {
+  return <header className="gf-page-header"><div><h1>{title}</h1>{description && <p>{description}</p>}{refresh && <div className="gf-page-header-refresh">{refresh}</div>}</div><div className="gf-page-header-actions">{meta && <div className="gf-page-header-meta">{meta}</div>}{action}</div></header>
 }
 
 export const Tabs = TabsPrimitive.Root

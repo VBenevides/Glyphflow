@@ -112,6 +112,7 @@ func TestFromEnvParsesSystemAdminEmails(t *testing.T) {
 	t.Setenv("ENVIRONMENT", "development")
 	t.Setenv("ALLOW_INSECURE_TRANSPORT", "true")
 	t.Setenv("GLYPHFLOW_SYSTEM_ADMINS", "one@example.com, two@example.com;one@example.com")
+	t.Setenv("REQUIRE_USER_APPROVAL", "")
 	t.Setenv("LOG_MONTHS_KEEP", "3")
 	t.Setenv("AUDIT_MONTHS_KEEP", "12")
 
@@ -121,6 +122,9 @@ func TestFromEnvParsesSystemAdminEmails(t *testing.T) {
 	}
 	if len(config.SystemAdminEmails) != 2 || config.SystemAdminEmails[0] != "one@example.com" || config.SystemAdminEmails[1] != "two@example.com" {
 		t.Fatalf("system admins = %#v", config.SystemAdminEmails)
+	}
+	if !config.RequireUserApproval {
+		t.Fatal("user approval should be enabled by default")
 	}
 	if got, want := strings.Join(config.CORSOrigins, ","), "address1,address2,address3"; got != want {
 		t.Fatalf("CORS origins = %q", got)
