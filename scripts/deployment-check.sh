@@ -76,6 +76,7 @@ jq -e '
   (.services.postgres.ports // []) == [] and
   (.services.nats.ports // []) == [] and
   .services.controlplane.user == "65532:65532" and
+  .services.controlplane.environment.PGSSLROOTCERT == "/run/secrets/postgres-ca" and
   (.services.controlplane.secrets | length) >= 11
 ' "$production_config" >/dev/null
 

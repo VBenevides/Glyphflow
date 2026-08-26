@@ -22,6 +22,7 @@ services:
       NATS_CERT_FILE: /run/secrets/nats-cert
       NATS_KEY_FILE: /run/secrets/nats-key
       NATS_CA_FILE: /run/secrets/nats-ca
+      PGSSLROOTCERT: /run/secrets/postgres-ca
       SECRET_ENCRYPTION_KEY_FILE: /run/secrets/secret-encryption-key
       WEB_ORIGIN: ${WEB_ORIGIN:?WEB_ORIGIN must be set to an https origin}
       CORS_ORIGIN: ${CORS_ORIGIN:?CORS_ORIGIN must be an explicit allowlist}

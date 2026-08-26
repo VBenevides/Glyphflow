@@ -37,8 +37,9 @@ docker compose -f compose.partial.yaml up -d
 ```
 
 Set the variables named by `compose.partial.yaml` in the deployment secret
-manager or shell environment. The database URL must use `sslmode=verify-full`
-and include `sslrootcert=/run/secrets/postgres-ca`; the NATS URL must use
+manager or shell environment. The database URL must use `sslmode=verify-full`;
+the profile sets `PGSSLROOTCERT=/run/secrets/postgres-ca` for the mounted CA.
+The NATS URL must use
 `tls://` and the mounted client certificate, key, and CA. The service exposes
 the control-plane HTTP listener on port 8080 and reports `/api/v1/healthz` and
 `/api/v1/readyz`.
