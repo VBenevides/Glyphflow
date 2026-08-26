@@ -212,18 +212,24 @@ func (s *RunStore) ListPage(ctx context.Context, filter RunListFilter) (RunPage,
 	}
 	defer rows.Close()
 	items := make([]RunRecord, 0, maxRunPageLimit)
+	runIDs := make([]string, 0, maxRunPageLimit)
 	for rows.Next() {
 		item, err := scanRun(rows)
 		if err != nil {
 			return RunPage{}, err
 		}
-		if item.State == "WAITING" {
-			item.PlacementBlocker = s.placementBlocker(ctx, item.ID)
-		}
+		runIDs = append(runIDs, item.ID)
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
 		return RunPage{}, err
+	}
+	blockers, err := s.placementBlockers(ctx, runIDs)
+	if err != nil {
+		return RunPage{}, err
+	}
+	for i := range items {
+		items[i].PlacementBlocker = blockers[items[i].ID]
 	}
 	return RunPage{Items: items, Total: int(total)}, nil
 }
@@ -366,6 +372,67 @@ FROM task`, runID).Scan(&blocker)
 		return ""
 	}
 	return *blocker
+}
+
+func (s *RunStore) placementBlockers(ctx context.Context, runIDs []string) (map[string]string, error) {
+	blockers := make(map[string]string)
+	if len(runIDs) == 0 {
+		return blockers, nil
+	}
+	rows, err := s.pool.Query(ctx, `
+WITH task AS (
+	SELECT r.id, tv.id AS version_id, tv.runner_pool_id, tv.pinned_runner_id,
+	       COALESCE(tv.placement_selectors, '{}'::jsonb) AS selectors
+	FROM runs r
+	JOIN task_versions tv ON tv.id = r.task_version_id
+	WHERE r.id = ANY($1) AND r.state = 'WAITING'
+), candidates AS (
+	SELECT task.id AS run_id, rr.id, rr.active_count, rr.capacity,
+	       rr.capabilities @> task.selectors AS selector_match,
+	       EXISTS (
+		SELECT 1 FROM runner_sessions rs
+		WHERE rs.runner_id = rr.id
+		  AND rs.disconnected_at IS NULL
+		  AND rs.last_heartbeat_at >= now() - interval '30 seconds'
+	       ) AS online,
+	       NOT EXISTS (
+		SELECT 1
+		FROM task_resource_requirements req
+		JOIN resources resource ON resource.id = req.resource_id
+		LEFT JOIN resource_leases lease ON lease.resource_id = resource.id
+		  AND lease.state = 'ACTIVE' AND lease.expires_at > now()
+		WHERE req.task_version_id = task.version_id
+		AND LOWER(REPLACE(resource.kind, '_', '-')) <> 'non-blocking'
+		AND (NOT resource.enabled OR lease.id IS NOT NULL)
+	       ) AS resource_available
+	FROM task
+	JOIN runner_pools pool ON pool.id = task.runner_pool_id AND NOT pool.is_deleted AND pool.enabled
+	JOIN runners rr ON rr.pool_id = pool.id
+	  AND NOT rr.is_archived AND NOT rr.is_deleted
+	  AND rr.desired_state = 'ENABLED'
+	  AND (task.pinned_runner_id IS NULL OR task.pinned_runner_id = rr.id)
+)
+SELECT task.id, CASE
+	WHEN NOT EXISTS (SELECT 1 FROM candidates WHERE candidates.run_id = task.id) THEN 'No enabled runner is configured for the task pool.'
+	WHEN NOT EXISTS (SELECT 1 FROM candidates WHERE candidates.run_id = task.id AND selector_match) THEN 'No runner matches the task selectors.'
+	WHEN NOT EXISTS (SELECT 1 FROM candidates WHERE candidates.run_id = task.id AND selector_match AND online) THEN 'All matching runners are offline.'
+	WHEN EXISTS (SELECT 1 FROM candidates WHERE candidates.run_id = task.id AND selector_match AND online AND active_count < capacity AND NOT resource_available) THEN 'A required resource is unavailable.'
+	WHEN NOT EXISTS (SELECT 1 FROM candidates WHERE candidates.run_id = task.id AND selector_match AND online AND active_count < capacity) THEN 'All matching runners are at capacity.'
+	ELSE 'Waiting for an eligible runner.'
+END
+FROM task`, runIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, blocker string
+		if err := rows.Scan(&id, &blocker); err != nil {
+			return nil, err
+		}
+		blockers[id] = blocker
+	}
+	return blockers, rows.Err()
 }
 
 func scanRun(row interface{ Scan(...any) error }) (RunRecord, error) {
