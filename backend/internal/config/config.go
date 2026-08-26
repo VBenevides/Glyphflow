@@ -52,6 +52,7 @@ type Config struct {
 	DataDir                       string
 	LogMonthsKeep                 int
 	AuditMonthsKeep               int
+	RunnerMetricsMonthsKeep       int
 	RunnerID                      string
 	MaxMessageBytes               int
 	MaxOutputBytes                int
@@ -100,6 +101,7 @@ func FromEnv(role Role) (Config, error) {
 		DataDir:                       os.Getenv("DATA_DIR"),
 		LogMonthsKeep:                 3,
 		AuditMonthsKeep:               12,
+		RunnerMetricsMonthsKeep:       3,
 		RunnerID:                      os.Getenv("RUNNER_ID"),
 	}
 	if config.AllowInsecureTransport, err = envBool("ALLOW_INSECURE_TRANSPORT", false); err != nil {
@@ -118,6 +120,9 @@ func FromEnv(role Role) (Config, error) {
 			return Config{}, err
 		}
 		if config.AuditMonthsKeep, err = envIntDefault("AUDIT_MONTHS_KEEP", 12); err != nil {
+			return Config{}, err
+		}
+		if config.RunnerMetricsMonthsKeep, err = envIntDefault("RUNNER_METRICS_MONTHS_KEEP", 3); err != nil {
 			return Config{}, err
 		}
 	}
@@ -161,8 +166,8 @@ func (c Config) Validate() error {
 	if c.MaxMessageBytes <= 0 {
 		return errors.New("MAX_MESSAGE_BYTES must be greater than zero")
 	}
-	if c.Role == ControlPlane && (c.LogMonthsKeep <= 0 || c.AuditMonthsKeep <= 0) {
-		return errors.New("LOG_MONTHS_KEEP and AUDIT_MONTHS_KEEP must be greater than zero")
+	if c.Role == ControlPlane && (c.LogMonthsKeep <= 0 || c.AuditMonthsKeep <= 0 || c.RunnerMetricsMonthsKeep <= 0) {
+		return errors.New("LOG_MONTHS_KEEP, AUDIT_MONTHS_KEEP, and RUNNER_METRICS_MONTHS_KEEP must be greater than zero")
 	}
 	if c.Role == ControlPlane {
 		if len([]byte(c.AccessTokenSecret)) < 32 {

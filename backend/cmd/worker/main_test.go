@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -9,6 +10,26 @@ import (
 	"github.com/VBenevides/Glyphflow/backend/internal/protocol"
 	"github.com/VBenevides/Glyphflow/backend/internal/worker"
 )
+
+func TestRunnerHeartbeatPayloadIncludesResourceMetrics(t *testing.T) {
+	raw := runnerHeartbeatPayload("runner-1", "boot-1", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), 4, &runnerResourceMetrics{CPUPercent: 12.5, MemoryPercent: 37.5, MemoryUsedBytes: 100, MemoryTotalBytes: 200})
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range map[string]float64{"cpu_percent": 12.5, "memory_percent": 37.5, "memory_used_bytes": 100, "memory_total_bytes": 200} {
+		if payload[key] != want {
+			t.Fatalf("payload[%q] = %v, want %v", key, payload[key], want)
+		}
+	}
+}
+
+func TestSampleRunnerResourcesReadsHostMemory(t *testing.T) {
+	metrics := sampleRunnerResources()
+	if metrics == nil || metrics.MemoryTotalBytes <= 0 || metrics.MemoryUsedBytes < 0 || metrics.MemoryPercent < 0 || metrics.MemoryPercent > 100 || metrics.CPUPercent < 0 || metrics.CPUPercent > 100 {
+		t.Fatalf("sampled resources = %#v", metrics)
+	}
+}
 
 func TestNeedsRunnerEnrollmentForUnenrolledStore(t *testing.T) {
 	bootstrap := &worker.Bootstrap{RunnerID: "runner-1"}

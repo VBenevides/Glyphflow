@@ -265,7 +265,7 @@ func run() error {
 		}
 	}()
 	go func() {
-		policy := store.RetentionPolicy{LogMonthsKeep: cfg.LogMonthsKeep, AuditMonthsKeep: cfg.AuditMonthsKeep}
+		policy := store.RetentionPolicy{LogMonthsKeep: cfg.LogMonthsKeep, AuditMonthsKeep: cfg.AuditMonthsKeep, RunnerMetricsMonthsKeep: cfg.RunnerMetricsMonthsKeep}
 		cleanup := func() {
 			if _, err := retentionRepository.Purge(ctx, time.Now().UTC(), policy, 100); err != nil && ctx.Err() == nil {
 				logger.Event("retention.cleanup_failed", map[string]string{"error": err.Error()})

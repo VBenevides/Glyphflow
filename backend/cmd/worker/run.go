@@ -23,6 +23,8 @@ import (
 	"github.com/VBenevides/Glyphflow/backend/internal/queue"
 	"github.com/VBenevides/Glyphflow/backend/internal/store"
 	"github.com/VBenevides/Glyphflow/backend/internal/worker"
+	"github.com/shirou/gopsutil/v4/cpu"
+	"github.com/shirou/gopsutil/v4/mem"
 )
 
 func runWorker(ctx context.Context, stdout, stderr io.Writer, status StatusSink) error {
@@ -316,12 +318,43 @@ func validateWorkerControlPlaneEndpoint(endpoint string) error {
 	return errors.New("must use HTTPS outside development")
 }
 
+type runnerResourceMetrics struct {
+	CPUPercent       float64
+	MemoryPercent    float64
+	MemoryUsedBytes  int64
+	MemoryTotalBytes int64
+}
+
+func sampleRunnerResources() *runnerResourceMetrics {
+	memory, err := mem.VirtualMemory()
+	if err != nil || memory.Total == 0 {
+		return nil
+	}
+	cpuPercent := 0.0
+	if values, err := cpu.Percent(100*time.Millisecond, false); err == nil && len(values) > 0 {
+		cpuPercent = values[0]
+	}
+	return &runnerResourceMetrics{CPUPercent: cpuPercent, MemoryPercent: memory.UsedPercent, MemoryUsedBytes: int64(memory.Used), MemoryTotalBytes: int64(memory.Total)}
+}
+
+func runnerHeartbeatPayload(runnerID, bootID string, now time.Time, capacity int64, metrics *runnerResourceMetrics) []byte {
+	payload := map[string]any{"runner_id": runnerID, "boot_id": bootID, "at": now.UTC().Format(time.RFC3339Nano), "capacity": capacity}
+	if metrics != nil {
+		payload["cpu_percent"] = metrics.CPUPercent
+		payload["memory_percent"] = metrics.MemoryPercent
+		payload["memory_used_bytes"] = metrics.MemoryUsedBytes
+		payload["memory_total_bytes"] = metrics.MemoryTotalBytes
+	}
+	raw, _ := json.Marshal(payload)
+	return raw
+}
+
 func workerHeartbeat(ctx context.Context, jetstream *queue.JetStream, runnerID, bootID string, signingKey protocol.SigningKey, capacity *atomic.Int64, stderr io.Writer) {
 	if stderr == nil {
 		stderr = io.Discard
 	}
 	publish := func(now time.Time) {
-		payload, _ := json.Marshal(map[string]any{"runner_id": runnerID, "boot_id": bootID, "at": now.UTC().Format(time.RFC3339Nano), "capacity": capacity.Load()})
+		payload := runnerHeartbeatPayload(runnerID, bootID, now, capacity.Load(), sampleRunnerResources())
 		envelope, err := signingKey.SignEvent(payload)
 		if err != nil {
 			return

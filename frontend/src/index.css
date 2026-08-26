@@ -299,7 +299,16 @@ a {
 .gf-lifecycle-action { display: flex; align-items: center; gap: 1rem; padding: 0.65rem 0; }
 .gf-lifecycle-action + .gf-lifecycle-action { border-top: 1px solid var(--gf-border); }
 .gf-lifecycle-action p { margin: 0; color: var(--gf-muted); }
+.gf-runner-metrics-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; }
+.gf-runner-metrics-header h2 { margin-bottom: 0; }
+.gf-runner-metrics-header label { display: grid; gap: 0.35rem; color: var(--gf-muted); font-weight: 650; }
+.gf-runner-metrics-charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-top: 1rem; }
+.gf-runner-metric-chart { display: grid; gap: 0.5rem; color: var(--gf-action); }
+.gf-runner-metric-chart-heading { display: flex; justify-content: space-between; gap: 1rem; color: var(--gf-text); }
+.gf-runner-metric-chart-heading span { color: var(--gf-muted); font-weight: 400; }
+.gf-runner-metric-chart svg { width: 100%; min-height: 10rem; padding: 0.5rem; background: color-mix(in oklab, var(--gf-surface), transparent 35%); border: 1px solid var(--gf-border); border-radius: var(--gf-radius); }
 @media (max-width: 720px) { .gf-binary-endpoint-grid { grid-template-columns: 1fr; } .gf-lifecycle-action { align-items: flex-start; flex-direction: column; gap: 0.35rem; } }
+@media (max-width: 720px) { .gf-runner-metrics-header, .gf-runner-metrics-charts { grid-template-columns: 1fr; display: grid; } }
 .gf-audit-details { display: grid; gap: 1rem; }
 .gf-audit-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem; margin: 0; padding: 1rem; background: var(--gf-surface); border: 1px solid var(--gf-border); border-radius: 0.55rem; }
 .gf-audit-meta div { min-width: 0; }

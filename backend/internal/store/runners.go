@@ -19,6 +19,7 @@ type RunnerRecord struct {
 	NATSEndpoint, ControlPlaneURL                                               string
 	Capacity, CurrentCapacity, ActiveCount                                      int
 	HeartbeatAt                                                                 *time.Time
+	CurrentMetrics                                                              *RunnerMetricsRecord
 	IsArchived, IsDeleted                                                       bool
 }
 
@@ -141,7 +142,7 @@ func (s *RunnerStore) DeletePool(ctx context.Context, id string) error {
 	return nil
 }
 
-const runnerQuery = `SELECT r.id, r.name, p.id, p.name, r.desired_state, r.observed_state, r.nats_endpoint, r.control_plane_url, r.capacity, COALESCE((SELECT current_capacity FROM runner_sessions WHERE runner_id = r.id AND disconnected_at IS NULL ORDER BY last_heartbeat_at DESC LIMIT 1), 0), r.active_count, r.last_seen_at, COALESCE(r.capabilities->>'platform', ''), COALESCE(r.capabilities->>'architecture', ''), r.is_archived, r.is_deleted FROM runners r LEFT JOIN runner_pools p ON p.id = r.pool_id`
+const runnerQuery = `SELECT r.id, r.name, p.id, p.name, r.desired_state, r.observed_state, r.nats_endpoint, r.control_plane_url, r.capacity, COALESCE((SELECT current_capacity FROM runner_sessions WHERE runner_id = r.id AND disconnected_at IS NULL ORDER BY last_heartbeat_at DESC LIMIT 1), 0), r.active_count, r.last_seen_at, COALESCE(r.capabilities->>'platform', ''), COALESCE(r.capabilities->>'architecture', ''), r.is_archived, r.is_deleted, m.sampled_at, m.cpu_percent, m.memory_percent, m.memory_used_bytes, m.memory_total_bytes FROM runners r LEFT JOIN runner_pools p ON p.id = r.pool_id LEFT JOIN LATERAL (SELECT sampled_at, cpu_percent, memory_percent, memory_used_bytes, memory_total_bytes FROM runner_metrics WHERE runner_id = r.id ORDER BY sampled_at DESC LIMIT 1) m ON true`
 
 func (s *RunnerStore) List(ctx context.Context) ([]RunnerRecord, error) {
 	rows, err := s.pool.Query(ctx, runnerQuery+` WHERE NOT r.is_archived AND NOT r.is_deleted ORDER BY r.id`)
@@ -188,10 +189,16 @@ func (s *RunnerStore) Find(ctx context.Context, id string) (RunnerRecord, bool, 
 func scanRunner(row interface{ Scan(...any) error }) (RunnerRecord, error) {
 	var item RunnerRecord
 	var poolID, pool sql.NullString
-	if err := row.Scan(&item.ID, &item.Name, &poolID, &pool, &item.DesiredState, &item.ObservedState, &item.NATSEndpoint, &item.ControlPlaneURL, &item.Capacity, &item.CurrentCapacity, &item.ActiveCount, &item.HeartbeatAt, &item.Platform, &item.Architecture, &item.IsArchived, &item.IsDeleted); err != nil {
+	var sampledAt *time.Time
+	var cpuPercent, memoryPercent sql.NullFloat64
+	var memoryUsedBytes, memoryTotalBytes sql.NullInt64
+	if err := row.Scan(&item.ID, &item.Name, &poolID, &pool, &item.DesiredState, &item.ObservedState, &item.NATSEndpoint, &item.ControlPlaneURL, &item.Capacity, &item.CurrentCapacity, &item.ActiveCount, &item.HeartbeatAt, &item.Platform, &item.Architecture, &item.IsArchived, &item.IsDeleted, &sampledAt, &cpuPercent, &memoryPercent, &memoryUsedBytes, &memoryTotalBytes); err != nil {
 		return RunnerRecord{}, err
 	}
 	item.PoolID, item.Pool = poolID.String, pool.String
+	if sampledAt != nil && cpuPercent.Valid && memoryPercent.Valid && memoryUsedBytes.Valid && memoryTotalBytes.Valid {
+		item.CurrentMetrics = &RunnerMetricsRecord{SampledAt: sampledAt.UTC(), CPUPercent: cpuPercent.Float64, MemoryPercent: memoryPercent.Float64, MemoryUsedBytes: memoryUsedBytes.Int64, MemoryTotalBytes: memoryTotalBytes.Int64}
+	}
 	return item, nil
 }
 
@@ -416,6 +423,17 @@ func (s *RunnerStore) HeartbeatWithKey(ctx context.Context, runnerID, bootID str
 }
 
 func (s *RunnerStore) HeartbeatWithKeyAndCapacity(ctx context.Context, runnerID, bootID string, now time.Time, capacity int, keyID string, publicKey []byte) error {
+	return s.heartbeatWithKeyAndCapacity(ctx, runnerID, bootID, now, capacity, nil, keyID, publicKey)
+}
+
+func (s *RunnerStore) HeartbeatWithKeyAndCapacityAndMetrics(ctx context.Context, runnerID, bootID string, now time.Time, capacity int, sample RunnerMetricsSample, keyID string, publicKey []byte) error {
+	if err := sample.validate(); err != nil {
+		return err
+	}
+	return s.heartbeatWithKeyAndCapacity(ctx, runnerID, bootID, now, capacity, &sample, keyID, publicKey)
+}
+
+func (s *RunnerStore) heartbeatWithKeyAndCapacity(ctx context.Context, runnerID, bootID string, now time.Time, capacity int, sample *RunnerMetricsSample, keyID string, publicKey []byte) error {
 	if runnerID == "" || bootID == "" || keyID == "" || len(publicKey) != ed25519.PublicKeySize {
 		return errors.New("runner heartbeat key is incomplete")
 	}
@@ -457,6 +475,11 @@ func (s *RunnerStore) HeartbeatWithKeyAndCapacity(ctx context.Context, runnerID,
 	}
 	if _, err := tx.Exec(ctx, `UPDATE runners SET observed_state = 'ONLINE', last_seen_at = $2, updated_at = now() WHERE id = $1 AND NOT is_archived AND NOT is_deleted AND observed_state <> 'REVOKED'`, runnerID, now); err != nil {
 		return err
+	}
+	if sample != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO runner_metrics (runner_id, sampled_at, cpu_percent, memory_percent, memory_used_bytes, memory_total_bytes) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (runner_id, sampled_at) DO NOTHING`, runnerID, now, sample.CPUPercent, sample.MemoryPercent, sample.MemoryUsedBytes, sample.MemoryTotalBytes); err != nil {
+			return err
+		}
 	}
 	return tx.Commit(ctx)
 }

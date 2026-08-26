@@ -483,3 +483,44 @@ func TestRunnerControlPlaneEndpointUpdate(t *testing.T) {
 		t.Fatalf("control plane URL update = %d %s", response.Code, response.Body.String())
 	}
 }
+
+func TestRunnerMetricsHistoryHonorsRangeAndLimit(t *testing.T) {
+	s := NewInfrastructureService()
+	s.runners["runner-1"] = RunnerRecord{ID: "runner-1", Name: "runner-1"}
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	s.runnerMetrics["runner-1"] = []store.RunnerMetricsRecord{
+		{SampledAt: base, CPUPercent: 10, MemoryPercent: 20, MemoryTotalBytes: 100},
+		{SampledAt: base.Add(time.Hour), CPUPercent: 30, MemoryPercent: 40, MemoryTotalBytes: 100},
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/runners/runner-1/metrics?from=2026-01-01T00:30:00Z&to=2026-01-01T02:00:00Z&limit=1", nil)
+	response := httptest.NewRecorder()
+	s.runnerMetricsPath(response, request, "runner-1")
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"cpuPercent":30`) || strings.Contains(response.Body.String(), `"cpuPercent":10`) {
+		t.Fatalf("metrics response = %d: %s", response.Code, response.Body.String())
+	}
+}
+
+func TestRunnerListingIncludesLatestResourceMetrics(t *testing.T) {
+	s := NewInfrastructureService()
+	s.runners["runner-1"] = RunnerRecord{ID: "runner-1", Name: "runner-1"}
+	s.runnerMetrics["runner-1"] = []store.RunnerMetricsRecord{{SampledAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), CPUPercent: 22.5, MemoryPercent: 45}}
+	response := httptest.NewRecorder()
+	s.runnerCollection(response, httptest.NewRequest(http.MethodGet, "/api/v1/runners", nil))
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"cpuPercent":22.5`) || !strings.Contains(response.Body.String(), `"memoryPercent":45`) {
+		t.Fatalf("runner listing = %d: %s", response.Code, response.Body.String())
+	}
+}
+
+func TestRunnerMetricsHistoryRejectsUnknownRunnerAndInvalidRange(t *testing.T) {
+	for path, want := range map[string]int{
+		"/api/v1/runners/missing/metrics":          http.StatusNotFound,
+		"/api/v1/runners/missing/metrics?from=bad": http.StatusBadRequest,
+	} {
+		s := NewInfrastructureService()
+		response := httptest.NewRecorder()
+		s.runnerMetricsPath(response, httptest.NewRequest(http.MethodGet, path, nil), "missing")
+		if response.Code != want {
+			t.Fatalf("%s returned %d, want %d", path, response.Code, want)
+		}
+	}
+}

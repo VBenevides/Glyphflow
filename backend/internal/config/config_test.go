@@ -12,17 +12,18 @@ import (
 
 func TestValidateControlPlane(t *testing.T) {
 	config := Config{
-		Role:                   ControlPlane,
-		DatabaseURL:            "postgres://user:pass@localhost/db",
-		NATSURL:                "nats://localhost:4222",
-		AccessTokenSecret:      "01234567890123456789012345678901",
-		WebOrigin:              "https://console.example",
-		DataDir:                "/var/lib/glyphflow",
-		LogMonthsKeep:          3,
-		AuditMonthsKeep:        12,
-		MaxMessageBytes:        1 << 20,
-		Environment:            "development",
-		AllowInsecureTransport: true,
+		Role:                    ControlPlane,
+		DatabaseURL:             "postgres://user:pass@localhost/db",
+		NATSURL:                 "nats://localhost:4222",
+		AccessTokenSecret:       "01234567890123456789012345678901",
+		WebOrigin:               "https://console.example",
+		DataDir:                 "/var/lib/glyphflow",
+		LogMonthsKeep:           3,
+		AuditMonthsKeep:         12,
+		RunnerMetricsMonthsKeep: 3,
+		MaxMessageBytes:         1 << 20,
+		Environment:             "development",
+		AllowInsecureTransport:  true,
 	}
 	if err := config.Validate(); err != nil {
 		t.Fatalf("valid control-plane config rejected: %v", err)
@@ -75,18 +76,19 @@ func TestValidateWorkerRequiresNATSTLSOutsideDevelopment(t *testing.T) {
 
 func TestValidateControlPlaneRequiresPasswordPepper(t *testing.T) {
 	config := Config{
-		Role:                   ControlPlane,
-		DatabaseURL:            "postgres://user:pass@localhost/db",
-		NATSURL:                "nats://localhost:4222",
-		AccessTokenSecret:      "01234567890123456789012345678901",
-		PasswordLoginEnabled:   true,
-		WebOrigin:              "https://console.example",
-		DataDir:                "/var/lib/glyphflow",
-		LogMonthsKeep:          3,
-		AuditMonthsKeep:        12,
-		MaxMessageBytes:        1 << 20,
-		Environment:            "development",
-		AllowInsecureTransport: true,
+		Role:                    ControlPlane,
+		DatabaseURL:             "postgres://user:pass@localhost/db",
+		NATSURL:                 "nats://localhost:4222",
+		AccessTokenSecret:       "01234567890123456789012345678901",
+		PasswordLoginEnabled:    true,
+		WebOrigin:               "https://console.example",
+		DataDir:                 "/var/lib/glyphflow",
+		LogMonthsKeep:           3,
+		AuditMonthsKeep:         12,
+		RunnerMetricsMonthsKeep: 3,
+		MaxMessageBytes:         1 << 20,
+		Environment:             "development",
+		AllowInsecureTransport:  true,
 	}
 	if err := config.Validate(); err == nil {
 		t.Fatal("missing password pepper accepted")
@@ -126,8 +128,13 @@ func TestFromEnvParsesSystemAdminEmails(t *testing.T) {
 	if got, want := strings.Join(config.CSRFOrigins, ","), "https://console.example,http://localhost:5173"; got != want {
 		t.Fatalf("CSRF origins = %q", got)
 	}
-	if config.LogMonthsKeep != 3 || config.AuditMonthsKeep != 12 {
-		t.Fatalf("retention months = %d/%d", config.LogMonthsKeep, config.AuditMonthsKeep)
+	if config.LogMonthsKeep != 3 || config.AuditMonthsKeep != 12 || config.RunnerMetricsMonthsKeep != 3 {
+		t.Fatalf("retention months = %d/%d/%d", config.LogMonthsKeep, config.AuditMonthsKeep, config.RunnerMetricsMonthsKeep)
+	}
+	t.Setenv("RUNNER_METRICS_MONTHS_KEEP", "7")
+	configured, err := FromEnv(ControlPlane)
+	if err != nil || configured.RunnerMetricsMonthsKeep != 7 {
+		t.Fatalf("configured runner metrics retention = %d, err=%v", configured.RunnerMetricsMonthsKeep, err)
 	}
 }
 
@@ -166,6 +173,7 @@ func TestValidateControlPlaneRequiresPostgresTLS(t *testing.T) {
 		DataDir:                       "/var/lib/glyphflow",
 		LogMonthsKeep:                 3,
 		AuditMonthsKeep:               12,
+		RunnerMetricsMonthsKeep:       3,
 		MaxMessageBytes:               1 << 20,
 		Environment:                   "staging",
 	}

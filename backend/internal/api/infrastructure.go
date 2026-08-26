@@ -28,22 +28,23 @@ import (
 )
 
 type RunnerRecord struct {
-	ID              string `json:"id"`
-	Name            string `json:"name"`
-	PoolID          string `json:"poolId,omitempty"`
-	DesiredState    string `json:"desiredState"`
-	ObservedState   string `json:"observedState"`
-	Pool            string `json:"pool"`
-	Capacity        int    `json:"capacity"`
-	CurrentCapacity int    `json:"currentCapacity,omitempty"`
-	ActiveCount     int    `json:"activeCount"`
-	HeartbeatAt     string `json:"heartbeatAt,omitempty"`
-	Platform        string `json:"platform,omitempty"`
-	Architecture    string `json:"architecture,omitempty"`
-	NATSEndpoint    string `json:"natsEndpoint,omitempty"`
-	ControlPlaneURL string `json:"controlPlaneUrl,omitempty"`
-	IsArchived      bool   `json:"isArchived"`
-	IsDeleted       bool   `json:"isDeleted"`
+	ID              string              `json:"id"`
+	Name            string              `json:"name"`
+	PoolID          string              `json:"poolId,omitempty"`
+	DesiredState    string              `json:"desiredState"`
+	ObservedState   string              `json:"observedState"`
+	Pool            string              `json:"pool"`
+	Capacity        int                 `json:"capacity"`
+	CurrentCapacity int                 `json:"currentCapacity,omitempty"`
+	ActiveCount     int                 `json:"activeCount"`
+	HeartbeatAt     string              `json:"heartbeatAt,omitempty"`
+	CurrentMetrics  *RunnerMetricRecord `json:"currentMetrics,omitempty"`
+	Platform        string              `json:"platform,omitempty"`
+	Architecture    string              `json:"architecture,omitempty"`
+	NATSEndpoint    string              `json:"natsEndpoint,omitempty"`
+	ControlPlaneURL string              `json:"controlPlaneUrl,omitempty"`
+	IsArchived      bool                `json:"isArchived"`
+	IsDeleted       bool                `json:"isDeleted"`
 }
 type RunnerPoolRecord struct {
 	ID          string `json:"id"`
@@ -79,6 +80,7 @@ type InfrastructureService struct {
 	resources                map[string]ResourceRecord
 	enrollments              map[string]*enrollment
 	runnerKeys               map[string]runnerKey
+	runnerMetrics            map[string][]store.RunnerMetricsRecord
 	next                     int
 	runnerRepository         store.RunnerRepository
 	resourceRepository       store.ResourceRepository
@@ -94,7 +96,7 @@ type InfrastructureService struct {
 }
 
 func NewInfrastructureService() *InfrastructureService {
-	return &InfrastructureService{runners: map[string]RunnerRecord{}, pools: map[string]RunnerPoolRecord{"default": {ID: "default", Name: "default", Description: "Default Runner Pool", Enabled: true}}, resources: map[string]ResourceRecord{}, enrollments: map[string]*enrollment{}, runnerKeys: map[string]runnerKey{}, runnerBinaryDir: "runner-binaries", allowInsecureTransport: true, enrollmentRateLimiter: platform.NewRateLimiter(10, time.Minute)}
+	return &InfrastructureService{runners: map[string]RunnerRecord{}, pools: map[string]RunnerPoolRecord{"default": {ID: "default", Name: "default", Description: "Default Runner Pool", Enabled: true}}, resources: map[string]ResourceRecord{}, enrollments: map[string]*enrollment{}, runnerKeys: map[string]runnerKey{}, runnerMetrics: map[string][]store.RunnerMetricsRecord{}, runnerBinaryDir: "runner-binaries", allowInsecureTransport: true, enrollmentRateLimiter: platform.NewRateLimiter(10, time.Minute)}
 }
 
 func (s *InfrastructureService) SetRunnerRepository(repository store.RunnerRepository) {
@@ -165,7 +167,12 @@ func runnerRecordFromStore(runner store.RunnerRecord) RunnerRecord {
 	if runner.HeartbeatAt != nil {
 		heartbeat = runner.HeartbeatAt.UTC().Format(time.RFC3339)
 	}
-	return RunnerRecord{ID: runner.ID, Name: runner.Name, PoolID: runner.PoolID, DesiredState: runner.DesiredState, ObservedState: runner.ObservedState, Pool: runner.Pool, Capacity: runner.Capacity, CurrentCapacity: runner.CurrentCapacity, ActiveCount: runner.ActiveCount, HeartbeatAt: heartbeat, Platform: runner.Platform, Architecture: runner.Architecture, NATSEndpoint: runner.NATSEndpoint, ControlPlaneURL: runner.ControlPlaneURL, IsArchived: runner.IsArchived, IsDeleted: runner.IsDeleted}
+	var currentMetrics *RunnerMetricRecord
+	if runner.CurrentMetrics != nil {
+		mapped := runnerMetricRecordFromStore(*runner.CurrentMetrics)
+		currentMetrics = &mapped
+	}
+	return RunnerRecord{ID: runner.ID, Name: runner.Name, PoolID: runner.PoolID, DesiredState: runner.DesiredState, ObservedState: runner.ObservedState, Pool: runner.Pool, Capacity: runner.Capacity, CurrentCapacity: runner.CurrentCapacity, ActiveCount: runner.ActiveCount, HeartbeatAt: heartbeat, CurrentMetrics: currentMetrics, Platform: runner.Platform, Architecture: runner.Architecture, NATSEndpoint: runner.NATSEndpoint, ControlPlaneURL: runner.ControlPlaneURL, IsArchived: runner.IsArchived, IsDeleted: runner.IsDeleted}
 }
 
 func runnerPoolRecordFromStore(pool store.RunnerPoolRecord) RunnerPoolRecord {
@@ -386,7 +393,7 @@ func (s *InfrastructureService) runnerCollection(w http.ResponseWriter, r *http.
 	archived := strings.EqualFold(r.URL.Query().Get("archived"), "true")
 	for _, item := range s.runners {
 		if archived == (item.IsArchived || item.IsDeleted) {
-			items = append(items, item)
+			items = append(items, s.runnerWithCurrentMetrics(item))
 		}
 	}
 	s.mu.RUnlock()
@@ -450,12 +457,19 @@ func (s *InfrastructureService) runnerPath(w http.ResponseWriter, r *http.Reques
 		}
 		s.mu.RLock()
 		item, ok := s.runners[parts[3]]
+		if ok {
+			item = s.runnerWithCurrentMetrics(item)
+		}
 		s.mu.RUnlock()
 		if !ok {
 			writeJSON(w, 404, map[string]string{"error": "runner not found"})
 			return
 		}
 		writeJSON(w, 200, item)
+		return
+	}
+	if len(parts) == 5 && r.Method == http.MethodGet && parts[4] == "metrics" {
+		s.runnerMetricsPath(w, r, parts[3])
 		return
 	}
 	if len(parts) == 4 && r.Method == http.MethodPut {

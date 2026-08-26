@@ -10,27 +10,29 @@ import (
 )
 
 const (
-	DefaultLogMonthsKeep   = 3
-	DefaultAuditMonthsKeep = 12
-	defaultRetentionBatch  = 100
-	maxRetentionBatch      = 1000
+	DefaultLogMonthsKeep           = 3
+	DefaultAuditMonthsKeep         = 12
+	DefaultRunnerMetricsMonthsKeep = 3
+	defaultRetentionBatch          = 100
+	maxRetentionBatch              = 1000
 )
 
 type RetentionPolicy struct {
-	LogMonthsKeep   int
-	AuditMonthsKeep int
+	LogMonthsKeep           int
+	AuditMonthsKeep         int
+	RunnerMetricsMonthsKeep int
 }
 
 func DefaultRetentionPolicy() RetentionPolicy {
-	return RetentionPolicy{LogMonthsKeep: DefaultLogMonthsKeep, AuditMonthsKeep: DefaultAuditMonthsKeep}
+	return RetentionPolicy{LogMonthsKeep: DefaultLogMonthsKeep, AuditMonthsKeep: DefaultAuditMonthsKeep, RunnerMetricsMonthsKeep: DefaultRunnerMetricsMonthsKeep}
 }
 
 func (p RetentionPolicy) valid() bool {
-	return p.LogMonthsKeep > 0 && p.AuditMonthsKeep > 0
+	return p.LogMonthsKeep > 0 && p.AuditMonthsKeep > 0 && p.RunnerMetricsMonthsKeep > 0
 }
 
 type RetentionResult struct {
-	Runs, DeadLetters, AuditEvents int64
+	Runs, DeadLetters, AuditEvents, RunnerMetrics int64
 }
 
 type RetentionStore struct{ pool *pgxpool.Pool }
@@ -74,7 +76,7 @@ func (s *RetentionStore) Purge(ctx context.Context, now time.Time, policy Retent
 	if _, err := tx.Exec(ctx, `SELECT set_config('glyphflow.retention_cleanup', 'on', true)`); err != nil {
 		return RetentionResult{}, err
 	}
-	result, err := purgeRows(ctx, tx, now.AddDate(0, -policy.LogMonthsKeep, 0), now.AddDate(0, -policy.AuditMonthsKeep, 0), batch, false)
+	result, err := purgeRows(ctx, tx, now.AddDate(0, -policy.LogMonthsKeep, 0), now.AddDate(0, -policy.AuditMonthsKeep, 0), now.AddDate(0, -policy.RunnerMetricsMonthsKeep, 0), batch, false)
 	if err != nil {
 		return RetentionResult{}, err
 	}
@@ -120,7 +122,7 @@ func boundedRetentionBatch(batch int) int {
 	return batch
 }
 
-func purgeRows(ctx context.Context, tx pgx.Tx, runCutoff, auditCutoff time.Time, batch int, criticalOnly bool) (RetentionResult, error) {
+func purgeRows(ctx context.Context, tx pgx.Tx, runCutoff, auditCutoff, metricsCutoff time.Time, batch int, criticalOnly bool) (RetentionResult, error) {
 	result := RetentionResult{}
 	if criticalOnly {
 		deleted, err := deleteRunBatch(ctx, tx, runCutoff, batch)
@@ -136,7 +138,19 @@ func purgeRows(ctx context.Context, tx pgx.Tx, runCutoff, auditCutoff time.Time,
 		return result, err
 	}
 	result.AuditEvents, err = deleteAuditBatch(ctx, tx, auditCutoff, batch)
+	if err != nil {
+		return result, err
+	}
+	result.RunnerMetrics, err = deleteRunnerMetricsBatch(ctx, tx, metricsCutoff, batch)
 	return result, err
+}
+
+func deleteRunnerMetricsBatch(ctx context.Context, tx pgx.Tx, cutoff time.Time, batch int) (int64, error) {
+	result, err := tx.Exec(ctx, `WITH candidates AS (SELECT runner_id, sampled_at FROM runner_metrics WHERE sampled_at < $1 ORDER BY sampled_at, runner_id LIMIT $2) DELETE FROM runner_metrics m USING candidates c WHERE m.runner_id = c.runner_id AND m.sampled_at = c.sampled_at`, cutoff, batch)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 func deleteRunBatch(ctx context.Context, tx pgx.Tx, cutoff time.Time, batch int) (int64, error) {
@@ -172,7 +186,7 @@ func (s *RetentionStore) purgeRunBatch(ctx context.Context, cutoff time.Time, ba
 	if _, err := tx.Exec(ctx, `SELECT set_config('glyphflow.retention_cleanup', 'on', true)`); err != nil {
 		return RetentionResult{}, err
 	}
-	result, err := purgeRows(ctx, tx, cutoff, time.Time{}, batch, true)
+	result, err := purgeRows(ctx, tx, cutoff, time.Time{}, time.Time{}, batch, true)
 	if err != nil {
 		return RetentionResult{}, err
 	}

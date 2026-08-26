@@ -11,6 +11,7 @@ import (
 
 	"github.com/VBenevides/Glyphflow/backend/internal/protocol"
 	"github.com/VBenevides/Glyphflow/backend/internal/queue"
+	"github.com/VBenevides/Glyphflow/backend/internal/store"
 )
 
 type RunnerHeartbeatRepository interface {
@@ -24,6 +25,10 @@ type RunnerSessionHeartbeatRepository interface {
 
 type RunnerCapacityHeartbeatRepository interface {
 	HeartbeatWithKeyAndCapacity(context.Context, string, string, time.Time, int, string, []byte) error
+}
+
+type RunnerResourceMetricsHeartbeatRepository interface {
+	HeartbeatWithKeyAndCapacityAndMetrics(context.Context, string, string, time.Time, int, store.RunnerMetricsSample, string, []byte) error
 }
 
 func RunRunnerHeartbeatMonitor(ctx context.Context, events queue.EventStream, repository RunnerHeartbeatRepository, staleAfter, checkInterval time.Duration) error {
@@ -70,11 +75,15 @@ func recordRunnerHeartbeatForSubject(ctx context.Context, repository RunnerHeart
 		return err
 	}
 	var heartbeat struct {
-		RunnerID string `json:"runner_id"`
-		BootID   string `json:"boot_id"`
-		At       string `json:"at"`
-		KeyID    string `json:"key_id"`
-		Capacity int    `json:"capacity"`
+		RunnerID         string   `json:"runner_id"`
+		BootID           string   `json:"boot_id"`
+		At               string   `json:"at"`
+		KeyID            string   `json:"key_id"`
+		Capacity         int      `json:"capacity"`
+		CPUPercent       *float64 `json:"cpu_percent"`
+		MemoryPercent    *float64 `json:"memory_percent"`
+		MemoryUsedBytes  *int64   `json:"memory_used_bytes"`
+		MemoryTotalBytes *int64   `json:"memory_total_bytes"`
 	}
 	if err := json.Unmarshal(payload, &heartbeat); err != nil {
 		return fmt.Errorf("invalid runner heartbeat: %w", err)
@@ -105,6 +114,19 @@ func recordRunnerHeartbeatForSubject(ctx context.Context, repository RunnerHeart
 	now := time.Now().UTC()
 	if at.Before(now.Add(-30*time.Second)) || at.After(now.Add(30*time.Second)) {
 		return errors.New("runner heartbeat timestamp is outside the allowed window")
+	}
+	var sample *store.RunnerMetricsSample
+	if heartbeat.CPUPercent != nil || heartbeat.MemoryPercent != nil || heartbeat.MemoryUsedBytes != nil || heartbeat.MemoryTotalBytes != nil {
+		if heartbeat.CPUPercent == nil || heartbeat.MemoryPercent == nil || heartbeat.MemoryUsedBytes == nil || heartbeat.MemoryTotalBytes == nil {
+			return errors.New("runner heartbeat metrics are incomplete")
+		}
+		sample = &store.RunnerMetricsSample{CPUPercent: *heartbeat.CPUPercent, MemoryPercent: *heartbeat.MemoryPercent, MemoryUsedBytes: *heartbeat.MemoryUsedBytes, MemoryTotalBytes: *heartbeat.MemoryTotalBytes}
+	}
+	if sample != nil {
+		if sessionRepository, ok := repository.(RunnerResourceMetricsHeartbeatRepository); ok {
+			return sessionRepository.HeartbeatWithKeyAndCapacityAndMetrics(ctx, heartbeat.RunnerID, heartbeat.BootID, at.UTC(), heartbeat.Capacity, *sample, envelope.KeyID, publicKey)
+		}
+		return errors.New("runner heartbeat metrics repository is unavailable")
 	}
 	if sessionRepository, ok := repository.(RunnerCapacityHeartbeatRepository); ok {
 		return sessionRepository.HeartbeatWithKeyAndCapacity(ctx, heartbeat.RunnerID, heartbeat.BootID, at.UTC(), heartbeat.Capacity, envelope.KeyID, publicKey)
