@@ -82,8 +82,10 @@ multi-replica leader election or a load/failover guarantee.
 - Local development: [`dev_run.sh`](dev_run.sh) plus [`compose.yaml`](compose.yaml).
 - Container image: [`build/Dockerfile`](build/Dockerfile), containing the built
   frontend, Nginx, the control-plane binary, migrations, and runner binaries.
-- Runtime services: one control-plane instance, PostgreSQL, NATS JetStream,
-  Nginx/web, and any number of separately deployed workers.
+- Runtime services: one isolated stack per client containing one control-plane
+  instance, PostgreSQL, NATS JetStream, Nginx/web, and any number of separately
+  deployed workers. Shared tenancy and service replicas are unsupported in
+  version 0.2.3.
 - Outside development, configuration validation requires HTTPS, NATS TLS,
   signing-key material, and production client certificates where applicable
   ([`backend/internal/config/config.go`](backend/internal/config/config.go)).

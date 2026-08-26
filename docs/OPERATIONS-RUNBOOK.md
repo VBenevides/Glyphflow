@@ -2,11 +2,11 @@
 
 ## Supported topology
 
-Glyphflow 0.2.3 supports one control-plane process connected to one
-PostgreSQL database and one NATS JetStream deployment. Workers are separate
-processes or hosts and connect outbound. This is a singleton operating model;
-the release does not claim control-plane, PostgreSQL, or NATS high
-availability.
+Glyphflow 0.2.3 supports one isolated stack per client: one control-plane
+process connected to one PostgreSQL database and one NATS JetStream deployment.
+Workers are separate processes or hosts and connect outbound. Shared tenancy
+and service replicas are unsupported in this release; it does not claim
+control-plane, PostgreSQL, or NATS high availability.
 
 A reverse proxy may provide the public HTTPS endpoint, but it does not make
 the control plane redundant. Keep PostgreSQL and NATS on private networks.
