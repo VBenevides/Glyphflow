@@ -3,7 +3,7 @@
 This guide covers the implemented Glyphflow web console: sign-in, runner
 enrollment, task publication, execution, scheduling, and run recovery.
 
-Start a local instance with the [quick start](README.md#quick-start). The local
+Start a local instance with the [quick start](../README.md#quick-start). The local
 console is available at <http://localhost:5173>. In a deployed environment,
 use the URL provided by your administrator.
 
@@ -46,7 +46,7 @@ back to sign in.
 
 A runner is the machine that executes a task. Workers connect outbound to the
 control plane; they do not need PostgreSQL credentials. See [worker
-deployment](README.md#worker-deployment) and the [worker build
+deployment](../README.md#worker-deployment) and the [worker build
 details](../backend/cmd/worker/README.md) for deployment-specific details.
 
 ### Create the enrollment
@@ -231,13 +231,13 @@ warns that the command can run again.
 Reconciliation moves the run back into retry processing. Glyphflow provides
 at-least-once delivery, not exactly-once command execution. Make commands
 idempotent or otherwise safe to repeat before using retry or reconciliation.
-Read the [delivery and security model](README.md#delivery-and-security-model)
+Read the [delivery and security model](../README.md#delivery-and-security-model)
 for the recovery guarantees and boundaries.
 
 ## Further reading
 
-- [Technical documentation](README.md)
-- [Production deployment and configuration](README.md#production-deployment)
+- [Technical documentation](../README.md)
+- [Production deployment and configuration](../README.md#production-deployment)
 - [Architecture](../ARCHITECTURE.md)
 - [Examples index](examples/README.md)
 - Runtime API documentation at <http://localhost:8080/docs> and

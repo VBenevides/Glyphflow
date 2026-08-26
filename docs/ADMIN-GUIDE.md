@@ -6,7 +6,7 @@ installation supplies an external identity provider, secret manager, reverse
 proxy, backups, or host hardening.
 
 For the system model and configuration reference, see the
-[technical documentation](README.md), the [architecture document](../ARCHITECTURE.md),
+[technical documentation](../README.md), the [architecture document](../ARCHITECTURE.md),
 and the [production Compose overlay](../compose.production.yaml). The
 interactive API reference is available at `/docs` and `/openapi.json` on a
 running control plane.
@@ -289,7 +289,7 @@ uses development credentials, exposes PostgreSQL and NATS, and allows
 insecure transport. Do not expose that configuration publicly.
 
 For a self-hosted deployment, review the
-[production configuration reference](README.md#production-deployment) and use
+[production configuration reference](../README.md#production-deployment) and use
 the [production Compose overlay](../compose.production.yaml). At minimum, the
 production boundary requires:
 
@@ -320,7 +320,7 @@ change external systems must be safe to retry or provide their own idempotency.
 ## Related references
 
 - [Commercial overview](../README.md)
-- [Technical documentation and configuration](README.md)
+- [Technical documentation and configuration](../README.md)
 - [Architecture](../ARCHITECTURE.md)
 - [Worker build and UI notes](../backend/cmd/worker/README.md)
 - [Example flow index](examples/README.md)
