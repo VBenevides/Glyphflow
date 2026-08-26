@@ -42,7 +42,7 @@ func TestRunRepositoryClaimsAndReconcilesStartFailure(t *testing.T) {
 	if _, err := NewTaskRepository(pool).Create(ctx, TaskDefinition{ID: taskID, Name: taskID, RunnerPoolID: poolID, Command: []string{"echo", "ok"}, Environment: map[string]any{"PORT": 8080}, TimeoutSeconds: 1, Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewRunRepository(pool).Create(ctx, RunDefinition{ID: runID, TaskID: taskID, TriggerType: "MANUAL", IdempotencyKey: "dispatch-idempotency-" + suffix}); err != nil {
+	if _, err := NewRunRepository(pool).Create(ctx, RunDefinition{ID: runID, TaskID: taskID, TriggerType: "MANUAL", ScheduledFor: time.Now().UTC().Add(-11 * time.Minute), IdempotencyKey: "dispatch-idempotency-" + suffix}); err != nil {
 		t.Fatal(err)
 	}
 	candidate, claimed, err := NewRunRepository(pool).ClaimWaiting(ctx, func(candidate DispatchCandidate) ([]byte, error) {

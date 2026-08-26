@@ -503,6 +503,17 @@ BEGIN
     RAISE EXCEPTION '% is immutable', TG_TABLE_NAME;
 END;
 $$;
+CREATE OR REPLACE FUNCTION reject_schedule_version_mutation() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF TG_OP = 'DELETE' AND NOT EXISTS (
+        SELECT 1 FROM schedules WHERE id = OLD.schedule_id
+    ) THEN
+        RETURN OLD;
+    END IF;
+    RAISE EXCEPTION '% is immutable', TG_TABLE_NAME;
+END;
+$$;
 CREATE TRIGGER roles_system_immutable
     BEFORE UPDATE OR DELETE ON roles
     FOR EACH ROW EXECUTE FUNCTION reject_system_role_mutation();
@@ -511,7 +522,7 @@ CREATE TRIGGER task_versions_immutable
     FOR EACH ROW EXECUTE FUNCTION reject_immutable_version_mutation();
 CREATE TRIGGER schedule_versions_immutable
     BEFORE UPDATE OR DELETE ON schedule_versions
-    FOR EACH ROW EXECUTE FUNCTION reject_immutable_version_mutation();
+    FOR EACH ROW EXECUTE FUNCTION reject_schedule_version_mutation();
 CREATE TRIGGER audit_events_append_only
     BEFORE UPDATE OR DELETE ON audit_events
     FOR EACH ROW EXECUTE FUNCTION reject_append_only_mutation();

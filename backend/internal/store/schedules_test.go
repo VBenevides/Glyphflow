@@ -54,6 +54,9 @@ func TestScheduleRepositoryKeepsImmutableVersionsAndPointer(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE schedule_versions SET expression = '*/5 * * * *' WHERE schedule_id = $1`, scheduleID); err == nil {
 		t.Fatal("immutable schedule version was updated")
 	}
+	if _, err := pool.Exec(ctx, `DELETE FROM schedule_versions WHERE id = $1`, scheduleID+"-v1"); err == nil {
+		t.Fatal("immutable schedule version was deleted")
+	}
 	if _, err := schedules.Update(ctx, scheduleID, ScheduleDefinition{Name: "Broken", TaskID: "missing-task", Expression: "0 * * * *", Timezone: "UTC", Enabled: true}); err == nil {
 		t.Fatal("schedule with missing task was accepted")
 	}
