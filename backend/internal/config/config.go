@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -31,6 +32,8 @@ type Config struct {
 	NATSCAFile                    string
 	AccessTokenSecret             string
 	ControlPlaneSigningPrivateKey string
+	SecretEncryptionKeyFile       string
+	InstallationEncryptionKey     []byte
 	PasswordPepper                string
 	WebOrigin                     string
 	CORSOrigins                   []string
@@ -78,6 +81,7 @@ func FromEnv(role Role) (Config, error) {
 		NATSCAFile:                    os.Getenv("NATS_CA_FILE"),
 		AccessTokenSecret:             os.Getenv("ACCESS_TOKEN_SECRET"),
 		ControlPlaneSigningPrivateKey: strings.TrimSpace(os.Getenv("CONTROL_PLANE_SIGNING_PRIVATE_KEY")),
+		SecretEncryptionKeyFile:       strings.TrimSpace(os.Getenv("SECRET_ENCRYPTION_KEY_FILE")),
 		PasswordPepper:                os.Getenv("PASSWORD_PEPPER"),
 		WebOrigin:                     os.Getenv("WEB_ORIGIN"),
 		CORSOrigins:                   parseOrigins(os.Getenv("CORS_ORIGIN")),
@@ -107,6 +111,12 @@ func FromEnv(role Role) (Config, error) {
 	}
 	if err := config.Validate(); err != nil {
 		return Config{}, err
+	}
+	if role == ControlPlane {
+		config.InstallationEncryptionKey, err = loadInstallationEncryptionKey(config.Environment, config.SecretEncryptionKeyFile, config.AccessTokenSecret)
+		if err != nil {
+			return Config{}, err
+		}
 	}
 	return config, nil
 }
@@ -160,6 +170,9 @@ func (c Config) Validate() error {
 		if c.Environment != "development" && c.ControlPlaneSigningPrivateKey == "" {
 			return errors.New("CONTROL_PLANE_SIGNING_PRIVATE_KEY is required outside development")
 		}
+		if c.Environment != "development" && strings.TrimSpace(c.SecretEncryptionKeyFile) == "" {
+			return errors.New("SECRET_ENCRYPTION_KEY_FILE is required outside development")
+		}
 		if c.ControlPlaneSigningPrivateKey != "" {
 			raw, err := base64.RawStdEncoding.DecodeString(c.ControlPlaneSigningPrivateKey)
 			if err != nil || len(raw) != ed25519.PrivateKeySize {
@@ -187,6 +200,51 @@ func (c Config) Validate() error {
 		return errors.New("production requires NATS client certificate, key, and CA files")
 	}
 	return nil
+}
+
+const installationEncryptionKeySize = 32
+
+func loadInstallationEncryptionKey(environment, path, legacySecret string) ([]byte, error) {
+	if environment == "development" && path == "" {
+		return []byte(legacySecret), nil
+	}
+	if path == "" {
+		return nil, errors.New("SECRET_ENCRYPTION_KEY_FILE is required outside development")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("SECRET_ENCRYPTION_KEY_FILE: %w", err)
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("SECRET_ENCRYPTION_KEY_FILE: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("SECRET_ENCRYPTION_KEY_FILE must be a regular file")
+	}
+	if info.Mode().Perm()&0o077 != 0 || info.Mode().Perm()&0o400 == 0 {
+		return nil, errors.New("SECRET_ENCRYPTION_KEY_FILE must be readable only by its owner")
+	}
+	encoded, err := io.ReadAll(io.LimitReader(file, 129))
+	if err != nil {
+		return nil, fmt.Errorf("SECRET_ENCRYPTION_KEY_FILE: %w", err)
+	}
+	if len(encoded) > 128 {
+		return nil, errors.New("SECRET_ENCRYPTION_KEY_FILE is too large")
+	}
+	value := strings.TrimSpace(string(encoded))
+	key, err := base64.StdEncoding.Strict().DecodeString(value)
+	if err != nil {
+		key, err = base64.RawStdEncoding.Strict().DecodeString(value)
+	}
+	if err != nil {
+		return nil, errors.New("SECRET_ENCRYPTION_KEY_FILE must contain valid base64")
+	}
+	if len(key) != installationEncryptionKeySize {
+		return nil, errors.New("SECRET_ENCRYPTION_KEY_FILE must decode to exactly 32 bytes")
+	}
+	return key, nil
 }
 
 var runnerIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
