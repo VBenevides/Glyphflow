@@ -136,11 +136,7 @@ func (s *DeadLetterStore) List(ctx context.Context, filter DeadLetterFilter) ([]
 		return nil, 0, err
 	}
 	defer rows.Close()
-	capacity := filter.Limit
-	if capacity < 0 || capacity > maxDeadLetterListLimit {
-		capacity = defaultDeadLetterListLimit
-	}
-	items := make([]DeadLetterSummary, 0, capacity)
+	items := make([]DeadLetterSummary, 0, maxDeadLetterListLimit)
 	for rows.Next() {
 		item, err := scanDeadLetterSummary(rows)
 		if err != nil {

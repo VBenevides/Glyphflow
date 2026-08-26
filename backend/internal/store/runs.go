@@ -196,7 +196,6 @@ func (s *RunStore) ListPage(ctx context.Context, filter RunListFilter) (RunPage,
 	if limit < 1 || limit > maxRunPageLimit {
 		limit = defaultRunPageLimit
 	}
-	safeLimit := limit
 	offset := filter.Offset
 	if offset < 0 {
 		offset = 0
@@ -206,13 +205,13 @@ func (s *RunStore) ListPage(ctx context.Context, filter RunListFilter) (RunPage,
 	if err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM (`+runQuery+where+`) filtered`, args...).Scan(&total); err != nil {
 		return RunPage{}, err
 	}
-	listArgs := append(append([]any(nil), args...), safeLimit, offset)
+	listArgs := append(append([]any(nil), args...), limit, offset)
 	rows, err := s.pool.Query(ctx, runQuery+where+` ORDER BY r.created_at DESC, r.id LIMIT $`+strconv.Itoa(len(args)+1)+` OFFSET $`+strconv.Itoa(len(args)+2), listArgs...)
 	if err != nil {
 		return RunPage{}, err
 	}
 	defer rows.Close()
-	items := make([]RunRecord, 0, safeLimit)
+	items := make([]RunRecord, 0, maxRunPageLimit)
 	for rows.Next() {
 		item, err := scanRun(rows)
 		if err != nil {
