@@ -137,7 +137,7 @@ func (s *AuthService) SetSystemAdminEmails(emails []string) error {
 		}
 		configured[email] = true
 	}
-	users, err := s.users.List(context.Background())
+	users, err := s.users.List(context.Background(), "")
 	if err != nil {
 		return err
 	}
@@ -837,8 +837,12 @@ func (s *AuthService) identityProviderNames(userID string) []string {
 	return providers
 }
 
-func (s *AuthService) Users() []map[string]any {
-	records, err := s.users.List(context.Background())
+func (s *AuthService) Users(statusFilter ...string) []map[string]any {
+	status := ""
+	if len(statusFilter) > 0 {
+		status = statusFilter[0]
+	}
+	records, err := s.users.List(context.Background(), status)
 	if err != nil {
 		return []map[string]any{}
 	}
@@ -870,7 +874,7 @@ func (s *AuthService) Users() []map[string]any {
 }
 
 func (s *AuthService) AdminSessions() []AdminSession {
-	records, err := s.users.List(context.Background())
+	records, err := s.users.List(context.Background(), "")
 	if err != nil {
 		return []AdminSession{}
 	}

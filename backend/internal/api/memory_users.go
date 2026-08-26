@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/VBenevides/Glyphflow/backend/internal/store"
@@ -56,11 +57,18 @@ func (s *memoryUserRepository) FindByEmail(_ context.Context, email string) (sto
 	return user, ok, nil
 }
 
-func (s *memoryUserRepository) List(_ context.Context) ([]store.UserRecord, error) {
+func (s *memoryUserRepository) List(_ context.Context, status string) ([]store.UserRecord, error) {
+	status = strings.ToLower(strings.TrimSpace(status))
+	if status != "" && !store.ValidUserStatus(status) {
+		return nil, fmt.Errorf("invalid user status %q", status)
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	users := make([]store.UserRecord, 0, len(s.users))
 	for _, user := range s.users {
+		if status != "" && user.Status != status {
+			continue
+		}
 		users = append(users, user)
 	}
 	return users, nil

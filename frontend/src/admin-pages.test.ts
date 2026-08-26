@@ -3,7 +3,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { filterAndSortRoles, roleMappingsValue, UserAccessEditor, UserCreationForm } from './admin-pages'
+import { filterAndSortRoles, roleMappingsValue, userListQuery, UserAccessEditor, UserCreationForm } from './admin-pages'
 import type { RoleDefinition, UserRecord } from './api'
 
 describe('role selectors', () => {
@@ -48,6 +48,11 @@ describe('admin access workflow', () => {
     expect(source).toContain('Require administrator approval for new users')
     expect(source).toContain('/approve`')
     expect(source).toContain('user.status === \'pending\'')
+  })
+
+  it('builds combined email and status user queries', () => {
+    expect(userListQuery(2, 10, ' alice@example.com ', 'pending')).toEqual({ page: 2, limit: 10, email: 'alice@example.com', status: 'pending' })
+    expect(userListQuery(1, 10, '', '')).toEqual({ page: 1, limit: 10, email: undefined, status: undefined })
   })
 })
 

@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { MoreHorizontal } from 'lucide-react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { api, type AdminSession, type ExitCode, type OidcProvider, type Page, type RoleDefinition, type UserRecord } from './api'
+import { api, type AdminSession, type ExitCode, type OidcProvider, type Page, type QueryValue, type RoleDefinition, type UserRecord } from './api'
 import { DangerousAction } from './actions'
 import { Button, DataTable, Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuSeparator, DropdownMenuTrigger, EmptyState, FilterInput, Input, PageHeader, Pagination, StatusPill, TableActions, Tabs, TabsList, TabsTrigger } from './components'
 import { QueryState } from './query'
@@ -23,6 +23,10 @@ function RoleSelect({ id, value, roles, onChange, disabled = false }: { id: stri
 
 function asPage(value: Page<UserRecord> | UserRecord[], page = 1, limit = 10): Page<UserRecord> {
   return Array.isArray(value) ? { items: value.slice((page - 1) * limit, page * limit), page, limit, total: value.length, pages: Math.max(1, Math.ceil(value.length / limit)) } : value
+}
+
+export function userListQuery(page: number, limit: number, email: string, status: string): Record<string, QueryValue> {
+  return { page, limit, email: email.trim() || undefined, status: status || undefined }
 }
 
 function InlinePills({ values }: { values?: string[] }) {
@@ -84,9 +88,10 @@ export function UserManagementPage({ view = 'users' }: { view?: IdentityView } =
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(10)
   const [email, setEmail] = useState('')
+  const [status, setStatus] = useState('')
   const [creating, setCreating] = useState(false)
   const [accessUserID, setAccessUserID] = useState<string | null>(null)
-  const query = useQuery({ queryKey: ['admin-users', page, limit, email], queryFn: ({ signal }) => api.get<Page<UserRecord> | UserRecord[]>('/api/v1/users', { page, limit, email: email || undefined }, signal).then((value) => asPage(value, page, limit)) })
+  const query = useQuery({ queryKey: ['admin-users', page, limit, email, status], queryFn: ({ signal }) => api.get<Page<UserRecord> | UserRecord[]>('/api/v1/users', userListQuery(page, limit, email, status), signal).then((value) => asPage(value, page, limit)) })
   const optionsQuery = useQuery({ queryKey: ['admin-user-filter-options'], queryFn: ({ signal }) => api.get<Page<UserRecord> | UserRecord[]>('/api/v1/users', { all: true }, signal).then((value) => asPage(value)) })
   const rolesQuery = useQuery({ queryKey: ['admin-user-role-options'], queryFn: ({ signal }) => api.get<RoleDefinition[]>('/api/v1/admin/roles', undefined, signal), enabled: manage })
   const disable = async (user: UserRecord) => { await api.post(`/api/v1/admin/auth/users/${encodeURIComponent(user.id)}/disable`); await query.refetch() }
@@ -95,7 +100,7 @@ export function UserManagementPage({ view = 'users' }: { view?: IdentityView } =
   const created = async (userID: string) => { setCreating(false); setAccessUserID(userID); await query.refetch() }
   return <IdentityAdminLayout view={view} title="Users and sessions" description="Review identity methods, role sources, permissions, and active sessions." action={manage && <Button onClick={() => setCreating((value) => !value)}>{creating ? 'Cancel' : 'Create user'}</Button>}>
     {creating && <Dialog open title="Create user" onClose={() => setCreating(false)}><UserCreationForm onCreated={created} /></Dialog>}
-    <div className="gf-filter-bar"><FilterInput label="Email" type="email" value={email} options={(optionsQuery.data?.items ?? query.data?.items ?? []).map((user) => user.email ?? user.username)} onChange={(value) => { setEmail(value); setPage(1) }} placeholder="Filter by email" /></div>
+    <div className="gf-filter-bar"><FilterInput label="Email" type="email" value={email} options={(optionsQuery.data?.items ?? query.data?.items ?? []).map((user) => user.email ?? user.username)} onChange={(value) => { setEmail(value); setPage(1) }} placeholder="Filter by email" /><label>Status<select className="gf-input" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1) }}><option value="">All statuses</option><option value="active">Active</option><option value="pending">Pending</option><option value="disabled">Disabled</option></select></label></div>
     <QueryState query={query} empty="No users are available.">{(raw) => {
       const data = asPage(raw)
       if (!data.items.length) return <EmptyState title="No users">Create or provision a user before managing access.</EmptyState>

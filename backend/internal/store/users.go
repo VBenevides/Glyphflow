@@ -49,7 +49,7 @@ type UserRepository interface {
 	Create(context.Context, UserRecord, string) error
 	FindByID(context.Context, string) (UserRecord, bool, error)
 	FindByEmail(context.Context, string) (UserRecord, bool, error)
-	List(context.Context) ([]UserRecord, error)
+	List(context.Context, string) ([]UserRecord, error)
 	PasswordHash(context.Context, string) (string, bool, error)
 	SetPasswordHash(context.Context, string, string) error
 	UpdateDisplayName(context.Context, string, string) error
@@ -134,8 +134,23 @@ func (s *UserStore) find(ctx context.Context, clause, value string) (UserRecord,
 	return user, true, nil
 }
 
-func (s *UserStore) List(ctx context.Context) ([]UserRecord, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id, username, email, display_name, status FROM users ORDER BY lower(username), id`)
+func (s *UserStore) List(ctx context.Context, status string) ([]UserRecord, error) {
+	status = strings.ToLower(strings.TrimSpace(status))
+	if status != "" && !ValidUserStatus(status) {
+		return nil, fmt.Errorf("invalid user status %q", status)
+	}
+	query := `SELECT id, username, email, display_name, status FROM users`
+	if status != "" {
+		query += ` WHERE status = $1`
+	}
+	query += ` ORDER BY lower(username), id`
+	var rows pgx.Rows
+	var err error
+	if status == "" {
+		rows, err = s.pool.Query(ctx, query)
+	} else {
+		rows, err = s.pool.Query(ctx, query, status)
+	}
 	if err != nil {
 		return nil, err
 	}

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/VBenevides/Glyphflow/backend/internal/platform"
+	"github.com/VBenevides/Glyphflow/backend/internal/store"
 )
 
 type AuthAdminService struct {
@@ -271,7 +272,12 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 			return
 		}
 		if r.Method == http.MethodGet {
-			users := s.AuthAdmin.Auth.Users()
+			status := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("status")))
+			if status != "" && !store.ValidUserStatus(status) {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid user status"})
+				return
+			}
+			users := s.AuthAdmin.Auth.Users(status)
 			email := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("email")))
 			if email != "" {
 				filtered := users[:0]
