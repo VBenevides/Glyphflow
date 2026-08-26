@@ -58,6 +58,7 @@ export function RunnerPoolsPage({ navigation, title = 'Pools', description = 'Gr
     <QueryState query={query} empty="Create a pool before enrolling runners.">
       {(data) => <>
         <div className="gf-metric-grid"><MetricCard label="Number of pools" value={data.total ?? data.items.length} detail="Configured runner pools" /></div>
+        <div className="gf-table-toolbar">{create}</div>
         {data.items.length ? <>
           <DataTable caption="Runner pools" rows={data.items} columns={[
             { key: 'name', label: 'Pool' },
@@ -74,5 +75,5 @@ export function RunnerPoolsPage({ navigation, title = 'Pools', description = 'Gr
       </>}
     </QueryState>
   </>
-  return <main className="gf-content"><PageHeader title={title} description={description} action={create} refresh={<QueryRefresh query={query} />} />{navigation}{content}</main>
+  return <main className="gf-content"><PageHeader title={title} description={description} refresh={<QueryRefresh query={query} />} />{navigation}{content}</main>
 }

@@ -22,6 +22,7 @@ func newMemoryUserRepository() *memoryUserRepository {
 }
 
 func (s *memoryUserRepository) Create(_ context.Context, user store.UserRecord, passwordHash string) error {
+	user.DisplayName = store.NormalizeDisplayName(user.Email, user.DisplayName)
 	if user.Status == "" {
 		if user.Enabled {
 			user.Status = store.StatusActive
@@ -98,7 +99,7 @@ func (s *memoryUserRepository) UpdateDisplayName(_ context.Context, userID, disp
 	if !ok {
 		return errors.New("user not found")
 	}
-	user.DisplayName = displayName
+	user.DisplayName = store.NormalizeDisplayName(user.Email, displayName)
 	s.users[userID] = user
 	return nil
 }

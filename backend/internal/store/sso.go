@@ -55,6 +55,7 @@ func NewOIDCProviderRepository(pool *pgxpool.Pool) *OIDCProviderStore {
 }
 
 func (s *OIDCProviderStore) ProvisionOIDC(ctx context.Context, user UserRecord, defaultRoleID, adminRoleID string, identity SSOIdentityRecord) error {
+	user.DisplayName = NormalizeDisplayName(user.Email, user.DisplayName)
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err

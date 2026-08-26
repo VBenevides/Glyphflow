@@ -18,6 +18,8 @@ import (
 
 var ErrPendingUser = errors.New("account pending administrator approval")
 
+const defaultAdminDisplayName = "Default Admin"
+
 type AuthUser struct {
 	ID, Username, Email, DisplayName string
 	Status                           string
@@ -115,7 +117,7 @@ func toAuthUser(user store.UserRecord) AuthUser {
 			status = store.StatusActive
 		}
 	}
-	return AuthUser{ID: user.ID, Username: user.Username, Email: user.Email, DisplayName: user.DisplayName, Status: status, Enabled: status == store.StatusActive}
+	return AuthUser{ID: user.ID, Username: user.Username, Email: user.Email, DisplayName: store.NormalizeDisplayName(user.Email, user.DisplayName), Status: status, Enabled: status == store.StatusActive}
 }
 
 func (s *AuthService) userByID(id string) (AuthUser, bool, error) {
@@ -322,11 +324,18 @@ func (s *AuthService) EnsureBootstrap(username, password, provider, subject stri
 	if err != nil || password == "" {
 		return AuthUser{}, errors.New("bootstrap email and password are required")
 	}
-	existing, found, findErr := s.userByEmail(key)
+	stored, found, findErr := s.users.FindByEmail(context.Background(), key)
 	if findErr != nil {
 		return AuthUser{}, findErr
 	}
 	if found {
+		existing := toAuthUser(stored)
+		if strings.TrimSpace(stored.DisplayName) == "" {
+			if err := s.users.UpdateDisplayName(context.Background(), stored.ID, defaultAdminDisplayName); err != nil {
+				return AuthUser{}, err
+			}
+			existing.DisplayName = defaultAdminDisplayName
+		}
 		if existing.Status != store.StatusActive {
 			if err := s.users.SetStatus(context.Background(), existing.ID, store.StatusActive); err != nil {
 				return AuthUser{}, err
@@ -344,6 +353,10 @@ func (s *AuthService) EnsureBootstrap(username, password, provider, subject stri
 		return AuthUser{}, err
 	}
 	if err := s.Grant(user.ID, "admin"); err != nil {
+		return AuthUser{}, err
+	}
+	user.DisplayName = defaultAdminDisplayName
+	if err := s.users.UpdateDisplayName(context.Background(), user.ID, defaultAdminDisplayName); err != nil {
 		return AuthUser{}, err
 	}
 	return user, nil
@@ -456,8 +469,8 @@ func (s *AuthService) registerWithStatus(email, password string, requireRegistra
 			status = store.StatusPending
 		}
 	}
-	user := AuthUser{ID: id, Username: key, Email: key, Status: status, Enabled: status == store.StatusActive}
-	userRecord := store.UserRecord{ID: user.ID, Username: user.Username, Email: user.Email, Status: user.Status, Enabled: user.Enabled}
+	user := AuthUser{ID: id, Username: key, Email: key, DisplayName: store.DefaultUserDisplayName(key), Status: status, Enabled: status == store.StatusActive}
+	userRecord := store.UserRecord{ID: user.ID, Username: user.Username, Email: user.Email, DisplayName: user.DisplayName, Status: user.Status, Enabled: user.Enabled}
 	if provisioner, ok := s.users.(interface {
 		ProvisionLocal(context.Context, store.UserRecord, string, string, string) error
 	}); ok {
@@ -596,7 +609,7 @@ func (s *AuthService) loginOIDC(provider, subject, username, email string, autoP
 		if s.UserApprovalRequired() {
 			status = store.StatusPending
 		}
-		userRecord := store.UserRecord{ID: userID, Username: email, Email: email, Status: status, Enabled: status == store.StatusActive}
+		userRecord := store.UserRecord{ID: userID, Username: email, Email: email, DisplayName: store.DefaultUserDisplayName(email), Status: status, Enabled: status == store.StatusActive}
 		identity := store.SSOIdentityRecord{ID: "identity-" + userID + "-" + provider, UserID: userID, ProviderID: provider, Subject: subject}
 		if provisioner, ok := ssoRepository.(store.OIDCProvisioner); ok {
 			if err := provisioner.ProvisionOIDC(context.Background(), userRecord, roleDefinition.ID, adminRoleID, identity); err != nil {

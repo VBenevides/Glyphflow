@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -14,6 +15,29 @@ type UserRecord struct {
 	ID, Username, Email, DisplayName string
 	Status                           string
 	Enabled                          bool
+}
+
+func DefaultUserDisplayName(email string) string {
+	local := strings.TrimSpace(strings.SplitN(email, "@", 2)[0])
+	parts := strings.FieldsFunc(local, func(r rune) bool { return r == '.' || r == '-' })
+	for i, part := range parts {
+		word := []rune(strings.ToLower(part))
+		if len(word) > 0 {
+			word[0] = unicode.ToUpper(word[0])
+			parts[i] = string(word)
+		}
+	}
+	if len(parts) == 0 {
+		return "User"
+	}
+	return strings.Join(parts, " ")
+}
+
+func NormalizeDisplayName(email, displayName string) string {
+	if displayName = strings.TrimSpace(displayName); displayName != "" {
+		return displayName
+	}
+	return DefaultUserDisplayName(email)
 }
 
 const (
@@ -62,6 +86,7 @@ type UserStore struct{ pool *pgxpool.Pool }
 func NewUserRepository(pool *pgxpool.Pool) *UserStore { return &UserStore{pool: pool} }
 
 func (s *UserStore) Create(ctx context.Context, user UserRecord, passwordHash string) error {
+	user.DisplayName = NormalizeDisplayName(user.Email, user.DisplayName)
 	status, err := userStatus(user)
 	if err != nil {
 		return err
@@ -83,6 +108,7 @@ func (s *UserStore) Create(ctx context.Context, user UserRecord, passwordHash st
 }
 
 func (s *UserStore) ProvisionLocal(ctx context.Context, user UserRecord, passwordHash, defaultRoleID, adminRoleID string) error {
+	user.DisplayName = NormalizeDisplayName(user.Email, user.DisplayName)
 	status, err := userStatus(user)
 	if err != nil {
 		return err
@@ -187,6 +213,14 @@ func (s *UserStore) SetPasswordHash(ctx context.Context, userID, hash string) er
 }
 
 func (s *UserStore) UpdateDisplayName(ctx context.Context, userID, displayName string) error {
+	if strings.TrimSpace(displayName) == "" {
+		var email string
+		if err := s.pool.QueryRow(ctx, `SELECT email FROM users WHERE id = $1`, userID).Scan(&email); err != nil {
+			return err
+		}
+		displayName = DefaultUserDisplayName(email)
+	}
+	displayName = strings.TrimSpace(displayName)
 	_, err := s.pool.Exec(ctx, `UPDATE users SET display_name = $2, updated_at = now() WHERE id = $1`, userID, displayName)
 	return err
 }

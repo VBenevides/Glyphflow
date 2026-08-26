@@ -45,8 +45,9 @@ export function ResourceInventoryPage() {
     }
   }
   return <main className="gf-content">
-    <PageHeader title="Resources and leases" description="Exclusive and non-blocking resources, fencing counters, and active holders." action={manage && <Button onClick={() => { setCreating(true); setError('') }}>Create resource</Button>} refresh={<QueryRefresh query={query} />} />
+    <PageHeader title="Resources and leases" description="Exclusive and non-blocking resources, fencing counters, and active holders." refresh={<QueryRefresh query={query} />} />
     <div className="gf-metric-grid"><MetricCard label="Total number of resources" value={summaryQuery.data?.total ?? '—'} detail="All configured resources" /><MetricCard label="Total number of exclusive resources" value={summaryQuery.data?.exclusive ?? '—'} detail="Resources that block concurrent runs" /></div>
+    {manage && <div className="gf-table-toolbar"><Button onClick={() => { setCreating(true); setError('') }}>Create resource</Button></div>}
     {creating && <section className="gf-card-panel"><h2>Create resource</h2><form className="gf-editor-form" onSubmit={create}>
       <label>Name<Input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} required /></label>
       <label>Kind<select className="gf-input" value={draft.kind} onChange={(event) => setDraft({ ...draft, kind: event.target.value })}><option value="exclusive">Exclusive</option><option value="non-blocking">Non-blocking</option></select></label>
