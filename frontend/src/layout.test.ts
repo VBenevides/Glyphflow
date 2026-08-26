@@ -47,6 +47,7 @@ describe('UI layout contracts', () => {
     expect(css).toContain('--gf-page: oklch(0.985 0.004 280);')
     expect(css).toContain('.gf-app-shell { grid-template-columns: 18rem 1fr; }')
     expect(css).toContain('.gf-sidebar.is-collapsed .gf-nav-link.is-active')
+    expect(css).toContain('.gf-table-wrap:has(+ .gf-pagination) { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }')
     expect(css).toContain('.gf-role-table .gf-table { min-width: 58rem; }')
     expect(css).toContain('border-radius: 999px; font-size: 0.72rem; line-height: 1.25;')
   })
