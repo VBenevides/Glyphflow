@@ -34,7 +34,7 @@ func RunRunnerHeartbeatMonitor(ctx context.Context, events queue.EventStream, re
 	defer cancel()
 	go func() {
 		for monitorCtx.Err() == nil {
-			if err := events.ConsumeSubject(monitorCtx, "control-plane-runner-heartbeats", "glyphflow.events.>", 100, func(ctx context.Context, message queue.Message) error {
+			if err := events.ConsumeSubject(monitorCtx, "control-plane-runner-heartbeats", "glyphflow.heartbeats.>", 100, func(ctx context.Context, message queue.Message) error {
 				return recordRunnerHeartbeatForSubject(ctx, repository, message.Subject, message.Data)
 			}); err != nil && monitorCtx.Err() == nil {
 				select {
@@ -60,10 +60,6 @@ func RunRunnerHeartbeatMonitor(ctx context.Context, events queue.EventStream, re
 	}
 }
 
-func recordRunnerHeartbeat(ctx context.Context, repository RunnerHeartbeatRepository, raw []byte) error {
-	return recordRunnerHeartbeatForSubject(ctx, repository, "", raw)
-}
-
 func recordRunnerHeartbeatForSubject(ctx context.Context, repository RunnerHeartbeatRepository, subject string, raw []byte) error {
 	envelope, err := protocol.DecodeEnvelope(raw)
 	if err != nil {
@@ -86,7 +82,7 @@ func recordRunnerHeartbeatForSubject(ctx context.Context, repository RunnerHeart
 	if strings.TrimSpace(heartbeat.RunnerID) == "" || strings.TrimSpace(heartbeat.BootID) == "" || strings.TrimSpace(heartbeat.At) == "" {
 		return errors.New("runner heartbeat fields are required")
 	}
-	if subject != "" && subject != queue.Subject("events", heartbeat.RunnerID) {
+	if subject != queue.Subject("heartbeats", heartbeat.RunnerID) {
 		return errors.New("runner heartbeat subject does not match runner")
 	}
 	keyRepository, ok := repository.(interface {
@@ -117,4 +113,21 @@ func recordRunnerHeartbeatForSubject(ctx context.Context, repository RunnerHeart
 		return sessionRepository.HeartbeatWithKey(ctx, heartbeat.RunnerID, heartbeat.BootID, at.UTC(), envelope.KeyID, publicKey)
 	}
 	return errors.New("runner heartbeat session repository is unavailable")
+}
+
+func isRunnerHeartbeat(raw []byte) bool {
+	envelope, err := protocol.DecodeEnvelope(raw)
+	if err != nil {
+		return false
+	}
+	payload, err := envelope.PayloadBytes()
+	if err != nil {
+		return false
+	}
+	var heartbeat struct {
+		RunnerID string `json:"runner_id"`
+		BootID   string `json:"boot_id"`
+		At       string `json:"at"`
+	}
+	return json.Unmarshal(payload, &heartbeat) == nil && heartbeat.RunnerID != "" && heartbeat.BootID != "" && heartbeat.At != ""
 }

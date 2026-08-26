@@ -220,13 +220,13 @@ func TestInMemoryTaskAndScheduleDeletion(t *testing.T) {
 	if response := request(http.MethodPost, "/api/v1/tasks", `{"name":"Nightly","command":["echo","hi"],"runner_pool":"default"}`); response.Code != http.StatusCreated {
 		t.Fatalf("task creation returned %d", response.Code)
 	}
-	if response := request(http.MethodPost, "/api/v1/schedules", `{"name":"Hourly","task_id":"task-1","schedule_type":"cron","expression":"0 * * * *","timezone":"UTC"}`); response.Code != http.StatusCreated {
+	if response := request(http.MethodPost, "/api/v1/schedules", `{"name":"Hourly","task_id":"task-1","expression":"0 * * * *","timezone":"UTC"}`); response.Code != http.StatusCreated {
 		t.Fatalf("schedule creation returned %d", response.Code)
 	}
 	if response := request(http.MethodDelete, "/api/v1/schedules/schedule-1", ""); response.Code != http.StatusNoContent {
 		t.Fatalf("schedule deletion returned %d", response.Code)
 	}
-	if response := request(http.MethodPost, "/api/v1/schedules", `{"name":"Hourly again","task_id":"task-1","schedule_type":"cron","expression":"0 * * * *","timezone":"UTC"}`); response.Code != http.StatusCreated {
+	if response := request(http.MethodPost, "/api/v1/schedules", `{"name":"Hourly again","task_id":"task-1","expression":"0 * * * *","timezone":"UTC"}`); response.Code != http.StatusCreated {
 		t.Fatalf("second schedule creation returned %d", response.Code)
 	}
 	if response := request(http.MethodDelete, "/api/v1/tasks/task-1", ""); response.Code != http.StatusNoContent {
@@ -290,7 +290,7 @@ func TestFrontendResourceAndRunPathsReachClassifiedHandlers(t *testing.T) {
 	createTask := httptest.NewRecorder()
 	h.ServeHTTP(createTask, httptest.NewRequest(http.MethodPost, "/api/v1/tasks", bytes.NewBufferString(`{"name":"Nightly","command":["echo","hi"],"runner_pool":"default"}`)))
 	createSchedule := httptest.NewRecorder()
-	h.ServeHTTP(createSchedule, httptest.NewRequest(http.MethodPost, "/api/v1/schedules", bytes.NewBufferString(`{"name":"Hourly","task_id":"task-1","schedule_type":"cron","expression":"0 * * * *","timezone":"UTC"}`)))
+	h.ServeHTTP(createSchedule, httptest.NewRequest(http.MethodPost, "/api/v1/schedules", bytes.NewBufferString(`{"name":"Hourly","task_id":"task-1","expression":"0 * * * *","timezone":"UTC"}`)))
 	if createTask.Code != http.StatusCreated || createSchedule.Code != http.StatusCreated {
 		t.Fatalf("seed operations: task=%d schedule=%d", createTask.Code, createSchedule.Code)
 	}
@@ -323,7 +323,7 @@ func TestFrontendResourceAndRunPathsReachClassifiedHandlers(t *testing.T) {
 		response := httptest.NewRecorder()
 		body := bytes.NewBufferString(`{"name":"Nightly","command":["echo","hi"],"runner_pool":"default"}`)
 		if item.path == "/api/v1/schedules/preview" {
-			body = bytes.NewBufferString(`{"schedule_type":"cron","expression":"0 * * * *","timezone":"UTC"}`)
+			body = bytes.NewBufferString(`{"expression":"0 * * * *","timezone":"UTC"}`)
 		}
 		h.ServeHTTP(response, httptest.NewRequest(item.method, item.path, body))
 		if response.Code == http.StatusNotFound || response.Code == http.StatusMethodNotAllowed {

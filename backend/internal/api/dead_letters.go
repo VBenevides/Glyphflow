@@ -68,10 +68,6 @@ func (s *DeadLetterService) collection(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
-	if s == nil || s.repository == nil {
-		writeError(w, http.StatusServiceUnavailable, "dead-letter storage unavailable", nil)
-		return
-	}
 	state := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("state")))
 	if state != "" && state != "OPEN" && state != "RETRY_QUEUED" && state != "RECONCILED" && state != "DISCARDED" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid dead-letter state"})
@@ -84,6 +80,14 @@ func (s *DeadLetterService) collection(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	if limit < 1 || limit > 100 {
 		limit = 50
+	}
+	if _, ok := checkedPaginationOffset(page, limit); !ok {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": paginationOffsetError})
+		return
+	}
+	if s == nil || s.repository == nil {
+		writeError(w, http.StatusServiceUnavailable, "dead-letter storage unavailable", nil)
+		return
 	}
 	items, total, err := s.repository.List(r.Context(), store.DeadLetterFilter{State: state, RunnerID: strings.TrimSpace(r.URL.Query().Get("runnerId")), Subject: strings.TrimSpace(r.URL.Query().Get("subject")), Page: page, Limit: limit})
 	if err != nil {
@@ -194,19 +198,33 @@ func (s *DeadLetterService) retry(w http.ResponseWriter, r *http.Request, id str
 		return
 	}
 	recordRequestAuditField(r, "messageId", retry.MessageID)
-	deliveryID, err := randomID()
-	if err != nil {
-		recordRequestError(r, err)
-		writeError(w, http.StatusServiceUnavailable, "dead-letter recovery unavailable", err)
-		return
+	deliveryID := retry.DeliveryID
+	if deliveryID == "" {
+		deliveryID, err = randomID()
+		if err != nil {
+			recordRequestError(r, err)
+			writeError(w, http.StatusServiceUnavailable, "dead-letter recovery unavailable", err)
+			return
+		}
 	}
-	if err := s.publisher.Publish(r.Context(), queue.Message{Subject: retry.Subject, Data: retry.Payload, ID: "dead-letter-retry-" + deliveryID}); err != nil {
+	deliveryID = "dead-letter-retry-" + deliveryID
+	if err := s.publisher.Publish(r.Context(), queue.Message{Subject: retry.Subject, Data: retry.Payload, ID: deliveryID}); err != nil {
+		if lifecycle, ok := s.repository.(store.DeadLetterRetryLifecycle); ok {
+			_ = lifecycle.MarkRetryFailed(r.Context(), id, err.Error(), time.Now().UTC().Add(store.DeadLetterRetryBackoff(retry.Attempts)))
+		}
 		recordRequestError(r, err)
 		writeError(w, http.StatusServiceUnavailable, "dead-letter retry could not be published", err)
 		return
 	}
-	recordRequestAuditField(r, "deliveryId", "dead-letter-retry-"+deliveryID)
-	writeJSON(w, http.StatusAccepted, map[string]any{"id": retry.ID, "messageId": retry.MessageID, "deliveryId": "dead-letter-retry-" + deliveryID, "state": "RETRY_QUEUED", "reason": input.Reason})
+	if lifecycle, ok := s.repository.(store.DeadLetterRetryLifecycle); ok {
+		if err := lifecycle.MarkRetryPublished(r.Context(), id); err != nil {
+			recordRequestError(r, err)
+			writeError(w, http.StatusServiceUnavailable, "dead-letter retry state could not be recorded", err)
+			return
+		}
+	}
+	recordRequestAuditField(r, "deliveryId", deliveryID)
+	writeJSON(w, http.StatusAccepted, map[string]any{"id": retry.ID, "messageId": retry.MessageID, "deliveryId": deliveryID, "state": "RETRY_QUEUED", "reason": input.Reason})
 }
 
 func (s *DeadLetterService) reconcile(w http.ResponseWriter, r *http.Request, id string) {

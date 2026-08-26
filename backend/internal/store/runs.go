@@ -118,6 +118,10 @@ type RunRepository interface {
 	ListLogChunks(context.Context, string, string, int64) ([]RunLogChunkRecord, error)
 }
 
+const MaxRunLogChunksPerRead = 1000
+
+var ErrRunLogBudgetExceeded = errors.New("run log read exceeds chunk budget")
+
 type RunListFilter struct {
 	State, Task, Runner, Trigger string
 	From, To                     time.Time
@@ -143,6 +147,11 @@ type RetryRepository interface {
 	Retry(context.Context, string, string) (RunRecord, bool, error)
 }
 
+var (
+	ErrStorageExhausted   = errors.New("storage_exhausted")
+	ErrStorageUnavailable = errors.New("storage_unavailable")
+)
+
 type StartClaimInput struct {
 	RunID, RunnerID, RunnerSessionID, LeaseToken, ExecutionSpecDigest string
 	Attempt                                                           int
@@ -153,7 +162,10 @@ type StartClaimRepository interface {
 	ClaimStart(context.Context, StartClaimInput) (time.Time, bool, error)
 }
 
-type RunStore struct{ pool *pgxpool.Pool }
+type RunStore struct {
+	pool            *pgxpool.Pool
+	storagePressure func(context.Context) (platform.StoragePressure, error)
+}
 
 const defaultStartDelay = time.Minute
 
@@ -164,6 +176,27 @@ const (
 )
 
 func NewRunRepository(pool *pgxpool.Pool) *RunStore { return &RunStore{pool: pool} }
+
+func (s *RunStore) SetStoragePressureProvider(provider func(context.Context) (platform.StoragePressure, error)) {
+	s.storagePressure = provider
+}
+
+func (s *RunStore) ensureStorageAvailable(ctx context.Context) error {
+	if s.storagePressure == nil {
+		return nil
+	}
+	pressure, err := s.storagePressure(ctx)
+	if err != nil {
+		return err
+	}
+	if pressure.State == platform.StorageUnavailable {
+		return ErrStorageUnavailable
+	}
+	if pressure.RejectNewRuns() {
+		return ErrStorageExhausted
+	}
+	return nil
+}
 
 const runQuery = `SELECT r.id, r.task_id, t.name, r.state, r.trigger_type, r.scheduled_for, COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = r.id), 1), COALESCE(latest.runner_id, ''), latest.exit_code, COALESCE(ec.meaning, ''), COALESCE(latest.termination_reason, ''), COALESCE(latest.max_memory_used_bytes, 0), COALESCE(latest.average_memory_used_bytes, 0) FROM runs r JOIN tasks t ON t.id = r.task_id LEFT JOIN LATERAL (SELECT runner_id, exit_code, termination_reason, max_memory_used_bytes, average_memory_used_bytes FROM execution_attempts WHERE run_id = r.id ORDER BY attempt_number DESC LIMIT 1) latest ON true LEFT JOIN exit_code ec ON ec.code = latest.exit_code`
 
@@ -212,18 +245,24 @@ func (s *RunStore) ListPage(ctx context.Context, filter RunListFilter) (RunPage,
 	}
 	defer rows.Close()
 	items := make([]RunRecord, 0, maxRunPageLimit)
+	runIDs := make([]string, 0, maxRunPageLimit)
 	for rows.Next() {
 		item, err := scanRun(rows)
 		if err != nil {
 			return RunPage{}, err
 		}
-		if item.State == "WAITING" {
-			item.PlacementBlocker = s.placementBlocker(ctx, item.ID)
-		}
+		runIDs = append(runIDs, item.ID)
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
 		return RunPage{}, err
+	}
+	blockers, err := s.placementBlockers(ctx, runIDs)
+	if err != nil {
+		return RunPage{}, err
+	}
+	for i := range items {
+		items[i].PlacementBlocker = blockers[items[i].ID]
 	}
 	return RunPage{Items: items, Total: int(total)}, nil
 }
@@ -368,6 +407,67 @@ FROM task`, runID).Scan(&blocker)
 	return *blocker
 }
 
+func (s *RunStore) placementBlockers(ctx context.Context, runIDs []string) (map[string]string, error) {
+	blockers := make(map[string]string)
+	if len(runIDs) == 0 {
+		return blockers, nil
+	}
+	rows, err := s.pool.Query(ctx, `
+WITH task AS (
+	SELECT r.id, tv.id AS version_id, tv.runner_pool_id, tv.pinned_runner_id,
+	       COALESCE(tv.placement_selectors, '{}'::jsonb) AS selectors
+	FROM runs r
+	JOIN task_versions tv ON tv.id = r.task_version_id
+	WHERE r.id = ANY($1) AND r.state = 'WAITING'
+), candidates AS (
+	SELECT task.id AS run_id, rr.id, rr.active_count, rr.capacity,
+	       rr.capabilities @> task.selectors AS selector_match,
+	       EXISTS (
+		SELECT 1 FROM runner_sessions rs
+		WHERE rs.runner_id = rr.id
+		  AND rs.disconnected_at IS NULL
+		  AND rs.last_heartbeat_at >= now() - interval '30 seconds'
+	       ) AS online,
+	       NOT EXISTS (
+		SELECT 1
+		FROM task_resource_requirements req
+		JOIN resources resource ON resource.id = req.resource_id
+		LEFT JOIN resource_leases lease ON lease.resource_id = resource.id
+		  AND lease.state = 'ACTIVE' AND lease.expires_at > now()
+		WHERE req.task_version_id = task.version_id
+		AND LOWER(REPLACE(resource.kind, '_', '-')) <> 'non-blocking'
+		AND (NOT resource.enabled OR lease.id IS NOT NULL)
+	       ) AS resource_available
+	FROM task
+	JOIN runner_pools pool ON pool.id = task.runner_pool_id AND NOT pool.is_deleted AND pool.enabled
+	JOIN runners rr ON rr.pool_id = pool.id
+	  AND NOT rr.is_archived AND NOT rr.is_deleted
+	  AND rr.desired_state = 'ENABLED'
+	  AND (task.pinned_runner_id IS NULL OR task.pinned_runner_id = rr.id)
+)
+SELECT task.id, CASE
+	WHEN NOT EXISTS (SELECT 1 FROM candidates WHERE candidates.run_id = task.id) THEN 'No enabled runner is configured for the task pool.'
+	WHEN NOT EXISTS (SELECT 1 FROM candidates WHERE candidates.run_id = task.id AND selector_match) THEN 'No runner matches the task selectors.'
+	WHEN NOT EXISTS (SELECT 1 FROM candidates WHERE candidates.run_id = task.id AND selector_match AND online) THEN 'All matching runners are offline.'
+	WHEN EXISTS (SELECT 1 FROM candidates WHERE candidates.run_id = task.id AND selector_match AND online AND active_count < capacity AND NOT resource_available) THEN 'A required resource is unavailable.'
+	WHEN NOT EXISTS (SELECT 1 FROM candidates WHERE candidates.run_id = task.id AND selector_match AND online AND active_count < capacity) THEN 'All matching runners are at capacity.'
+	ELSE 'Waiting for an eligible runner.'
+END
+FROM task`, runIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, blocker string
+		if err := rows.Scan(&id, &blocker); err != nil {
+			return nil, err
+		}
+		blockers[id] = blocker
+	}
+	return blockers, rows.Err()
+}
+
 func scanRun(row interface{ Scan(...any) error }) (RunRecord, error) {
 	var item RunRecord
 	if err := row.Scan(&item.ID, &item.TaskID, &item.TaskName, &item.State, &item.TriggerType, &item.ScheduledFor, &item.Attempt, &item.Runner, &item.ExitCode, &item.ExitCodeMeaning, &item.Error, &item.MaxMemoryUsedBytes, &item.AverageMemoryUsedBytes); err != nil {
@@ -377,6 +477,9 @@ func scanRun(row interface{ Scan(...any) error }) (RunRecord, error) {
 }
 
 func (s *RunStore) Create(ctx context.Context, definition RunDefinition) (RunRecord, error) {
+	if err := s.ensureStorageAvailable(ctx); err != nil {
+		return RunRecord{}, err
+	}
 	if definition.TriggerType == "" {
 		definition.TriggerType = "MANUAL"
 	}
@@ -1104,7 +1207,7 @@ func sha256Hex(value []byte) string {
 }
 
 func (s *RunStore) ListLogChunks(ctx context.Context, runID, stream string, after int64) ([]RunLogChunkRecord, error) {
-	rows, err := s.pool.Query(ctx, `SELECT l.chunk_sequence, l.stream, convert_from(l.payload, 'UTF8') FROM execution_log_chunks l JOIN execution_attempts a ON a.id = l.execution_attempt_id WHERE a.run_id = $1 AND l.stream = $2 AND l.chunk_sequence > $3 ORDER BY l.chunk_sequence`, runID, stream, after)
+	rows, err := s.pool.Query(ctx, `SELECT l.chunk_sequence, l.stream, convert_from(l.payload, 'UTF8') FROM execution_log_chunks l JOIN execution_attempts a ON a.id = l.execution_attempt_id WHERE a.run_id = $1 AND l.stream = $2 AND l.chunk_sequence > $3 ORDER BY l.chunk_sequence LIMIT $4`, runID, stream, after, MaxRunLogChunksPerRead+1)
 	if err != nil {
 		return nil, err
 	}
@@ -1117,5 +1220,11 @@ func (s *RunStore) ListLogChunks(ctx context.Context, runID, stream string, afte
 		}
 		items = append(items, item)
 	}
-	return items, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(items) > MaxRunLogChunksPerRead {
+		return nil, ErrRunLogBudgetExceeded
+	}
+	return items, nil
 }

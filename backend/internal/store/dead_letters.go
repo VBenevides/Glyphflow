@@ -45,6 +45,8 @@ type DeadLetterSummary struct {
 type DeadLetterRetry struct {
 	ID, Subject, MessageID string
 	Payload                []byte
+	DeliveryID             string
+	Attempts               uint64
 }
 
 type DeadLetterStats struct {
@@ -100,7 +102,23 @@ const deadLetterSummarySelect = `SELECT id, runner_id, stream, consumer, subject
 const (
 	defaultDeadLetterListLimit = 50
 	maxDeadLetterListLimit     = 100
+	MaxDeadLetterRetryAttempts = 10
 )
+
+type DeadLetterRetryLifecycle interface {
+	MarkRetryPublished(context.Context, string) error
+	MarkRetryFailed(context.Context, string, string, time.Time) error
+}
+
+func DeadLetterRetryBackoff(attempts uint64) time.Duration {
+	if attempts == 0 {
+		return time.Second
+	}
+	if attempts > 8 {
+		attempts = 8
+	}
+	return time.Second << (attempts - 1)
+}
 
 type deadLetterScanner interface {
 	Scan(...any) error
@@ -167,29 +185,66 @@ func (s *DeadLetterStore) BeginRetry(ctx context.Context, id string) (DeadLetter
 		return DeadLetterRetry{}, false, err
 	}
 	defer tx.Rollback(ctx)
-	var subject, messageID, state string
+	var subject, messageID, state, retryDeliveryID string
 	var ciphertext []byte
-	err = tx.QueryRow(ctx, `SELECT subject, message_id, payload_ciphertext, state FROM dead_letters WHERE id = $1 FOR UPDATE`, id).Scan(&subject, &messageID, &ciphertext, &state)
+	var retryAttempts int
+	var retryAvailableAt, retryPublishedAt *time.Time
+	err = tx.QueryRow(ctx, `SELECT subject, message_id, payload_ciphertext, state, retry_delivery_id, retry_attempts, retry_available_at, retry_published_at FROM dead_letters WHERE id = $1 FOR UPDATE`, id).Scan(&subject, &messageID, &ciphertext, &state, &retryDeliveryID, &retryAttempts, &retryAvailableAt, &retryPublishedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return DeadLetterRetry{}, false, nil
 	}
 	if err != nil {
 		return DeadLetterRetry{}, false, err
 	}
+	retry := DeadLetterRetry{ID: id, Subject: subject, MessageID: messageID, DeliveryID: retryDeliveryID, Attempts: uint64(retryAttempts)}
 	if state != "OPEN" {
-		return DeadLetterRetry{ID: id, Subject: subject, MessageID: messageID}, false, nil
+		if state != "RETRY_QUEUED" || retryDeliveryID == "" || retryPublishedAt != nil || retryAttempts >= MaxDeadLetterRetryAttempts || (retryAvailableAt != nil && retryAvailableAt.After(time.Now().UTC())) {
+			return retry, false, nil
+		}
+		retryAttempts++
+		if _, err := tx.Exec(ctx, `UPDATE dead_letters SET retry_attempts = $2, retry_available_at = NULL, retry_last_error = '' WHERE id = $1 AND state = 'RETRY_QUEUED'`, id, retryAttempts); err != nil {
+			return DeadLetterRetry{}, false, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return DeadLetterRetry{}, false, err
+		}
+		retry.Attempts = uint64(retryAttempts)
+		return retry, true, nil
 	}
 	payload, err := decryptDeadLetterPayload(s.key, ciphertext)
 	if err != nil {
 		return DeadLetterRetry{}, false, err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE dead_letters SET state = 'RETRY_QUEUED', updated_at = now() WHERE id = $1 AND state = 'OPEN'`, id); err != nil {
+	deliveryID, err := newDeadLetterID()
+	if err != nil {
+		return DeadLetterRetry{}, false, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE dead_letters SET state = 'RETRY_QUEUED', retry_delivery_id = $2, retry_attempts = 1, retry_available_at = now(), retry_published_at = NULL, retry_last_error = '', updated_at = now() WHERE id = $1 AND state = 'OPEN'`, id, deliveryID); err != nil {
 		return DeadLetterRetry{}, false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return DeadLetterRetry{}, false, err
 	}
-	return DeadLetterRetry{ID: id, Subject: subject, MessageID: messageID, Payload: payload}, true, nil
+	return DeadLetterRetry{ID: id, Subject: subject, MessageID: messageID, Payload: payload, DeliveryID: deliveryID, Attempts: 1}, true, nil
+}
+
+func (s *DeadLetterStore) MarkRetryPublished(ctx context.Context, id string) error {
+	if s == nil || s.pool == nil || id == "" {
+		return errors.New("dead-letter storage is unavailable")
+	}
+	_, err := s.pool.Exec(ctx, `UPDATE dead_letters SET retry_published_at = now(), retry_available_at = NULL, retry_last_error = '', updated_at = now() WHERE id = $1 AND state = 'RETRY_QUEUED'`, id)
+	return err
+}
+
+func (s *DeadLetterStore) MarkRetryFailed(ctx context.Context, id, failure string, availableAt time.Time) error {
+	if s == nil || s.pool == nil || id == "" {
+		return errors.New("dead-letter storage is unavailable")
+	}
+	if len(failure) > 4096 {
+		failure = failure[:4096]
+	}
+	_, err := s.pool.Exec(ctx, `UPDATE dead_letters SET retry_available_at = CASE WHEN retry_attempts < $4 THEN $2 ELSE NULL END, retry_last_error = $3, updated_at = now() WHERE id = $1 AND state = 'RETRY_QUEUED' AND retry_published_at IS NULL`, id, availableAt, failure, MaxDeadLetterRetryAttempts)
+	return err
 }
 
 func (s *DeadLetterStore) Reconcile(ctx context.Context, id, state string) (bool, error) {

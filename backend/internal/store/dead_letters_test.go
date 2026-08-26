@@ -42,6 +42,12 @@ func TestDeadLetterPersistenceRejectsIncompleteRecord(t *testing.T) {
 	}
 }
 
+func TestDeadLetterRetryBackoffIsCapped(t *testing.T) {
+	if DeadLetterRetryBackoff(1) != time.Second || DeadLetterRetryBackoff(2) != 2*time.Second || DeadLetterRetryBackoff(10) != 128*time.Second {
+		t.Fatalf("retry backoff values are incorrect")
+	}
+}
+
 func TestDeadLetterRepositoryPersistsAndCASesRecovery(t *testing.T) {
 	url := os.Getenv("DATABASE_URL")
 	if url == "" {
@@ -76,8 +82,11 @@ func TestDeadLetterRepositoryPersistsAndCASesRecovery(t *testing.T) {
 		t.Fatalf("dead-letter list = %#v, total=%d, err=%v", items, total, err)
 	}
 	retry, claimed, err := repository.BeginRetry(ctx, id)
-	if err != nil || !claimed || string(retry.Payload) != "exact-payload" {
+	if err != nil || !claimed || string(retry.Payload) != "exact-payload" || retry.DeliveryID == "" || retry.Attempts != 1 {
 		t.Fatalf("begin retry = %#v, claimed=%t, err=%v", retry, claimed, err)
+	}
+	if err := repository.MarkRetryPublished(ctx, id); err != nil {
+		t.Fatal(err)
 	}
 	if _, claimed, err := repository.BeginRetry(ctx, id); err != nil || claimed {
 		t.Fatalf("duplicate retry claimed=%t, err=%v", claimed, err)

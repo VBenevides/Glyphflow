@@ -24,20 +24,18 @@ import (
 )
 
 type OIDCProvider struct {
-	Key                string            `json:"key"`
-	Name               string            `json:"name,omitempty"`
-	Issuer             string            `json:"issuer"`
-	ClientID           string            `json:"clientId,omitempty"`
-	LegacyClientID     string            `json:"client_id,omitempty"`
-	Callback           string            `json:"callback"`
-	AuthURL            string            `json:"authUrl,omitempty"`
-	Audience           string            `json:"audience,omitempty"`
-	SecretReference    string            `json:"secretReference,omitempty"`
-	Enabled            bool              `json:"enabled"`
-	AutoProvision      bool              `json:"autoProvision,omitempty"`
-	Callbacks          []string          `json:"callbacks,omitempty"`
-	GroupMapping       map[string]string `json:"groupMapping,omitempty"`
-	LegacyGroupMapping map[string]string `json:"group_mapping,omitempty"`
+	Key             string            `json:"key"`
+	Name            string            `json:"name,omitempty"`
+	Issuer          string            `json:"issuer"`
+	ClientID        string            `json:"clientId,omitempty"`
+	Callback        string            `json:"callback"`
+	AuthURL         string            `json:"authUrl,omitempty"`
+	Audience        string            `json:"audience,omitempty"`
+	SecretReference string            `json:"secretReference,omitempty"`
+	Enabled         bool              `json:"enabled"`
+	AutoProvision   bool              `json:"autoProvision,omitempty"`
+	Callbacks       []string          `json:"callbacks,omitempty"`
+	GroupMapping    map[string]string `json:"groupMapping,omitempty"`
 }
 
 // OIDCProviderPublic is the provider projection used by the public login page.
@@ -58,6 +56,8 @@ type OIDCService struct {
 	secretResolver  func(string) (string, error)
 	linkTargets     map[string]string
 }
+
+const maxOIDCResponseBytes = 1 << 20
 
 func NewOIDCService() *OIDCService {
 	return &OIDCService{providers: map[string]OIDCProvider{}, states: platform.NewAuthorizationStateStore(), linkTargets: map[string]string{}, httpClient: &http.Client{Timeout: 10 * time.Second}}
@@ -196,9 +196,6 @@ func providerFromRecord(record store.OIDCProviderRecord) OIDCProvider {
 }
 
 func (s *OIDCService) AddProvider(provider OIDCProvider) error {
-	if provider.ClientID == "" {
-		provider.ClientID = provider.LegacyClientID
-	}
 	if provider.Name == "" {
 		provider.Name = provider.Key
 	}
@@ -207,14 +204,22 @@ func (s *OIDCService) AddProvider(provider OIDCProvider) error {
 		provider.Callback = s.defaultCallback
 		s.mu.RUnlock()
 	}
-	if len(provider.GroupMapping) == 0 {
-		provider.GroupMapping = provider.LegacyGroupMapping
-	}
 	if provider.Key == "" || provider.Issuer == "" || provider.Callback == "" {
 		return errors.New("OIDC provider is incomplete")
 	}
 	if _, err := secureURL(provider.Issuer); err != nil {
 		return err
+	}
+	if provider.SecretReference != "" && !strings.HasPrefix(provider.SecretReference, "env://") {
+		s.mu.RLock()
+		resolverConfigured := s.secretResolver != nil
+		s.mu.RUnlock()
+		if !resolverConfigured {
+			return errors.New("OIDC secret reference requires a configured resolver")
+		}
+	}
+	if strings.HasPrefix(provider.SecretReference, "env://") && strings.TrimPrefix(provider.SecretReference, "env://") == "" {
+		return errors.New("OIDC environment secret reference is incomplete")
 	}
 	callbacks := provider.Callbacks
 	if len(callbacks) == 0 {
@@ -589,6 +594,9 @@ func (s *OIDCService) exchangeCode(provider OIDCProvider, endpoint, code, callba
 }
 
 func (s *OIDCService) fetch(endpoint string, body io.Reader) ([]byte, error) {
+	if _, err := secureURL(endpoint); err != nil {
+		return nil, err
+	}
 	method := http.MethodGet
 	if body != nil {
 		method = http.MethodPost
@@ -613,6 +621,7 @@ func (s *OIDCService) fetch(endpoint string, body io.Reader) ([]byte, error) {
 		_, err := secureURL(next.URL.String())
 		return err
 	}
+	clientCopy.Transport = safeTransport(clientCopy.Transport)
 	response, err := clientCopy.Do(request)
 	if err != nil {
 		return nil, err
@@ -621,11 +630,56 @@ func (s *OIDCService) fetch(endpoint string, body io.Reader) ([]byte, error) {
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil, errors.New("OIDC provider request failed")
 	}
-	var value json.RawMessage
-	if err := json.NewDecoder(response.Body).Decode(&value); err != nil {
+	value, err := io.ReadAll(io.LimitReader(response.Body, maxOIDCResponseBytes+1))
+	if err != nil {
 		return nil, err
 	}
+	if len(value) > maxOIDCResponseBytes || !json.Valid(value) {
+		return nil, errors.New("OIDC provider response is invalid or too large")
+	}
 	return value, nil
+}
+
+func safeTransport(roundTripper http.RoundTripper) http.RoundTripper {
+	if roundTripper == nil {
+		roundTripper = http.DefaultTransport
+	}
+	transport, ok := roundTripper.(*http.Transport)
+	if !ok {
+		return roundTripper
+	}
+	copy := transport.Clone()
+	copy.Proxy = nil
+	copy.DialTLSContext = nil
+	copy.DialContext = safeDialContext
+	return copy
+}
+
+func safeDialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, errors.New("OIDC endpoint address is invalid")
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if isPrivateIP(ip) {
+			return nil, errors.New("OIDC endpoint targets a private network")
+		}
+		return (&net.Dialer{}).DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+	}
+	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
+	if err != nil || len(ips) == 0 {
+		return nil, errors.New("OIDC endpoint DNS lookup failed")
+	}
+	dialer := &net.Dialer{}
+	for _, ip := range ips {
+		if isPrivateIP(ip) {
+			continue
+		}
+		if conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port)); err == nil {
+			return conn, nil
+		}
+	}
+	return nil, errors.New("OIDC endpoint connection failed")
 }
 
 func secureURL(value string) (string, error) {

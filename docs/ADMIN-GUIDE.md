@@ -32,8 +32,9 @@ also enforce the permission listed below.
 
 ### Bootstrap and sign-in
 
-Set `GLYPHFLOW_BOOTSTRAP_EMAIL` and `GLYPHFLOW_BOOTSTRAP_PASSWORD` together if
-the first administrator must be created during startup. Set
+Set `GLYPHFLOW_BOOTSTRAP_EMAIL` and either `GLYPHFLOW_BOOTSTRAP_PASSWORD` for
+local development or the protected `GLYPHFLOW_BOOTSTRAP_PASSWORD_FILE` for
+production Compose if the first administrator must be created during startup. Set
 `GLYPHFLOW_SYSTEM_ADMINS` to a space-, comma-, or semicolon-separated list of
 administrator email addresses. Matching users receive the immutable `admin`
 role and cannot be demoted or disabled through the normal user controls.
@@ -294,14 +295,17 @@ the [production Compose overlay](../compose.production.yaml). At minimum, the
 production boundary requires:
 
 - `ENVIRONMENT=production` and `ALLOW_INSECURE_TRANSPORT=false`;
-- PostgreSQL with `DATABASE_URL` using `sslmode=verify-full`, plus protected
-  PostgreSQL CA, certificate, key, and password files;
-- NATS with a `tls://` URL, client certificate/key/CA, and credentials;
+- PostgreSQL with a protected `DATABASE_URL_FILE` containing a URL that uses
+  `sslmode=verify-full`, plus protected PostgreSQL CA, certificate, key, and
+  password files;
+- NATS with a protected `NATS_URL_FILE` containing a `tls://` URL and client
+  certificate/key/CA files;
 - an HTTPS `WEB_ORIGIN` and explicit `CORS_ORIGIN` and `CSRF_ORIGINS` values;
-- protected `ACCESS_TOKEN_SECRET`, `CONTROL_PLANE_SIGNING_PRIVATE_KEY`, and,
-  when password login is enabled, `PASSWORD_PEPPER` values;
-- bootstrap and system-administrator settings supplied through deployment
-  secrets or protected environment handling; and
+- protected `ACCESS_TOKEN_SECRET_FILE`, `CONTROL_PLANE_SIGNING_PRIVATE_KEY_FILE`,
+  `SECRET_ENCRYPTION_KEY_FILE`, and, when password login is enabled,
+  `PASSWORD_PEPPER_FILE` values;
+- bootstrap email and system-administrator settings plus a protected
+  `GLYPHFLOW_BOOTSTRAP_PASSWORD_FILE`; and
 - a private PostgreSQL and NATS network.
 
 The production overlay binds the web container to `127.0.0.1` by default. Put

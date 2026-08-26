@@ -3,7 +3,6 @@ package controlplane
 import (
 	"context"
 	"crypto/ed25519"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -181,11 +180,10 @@ func applyRunnerEvent(ctx context.Context, keys RunnerKeyRepository, runs Dispat
 	if runnerID == message.Subject || runnerID == "" {
 		return errors.New("runner event subject is invalid")
 	}
-	var heartbeat struct {
-		BootID string `json:"boot_id"`
-		At     string `json:"at"`
-	}
-	if json.Unmarshal(message.Data, &heartbeat) == nil && heartbeat.BootID != "" && heartbeat.At != "" {
+	if isRunnerHeartbeat(message.Data) {
+		if heartbeatRepository, ok := keys.(RunnerHeartbeatRepository); ok {
+			return recordRunnerHeartbeatForSubject(ctx, heartbeatRepository, message.Subject, message.Data)
+		}
 		return nil
 	}
 	envelope, err := protocol.DecodeEnvelope(message.Data)

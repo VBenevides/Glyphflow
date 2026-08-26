@@ -1,0 +1,89 @@
+name: Release image
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+      PRERELEASE: ${{ github.event.release.prerelease }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Validate release version
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          version="$(tr -d '[:space:]' < VERSION)"
+          release_version="${RELEASE_TAG#v}"
+          test -n "$version"
+          test "$release_version" = "$version" || {
+            echo "release tag $RELEASE_TAG does not match VERSION $version" >&2
+            exit 1
+          }
+          echo "GLYPHFLOW_VERSION=$version" >> "$GITHUB_ENV"
+          echo "GLYPHFLOW_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.22.2
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install govulncheck
+        env:
+          GOBIN: ${{ runner.temp }}/bin
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+
+      - name: Run release checks
+        env:
+          GOVULNCHECK_BIN: ${{ runner.temp }}/bin/govulncheck
+        run: ./scripts/release-check.sh
+
+      - name: Log in to GHCR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
+      - name: Build image
+        run: docker build --platform linux/amd64 --file build/Dockerfile --tag "$GLYPHFLOW_IMAGE:$GLYPHFLOW_VERSION" .
+
+      - name: Publish image
+        run: |
+          set -Eeuo pipefail
+          docker push "$GLYPHFLOW_IMAGE:$GLYPHFLOW_VERSION"
+          if [ "$PRERELEASE" = false ]; then
+            docker tag "$GLYPHFLOW_IMAGE:$GLYPHFLOW_VERSION" "$GLYPHFLOW_IMAGE:latest"
+            docker push "$GLYPHFLOW_IMAGE:latest"
+          fi
+
+      - name: Export offline image
+        run: |
+          set -Eeuo pipefail
+          archive="glyphflow-${GLYPHFLOW_VERSION}-linux-amd64.tar.gz"
+          docker save "$GLYPHFLOW_IMAGE:$GLYPHFLOW_VERSION" | gzip -9 > "$archive"
+          sha256sum "$archive" > "$archive.sha256"
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          archive="glyphflow-${GLYPHFLOW_VERSION}-linux-amd64.tar.gz"
+          gh release upload "$RELEASE_TAG" "$archive" "$archive.sha256" --clobber

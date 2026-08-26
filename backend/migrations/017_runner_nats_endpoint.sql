@@ -1,1 +1,0 @@
-ALTER TABLE runners ADD COLUMN IF NOT EXISTS nats_endpoint text NOT NULL DEFAULT '';

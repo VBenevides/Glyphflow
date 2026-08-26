@@ -47,9 +47,16 @@ type DueScheduleRecord struct {
 	CatchupLimit, DeadlineSeconds, MaxConcurrentRuns, ActiveRuns int
 }
 
-type ScheduleStore struct{ pool *pgxpool.Pool }
+type ScheduleStore struct {
+	pool            *pgxpool.Pool
+	storagePressure func(context.Context) (platform.StoragePressure, error)
+}
 
 func NewScheduleRepository(pool *pgxpool.Pool) *ScheduleStore { return &ScheduleStore{pool: pool} }
+
+func (s *ScheduleStore) SetStoragePressureProvider(provider func(context.Context) (platform.StoragePressure, error)) {
+	s.storagePressure = provider
+}
 
 const scheduleQuery = `SELECT s.id, s.name, s.task_id, s.enabled, s.next_fire_at, sv.version, sv.expression, sv.timezone, sv.misfire_policy, sv.catchup_limit, sv.start_deadline_seconds, sv.concurrency_policy, sv.max_concurrent_runs FROM schedules s JOIN schedule_versions sv ON sv.id = s.current_version_id`
 
@@ -195,6 +202,18 @@ func (s *ScheduleStore) SetEnabled(ctx context.Context, id string, enabled bool)
 func (s *ScheduleStore) CreateDueRun(ctx context.Context, now time.Time, next func(DueScheduleRecord) (time.Time, error)) (string, bool, error) {
 	if next == nil {
 		return "", false, errors.New("schedule next-fire function is required")
+	}
+	if s.storagePressure != nil {
+		pressure, err := s.storagePressure(ctx)
+		if err != nil {
+			return "", false, err
+		}
+		if pressure.State == platform.StorageUnavailable {
+			return "", false, ErrStorageUnavailable
+		}
+		if pressure.RejectNewRuns() {
+			return "", false, ErrStorageExhausted
+		}
 	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -17,11 +18,16 @@ import (
 type deadLetterRepositoryStub struct {
 	item       store.DeadLetterSummary
 	state      string
+	deliveryID string
 	beginCalls int
+	listCalls  int
+	lastFilter store.DeadLetterFilter
 }
 
 func (s *deadLetterRepositoryStub) Persist(context.Context, store.DeadLetterRecord) error { return nil }
-func (s *deadLetterRepositoryStub) List(context.Context, store.DeadLetterFilter) ([]store.DeadLetterSummary, int, error) {
+func (s *deadLetterRepositoryStub) List(_ context.Context, filter store.DeadLetterFilter) ([]store.DeadLetterSummary, int, error) {
+	s.listCalls++
+	s.lastFilter = filter
 	if s.state == "" {
 		return nil, 0, nil
 	}
@@ -41,7 +47,7 @@ func (s *deadLetterRepositoryStub) BeginRetry(context.Context, string) (store.De
 		return store.DeadLetterRetry{ID: s.item.ID, Subject: s.item.Subject, MessageID: s.item.MessageID}, false, nil
 	}
 	s.state = "RETRY_QUEUED"
-	return store.DeadLetterRetry{ID: s.item.ID, Subject: s.item.Subject, MessageID: s.item.MessageID, Payload: []byte("exact-payload")}, true, nil
+	return store.DeadLetterRetry{ID: s.item.ID, Subject: s.item.Subject, MessageID: s.item.MessageID, Payload: []byte("exact-payload"), DeliveryID: s.deliveryID, Attempts: 1}, true, nil
 }
 func (s *deadLetterRepositoryStub) Reconcile(_ context.Context, _ string, state string) (bool, error) {
 	if s.state != "OPEN" && s.state != "RETRY_QUEUED" {
@@ -113,6 +119,21 @@ func TestDeadLetterRecoveryUsesCASAndNewDeliveryIdentity(t *testing.T) {
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK || repository.state != "DISCARDED" {
 		t.Fatalf("reconcile status = %d, state = %s", response.Code, repository.state)
+	}
+}
+
+func TestDeadLetterRecoveryUsesPersistedDeliveryIdentity(t *testing.T) {
+	repository := &deadLetterRepositoryStub{state: "OPEN", deliveryID: "delivery-1", item: store.DeadLetterSummary{ID: "dead-persisted", Subject: "glyphflow.events.runner-1", MessageID: "event-persisted", FirstFailedAt: time.Now().UTC(), LastFailedAt: time.Now().UTC()}}
+	publisher := &deadLetterPublisherStub{}
+	server := NewDeadLetterService(repository, publisher)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/dead-letters/dead-persisted/retry", strings.NewReader(`{"reason":"operator review"}`))
+	response := httptest.NewRecorder()
+	server.retry(response, request, "dead-persisted")
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("retry status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if publisher.message.ID != "dead-letter-retry-delivery-1" {
+		t.Fatalf("delivery ID = %q", publisher.message.ID)
 	}
 }
 
@@ -217,5 +238,46 @@ func TestPermissionDenialIsCountedAndAuditedWithoutRequestBody(t *testing.T) {
 	}
 	if audit.events[0].Input != nil || audit.events[0].Target != "/api/v1/admin/dead-letters/dead-1/retry" {
 		t.Fatalf("denial audit exposed input: %#v", audit.events[0])
+	}
+}
+
+func TestDeadLetterCollectionPreservesNormalAndClampedPagination(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		path        string
+		page, limit int
+	}{
+		{name: "normal", path: "/api/v1/admin/dead-letters?page=2&limit=10", page: 2, limit: 10},
+		{name: "clamped", path: "/api/v1/admin/dead-letters?page=0&limit=1000", page: 1, limit: 50},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repository := &deadLetterRepositoryStub{state: "OPEN"}
+			service := NewDeadLetterService(repository, nil)
+			response := httptest.NewRecorder()
+			service.collection(response, httptest.NewRequest(http.MethodGet, test.path, nil))
+			if response.Code != http.StatusOK || repository.listCalls != 1 {
+				t.Fatalf("status=%d list calls=%d body=%s", response.Code, repository.listCalls, response.Body.String())
+			}
+			if repository.lastFilter.Page != test.page || repository.lastFilter.Limit != test.limit {
+				t.Fatalf("filter=%#v, want page=%d limit=%d", repository.lastFilter, test.page, test.limit)
+			}
+		})
+	}
+}
+
+func TestDeadLetterCollectionRejectsOverflowingPaginationOffset(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	for _, page := range []int{maxInt/100 + 2, maxInt} {
+		repository := &deadLetterRepositoryStub{state: "OPEN"}
+		service := NewDeadLetterService(repository, nil)
+		response := httptest.NewRecorder()
+		path := "/api/v1/admin/dead-letters?page=" + strconv.Itoa(page) + "&limit=100"
+		service.collection(response, httptest.NewRequest(http.MethodGet, path, nil))
+		if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), paginationOffsetError) {
+			t.Fatalf("page=%d response=%d body=%s", page, response.Code, response.Body.String())
+		}
+		if repository.listCalls != 0 {
+			t.Fatalf("page=%d reached the store", page)
+		}
 	}
 }

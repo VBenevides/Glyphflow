@@ -101,6 +101,7 @@ CREATE TABLE user_sso_identities (
 CREATE TABLE sso_authorization_states (
     id text PRIMARY KEY,
     provider_id text NOT NULL REFERENCES sso_providers(id) ON DELETE CASCADE,
+    link_user_id text REFERENCES users(id) ON DELETE CASCADE,
     state_hash text NOT NULL UNIQUE,
     nonce_hash text NOT NULL,
     encrypted_pkce_verifier bytea NOT NULL,
@@ -133,36 +134,64 @@ CREATE TABLE audit_events (
 CREATE INDEX audit_events_created_idx ON audit_events(created_at DESC);
 CREATE INDEX audit_events_actor_idx ON audit_events(actor_id, created_at DESC);
 
+CREATE TABLE exit_code (
+    code integer PRIMARY KEY,
+    meaning text NOT NULL CHECK (btrim(meaning) <> ''),
+    is_system boolean NOT NULL DEFAULT false
+);
+INSERT INTO exit_code (code, meaning, is_system) VALUES
+    (0, 'Success', true),
+    (1, 'Generic/unhandled error', true),
+    (2, 'Invalid arguments / usage', true),
+    (5, 'Start Failure', true),
+    (6, 'Timeout', true);
+
+CREATE TABLE global_variables (
+    id text PRIMARY KEY,
+    name text NOT NULL CHECK (name ~ '^[A-Z_][A-Z0-9_]*$'),
+    value text NOT NULL DEFAULT '',
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX global_variables_name_ci_idx ON global_variables (lower(name));
+
 CREATE TABLE runner_pools (
     id text PRIMARY KEY,
     name text NOT NULL,
     description text NOT NULL DEFAULT '',
     enabled boolean NOT NULL DEFAULT true,
+    is_deleted boolean NOT NULL DEFAULT false,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE UNIQUE INDEX runner_pools_name_ci_idx ON runner_pools (lower(name));
+CREATE UNIQUE INDEX runner_pools_name_ci_idx ON runner_pools (lower(name)) WHERE NOT is_deleted;
+CREATE INDEX runner_pools_active_idx ON runner_pools (lower(name), id) WHERE NOT is_deleted;
 CREATE TABLE runners (
     id text PRIMARY KEY,
-    pool_id text NOT NULL REFERENCES runner_pools(id) ON DELETE RESTRICT,
+    pool_id text REFERENCES runner_pools(id) ON DELETE SET NULL,
     name text NOT NULL,
     hostname text NOT NULL DEFAULT '',
     desired_state text NOT NULL DEFAULT 'ENABLED' CHECK (desired_state IN ('ENABLED', 'DRAINING', 'DISABLED')),
-    observed_state text NOT NULL DEFAULT 'OFFLINE' CHECK (observed_state IN ('ONLINE', 'OFFLINE', 'REVOKED')),
-    capacity integer NOT NULL DEFAULT 1 CHECK (capacity > 0),
+    observed_state text NOT NULL DEFAULT 'PENDING' CHECK (observed_state IN ('PENDING', 'ONLINE', 'OFFLINE', 'REVOKED')),
+    capacity integer NOT NULL DEFAULT 10 CHECK (capacity > 0),
     active_count integer NOT NULL DEFAULT 0 CHECK (active_count >= 0),
     capabilities jsonb NOT NULL DEFAULT '{}'::jsonb,
+    nats_endpoint text NOT NULL DEFAULT '',
+    control_plane_url text NOT NULL DEFAULT '',
+    is_archived boolean NOT NULL DEFAULT false,
+    is_deleted boolean NOT NULL DEFAULT false,
     last_seen_at timestamptz,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE UNIQUE INDEX runners_name_ci_idx ON runners (lower(name));
+CREATE UNIQUE INDEX runners_name_ci_idx ON runners (lower(name)) WHERE NOT is_archived AND NOT is_deleted;
 CREATE TABLE runner_sessions (
     id text PRIMARY KEY,
     runner_id text NOT NULL REFERENCES runners(id) ON DELETE CASCADE,
     boot_id text NOT NULL,
     connected_at timestamptz NOT NULL DEFAULT now(),
     last_heartbeat_at timestamptz NOT NULL DEFAULT now(),
+    current_capacity integer CHECK (current_capacity > 0),
     disconnected_at timestamptz,
     UNIQUE (runner_id, boot_id),
     UNIQUE (id, runner_id)
@@ -197,13 +226,14 @@ CREATE TABLE tasks (
     name text NOT NULL,
     description text NOT NULL DEFAULT '',
     enabled boolean NOT NULL DEFAULT true,
-    deleted boolean NOT NULL DEFAULT false,
+    is_deleted boolean NOT NULL DEFAULT false,
     created_by text REFERENCES users(id) ON DELETE SET NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     UNIQUE (id, current_version_id)
 );
 CREATE UNIQUE INDEX tasks_name_ci_idx ON tasks (lower(name));
+CREATE INDEX tasks_active_idx ON tasks (lower(name), id) WHERE NOT is_deleted;
 CREATE TABLE task_versions (
     id text PRIMARY KEY,
     task_id text NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
@@ -254,7 +284,6 @@ CREATE TABLE schedule_versions (
     task_id text NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
     version integer NOT NULL CHECK (version > 0),
     task_version_id text NOT NULL,
-    schedule_type text NOT NULL CHECK (schedule_type IN ('cron', 'interval')),
     expression text NOT NULL,
     timezone text NOT NULL,
     starts_at timestamptz,
@@ -283,8 +312,9 @@ CREATE TABLE runs (
     triggered_by text REFERENCES users(id) ON DELETE SET NULL,
     trigger_type text NOT NULL CHECK (trigger_type IN ('SCHEDULE', 'MANUAL', 'RETRY')),
     scheduled_for timestamptz NOT NULL,
+    resolved_global_variables jsonb NOT NULL DEFAULT '{}'::jsonb,
     start_deadline_at timestamptz,
-    state text NOT NULL CHECK (state IN ('WAITING', 'RUNNING', 'RETRY_WAIT', 'CANCELLING', 'SUCCEEDED', 'FAILED', 'CANCELLED', 'UNKNOWN')),
+    state text NOT NULL CHECK (state IN ('WAITING', 'DISPATCHED', 'RUNNING', 'RETRY_WAIT', 'CANCELLING', 'SUCCEEDED', 'FAILED', 'CANCELLED', 'UNKNOWN')),
     state_version bigint NOT NULL DEFAULT 0 CHECK (state_version >= 0),
     idempotency_key text NOT NULL UNIQUE,
     retry_not_before timestamptz,
@@ -323,10 +353,13 @@ CREATE TABLE execution_attempts (
     exit_code integer,
     termination_reason text,
     result jsonb,
+    max_memory_used_bytes bigint NOT NULL DEFAULT 0 CHECK (max_memory_used_bytes >= 0),
+    average_memory_used_bytes bigint NOT NULL DEFAULT 0 CHECK (average_memory_used_bytes >= 0),
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     UNIQUE (run_id, attempt_number),
-    FOREIGN KEY (runner_session_id, runner_id) REFERENCES runner_sessions(id, runner_id)
+    FOREIGN KEY (runner_session_id, runner_id) REFERENCES runner_sessions(id, runner_id),
+    FOREIGN KEY (exit_code) REFERENCES exit_code(code)
 );
 
 CREATE TABLE run_events (
@@ -404,9 +437,54 @@ CREATE TABLE event_inbox (
     received_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE global_variable_references (
+    variable_id text NOT NULL REFERENCES global_variables(id) ON DELETE RESTRICT,
+    owner_type text NOT NULL CHECK (owner_type IN ('task_version', 'schedule_version')),
+    owner_id text NOT NULL,
+    PRIMARY KEY (variable_id, owner_type, owner_id)
+);
+CREATE INDEX global_variable_references_owner_idx ON global_variable_references(owner_type, owner_id);
+
+CREATE TABLE dead_letters (
+    id text PRIMARY KEY,
+    runner_id text NOT NULL DEFAULT '',
+    stream text NOT NULL,
+    consumer text NOT NULL,
+    subject text NOT NULL,
+    message_id text NOT NULL,
+    payload_ciphertext bytea NOT NULL CHECK (octet_length(payload_ciphertext) > 0),
+    payload_sha256 text NOT NULL CHECK (payload_sha256 ~ '^[0-9a-f]{64}$'),
+    error_text text NOT NULL DEFAULT '' CHECK (octet_length(error_text) <= 4096),
+    attempts integer NOT NULL CHECK (attempts > 0),
+    first_failed_at timestamptz NOT NULL,
+    last_failed_at timestamptz NOT NULL,
+    correlation_id text NOT NULL DEFAULT '',
+    state text NOT NULL DEFAULT 'OPEN' CHECK (state IN ('OPEN', 'RETRY_QUEUED', 'RECONCILED', 'DISCARDED')),
+    retry_delivery_id text NOT NULL DEFAULT '',
+    retry_attempts integer NOT NULL DEFAULT 0 CHECK (retry_attempts >= 0),
+    retry_available_at timestamptz,
+    retry_published_at timestamptz,
+    retry_last_error text NOT NULL DEFAULT '' CHECK (octet_length(retry_last_error) <= 4096),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (stream, consumer, message_id)
+);
+CREATE INDEX dead_letters_state_idx ON dead_letters(state, last_failed_at DESC);
+
+CREATE TABLE retention_legal_holds (
+    data_class text NOT NULL CHECK (data_class IN ('run', 'dead_letter', 'audit')),
+    data_id text NOT NULL,
+    reason text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (data_class, data_id)
+);
+
 CREATE OR REPLACE FUNCTION reject_append_only_mutation() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
+    IF current_setting('glyphflow.retention_cleanup', true) = 'on' THEN
+        RETURN OLD;
+    END IF;
     RAISE EXCEPTION '% is append-only', TG_TABLE_NAME;
 END;
 $$;

@@ -1,7 +1,7 @@
 # Glyphflow architecture
 
-Status: current implementation source of truth. Updated 2026-08-22 for the
-`version/0.2.1` checkout. Dated reviews in `internal/` and `.agent-work/` are
+Status: current implementation source of truth. Updated 2026-08-25 for the
+`version/0.2.3` checkout. Dated reviews in `internal/` and `.agent-work/` are
 historical evidence or target designs, not runtime contracts.
 
 ## Topology
@@ -34,7 +34,7 @@ Workers are separate processes or machines and do not connect to PostgreSQL.
 |---|---|---|
 | Frontend | React views, routing, and HTTP API client | [`frontend/src`](frontend/src) |
 | API | HTTP routes, authentication, authorization, and request orchestration | [`backend/internal/api`](backend/internal/api) |
-| Store | PostgreSQL repositories, migrations, transactions, and durable state transitions | [`backend/internal/store`](backend/internal/store), [`backend/migrations`](backend/migrations) |
+| Store | PostgreSQL repositories, canonical schema, transactions, and durable state transitions | [`backend/internal/store`](backend/internal/store), [`backend/migrations/001_canonical.sql`](backend/migrations/001_canonical.sql) |
 | Control plane | Scheduling, dispatch, event ingestion, heartbeats, and start claims | [`backend/internal/controlplane`](backend/internal/controlplane) |
 | Protocol | Signed order, event, and control-message formats and verification | [`backend/internal/protocol`](backend/internal/protocol) |
 | Queue | NATS JetStream connection, subjects, consumers, and acknowledgements | [`backend/internal/queue`](backend/internal/queue) |
@@ -81,9 +81,16 @@ multi-replica leader election or a load/failover guarantee.
 
 - Local development: [`dev_run.sh`](dev_run.sh) plus [`compose.yaml`](compose.yaml).
 - Container image: [`build/Dockerfile`](build/Dockerfile), containing the built
-  frontend, Nginx, the control-plane binary, migrations, and runner binaries.
-- Runtime services: one control-plane instance, PostgreSQL, NATS JetStream,
-  Nginx/web, and any number of separately deployed workers.
+  frontend, Nginx, the control-plane binary, the canonical schema, and runner
+  binaries.
+- Version 0.2.3 is clean-install-only. The control plane initializes a new
+  PostgreSQL database from
+  [`backend/migrations/001_canonical.sql`](backend/migrations/001_canonical.sql);
+  it does not upgrade an earlier schema.
+- Runtime services: one isolated stack per client containing one control-plane
+  instance, PostgreSQL, NATS JetStream, Nginx/web, and any number of separately
+  deployed workers. Shared tenancy and service replicas are unsupported in
+  version 0.2.3.
 - Outside development, configuration validation requires HTTPS, NATS TLS,
   signing-key material, and production client certificates where applicable
   ([`backend/internal/config/config.go`](backend/internal/config/config.go)).

@@ -41,22 +41,3 @@ func TestMigrationChecksumIsStable(t *testing.T) {
 		t.Fatal("migration checksum is not stable")
 	}
 }
-
-func TestRunLifecycleMigrationAddsDispatchedAndSystemCodes(t *testing.T) {
-	migrations, err := LoadMigrations(filepath.Join("..", "..", "migrations"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var lifecycle Migration
-	for _, migration := range migrations {
-		if migration.Name == "run_lifecycle" {
-			lifecycle = migration
-		}
-	}
-	sql := strings.ToLower(lifecycle.SQL)
-	for _, fragment := range []string{"runs_state_check", "'dispatched'", "(5, 'start failure'", "(6, 'timeout'"} {
-		if !strings.Contains(sql, fragment) {
-			t.Errorf("run lifecycle migration does not contain %q", fragment)
-		}
-	}
-}

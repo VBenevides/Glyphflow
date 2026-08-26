@@ -62,6 +62,9 @@ func ApplyMigrations(ctx context.Context, pool *pgxpool.Pool, dir string) error 
 	if err != nil {
 		return err
 	}
+	if len(migrations) != 1 || migrations[0].Version != 1 || migrations[0].Name != "canonical" {
+		return errors.New("exactly one canonical migration is required")
+	}
 	if _, err := pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
 		version integer PRIMARY KEY,
 		name text NOT NULL,
@@ -69,9 +72,6 @@ func ApplyMigrations(ctx context.Context, pool *pgxpool.Pool, dir string) error 
 		applied_at timestamptz NOT NULL DEFAULT now()
 	)`); err != nil {
 		return fmt.Errorf("create schema_migrations: %w", err)
-	}
-	if _, err := pool.Exec(ctx, `ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS checksum text NOT NULL DEFAULT ''`); err != nil {
-		return fmt.Errorf("add migration checksum: %w", err)
 	}
 	for _, migration := range migrations {
 		checksum := migrationChecksum(migration.SQL)
@@ -90,15 +90,9 @@ func ApplyMigrations(ctx context.Context, pool *pgxpool.Pool, dir string) error 
 			return fmt.Errorf("check migration %d: %w", migration.Version, err)
 		}
 		if err == nil {
-			if storedChecksum != "" && storedChecksum != checksum {
+			if storedChecksum != checksum {
 				_ = tx.Rollback(ctx)
 				return fmt.Errorf("migration %d checksum changed", migration.Version)
-			}
-			if storedChecksum == "" {
-				if _, err := tx.Exec(ctx, `UPDATE schema_migrations SET checksum = $1 WHERE version = $2`, checksum, migration.Version); err != nil {
-					_ = tx.Rollback(ctx)
-					return fmt.Errorf("record migration %d checksum: %w", migration.Version, err)
-				}
 			}
 			if err := tx.Commit(ctx); err != nil {
 				return fmt.Errorf("commit migration %d checksum: %w", migration.Version, err)

@@ -74,7 +74,7 @@ func TestOIDCProviderChallengeIsSingleUse(t *testing.T) {
 
 func TestOIDCProviderPublicProjectionExposesNoConfiguration(t *testing.T) {
 	s := NewOIDCService()
-	if err := s.AddProvider(OIDCProvider{Key: "corp", Issuer: "https://id.example", ClientID: "client", SecretReference: "secret://oidc/client", Callback: "https://app.example/callback", Enabled: true}); err != nil {
+	if err := s.AddProvider(OIDCProvider{Key: "corp", Issuer: "https://id.example", ClientID: "client", SecretReference: "env://OIDC_CLIENT_SECRET", Callback: "https://app.example/callback", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
 	providers := s.Providers()
@@ -86,6 +86,13 @@ func TestOIDCProviderPublicProjectionExposesNoConfiguration(t *testing.T) {
 		if strings.Contains(string(encoded), forbidden) {
 			t.Fatalf("provider response exposed %s: %s", forbidden, encoded)
 		}
+	}
+}
+
+func TestOIDCRejectsUnsupportedSecretReferenceWithoutResolver(t *testing.T) {
+	s := NewOIDCService()
+	if err := s.AddProvider(OIDCProvider{Key: "corp", Issuer: "https://id.example", ClientID: "client", SecretReference: "secret://oidc/client", Callback: "https://app.example/callback"}); err == nil {
+		t.Fatal("unsupported OIDC secret reference was accepted")
 	}
 }
 
@@ -248,6 +255,22 @@ func TestOIDCCallbackExchangesCodeAndIgnoresQueryClaims(t *testing.T) {
 	handler.ServeHTTP(replay, request)
 	if replay.Code != http.StatusUnauthorized {
 		t.Fatalf("replayed callback status = %d", replay.Code)
+	}
+}
+
+func TestOIDCFetchRejectsOversizedResponse(t *testing.T) {
+	service := NewOIDCService()
+	service.SetHTTPClient(&http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(strings.Repeat("x", maxOIDCResponseBytes+1))), Header: make(http.Header)}, nil
+	})})
+	if _, err := service.fetch("https://issuer.example", nil); err == nil {
+		t.Fatal("oversized OIDC response was accepted")
+	}
+}
+
+func TestOIDCSafeDialRejectsPrivateEndpoint(t *testing.T) {
+	if _, err := safeDialContext(context.Background(), "tcp", "127.0.0.1:443"); err == nil {
+		t.Fatal("private OIDC endpoint was dialed")
 	}
 }
 

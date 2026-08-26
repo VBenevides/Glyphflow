@@ -70,6 +70,9 @@ func TestQueueSubjects(t *testing.T) {
 	if Subject("events", "worker-1") != "glyphflow.events.worker-1" {
 		t.Fatal("unexpected event subject")
 	}
+	if Subject("heartbeats", "worker-1") != "glyphflow.heartbeats.worker-1" {
+		t.Fatal("unexpected heartbeat subject")
+	}
 }
 
 func TestMutualTLSAndWorkerPermissions(t *testing.T) {
@@ -77,13 +80,13 @@ func TestMutualTLSAndWorkerPermissions(t *testing.T) {
 		t.Fatal("incomplete TLS configuration was accepted")
 	}
 	permissions := WorkerPermissions("worker-1")
-	if len(permissions.Publish.Allow) != 2 || permissions.Publish.Allow[0] != "glyphflow.events.worker-1" || permissions.Publish.Allow[1] != StartClaimSubject("worker-1") {
+	if len(permissions.Publish.Allow) != 3 || permissions.Publish.Allow[0] != "glyphflow.events.worker-1" || permissions.Publish.Allow[1] != "glyphflow.heartbeats.worker-1" || permissions.Publish.Allow[2] != StartClaimSubject("worker-1") {
 		t.Fatalf("unexpected publish permissions: %#v", permissions.Publish.Allow)
 	}
 	if len(permissions.Subscribe.Allow) != 2 || permissions.Subscribe.Allow[0] != "glyphflow.orders.worker-1" || permissions.Subscribe.Allow[1] != "glyphflow.control.worker-1" {
 		t.Fatalf("unexpected subscribe permissions: %#v", permissions.Subscribe.Allow)
 	}
-	if AllowedWorkerSubject("glyphflow.orders.worker-2", "worker-1") || !AllowedWorkerSubject("glyphflow.events.worker-1", "worker-1") || !AllowedWorkerSubject("glyphflow.control.worker-1", "worker-1") || !AllowedWorkerSubject(StartClaimSubject("worker-1"), "worker-1") {
+	if AllowedWorkerSubject("glyphflow.orders.worker-2", "worker-1") || !AllowedWorkerSubject("glyphflow.events.worker-1", "worker-1") || !AllowedWorkerSubject("glyphflow.heartbeats.worker-1", "worker-1") || !AllowedWorkerSubject("glyphflow.control.worker-1", "worker-1") || !AllowedWorkerSubject(StartClaimSubject("worker-1"), "worker-1") {
 		t.Fatal("worker subject isolation failed")
 	}
 }
@@ -234,6 +237,9 @@ func TestDeadLetterNoticeFailureNacksWithoutAck(t *testing.T) {
 func TestRunnerIDFromSubjectKeepsDottedIDs(t *testing.T) {
 	if got := runnerIDFromSubject("glyphflow.events.runner.eu-west"); got != "runner.eu-west" {
 		t.Fatalf("runner ID = %q", got)
+	}
+	if got := runnerIDFromSubject("glyphflow.heartbeats.runner.eu-west"); got != "runner.eu-west" {
+		t.Fatalf("heartbeat runner ID = %q", got)
 	}
 	if got := runnerIDFromSubject("glyphflow.deadletter.glyphflow.events.runner-1"); got != "" {
 		t.Fatalf("dead-letter subject was treated as a runner subject: %q", got)

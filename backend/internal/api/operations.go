@@ -379,7 +379,9 @@ func (o *OperationsService) scheduleCollection(w http.ResponseWriter, r *http.Re
 		return
 	}
 	var input scheduleInput
-	if json.NewDecoder(r.Body).Decode(&input) != nil {
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&input) != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid schedule"})
 		return
 	}
@@ -502,7 +504,9 @@ func (o *OperationsService) schedulePath(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var input scheduleInput
-	if json.NewDecoder(r.Body).Decode(&input) != nil {
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&input) != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid schedule"})
 		return
 	}
@@ -534,7 +538,9 @@ func (o *OperationsService) preview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input scheduleInput
-	if json.NewDecoder(r.Body).Decode(&input) != nil || input.Expression == "" {
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&input) != nil || input.Expression == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "schedule expression is required"})
 		return
 	}
@@ -718,6 +724,8 @@ func (o *OperationsService) deleteSchedule(id string) bool {
 	return true
 }
 
+const maxCollectionPageLimit = 100
+
 func writePage[T any](w http.ResponseWriter, r *http.Request, items []T) {
 	all := strings.EqualFold(r.URL.Query().Get("all"), "true")
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
@@ -727,11 +735,8 @@ func writePage[T any](w http.ResponseWriter, r *http.Request, items []T) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	if all {
 		page = 1
-		limit = len(items)
-		if limit == 0 {
-			limit = 1
-		}
-	} else if limit < 1 || limit > 100 {
+		limit = maxCollectionPageLimit
+	} else if limit < 1 || limit > maxCollectionPageLimit {
 		limit = 50
 	}
 	start := 0

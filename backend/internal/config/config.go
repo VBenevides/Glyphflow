@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -31,6 +32,8 @@ type Config struct {
 	NATSCAFile                    string
 	AccessTokenSecret             string
 	ControlPlaneSigningPrivateKey string
+	SecretEncryptionKeyFile       string
+	InstallationEncryptionKey     []byte
 	PasswordPepper                string
 	WebOrigin                     string
 	CORSOrigins                   []string
@@ -47,6 +50,8 @@ type Config struct {
 	Environment                   string
 	AllowInsecureTransport        bool
 	DataDir                       string
+	LogMonthsKeep                 int
+	AuditMonthsKeep               int
 	RunnerID                      string
 	MaxMessageBytes               int
 	MaxOutputBytes                int
@@ -57,11 +62,11 @@ func FromEnv(role Role) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("GLYPHFLOW_SYSTEM_ADMINS: %w", err)
 	}
-	passwordLogin, err := envBoolAlias("ENABLE_PASSWORD_LOGIN", "PASSWORD_LOGIN_ENABLED", true)
+	passwordLogin, err := envBool("ENABLE_PASSWORD_LOGIN", true)
 	if err != nil {
 		return Config{}, err
 	}
-	passwordRegistration, err := envBoolAlias("ENABLE_PASSWORD_REGISTRATION", "PASSWORD_REGISTRATION_ENABLED", true)
+	passwordRegistration, err := envBool("ENABLE_PASSWORD_REGISTRATION", true)
 	if err != nil {
 		return Config{}, err
 	}
@@ -78,6 +83,7 @@ func FromEnv(role Role) (Config, error) {
 		NATSCAFile:                    os.Getenv("NATS_CA_FILE"),
 		AccessTokenSecret:             os.Getenv("ACCESS_TOKEN_SECRET"),
 		ControlPlaneSigningPrivateKey: strings.TrimSpace(os.Getenv("CONTROL_PLANE_SIGNING_PRIVATE_KEY")),
+		SecretEncryptionKeyFile:       strings.TrimSpace(os.Getenv("SECRET_ENCRYPTION_KEY_FILE")),
 		PasswordPepper:                os.Getenv("PASSWORD_PEPPER"),
 		WebOrigin:                     os.Getenv("WEB_ORIGIN"),
 		CORSOrigins:                   parseOrigins(os.Getenv("CORS_ORIGIN")),
@@ -92,6 +98,8 @@ func FromEnv(role Role) (Config, error) {
 		SystemAdminEmails:             systemAdminEmails,
 		Environment:                   strings.ToLower(strings.TrimSpace(os.Getenv("ENVIRONMENT"))),
 		DataDir:                       os.Getenv("DATA_DIR"),
+		LogMonthsKeep:                 3,
+		AuditMonthsKeep:               12,
 		RunnerID:                      os.Getenv("RUNNER_ID"),
 	}
 	if config.AllowInsecureTransport, err = envBool("ALLOW_INSECURE_TRANSPORT", false); err != nil {
@@ -105,8 +113,22 @@ func FromEnv(role Role) (Config, error) {
 			return Config{}, err
 		}
 	}
+	if role == ControlPlane {
+		if config.LogMonthsKeep, err = envIntDefault("LOG_MONTHS_KEEP", 3); err != nil {
+			return Config{}, err
+		}
+		if config.AuditMonthsKeep, err = envIntDefault("AUDIT_MONTHS_KEEP", 12); err != nil {
+			return Config{}, err
+		}
+	}
 	if err := config.Validate(); err != nil {
 		return Config{}, err
+	}
+	if role == ControlPlane {
+		config.InstallationEncryptionKey, err = loadInstallationEncryptionKey(config.Environment, config.SecretEncryptionKeyFile, config.AccessTokenSecret)
+		if err != nil {
+			return Config{}, err
+		}
 	}
 	return config, nil
 }
@@ -139,6 +161,9 @@ func (c Config) Validate() error {
 	if c.MaxMessageBytes <= 0 {
 		return errors.New("MAX_MESSAGE_BYTES must be greater than zero")
 	}
+	if c.Role == ControlPlane && (c.LogMonthsKeep <= 0 || c.AuditMonthsKeep <= 0) {
+		return errors.New("LOG_MONTHS_KEEP and AUDIT_MONTHS_KEEP must be greater than zero")
+	}
 	if c.Role == ControlPlane {
 		if len([]byte(c.AccessTokenSecret)) < 32 {
 			return errors.New("ACCESS_TOKEN_SECRET must contain at least 32 bytes")
@@ -159,6 +184,9 @@ func (c Config) Validate() error {
 		}
 		if c.Environment != "development" && c.ControlPlaneSigningPrivateKey == "" {
 			return errors.New("CONTROL_PLANE_SIGNING_PRIVATE_KEY is required outside development")
+		}
+		if c.Environment != "development" && strings.TrimSpace(c.SecretEncryptionKeyFile) == "" {
+			return errors.New("SECRET_ENCRYPTION_KEY_FILE is required outside development")
 		}
 		if c.ControlPlaneSigningPrivateKey != "" {
 			raw, err := base64.RawStdEncoding.DecodeString(c.ControlPlaneSigningPrivateKey)
@@ -189,6 +217,51 @@ func (c Config) Validate() error {
 	return nil
 }
 
+const installationEncryptionKeySize = 32
+
+func loadInstallationEncryptionKey(environment, path, fallbackSecret string) ([]byte, error) {
+	if environment == "development" && path == "" {
+		return []byte(fallbackSecret), nil
+	}
+	if path == "" {
+		return nil, errors.New("SECRET_ENCRYPTION_KEY_FILE is required outside development")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("SECRET_ENCRYPTION_KEY_FILE: %w", err)
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("SECRET_ENCRYPTION_KEY_FILE: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("SECRET_ENCRYPTION_KEY_FILE must be a regular file")
+	}
+	if info.Mode().Perm()&0o077 != 0 || info.Mode().Perm()&0o400 == 0 {
+		return nil, errors.New("SECRET_ENCRYPTION_KEY_FILE must be readable only by its owner")
+	}
+	encoded, err := io.ReadAll(io.LimitReader(file, 129))
+	if err != nil {
+		return nil, fmt.Errorf("SECRET_ENCRYPTION_KEY_FILE: %w", err)
+	}
+	if len(encoded) > 128 {
+		return nil, errors.New("SECRET_ENCRYPTION_KEY_FILE is too large")
+	}
+	value := strings.TrimSpace(string(encoded))
+	key, err := base64.StdEncoding.Strict().DecodeString(value)
+	if err != nil {
+		key, err = base64.RawStdEncoding.Strict().DecodeString(value)
+	}
+	if err != nil {
+		return nil, errors.New("SECRET_ENCRYPTION_KEY_FILE must contain valid base64")
+	}
+	if len(key) != installationEncryptionKeySize {
+		return nil, errors.New("SECRET_ENCRYPTION_KEY_FILE must decode to exactly 32 bytes")
+	}
+	return key, nil
+}
+
 var runnerIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
 func envInt(name string) (int, error) {
@@ -200,16 +273,12 @@ func envInt(name string) (int, error) {
 	return parsed, nil
 }
 
-func envBoolDefault(name string, fallback bool) bool {
+func envIntDefault(name string, fallback int) (int, error) {
 	value, ok := os.LookupEnv(name)
 	if !ok || strings.TrimSpace(value) == "" {
-		return fallback
+		return fallback, nil
 	}
-	parsed, err := strconv.ParseBool(value)
-	if err != nil {
-		return fallback
-	}
-	return parsed
+	return envInt(name)
 }
 
 func envBool(name string, fallback bool) (bool, error) {
@@ -222,13 +291,6 @@ func envBool(name string, fallback bool) (bool, error) {
 		return false, fmt.Errorf("%s must be a boolean", name)
 	}
 	return parsed, nil
-}
-
-func envBoolAlias(primary, legacy string, fallback bool) (bool, error) {
-	if _, ok := os.LookupEnv(primary); ok {
-		return envBool(primary, fallback)
-	}
-	return envBool(legacy, fallback)
 }
 
 func envStringDefault(name, fallback string) string {

@@ -5,7 +5,7 @@
 <h1 align="center">Glyphflow</h1>
 
 <p align="center">
-  <a href="VERSION"><img src="https://img.shields.io/badge/version-v0.2.2-blue?style=flat-square" alt="Version v0.2.2"></a>
+  <a href="VERSION"><img src="https://img.shields.io/badge/version-v0.2.3-blue?style=flat-square" alt="Version v0.2.3"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/VBenevides/Glyphflow?style=flat-square" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/phase-alpha-orange?style=flat-square" alt="Phase alpha">
   <a href="https://github.com/VBenevides/Glyphflow/actions/workflows/ci.yml"><img src="https://github.com/VBenevides/Glyphflow/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
@@ -187,6 +187,8 @@ cd Glyphflow
 
 `dev_run.sh` starts PostgreSQL and NATS with Docker Compose, builds local
 runner binaries, and starts the Go control plane and React development server.
+The provisional, non-guaranteed development targets are in
+[`docs/DEV-PROFILE.md`](docs/DEV-PROFILE.md).
 
 Open <http://localhost:5173> and sign in with the development bootstrap
 account:
@@ -215,13 +217,27 @@ it; generate a new artifact if the enrollment expires or is consumed.
 
 ## Production deployment
 
-The repository includes a container image and Compose files for a self-hosted
-deployment. Build the image from the repository root:
+The release workflow publishes a ready-to-use image to GitHub Container
+Registry when a GitHub release is published. The release tag must match
+`VERSION`, with or without a leading `v`. Stable releases also receive the
+`latest` tag.
 
 ```bash
-docker build -f build/Dockerfile -t glyphflow:0.2.2 .
-docker tag glyphflow:0.2.2 glyphflow:latest
+export GLYPHFLOW_IMAGE=ghcr.io/vbenevides/glyphflow:0.2.3
+docker pull "$GLYPHFLOW_IMAGE"
 ```
+
+The GitHub release also contains a Linux AMD64 image archive and SHA-256
+checksum for environments without registry access:
+
+```bash
+sha256sum -c glyphflow-0.2.3-linux-amd64.tar.gz.sha256
+docker load -i glyphflow-0.2.3-linux-amd64.tar.gz
+```
+
+Version 0.2.3 is clean-install-only. On first start, the image applies its
+single canonical PostgreSQL schema to a new database; it does not upgrade
+databases from earlier releases.
 
 The base [`compose.yaml`](compose.yaml) is intentionally convenient for local
 use. It exposes PostgreSQL and NATS and contains development credentials. Do
@@ -231,24 +247,30 @@ For production, provide the required values and secret files described in
 [`compose.production.yaml`](compose.production.yaml), then start the stack:
 
 ```bash
-docker compose -f compose.yaml -f compose.production.yaml up -d
+COMPOSE_PROJECT_NAME=client-example docker compose -f compose.yaml -f compose.production.yaml up -d
 ```
+
+Version 0.2.3 supports one isolated production stack per client. Use a unique
+`COMPOSE_PROJECT_NAME` for each client so its PostgreSQL data, NATS authority,
+network, secrets, backups, and administrator scope stay separate. Shared
+tenancy and scaling any service beyond one replica are unsupported in this
+release.
 
 Production configuration requires, at minimum:
 
 | Area | Required configuration |
 | --- | --- |
-| Database | `DATABASE_URL` with `sslmode=verify-full`; PostgreSQL CA, certificate, key, and password files |
-| Messaging | `NATS_URL` using `tls://`; NATS client certificate, key, CA, username, and password |
+| Database | Protected `DATABASE_URL_FILE` containing a URL with `sslmode=verify-full`; PostgreSQL CA, certificate, key, and password files |
+| Messaging | Protected `NATS_URL_FILE` containing a `tls://` URL plus client certificate, key, and CA files |
 | Web security | An HTTPS `WEB_ORIGIN`, explicit `CORS_ORIGIN`, and `CSRF_ORIGINS` |
-| Application secrets | `ACCESS_TOKEN_SECRET` with at least 32 bytes, `PASSWORD_PEPPER` with at least 16 bytes when password login is enabled, and a persistent `CONTROL_PLANE_SIGNING_PRIVATE_KEY` |
-| Bootstrap | `GLYPHFLOW_BOOTSTRAP_EMAIL`, `GLYPHFLOW_BOOTSTRAP_PASSWORD`, and `GLYPHFLOW_SYSTEM_ADMINS` |
+| Application secrets | Protected `ACCESS_TOKEN_SECRET_FILE`, `PASSWORD_PEPPER_FILE`, `CONTROL_PLANE_SIGNING_PRIVATE_KEY_FILE`, `SECRET_ENCRYPTION_KEY_FILE`, and `GLYPHFLOW_BOOTSTRAP_PASSWORD_FILE` |
+| Bootstrap | `GLYPHFLOW_BOOTSTRAP_EMAIL`, protected `GLYPHFLOW_BOOTSTRAP_PASSWORD_FILE`, and `GLYPHFLOW_SYSTEM_ADMINS` |
 | Network | `GLYPHFLOW_PORT` for the web listener; keep PostgreSQL and NATS private |
 
 Set `ENVIRONMENT=production` and keep `ALLOW_INSECURE_TRANSPORT=false`.
-Use a secret manager or protected files for private keys, passwords, and
-pepper values. Do not commit them to the repository or put them in task
-commands and logs.
+The `*_FILE` and `*_SOURCE` values name protected host files; the overlay
+mounts them read-only and does not render their contents into Compose output.
+Do not commit secret files or put their values in task commands and logs.
 
 The production overlay binds the web listener to `127.0.0.1` by default so a
 reverse proxy can terminate public TLS. If the application is exposed through
@@ -294,30 +316,36 @@ silently accepting an insecure deployment.
 
 ### Control plane variables
 
+The control-plane binary consumes the variables below directly. The production
+Compose overlay loads sensitive values from the protected file variables named
+with `_FILE` or `_SOURCE`.
+
 | Variable | Purpose |
 | --- | --- |
-| `DATABASE_URL` | PostgreSQL connection URL |
-| `NATS_URL` | Control-plane NATS endpoint; use `tls://` outside development |
+| `DATABASE_URL` / `DATABASE_URL_FILE` | PostgreSQL connection URL; production Compose reads the protected file |
+| `NATS_URL` / `NATS_URL_FILE` | Control-plane NATS endpoint; use `tls://` outside development; production Compose reads the protected file |
 | `NATS_CERT_FILE`, `NATS_KEY_FILE`, `NATS_CA_FILE` | NATS client TLS material |
-| `ACCESS_TOKEN_SECRET` | Session and access-token signing secret; minimum 32 bytes |
-| `CONTROL_PLANE_SIGNING_PRIVATE_KEY` | Persistent base64 raw Ed25519 private key outside development |
-| `PASSWORD_PEPPER` | Password hashing pepper; minimum 16 bytes when password login is enabled |
+| `ACCESS_TOKEN_SECRET` / `ACCESS_TOKEN_SECRET_FILE` | Session and access-token signing secret; minimum 32 bytes |
+| `CONTROL_PLANE_SIGNING_PRIVATE_KEY` / `CONTROL_PLANE_SIGNING_PRIVATE_KEY_FILE` | Persistent base64 raw Ed25519 private key outside development |
+| `PASSWORD_PEPPER` / `PASSWORD_PEPPER_FILE` | Password hashing pepper; minimum 16 bytes when password login is enabled |
+| `SECRET_ENCRYPTION_KEY_FILE` | Protected base64 key file used to encrypt installation secrets outside development |
 | `WEB_ORIGIN` | Canonical browser origin, HTTPS outside development |
 | `CORS_ORIGIN` | Comma-separated CORS allowlist |
 | `CSRF_ORIGINS` | Comma-separated CSRF origin allowlist |
 | `ENVIRONMENT` | Use `development` locally and `production` for the production overlay |
 | `ALLOW_INSECURE_TRANSPORT` | Development-only escape hatch; keep `false` in production |
-| `GLYPHFLOW_BOOTSTRAP_EMAIL` / `GLYPHFLOW_BOOTSTRAP_PASSWORD` | Optional first administrator credentials |
+| `GLYPHFLOW_BOOTSTRAP_EMAIL` / `GLYPHFLOW_BOOTSTRAP_PASSWORD` / `GLYPHFLOW_BOOTSTRAP_PASSWORD_FILE` | Optional first administrator credentials; production Compose reads the protected file |
 | `GLYPHFLOW_SYSTEM_ADMINS` | Administrator emails separated by spaces, commas, or semicolons |
 | `ENABLE_PASSWORD_LOGIN` | Enable password sign-in; production defaults to disabled in the overlay |
 | `ENABLE_PASSWORD_REGISTRATION` | Enable self-service password registration; production defaults to disabled |
 | `DEFAULT_ROLE_ID` | Role assigned to newly created users |
 | `DATA_DIR` | Persistent control-plane data, including the development signing key |
 
-`GLYPHFLOW_BOOTSTRAP_EMAIL` and `GLYPHFLOW_BOOTSTRAP_PASSWORD` must both be
-set to create the bootstrap account. `GLYPHFLOW_SYSTEM_ADMINS` is independent:
-matching users receive the immutable `admin` role and cannot be demoted or
-disabled.
+`GLYPHFLOW_BOOTSTRAP_EMAIL` and either `GLYPHFLOW_BOOTSTRAP_PASSWORD` (local
+development) or the protected `GLYPHFLOW_BOOTSTRAP_PASSWORD_FILE` (production
+Compose) must be set to create the bootstrap account.
+`GLYPHFLOW_SYSTEM_ADMINS` is independent: matching users receive the immutable
+`admin` role and cannot be demoted or disabled.
 
 ### Worker variables
 

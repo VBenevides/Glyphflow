@@ -71,7 +71,7 @@ func connectJetStream(url string, options ...nats.Option) (*JetStream, error) {
 		conn.Close()
 		return nil, err
 	}
-	stream, err := js.CreateOrUpdateStream(context.Background(), jetstream.StreamConfig{Name: "GLYPHFLOW", Subjects: []string{"glyphflow.orders.>", "glyphflow.events.>", "glyphflow.control.>", "glyphflow.deadletter.>"}, Storage: jetstream.FileStorage, Retention: jetstream.LimitsPolicy, MaxMsgSize: 1 << 20})
+	stream, err := js.CreateOrUpdateStream(context.Background(), jetstream.StreamConfig{Name: "GLYPHFLOW", Subjects: []string{"glyphflow.orders.>", "glyphflow.events.>", "glyphflow.heartbeats.>", "glyphflow.control.>", "glyphflow.deadletter.>"}, Storage: jetstream.FileStorage, Retention: jetstream.LimitsPolicy, MaxMsgSize: 1 << 20})
 	if err != nil {
 		conn.Close()
 		return nil, err
@@ -339,7 +339,7 @@ func runnerIDFromSubject(subject string) string {
 		return ""
 	}
 	switch parts[1] {
-	case "orders", "events", "control":
+	case "orders", "events", "heartbeats", "control":
 		return strings.Join(parts[2:], ".")
 	default:
 		return ""
@@ -359,11 +359,11 @@ type WorkerPermissionsConfig struct {
 
 func WorkerPermissions(runnerID string) WorkerPermissionsConfig {
 	return WorkerPermissionsConfig{
-		Publish:   SubjectPermissions{Allow: []string{Subject("events", runnerID), StartClaimSubject(runnerID)}},
+		Publish:   SubjectPermissions{Allow: []string{Subject("events", runnerID), Subject("heartbeats", runnerID), StartClaimSubject(runnerID)}},
 		Subscribe: SubjectPermissions{Allow: []string{Subject("orders", runnerID), Subject("control", runnerID)}},
 	}
 }
 
 func AllowedWorkerSubject(subject, runnerID string) bool {
-	return subject == Subject("orders", runnerID) || subject == Subject("events", runnerID) || subject == Subject("control", runnerID) || subject == StartClaimSubject(runnerID)
+	return subject == Subject("orders", runnerID) || subject == Subject("events", runnerID) || subject == Subject("heartbeats", runnerID) || subject == Subject("control", runnerID) || subject == StartClaimSubject(runnerID)
 }
