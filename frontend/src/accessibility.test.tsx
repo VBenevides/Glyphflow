@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { createRoot } from 'react-dom/client'
+import { act } from 'react'
 import { Button, DataTable, Dialog, EmptyState, FieldLabel, LoadingState } from './components'
 
 describe('accessibility contracts', () => {
@@ -17,9 +19,16 @@ describe('accessibility contracts', () => {
   })
 
   it('keeps dialog focus semantics and live states explicit', () => {
-    const html = renderToStaticMarkup(<><Dialog open title="Confirm" onClose={() => undefined}><Button>Confirm</Button></Dialog><LoadingState label="Loading users" /><EmptyState title="No users">Create a user.</EmptyState></>)
-    expect(html).toContain('role="dialog"')
-    expect(html).toContain('aria-modal="true"')
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const root = createRoot(host)
+    act(() => root.render(<Dialog open title="Confirm" onClose={() => undefined}><Button>Confirm</Button></Dialog>))
+    const dialog = document.body.querySelector('[role="dialog"]')
+    expect(dialog).not.toBeNull()
+    expect(dialog?.getAttribute('aria-modal')).toBe('true')
+    act(() => root.unmount())
+    host.remove()
+    const html = renderToStaticMarkup(<><LoadingState label="Loading users" /><EmptyState title="No users">Create a user.</EmptyState></>)
     expect(html).toContain('role="status"')
     expect(html).toContain('No users')
   })
