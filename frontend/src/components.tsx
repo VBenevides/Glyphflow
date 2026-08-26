@@ -37,7 +37,7 @@ export function FilterInput({ label, options = [], value, onChange, id, ...props
 }
 
 export function InfoTooltip({ text }: { text: string }) {
-  return <span className="gf-info-tooltip"><button type="button" className="gf-info-tooltip-trigger" aria-label="More information">i</button><span className="gf-info-tooltip-content" role="tooltip">{text}</span></span>
+  return <span className="gf-info-tooltip"><button type="button" className="gf-info-tooltip-trigger" aria-label="More information" title={text}>i</button></span>
 }
 
 export function FieldLabel({ children, info, htmlFor }: { children: ReactNode; info?: string; htmlFor?: string }) {
@@ -46,7 +46,7 @@ export function FieldLabel({ children, info, htmlFor }: { children: ReactNode; i
 
 export function Dialog({ open, title, children, onClose, className }: { open: boolean; title: string; children: ReactNode; onClose: () => void; className?: string }) {
   const titleId = useId()
-  return <DialogPrimitive.Root open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose() }}><DialogPrimitive.Overlay className="gf-dialog-backdrop" /><DialogPrimitive.Content aria-modal="true" aria-labelledby={titleId} className={`gf-dialog${className ? ` ${className}` : ''}`}><div className="gf-dialog-header"><DialogPrimitive.Title asChild><h2 id={titleId}>{title}</h2></DialogPrimitive.Title><DialogPrimitive.Close asChild><Button variant="ghost" aria-label="Close dialog">×</Button></DialogPrimitive.Close></div>{children}</DialogPrimitive.Content></DialogPrimitive.Root>
+  return <DialogPrimitive.Root open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose() }}><DialogPrimitive.Portal><DialogPrimitive.Overlay className="gf-dialog-backdrop" /><DialogPrimitive.Content aria-modal="true" aria-labelledby={titleId} className={`gf-dialog${className ? ` ${className}` : ''}`}><div className="gf-dialog-header"><DialogPrimitive.Title asChild><h2 id={titleId}>{title}</h2></DialogPrimitive.Title><DialogPrimitive.Close asChild><Button variant="ghost" aria-label="Close dialog">×</Button></DialogPrimitive.Close></div>{children}</DialogPrimitive.Content></DialogPrimitive.Portal></DialogPrimitive.Root>
 }
 
 export function StatusPill({ status }: { status: string }) {

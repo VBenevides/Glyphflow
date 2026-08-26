@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { createRoot } from 'react-dom/client'
+import { act } from 'react'
 import { Activity } from 'lucide-react'
-import { Button, DataTable, Dialog, EmptyState, Input, matchingFilterOptions, MetricCard, PageHeader, StatusPill } from './components'
+import { Button, DataTable, Dialog, EmptyState, InfoTooltip, Input, matchingFilterOptions, MetricCard, PageHeader, StatusPill } from './components'
 
 describe('shared components', () => {
   it('renders status text and table headers accessibly', () => {
@@ -24,6 +26,7 @@ describe('shared components', () => {
 
   it('adds native tooltips to action buttons', () => {
     expect(renderToStaticMarkup(<Button aria-label="Refresh data">Refresh</Button>)).toContain('title="Refresh data"')
+    expect(renderToStaticMarkup(<InfoTooltip text="Helpful detail" />)).toContain('title="Helpful detail"')
   })
 
   it('preserves shared control classes and exposes busy state', () => {
@@ -37,11 +40,16 @@ describe('shared components', () => {
     expect(matchingFilterOptions(['Admin', 'Runner', 'Admin'], 'run')).toEqual(['Runner'])
   })
 
-  it('gives each dialog title a unique label target', () => {
-    const html = renderToStaticMarkup(<><Dialog open title="First" onClose={() => undefined}>Content</Dialog><Dialog open title="Second" onClose={() => undefined}>Content</Dialog></>)
-    const ids = [...html.matchAll(/aria-labelledby="([^"]+)"/g)].map((match) => match[1])
+  it('portals dialogs and gives each title a unique label target', () => {
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const root = createRoot(host)
+    act(() => root.render(<><Dialog open title="First" onClose={() => undefined}>Content</Dialog><Dialog open title="Second" onClose={() => undefined}>Content</Dialog></>))
+    const ids = [...document.body.querySelectorAll<HTMLElement>('[aria-labelledby]')].map((element) => element.getAttribute('aria-labelledby')).filter((id): id is string => Boolean(id))
     expect(ids).toHaveLength(2)
     expect(ids[0]).not.toBe(ids[1])
+    act(() => root.unmount())
+    host.remove()
   })
 
   it('supports reference-style header metadata and metric icons', () => {
