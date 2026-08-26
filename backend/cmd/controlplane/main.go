@@ -317,6 +317,7 @@ func run() error {
 				return health.Ready()
 			}
 			application.SystemMetrics = api.NewSystemMetricsService(metrics, application.Ready, logger)
+			application.SystemMetrics.DataPath = cfg.DataDir
 			application.SystemMetrics.Signals = deadLetterSignals
 			return application.Handler()
 		}(),
