@@ -38,7 +38,7 @@ if [ -z "$release_database_url" ]; then
     ready=false
     attempt=0
     while [ "$attempt" -lt 30 ]; do
-      if docker compose exec -T postgres pg_isready -U glyphflow >/dev/null 2>&1; then
+      if docker compose exec -T postgres pg_isready -h 127.0.0.1 -p 5432 -U glyphflow >/dev/null 2>&1; then
         ready=true
         break
       fi
