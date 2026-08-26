@@ -70,12 +70,16 @@ func runRecordFromStore(run store.RunRecord) RunRecord {
 
 func (s *RunService) collection(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
+		filter, page, limit, valid := runListFilterChecked(r)
+		if !valid {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": paginationOffsetError})
+			return
+		}
 		s.mu.RLock()
 		repository := s.repository
 		s.mu.RUnlock()
 		if repository != nil {
 			if paged, ok := repository.(store.RunPageRepository); ok {
-				filter, page, limit := runListFilter(r)
 				result, err := paged.ListPage(r.Context(), filter)
 				if err != nil {
 					writeError(w, http.StatusServiceUnavailable, "run storage unavailable", err)
@@ -116,6 +120,24 @@ func (s *RunService) collection(w http.ResponseWriter, r *http.Request) {
 }
 
 func runListFilter(r *http.Request) (store.RunListFilter, int, int) {
+	filter, page, limit, _ := runListFilterChecked(r)
+	return filter, page, limit
+}
+
+const paginationOffsetError = "pagination offset exceeds safe integer range"
+
+func checkedPaginationOffset(page, limit int) (int, bool) {
+	if page < 1 || limit < 1 {
+		return 0, false
+	}
+	maxInt := int(^uint(0) >> 1)
+	if page-1 > maxInt/limit {
+		return 0, false
+	}
+	return (page - 1) * limit, true
+}
+
+func runListFilterChecked(r *http.Request) (store.RunListFilter, int, int, bool) {
 	query := r.URL.Query()
 	page, _ := strconv.Atoi(query.Get("page"))
 	if page < 1 {
@@ -131,7 +153,8 @@ func runListFilter(r *http.Request) (store.RunListFilter, int, int) {
 	}
 	from, _ := parseFilterTime(query.Get("from"))
 	to, _ := parseFilterTime(query.Get("to"))
-	return store.RunListFilter{State: query.Get("state"), Task: query.Get("task"), Runner: query.Get("runner"), Trigger: query.Get("trigger"), From: from, To: to, Limit: limit, Offset: (page - 1) * limit}, page, limit
+	offset, valid := checkedPaginationOffset(page, limit)
+	return store.RunListFilter{State: query.Get("state"), Task: query.Get("task"), Runner: query.Get("runner"), Trigger: query.Get("trigger"), From: from, To: to, Limit: limit, Offset: offset}, page, limit, valid
 }
 
 func writeRunPage(w http.ResponseWriter, page, limit, total int, items []RunRecord) {

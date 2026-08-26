@@ -68,10 +68,6 @@ func (s *DeadLetterService) collection(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
-	if s == nil || s.repository == nil {
-		writeError(w, http.StatusServiceUnavailable, "dead-letter storage unavailable", nil)
-		return
-	}
 	state := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("state")))
 	if state != "" && state != "OPEN" && state != "RETRY_QUEUED" && state != "RECONCILED" && state != "DISCARDED" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid dead-letter state"})
@@ -84,6 +80,14 @@ func (s *DeadLetterService) collection(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	if limit < 1 || limit > 100 {
 		limit = 50
+	}
+	if _, ok := checkedPaginationOffset(page, limit); !ok {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": paginationOffsetError})
+		return
+	}
+	if s == nil || s.repository == nil {
+		writeError(w, http.StatusServiceUnavailable, "dead-letter storage unavailable", nil)
+		return
 	}
 	items, total, err := s.repository.List(r.Context(), store.DeadLetterFilter{State: state, RunnerID: strings.TrimSpace(r.URL.Query().Get("runnerId")), Subject: strings.TrimSpace(r.URL.Query().Get("subject")), Page: page, Limit: limit})
 	if err != nil {
