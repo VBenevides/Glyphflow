@@ -419,15 +419,14 @@ func (s Server) require(role string, next http.Handler) http.Handler {
 			writeJSON(w, 403, map[string]string{"error": "forbidden"})
 			return
 		}
+		auditDetails := &requestAuditDetails{Input: captureAuditInput(r)}
 		if isMutatingMethod(r.Method) && s.AuditQuery != nil && s.AuditQuery.hasDurableRepository() {
 			actorName, actorEmail := s.auditActor(claims.UserID)
-			if err := s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: "accepted", CorrelationID: r.Header.Get("X-Correlation-ID")}); err != nil {
+			if err := s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: "accepted", CorrelationID: r.Header.Get("X-Correlation-ID"), Input: auditDetails.Input}); err != nil {
 				writeError(w, http.StatusServiceUnavailable, "audit storage unavailable", err)
 				return
 			}
 		}
-		auditDetails := &requestAuditDetails{}
-		auditDetails.Input = captureAuditInput(r)
 		ctx := context.WithValue(r.Context(), requestClaimsContextKey{}, claims)
 		ctx = context.WithValue(ctx, requestAuditContextKey{}, auditDetails)
 		r = r.WithContext(ctx)
@@ -448,6 +447,9 @@ func (s Server) require(role string, next http.Handler) http.Handler {
 			}
 			if !(r.Method == http.MethodPost && r.URL.Path == "/api/v1/admin/auth/settings" && result == "success") {
 				output := map[string]any{"status": recorder.status}
+				if body := auditResponseBody(recorder.body); body != nil {
+					output["body"] = body
+				}
 				traceback := ""
 				if auditDetails.Error != "" {
 					output["error"] = auditDetails.Error
@@ -507,6 +509,17 @@ func auditResponseError(body []byte, status int) string {
 		return value
 	}
 	return http.StatusText(status)
+}
+
+func auditResponseBody(body []byte) any {
+	if len(bytes.TrimSpace(body)) == 0 {
+		return nil
+	}
+	var value any
+	if json.Unmarshal(body, &value) == nil {
+		return value
+	}
+	return string(body)
 }
 
 func (w *auditResponseWriter) WriteHeader(status int) {

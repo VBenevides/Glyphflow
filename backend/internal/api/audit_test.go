@@ -177,6 +177,14 @@ func TestAuditCapturesEndpointMethodAndBody(t *testing.T) {
 	if !ok || body["name"] != "Task" || body["token"] != "[REDACTED]" {
 		t.Fatalf("audit input body = %#v", input["body"])
 	}
+	output, ok := audit.events[0].Output.(map[string]any)
+	if !ok || output["status"] != http.StatusOK {
+		t.Fatalf("audit output metadata = %#v", audit.events[0].Output)
+	}
+	responseBody, ok := output["body"].(map[string]any)
+	if !ok || responseBody["name"] != "Task" || responseBody["token"] != "[REDACTED]" {
+		t.Fatalf("audit output body = %#v", output["body"])
+	}
 }
 
 func TestAuditFailureCapturesResponseError(t *testing.T) {
