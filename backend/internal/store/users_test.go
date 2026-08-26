@@ -29,7 +29,7 @@ func TestUserRepositoryRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := UserRecord{ID: id, Username: email, Email: email, DisplayName: "Test User", Enabled: true}
+	want := UserRecord{ID: id, Username: email, Email: email, DisplayName: "Test User", Status: StatusActive, Enabled: true}
 	if err := repository.Create(ctx, want, hash); err != nil {
 		t.Fatal(err)
 	}

@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -10,7 +12,37 @@ import (
 
 type UserRecord struct {
 	ID, Username, Email, DisplayName string
+	Status                           string
 	Enabled                          bool
+}
+
+const (
+	StatusActive   = "active"
+	StatusPending  = "pending"
+	StatusDisabled = "disabled"
+)
+
+func ValidUserStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case StatusActive, StatusPending, StatusDisabled:
+		return true
+	default:
+		return false
+	}
+}
+
+func userStatus(user UserRecord) (string, error) {
+	status := strings.ToLower(strings.TrimSpace(user.Status))
+	if status == "" {
+		if user.Enabled {
+			return StatusActive, nil
+		}
+		return StatusDisabled, nil
+	}
+	if !ValidUserStatus(status) {
+		return "", fmt.Errorf("invalid user status %q", user.Status)
+	}
+	return status, nil
 }
 
 type UserRepository interface {
@@ -22,6 +54,7 @@ type UserRepository interface {
 	SetPasswordHash(context.Context, string, string) error
 	UpdateDisplayName(context.Context, string, string) error
 	SetEnabled(context.Context, string, bool) error
+	SetStatus(context.Context, string, string) error
 }
 
 type UserStore struct{ pool *pgxpool.Pool }
@@ -29,12 +62,16 @@ type UserStore struct{ pool *pgxpool.Pool }
 func NewUserRepository(pool *pgxpool.Pool) *UserStore { return &UserStore{pool: pool} }
 
 func (s *UserStore) Create(ctx context.Context, user UserRecord, passwordHash string) error {
+	status, err := userStatus(user)
+	if err != nil {
+		return err
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `INSERT INTO users (id, username, email, display_name, status) VALUES ($1, $2, $3, $4, $5)`, user.ID, user.Username, user.Email, user.DisplayName, enabledStatus(user.Enabled)); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO users (id, username, email, display_name, status) VALUES ($1, $2, $3, $4, $5)`, user.ID, user.Username, user.Email, user.DisplayName, status); err != nil {
 		return err
 	}
 	if passwordHash != "" {
@@ -46,12 +83,16 @@ func (s *UserStore) Create(ctx context.Context, user UserRecord, passwordHash st
 }
 
 func (s *UserStore) ProvisionLocal(ctx context.Context, user UserRecord, passwordHash, defaultRoleID, adminRoleID string) error {
+	status, err := userStatus(user)
+	if err != nil {
+		return err
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `INSERT INTO users (id, username, email, display_name, status) VALUES ($1, $2, $3, $4, $5)`, user.ID, user.Username, user.Email, user.DisplayName, enabledStatus(user.Enabled)); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO users (id, username, email, display_name, status) VALUES ($1, $2, $3, $4, $5)`, user.ID, user.Username, user.Email, user.DisplayName, status); err != nil {
 		return err
 	}
 	if passwordHash != "" {
@@ -88,7 +129,8 @@ func (s *UserStore) find(ctx context.Context, clause, value string) (UserRecord,
 	if err != nil {
 		return UserRecord{}, false, err
 	}
-	user.Enabled = status == "active"
+	user.Status = status
+	user.Enabled = status == StatusActive
 	return user, true, nil
 }
 
@@ -105,7 +147,8 @@ func (s *UserStore) List(ctx context.Context) ([]UserRecord, error) {
 		if err := rows.Scan(&user.ID, &user.Username, &user.Email, &user.DisplayName, &status); err != nil {
 			return nil, err
 		}
-		user.Enabled = status == "active"
+		user.Status = status
+		user.Enabled = status == StatusActive
 		users = append(users, user)
 	}
 	return users, rows.Err()
@@ -134,7 +177,14 @@ func (s *UserStore) UpdateDisplayName(ctx context.Context, userID, displayName s
 }
 
 func (s *UserStore) SetEnabled(ctx context.Context, userID string, enabled bool) error {
-	status := enabledStatus(enabled)
+	return s.SetStatus(ctx, userID, enabledStatus(enabled))
+}
+
+func (s *UserStore) SetStatus(ctx context.Context, userID, status string) error {
+	status = strings.ToLower(strings.TrimSpace(status))
+	if !ValidUserStatus(status) {
+		return fmt.Errorf("invalid user status %q", status)
+	}
 	_, err := s.pool.Exec(ctx, `UPDATE users SET status = $2, updated_at = now() WHERE id = $1`, userID, status)
 	return err
 }

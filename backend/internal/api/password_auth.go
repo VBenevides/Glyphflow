@@ -99,7 +99,7 @@ func (s Server) passwordRoutes(mux routeRegistrar) {
 				writeError(w, http.StatusBadRequest, "registration failed", err)
 				return
 			}
-			writeJSON(w, 201, map[string]string{"id": user.ID, "email": user.Email})
+			writeJSON(w, 201, map[string]string{"id": user.ID, "email": user.Email, "status": user.Status})
 		})
 		mux.HandleFunc("/api/v1/auth/login", func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost {
@@ -116,6 +116,10 @@ func (s Server) passwordRoutes(mux routeRegistrar) {
 			}
 			tokens, err := s.AuthService.Login(in.Email, in.Password)
 			if err != nil {
+				if errors.Is(err, ErrPendingUser) {
+					writeJSON(w, http.StatusForbidden, map[string]string{"error": err.Error()})
+					return
+				}
 				writeJSON(w, 401, map[string]string{"error": "invalid credentials"})
 				return
 			}

@@ -26,10 +26,11 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 			return
 		}
 		var in struct {
-			Enabled       *bool   `json:"enabled"`
-			Registration  *bool   `json:"registration"`
-			DefaultRoleID *string `json:"default_role_id"`
-			Lockdown      *bool   `json:"lockdown_scheduler"`
+			Enabled             *bool   `json:"enabled"`
+			Registration        *bool   `json:"registration"`
+			RequireUserApproval *bool   `json:"require_user_approval"`
+			DefaultRoleID       *string `json:"default_role_id"`
+			Lockdown            *bool   `json:"lockdown_scheduler"`
 		}
 		decoder := json.NewDecoder(r.Body)
 		decoder.DisallowUnknownFields()
@@ -41,16 +42,18 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 		if s.AuthAdmin.Auth != nil {
 			before = s.AuthAdmin.Auth.AuthSettings()
 		} else if s.AuthAdmin.Password != nil {
-			before = map[string]any{"passwordLoginEnabled": s.AuthAdmin.Password.Enabled(), "registration": s.AuthAdmin.Password.RegistrationEnabled(), "defaultRoleId": ""}
+			before = map[string]any{"passwordLoginEnabled": s.AuthAdmin.Password.Enabled(), "registration": s.AuthAdmin.Password.RegistrationEnabled(), "requireUserApproval": false, "defaultRoleId": ""}
 		}
 		enabled := false
 		registration := false
 		defaultRoleID := ""
+		approvalRequired := false
 		if s.AuthAdmin.Auth != nil {
 			settings := s.AuthAdmin.Auth.AuthSettings()
 			enabled, _ = settings["passwordLoginEnabled"].(bool)
 			registration, _ = settings["registration"].(bool)
 			defaultRoleID, _ = settings["defaultRoleId"].(string)
+			approvalRequired, _ = settings["requireUserApproval"].(bool)
 		} else if s.AuthAdmin.Password != nil {
 			enabled = s.AuthAdmin.Password.Enabled()
 			registration = s.AuthAdmin.Password.RegistrationEnabled()
@@ -61,10 +64,13 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 		if in.Registration != nil {
 			registration = *in.Registration
 		}
+		if in.RequireUserApproval != nil {
+			approvalRequired = *in.RequireUserApproval
+		}
 		if in.DefaultRoleID != nil {
 			defaultRoleID = *in.DefaultRoleID
 		}
-		authChanged := in.Enabled != nil || in.Registration != nil || in.DefaultRoleID != nil
+		authChanged := in.Enabled != nil || in.Registration != nil || in.RequireUserApproval != nil || in.DefaultRoleID != nil
 		enabledSSO := 0
 		if s.AuthAdmin.OIDC != nil {
 			enabledSSO = s.AuthAdmin.OIDC.EnabledCount()
@@ -75,7 +81,7 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 		}
 		if s.AuthAdmin.Auth != nil {
 			if authChanged {
-				if err := s.AuthAdmin.Auth.UpdateAuthSettings(enabled, registration, defaultRoleID); err != nil {
+				if err := s.AuthAdmin.Auth.UpdateAuthSettings(enabled, registration, defaultRoleID, approvalRequired); err != nil {
 					writeError(w, http.StatusBadRequest, "authentication settings update failed", err)
 					return
 				}
@@ -95,7 +101,7 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 			}
 			s.AuthAdmin.Password.mu.Unlock()
 		}
-		after := map[string]any{"passwordLoginEnabled": enabled, "registration": registration, "defaultRoleId": defaultRoleID}
+		after := map[string]any{"passwordLoginEnabled": enabled, "registration": registration, "requireUserApproval": approvalRequired, "defaultRoleId": defaultRoleID}
 		if s.AuthAdmin.Auth != nil {
 			after = s.AuthAdmin.Auth.AuthSettings()
 		}
@@ -104,7 +110,7 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 			actorName, actorEmail := s.auditActor(claims.UserID)
 			s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: "success", CorrelationID: r.Header.Get("X-Correlation-ID"), Before: before, After: after, Input: auditInput(r), Output: map[string]any{"passwordLoginEnabled": enabled, "registrationEnabled": registration, "defaultRoleId": defaultRoleID}})
 		}
-		response := map[string]any{"password_login_enabled": enabled, "registration_enabled": registration, "default_role_id": defaultRoleID}
+		response := map[string]any{"password_login_enabled": enabled, "registration_enabled": registration, "require_user_approval": approvalRequired, "default_role_id": defaultRoleID}
 		if s.AuthAdmin.Auth != nil {
 			response["lockdown_scheduler"] = s.AuthAdmin.Auth.LockdownScheduler()
 		}
@@ -196,6 +202,17 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 				return
 			}
 			writeJSON(w, 204, nil)
+		case r.Method == http.MethodPost && strings.HasSuffix(path, "/approve"):
+			userID := strings.TrimSuffix(path, "/approve")
+			if err := s.AuthAdmin.Auth.ApproveUser(userID); err != nil {
+				if strings.Contains(err.Error(), "not found") {
+					writeJSON(w, http.StatusNotFound, map[string]string{"error": "user not found"})
+					return
+				}
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			writeJSON(w, http.StatusNoContent, nil)
 		case r.Method == http.MethodPost && strings.HasSuffix(path, "/roles"):
 			userID := strings.TrimSuffix(path, "/roles")
 			var input struct {
@@ -283,7 +300,7 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 			writeError(w, http.StatusBadRequest, "user creation failed", err)
 			return
 		}
-		writeJSON(w, http.StatusCreated, map[string]string{"id": user.ID, "email": user.Email})
+		writeJSON(w, http.StatusCreated, map[string]string{"id": user.ID, "email": user.Email, "status": user.Status})
 	})))
 	mux.Handle("/api/v1/users/", s.requireAuthenticated(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

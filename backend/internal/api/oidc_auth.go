@@ -775,6 +775,10 @@ func (s Server) oidcRoutes(mux routeRegistrar) {
 		}
 		tokens, err := s.AuthService.LoginOIDCWithGroups(provider.Key, claims.Subject, claims.Username, claims.Email, provider.AutoProvision, claims.Groups)
 		if err != nil {
+			if errors.Is(err, ErrPendingUser) {
+				writeError(w, http.StatusForbidden, "OIDC login pending approval", err)
+				return
+			}
 			writeError(w, http.StatusUnauthorized, "OIDC login failed", err)
 			return
 		}

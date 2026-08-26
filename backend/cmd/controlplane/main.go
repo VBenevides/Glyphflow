@@ -65,6 +65,7 @@ func run() error {
 		"GLYPHFLOW_SYSTEM_ADMINS":      cfg.SystemAdminEmails,
 		"ENABLE_PASSWORD_LOGIN":        cfg.PasswordLoginEnabled,
 		"ENABLE_PASSWORD_REGISTRATION": cfg.PasswordRegistrationEnabled,
+		"REQUIRE_USER_APPROVAL":        cfg.RequireUserApproval,
 		"DEFAULT_ROLE_ID":              cfg.DefaultRoleID,
 		"LOCKDOWN_SCHEDULER":           false,
 	} {
@@ -88,7 +89,7 @@ func run() error {
 			cfg.SystemAdminEmails = storedSystemAdminEmails
 		}
 	}
-	var storedPasswordLogin, storedPasswordRegistration, storedLockdownScheduler bool
+	var storedPasswordLogin, storedPasswordRegistration, storedUserApproval, storedLockdownScheduler bool
 	var storedDefaultRoleID string
 	if found, err := configStore.Get(ctx, "ENABLE_PASSWORD_LOGIN", &storedPasswordLogin); err != nil {
 		return err
@@ -99,6 +100,11 @@ func run() error {
 		return err
 	} else if found {
 		cfg.PasswordRegistrationEnabled = storedPasswordRegistration
+	}
+	if found, err := configStore.Get(ctx, "REQUIRE_USER_APPROVAL", &storedUserApproval); err != nil {
+		return err
+	} else if found {
+		cfg.RequireUserApproval = storedUserApproval
 	}
 	if found, err := configStore.Get(ctx, "DEFAULT_ROLE_ID", &storedDefaultRoleID); err != nil {
 		return err
@@ -118,6 +124,7 @@ func run() error {
 	roleRepository := store.NewRoleRepository(db)
 	authService.SetRoleRepository(roleRepository)
 	authService.SetConfigStore(configStore)
+	authService.SetUserApprovalRequired(cfg.RequireUserApproval)
 	authService.SetLockdownScheduler(cfg.LockdownScheduler)
 	sessionRepository := store.NewSessionRepository(db)
 	authService.SetSessionRepository(sessionRepository)

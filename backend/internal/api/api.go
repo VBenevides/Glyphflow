@@ -55,13 +55,14 @@ func recordRequestAuditField(r *http.Request, key string, value any) {
 }
 
 type RuntimeConfig struct {
-	Brand             string `json:"brand"`
-	PasswordLogin     bool   `json:"passwordLogin"`
-	Registration      bool   `json:"registration"`
-	OIDC              bool   `json:"oidc"`
-	LockdownScheduler bool   `json:"lockdownScheduler"`
-	CSRFCookie        string `json:"csrfCookie"`
-	DefaultRoleID     string `json:"defaultRoleId,omitempty"`
+	Brand               string `json:"brand"`
+	PasswordLogin       bool   `json:"passwordLogin"`
+	Registration        bool   `json:"registration"`
+	RequireUserApproval bool   `json:"requireUserApproval"`
+	OIDC                bool   `json:"oidc"`
+	LockdownScheduler   bool   `json:"lockdownScheduler"`
+	CSRFCookie          string `json:"csrfCookie"`
+	DefaultRoleID       string `json:"defaultRoleId,omitempty"`
 }
 
 type Server struct {

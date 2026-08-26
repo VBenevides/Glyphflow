@@ -41,6 +41,14 @@ describe('admin access workflow', () => {
     expect(html).toContain('Revoke')
     expect(html).toContain('admin')
   })
+
+  it('exposes approval settings and the pending-user approval action', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/admin-pages.tsx'), 'utf8')
+    expect(source).toContain('require_user_approval')
+    expect(source).toContain('Require administrator approval for new users')
+    expect(source).toContain('/approve`')
+    expect(source).toContain('user.status === \'pending\'')
+  })
 })
 
 describe('SSO provider contract', () => {

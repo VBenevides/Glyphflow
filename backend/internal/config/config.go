@@ -40,6 +40,7 @@ type Config struct {
 	CSRFOrigins                   []string
 	PasswordLoginEnabled          bool
 	PasswordRegistrationEnabled   bool
+	RequireUserApproval           bool
 	DefaultRoleID                 string
 	LockdownScheduler             bool
 	BootstrapUsername             string
@@ -71,6 +72,10 @@ func FromEnv(role Role) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	userApproval, err := envBool("REQUIRE_USER_APPROVAL", false)
+	if err != nil {
+		return Config{}, err
+	}
 	csrfOrigins := parseOrigins(os.Getenv("CSRF_ORIGINS"))
 	if len(csrfOrigins) == 0 {
 		csrfOrigins = parseOrigins(os.Getenv("WEB_ORIGIN"))
@@ -91,6 +96,7 @@ func FromEnv(role Role) (Config, error) {
 		CSRFOrigins:                   csrfOrigins,
 		PasswordLoginEnabled:          passwordLogin,
 		PasswordRegistrationEnabled:   passwordRegistration,
+		RequireUserApproval:           userApproval,
 		DefaultRoleID:                 strings.TrimSpace(envStringDefault("DEFAULT_ROLE_ID", "system-user")),
 		BootstrapUsername:             strings.TrimSpace(os.Getenv("GLYPHFLOW_BOOTSTRAP_EMAIL")),
 		BootstrapPassword:             os.Getenv("GLYPHFLOW_BOOTSTRAP_PASSWORD"),

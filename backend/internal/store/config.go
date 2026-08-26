@@ -17,6 +17,7 @@ type ConfigStore struct {
 var allowedConfigNames = map[string]struct{}{
 	"ENABLE_PASSWORD_LOGIN":        {},
 	"ENABLE_PASSWORD_REGISTRATION": {},
+	"REQUIRE_USER_APPROVAL":        {},
 	"DEFAULT_ROLE_ID":              {},
 	"LOCKDOWN_SCHEDULER":           {},
 	"WEB_ORIGIN":                   {},
@@ -78,7 +79,7 @@ func (s *ConfigStore) SetIfAbsent(ctx context.Context, name string, value any) e
 	return err
 }
 
-func (s *ConfigStore) SetAuthenticationSettings(ctx context.Context, passwordLogin, registration bool, defaultRoleID string) error {
+func (s *ConfigStore) SetAuthenticationSettings(ctx context.Context, passwordLogin, registration bool, defaultRoleID string, userApproval ...bool) error {
 	if err := validateConfigName("ENABLE_PASSWORD_LOGIN"); err != nil {
 		return err
 	}
@@ -94,12 +95,17 @@ func (s *ConfigStore) SetAuthenticationSettings(ctx context.Context, passwordLog
 	if !exists {
 		return errors.New("default role not found")
 	}
+	approvalRequired := false
+	if len(userApproval) > 0 {
+		approvalRequired = userApproval[0]
+	}
 	for _, setting := range []struct {
 		name  string
 		value any
 	}{
 		{"ENABLE_PASSWORD_LOGIN", passwordLogin},
 		{"ENABLE_PASSWORD_REGISTRATION", registration},
+		{"REQUIRE_USER_APPROVAL", approvalRequired},
 		{"DEFAULT_ROLE_ID", defaultRoleID},
 	} {
 		raw, err := json.Marshal(setting.value)

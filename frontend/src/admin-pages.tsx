@@ -34,9 +34,11 @@ export function filterAndSortRoles(roles: RoleDefinition[], search: string): Rol
   return roles.filter((role) => !needle || [role.id, role.name, role.description ?? '', ...role.permissions].some((value) => value.toLowerCase().includes(needle))).sort((left, right) => Number(Boolean(right.system)) - Number(Boolean(left.system)) || left.name.localeCompare(right.name))
 }
 
-function UserActionsMenu({ user, manage, onAccess, onDisable }: { user: UserRecord; manage: boolean; onAccess: () => void; onDisable: () => void }) {
+function UserActionsMenu({ user, manage, onAccess, onDisable, onApprove }: { user: UserRecord; manage: boolean; onAccess: () => void; onDisable: () => void; onApprove: () => void }) {
   const userLabel = user.displayName ?? user.email ?? user.username
-  return <DropdownMenu><DropdownMenuTrigger asChild><Button type="button" variant="ghost" aria-label={`Actions for ${userLabel}`}><MoreHorizontal size={18} /></Button></DropdownMenuTrigger><DropdownMenuPortal><DropdownMenuContent align="end">{manage && <DropdownMenuItem onSelect={onAccess}>Manage access</DropdownMenuItem>}{manage && !user.systemAdmin && <><DropdownMenuSeparator /><DangerousAction label="Disable" title="Disable user" onConfirm={onDisable} renderTrigger={(open) => <DropdownMenuItem onSelect={(event) => { event.preventDefault(); open() }}>Disable</DropdownMenuItem>} /></>}<DropdownMenuSeparator /><DropdownMenuItem asChild><Link to={`/admin/users/${encodeURIComponent(user.id)}`}>Details</Link></DropdownMenuItem></DropdownMenuContent></DropdownMenuPortal></DropdownMenu>
+  const statusAction = user.status === 'pending' ? 'Approve' : user.status === 'disabled' ? 'Enable' : 'Disable'
+  const statusChange = user.status === 'active' ? onDisable : onApprove
+  return <DropdownMenu><DropdownMenuTrigger asChild><Button type="button" variant="ghost" aria-label={`Actions for ${userLabel}`}><MoreHorizontal size={18} /></Button></DropdownMenuTrigger><DropdownMenuPortal><DropdownMenuContent align="end">{manage && <DropdownMenuItem onSelect={onAccess}>Manage access</DropdownMenuItem>}{manage && !user.systemAdmin && <><DropdownMenuSeparator /><DangerousAction label={statusAction} title={`${statusAction} user`} onConfirm={statusChange} renderTrigger={(open) => <DropdownMenuItem onSelect={(event) => { event.preventDefault(); open() }}>{statusAction}</DropdownMenuItem>} /></>}<DropdownMenuSeparator /><DropdownMenuItem asChild><Link to={`/admin/users/${encodeURIComponent(user.id)}`}>Details</Link></DropdownMenuItem></DropdownMenuContent></DropdownMenuPortal></DropdownMenu>
 }
 
 type IdentityView = 'users' | 'sessions' | 'sso'
@@ -88,6 +90,7 @@ export function UserManagementPage({ view = 'users' }: { view?: IdentityView } =
   const optionsQuery = useQuery({ queryKey: ['admin-user-filter-options'], queryFn: ({ signal }) => api.get<Page<UserRecord> | UserRecord[]>('/api/v1/users', { all: true }, signal).then((value) => asPage(value)) })
   const rolesQuery = useQuery({ queryKey: ['admin-user-role-options'], queryFn: ({ signal }) => api.get<RoleDefinition[]>('/api/v1/admin/roles', undefined, signal), enabled: manage })
   const disable = async (user: UserRecord) => { await api.post(`/api/v1/admin/auth/users/${encodeURIComponent(user.id)}/disable`); await query.refetch() }
+  const approve = async (user: UserRecord) => { await api.post(`/api/v1/admin/auth/users/${encodeURIComponent(user.id)}/approve`); await query.refetch() }
   const refreshUsers = async () => { await query.refetch() }
   const created = async (userID: string) => { setCreating(false); setAccessUserID(userID); await query.refetch() }
   return <IdentityAdminLayout view={view} title="Users and sessions" description="Review identity methods, role sources, permissions, and active sessions." action={manage && <Button onClick={() => setCreating((value) => !value)}>{creating ? 'Cancel' : 'Create user'}</Button>}>
@@ -102,7 +105,7 @@ export function UserManagementPage({ view = 'users' }: { view?: IdentityView } =
         { key: 'status', label: 'Status', render: (user) => <StatusPill status={user.status ?? (user.enabled === false ? 'disabled' : 'active')} /> },
         { key: 'loginMethods', label: 'Login methods', render: (user) => <InlinePills values={user.loginMethods} /> },
         { key: 'roles', label: 'Roles', render: (user) => <InlinePills values={user.roles} /> },
-        { key: 'actions', label: 'Actions', render: (user) => <UserActionsMenu user={user} manage={manage} onAccess={() => setAccessUserID(user.id)} onDisable={() => disable(user)} /> },
+        { key: 'actions', label: 'Actions', render: (user) => <UserActionsMenu user={user} manage={manage} onAccess={() => setAccessUserID(user.id)} onDisable={() => disable(user)} onApprove={() => approve(user)} /> },
       ]} />
       <Pagination page={data.page ?? page} pages={data.pages ?? 1} limit={limit} onChange={setPage} onLimitChange={(next) => { setLimit(next); setPage(1) }} />
       {accessUser && <UserAccessEditor user={accessUser} roles={rolesQuery.data} onChanged={refreshUsers} onClose={() => setAccessUserID(null)} />}
@@ -200,14 +203,15 @@ function AuthenticationTab() {
   const rolesQuery = useQuery({ queryKey: ['admin-role-options'], queryFn: ({ signal }) => api.get<RoleDefinition[]>('/api/v1/admin/roles', undefined, signal) })
   const [passwordLogin, setPasswordLogin] = useState(config.passwordLogin)
   const [registration, setRegistration] = useState(config.registration)
+  const [requireUserApproval, setRequireUserApproval] = useState(config.requireUserApproval === true)
   const [defaultRoleId, setDefaultRoleId] = useState(config.defaultRoleId ?? '')
-  const [saved, setSaved] = useState({ passwordLogin: config.passwordLogin, registration: config.registration, defaultRoleId: config.defaultRoleId ?? '' })
+  const [saved, setSaved] = useState({ passwordLogin: config.passwordLogin, registration: config.registration, requireUserApproval: config.requireUserApproval === true, defaultRoleId: config.defaultRoleId ?? '' })
   const [error, setError] = useState('')
-  useUnsavedChanges(passwordLogin !== saved.passwordLogin || registration !== saved.registration || defaultRoleId !== saved.defaultRoleId)
-  const save = async () => { setError(''); try { await api.post('/api/v1/admin/auth/settings', { enabled: passwordLogin, registration, default_role_id: defaultRoleId }); setSaved({ passwordLogin, registration, defaultRoleId }); setConfig({ ...config, passwordLogin, registration, defaultRoleId }) } catch (cause) { setError(cause instanceof Error ? cause.message : 'Authentication settings update failed') } }
+  useUnsavedChanges(passwordLogin !== saved.passwordLogin || registration !== saved.registration || requireUserApproval !== saved.requireUserApproval || defaultRoleId !== saved.defaultRoleId)
+  const save = async () => { setError(''); try { await api.post('/api/v1/admin/auth/settings', { enabled: passwordLogin, registration, require_user_approval: requireUserApproval, default_role_id: defaultRoleId }); setSaved({ passwordLogin, registration, requireUserApproval, defaultRoleId }); setConfig({ ...config, passwordLogin, registration, requireUserApproval, defaultRoleId }) } catch (cause) { setError(cause instanceof Error ? cause.message : 'Authentication settings update failed') } }
   const defaultRole = defaultRoleId
   const setDefaultRole = setDefaultRoleId
-  return <section className="gf-card-panel"><div className="gf-editor-form"><label><input type="checkbox" checked={passwordLogin} onChange={(event) => setPasswordLogin(event.target.checked)} /> Enable password login</label><label><input type="checkbox" checked={registration} onChange={(event) => setRegistration(event.target.checked)} /> Allow password registration</label><label htmlFor="default-role">Default role<RoleSelect id="default-role" value={defaultRole} roles={rolesQuery.data} disabled={rolesQuery.isPending || rolesQuery.isError} onChange={setDefaultRole} /></label>{rolesQuery.isError && <small className="gf-form-error">Roles could not be loaded.</small>}{error && <p className="gf-form-error" role="alert">{error}</p>}{manage && <DangerousAction label="Save settings" warning="Changing login methods can lock out administrators. Verify that another working login method remains before saving." onConfirm={save} />}</div></section>
+  return <section className="gf-card-panel"><div className="gf-editor-form"><label><input type="checkbox" checked={passwordLogin} onChange={(event) => setPasswordLogin(event.target.checked)} /> Enable password login</label><label><input type="checkbox" checked={registration} onChange={(event) => setRegistration(event.target.checked)} /> Allow password registration</label><label><input type="checkbox" checked={requireUserApproval} onChange={(event) => setRequireUserApproval(event.target.checked)} /> Require administrator approval for new users</label><p className="gf-muted">Pending users cannot sign in until an administrator approves them.</p><label htmlFor="default-role">Default role<RoleSelect id="default-role" value={defaultRole} roles={rolesQuery.data} disabled={rolesQuery.isPending || rolesQuery.isError} onChange={setDefaultRole} /></label>{rolesQuery.isError && <small className="gf-form-error">Roles could not be loaded.</small>}{error && <p className="gf-form-error" role="alert">{error}</p>}{manage && <DangerousAction label="Save settings" warning="Changing login methods can lock out administrators. Verify that another working login method remains available before saving." onConfirm={save} />}</div></section>
 }
 
 function GeneralSettingsTab() {

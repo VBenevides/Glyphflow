@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/VBenevides/Glyphflow/backend/internal/store"
@@ -20,6 +21,17 @@ func newMemoryUserRepository() *memoryUserRepository {
 }
 
 func (s *memoryUserRepository) Create(_ context.Context, user store.UserRecord, passwordHash string) error {
+	if user.Status == "" {
+		if user.Enabled {
+			user.Status = store.StatusActive
+		} else {
+			user.Status = store.StatusDisabled
+		}
+	}
+	if !store.ValidUserStatus(user.Status) {
+		return fmt.Errorf("invalid user status %q", user.Status)
+	}
+	user.Enabled = user.Status == store.StatusActive
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.users[user.ID]; ok || s.byEmail[user.Email] != "" {
@@ -84,13 +96,25 @@ func (s *memoryUserRepository) UpdateDisplayName(_ context.Context, userID, disp
 }
 
 func (s *memoryUserRepository) SetEnabled(_ context.Context, userID string, enabled bool) error {
+	status := store.StatusDisabled
+	if enabled {
+		status = store.StatusActive
+	}
+	return s.SetStatus(context.Background(), userID, status)
+}
+
+func (s *memoryUserRepository) SetStatus(_ context.Context, userID, status string) error {
+	if !store.ValidUserStatus(status) {
+		return fmt.Errorf("invalid user status %q", status)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	user, ok := s.users[userID]
 	if !ok {
 		return errors.New("user not found")
 	}
-	user.Enabled = enabled
+	user.Status = status
+	user.Enabled = status == store.StatusActive
 	s.users[userID] = user
 	return nil
 }
