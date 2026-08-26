@@ -95,6 +95,15 @@ jobs:
           docker save "$GLYPHFLOW_IMAGE:$GLYPHFLOW_VERSION" | gzip -9 > "$archive"
           sha256sum "$archive" > "$archive.sha256"
 
+      - name: Package deployment bundle
+        env:
+          NATS_IMAGE_REF: nats:2.10-alpine
+          POSTGRES_IMAGE_REF: postgres:16-alpine
+        run: |
+          set -Eeuo pipefail
+          mkdir -p release
+          ./scripts/package-release.sh release "$GLYPHFLOW_VERSION" "$GLYPHFLOW_IMAGE:$GLYPHFLOW_VERSION"
+
       - name: Upload release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -102,5 +111,9 @@ jobs:
           set -Eeuo pipefail
           archive="glyphflow-${GLYPHFLOW_VERSION}-linux-amd64.tar.gz"
           sbom="glyphflow-${GLYPHFLOW_VERSION}-sbom.spdx.json"
+          bundle="release/glyphflow-${GLYPHFLOW_VERSION}-deployment.tar.gz"
+          bundle_sha="$bundle.sha256"
           test -s "$sbom"
-          gh release upload "$RELEASE_TAG" "$archive" "$archive.sha256" LICENSE THIRD-PARTY-NOTICES "$sbom" --clobber
+          test -s "$bundle"
+          test -s "$bundle_sha"
+          gh release upload "$RELEASE_TAG" "$archive" "$archive.sha256" "$bundle" "$bundle_sha" LICENSE THIRD-PARTY-NOTICES "$sbom" --clobber
