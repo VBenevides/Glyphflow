@@ -55,7 +55,7 @@ export function FieldLabel({ children, info, htmlFor }: { children: ReactNode; i
 
 export function Dialog({ open, title, children, onClose, className }: { open: boolean; title: string; children: ReactNode; onClose: () => void; className?: string }) {
   const titleId = useId()
-  return <DialogPrimitive.Root open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose() }}><DialogPrimitive.Portal><DialogPrimitive.Overlay className="gf-dialog-backdrop" /><DialogPrimitive.Content aria-modal="true" aria-labelledby={titleId} className={`gf-dialog${className ? ` ${className}` : ''}`}><div className="gf-dialog-header"><DialogPrimitive.Title asChild><h2 id={titleId}>{title}</h2></DialogPrimitive.Title><DialogPrimitive.Close asChild><Button variant="ghost" aria-label="Close dialog">×</Button></DialogPrimitive.Close></div>{children}</DialogPrimitive.Content></DialogPrimitive.Portal></DialogPrimitive.Root>
+  return <DialogPrimitive.Root open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose() }}><DialogPrimitive.Portal><DialogPrimitive.Overlay className="gf-dialog-backdrop" /><DialogPrimitive.Content aria-modal="true" aria-labelledby={titleId} className={`gf-dialog${className ? ` ${className}` : ''}`}><div className="gf-dialog-header"><DialogPrimitive.Title asChild><h2 id={titleId}>{title}</h2></DialogPrimitive.Title><DialogPrimitive.Close asChild><Button className="gf-dialog-close" variant="ghost" aria-label="Close dialog">×</Button></DialogPrimitive.Close></div><div className="gf-dialog-body">{children}</div></DialogPrimitive.Content></DialogPrimitive.Portal></DialogPrimitive.Root>
 }
 
 export function StatusPill({ status }: { status: string }) {
@@ -103,8 +103,8 @@ export function TableActions({ label = 'Actions', children }: { label?: string; 
 
 export type MetricTone = 'default' | 'success' | 'warning' | 'danger' | 'info'
 
-export function MetricCard({ label, value, detail, icon: Icon, tone = 'default' }: { label: string; value: ReactNode; detail?: ReactNode; icon?: ComponentType<{ className?: string; size?: string | number }>; tone?: MetricTone }) {
-  return <section className={`gf-metric gf-metric-${tone}`}><div className="gf-metric-heading"><span>{label}</span>{Icon && <span className="gf-metric-icon" aria-hidden="true"><Icon size={16} /></span>}</div><strong>{value}</strong>{detail && <small>{detail}</small>}</section>
+export function MetricCard({ label, value, detail, icon: Icon, tone = 'default' }: { label: string; value: ReactNode; detail?: ReactNode; icon: ComponentType<{ className?: string; size?: string | number }>; tone?: MetricTone }) {
+  return <section className={`gf-metric gf-metric-${tone}`}><div className="gf-metric-heading"><span>{label}</span><span className="gf-metric-icon" aria-hidden="true"><Icon size={16} /></span></div><strong>{value}</strong>{detail && <small>{detail}</small>}</section>
 }
 
 export type Column<T> = { key: string; label: string; className?: string; render?: (row: T) => ReactNode }

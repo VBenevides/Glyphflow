@@ -1,5 +1,6 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { Server } from 'lucide-react'
 import { useAuth } from './auth'
 import { api, type Page, type RunnerPool } from './api'
 import { DangerousAction } from './actions'
@@ -57,7 +58,7 @@ export function RunnerPoolsPage({ navigation, title = 'Pools', description = 'Gr
     {form}
     <QueryState query={query} empty="Create a pool before enrolling runners.">
       {(data) => <>
-        <div className="gf-metric-grid"><MetricCard label="Number of pools" value={data.total ?? data.items.length} detail="Configured runner pools" /></div>
+        <div className="gf-metric-grid"><MetricCard label="Number of pools" value={data.total ?? data.items.length} detail="Configured runner pools" icon={Server} /></div>
         <div className="gf-table-toolbar">{create}</div>
         {data.items.length ? <>
           <DataTable caption="Runner pools" rows={data.items} columns={[

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Archive, CircleOff, Server, WifiOff } from 'lucide-react'
+import { Activity, Archive, CircleOff, HardDrive, ListChecks, Server, WifiOff } from 'lucide-react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useAuth } from './auth'
 import { api, type Page, type Run, type Runner, type RunnerMetric, type RunnerMetricHistory } from './api'
@@ -100,11 +100,11 @@ export function RunnerDetailPage() {
             <PageHeader title={runner.name} description={`Pool ${runner.pool ?? '—'} · ${runner.observedState ?? '—'}`} refresh={<QueryRefresh query={query} />} />
             {runner.isArchived && <p className="gf-form-error" role="alert">This runner is archived permanently and cannot be recovered.</p>}
             <section className="gf-metric-grid">
-              <div className="gf-metric"><span>Desired state</span><strong><StatusPill status={runner.desiredState ?? '—'} /></strong></div>
-              <div className="gf-metric"><span>Observed state</span><strong><StatusPill status={runner.observedState ?? '—'} /></strong></div>
-              <div className="gf-metric"><span>Capacity</span><strong>{runner.activeCount ?? 0}/{runner.capacity ?? 0}</strong><small>{runner.currentCapacity && runner.currentCapacity !== runner.capacity ? `Heartbeat current: ${runner.currentCapacity}` : runnerIsStale(runner.heartbeatAt) ? 'Heartbeat stale' : 'Heartbeat current'}</small></div>
-              <div className="gf-metric"><span>CPU</span><strong>{runnerIsStale(runner.heartbeatAt) ? 'Stale' : formatMetricPercent(runner.currentMetrics?.cpuPercent)}</strong><small>{runner.currentMetrics ? `Sampled ${formatDateTime(runner.currentMetrics.sampledAt)}` : 'No samples'}</small></div>
-              <div className="gf-metric"><span>Memory</span><strong>{runnerIsStale(runner.heartbeatAt) ? 'Stale' : formatMetricPercent(runner.currentMetrics?.memoryPercent)}</strong><small>{runner.currentMetrics ? `Sampled ${formatDateTime(runner.currentMetrics.sampledAt)}` : 'No samples'}</small></div>
+              <MetricCard label="Desired state" value={<StatusPill status={runner.desiredState ?? '—'} />} icon={Server} />
+              <MetricCard label="Observed state" value={<StatusPill status={runner.observedState ?? '—'} />} icon={Activity} />
+              <MetricCard label="Capacity" value={`${runner.activeCount ?? 0}/${runner.capacity ?? 0}`} detail={runner.currentCapacity && runner.currentCapacity !== runner.capacity ? `Heartbeat current: ${runner.currentCapacity}` : runnerIsStale(runner.heartbeatAt) ? 'Heartbeat stale' : 'Heartbeat current'} icon={ListChecks} />
+              <MetricCard label="CPU" value={runnerIsStale(runner.heartbeatAt) ? 'Stale' : formatMetricPercent(runner.currentMetrics?.cpuPercent)} detail={runner.currentMetrics ? `Sampled ${formatDateTime(runner.currentMetrics.sampledAt)}` : 'No samples'} icon={Activity} />
+              <MetricCard label="Memory" value={runnerIsStale(runner.heartbeatAt) ? 'Stale' : formatMetricPercent(runner.currentMetrics?.memoryPercent)} detail={runner.currentMetrics ? `Sampled ${formatDateTime(runner.currentMetrics.sampledAt)}` : 'No samples'} icon={HardDrive} />
             </section>
             <section className="gf-card-panel">
               <div className="gf-runner-metrics-header"><h2>Resource history</h2><label>Range<select className="gf-input" aria-label="Resource history range" value={metricRange} onChange={(event) => setMetricRange(event.target.value as RunnerMetricRange)}><option value="1h">Last hour</option><option value="6h">Last 6 hours</option><option value="24h">Last 24 hours</option><option value="7d">Last 7 days</option><option value="30d">Last 30 days</option></select></label></div>

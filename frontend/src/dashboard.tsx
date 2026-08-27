@@ -24,7 +24,7 @@ function WidgetState({ widget, result }: { widget: Widget; result: UseQueryResul
   if (result.isError && result.data === undefined) return <section className="gf-dashboard-widget"><h2>{widget.label}</h2><ErrorState message={result.error instanceof Error ? result.error.message : 'Widget failed'} onRetry={() => result.refetch()} /></section>
   const value = result.data as Page<Run | Schedule | Runner> | undefined
   const items = Array.isArray(value) ? value : value?.items ?? []
-  if (widget.kind === 'metric') return <MetricCard label={widget.label} value={value?.total ?? items.length} icon={widget.icon} tone={widget.tone} detail={result.isFetching ? 'Refreshing…' : undefined} />
+  if (widget.kind === 'metric') return <MetricCard label={widget.label} value={value?.total ?? items.length} icon={widget.icon ?? Activity} tone={widget.tone} detail={result.isFetching ? 'Refreshing…' : undefined} />
   return <section className="gf-dashboard-widget"><h2>{widget.label}</h2>{items.length ? <ul className="gf-dashboard-list">{items.slice(0, 5).map((item, index) => { const record = item as { id?: string; name?: string; action?: string; description?: string; state?: string; result?: string }; return <li key={String(record.id ?? index)}><span><strong>{record.action ?? record.name ?? record.id ?? 'Record'}</strong>{record.description && <><br /><small>{record.description}</small></>}</span>{(record.state ?? record.result) && <StatusPill status={String(record.state ?? record.result)} />}</li> })}</ul> : <EmptyState title="None" />}</section>
 }
 

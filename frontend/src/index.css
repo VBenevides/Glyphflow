@@ -184,7 +184,7 @@ a {
 .gf-error { color: var(--gf-danger); }
 .gf-spinner { width: 1.25rem; height: 1.25rem; border: 3px solid var(--gf-border); border-top-color: var(--gf-action); border-radius: 50%; animation: gf-spin 0.8s linear infinite; }
 .gf-dialog-backdrop { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 1rem; background: rgb(5 12 25 / 60%); }
-.gf-dialog { position: fixed; inset: 50% auto auto 50%; z-index: 41; width: min(60rem, calc(100vw - 2rem)); max-height: min(90dvh, 48rem); overflow: auto; transform: translate(-50%, -50%); padding: 1.25rem; color: var(--gf-text); background: var(--gf-card); border: 1px solid var(--gf-border); border-radius: var(--gf-radius); box-shadow: var(--gf-shadow); }
+.gf-dialog { position: fixed; inset: 50% auto auto 50%; z-index: 41; display: flex; flex-direction: column; width: min(60rem, calc(100vw - 2rem)); max-height: min(90dvh, 48rem); overflow: hidden; transform: translate(-50%, -50%); padding: 0; color: var(--gf-text); background: var(--gf-card); border: 1px solid var(--gf-border); border-radius: var(--gf-radius); box-shadow: var(--gf-shadow); }
 .gf-audit-dialog { width: min(64rem, 100%); }
 .gf-dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .gf-dialog-header h2 { margin: 0; font-size: 1.2rem; }
@@ -398,10 +398,13 @@ body { background-image: var(--gf-page-glow); }
 .gf-role-table .gf-table th:nth-child(1), .gf-role-table .gf-table td:nth-child(1) { min-width: 8rem; }
 .gf-role-table .gf-table th:nth-child(2), .gf-role-table .gf-table td:nth-child(2) { min-width: 7rem; }
 .gf-role-table .gf-table th:nth-child(3), .gf-role-table .gf-table td:nth-child(3) { max-width: 34rem; }
-.gf-dialog { width: min(60rem, calc(100vw - 2rem)); padding: 1.5rem; border-radius: 0.75rem; box-shadow: var(--gf-shadow); }
+.gf-dialog { width: min(60rem, calc(100vw - 2rem)); padding: 0; border-radius: 0.75rem; box-shadow: var(--gf-shadow); }
 .gf-dialog:has(.gf-editor-form) { width: min(68rem, calc(100vw - 2rem)); }
+.gf-dialog.gf-task-editor-dialog { height: 80dvh; max-height: 80dvh; }
 .gf-dialog .gf-editor-form { max-width: none; padding: 0; background: transparent; border: 0; box-shadow: none; }
-.gf-dialog .gf-dialog-header { padding-bottom: 0.75rem; border-bottom: 1px solid var(--gf-border); }
+.gf-dialog .gf-dialog-header { flex: 0 0 auto; padding: 1rem 1.25rem; background: color-mix(in oklab, var(--gf-surface), var(--gf-card) 50%); border-bottom: 1px solid var(--gf-border); }
+.gf-dialog .gf-dialog-close { width: 2.75rem; min-width: 2.75rem; height: 2.75rem; padding: 0; color: var(--gf-text); font-size: 1.5rem; line-height: 1; }
+.gf-dialog-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 1.5rem; }
 .gf-dialog .gf-dialog-actions { justify-content: flex-end; margin-top: 1rem; padding-top: 0.9rem; border-top: 1px solid var(--gf-border); }
 .gf-dialog-actions { flex-wrap: wrap; }
 .gf-account-tabs { display: inline-flex; flex-wrap: wrap; gap: 0.2rem; margin-bottom: 1.25rem; padding: 0.2rem; background: var(--gf-surface); border: 1px solid var(--gf-border); border-radius: 0.55rem; }
@@ -539,14 +542,13 @@ body { background-image: var(--gf-page-glow); }
 .gf-table td { line-height: 1.4; }
 .gf-dialog-backdrop { background: rgb(5 12 25 / 68%); backdrop-filter: blur(4px); }
 .gf-dialog { box-shadow: 0 24px 80px -32px rgb(0 0 0 / 65%); }
-.gf-dialog-header { padding-bottom: 0.75rem; border-bottom: 1px solid var(--gf-border); }
-.gf-dialog-header + * { margin-top: 1rem; }
+.gf-dialog-header + .gf-dialog-body { margin-top: 0; }
 .gf-dialog-actions { align-items: center; }
 
 @media (max-width: 767px) {
   .gf-page-header { align-items: stretch; gap: 0.75rem; }
   .gf-page-header-actions { margin-left: 0; justify-content: flex-start; }
-  .gf-dialog { padding: 1rem; }
+  .gf-dialog-body { padding: 1rem; }
 }
 
 @media (max-width: 480px) {
@@ -560,6 +562,7 @@ body { background-image: var(--gf-page-glow); }
 .gf-sidebar.is-collapsed .gf-nav-link.is-active { color: var(--gf-action); background: color-mix(in oklab, var(--gf-action), transparent 88%); border-color: color-mix(in oklab, var(--gf-action), transparent 78%); box-shadow: 0 6px 18px -14px var(--gf-action); }
 .gf-page-header h1, .gf-card-panel h2, .gf-dashboard-widget h2 { color: var(--gf-text); font-weight: 750; }
 .gf-card-panel, .gf-dashboard-widget, .gf-editor-form { border-radius: 0.9rem; border-color: var(--gf-border); }
+.gf-task-archive-action { margin-top: 1rem; }
 .gf-metric { min-height: 6rem; padding: 0.8rem 0.9rem; border-color: var(--gf-border); border-radius: 0.9rem; }
 .gf-identity-metrics { display: flex; flex-wrap: wrap; justify-content: flex-start; gap: 0.75rem; }
 .gf-identity-metrics .gf-metric { flex: 1 1 20rem; }

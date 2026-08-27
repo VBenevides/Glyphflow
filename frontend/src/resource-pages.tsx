@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { Activity, Box, Lock, Server, Timer } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from './auth'
 import { api, type Page, type Resource } from './api'
@@ -46,7 +47,7 @@ export function ResourceInventoryPage() {
   }
   return <main className="gf-content">
     <PageHeader title="Resources and leases" description="Exclusive and non-blocking resources, fencing counters, and active holders." refresh={<QueryRefresh query={query} />} />
-    <div className="gf-metric-grid"><MetricCard label="Total number of resources" value={summaryQuery.data?.total ?? '—'} detail="All configured resources" /><MetricCard label="Total number of exclusive resources" value={summaryQuery.data?.exclusive ?? '—'} detail="Resources that block concurrent runs" /></div>
+    <div className="gf-metric-grid"><MetricCard label="Total number of resources" value={summaryQuery.data?.total ?? '—'} detail="All configured resources" icon={Box} /><MetricCard label="Total number of exclusive resources" value={summaryQuery.data?.exclusive ?? '—'} detail="Resources that block concurrent runs" icon={Lock} /></div>
     {manage && <div className="gf-table-toolbar"><Button onClick={() => { setCreating(true); setError('') }}>Create resource</Button></div>}
     {creating && <section className="gf-card-panel"><h2>Create resource</h2><form className="gf-editor-form" onSubmit={create}>
       <label>Name<Input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} required /></label>
@@ -81,7 +82,7 @@ export function ResourceDetailPage() {
   const manage = hasPermission(permissions, 'resources.manage')
   return <main className="gf-content"><QueryState query={query}>{(resource) => <>
     <PageHeader title={resource.name} description="Lease ownership and fencing state." refresh={<QueryRefresh query={query} />} />
-    <section className="gf-metric-grid"><div className="gf-metric"><span>State</span><strong><StatusPill status={resourceState(resource)} /></strong></div><div className="gf-metric"><span>Fencing counter</span><strong>{resource.fencingToken ?? 0}</strong></div><div className="gf-metric"><span>Expiry</span><strong><time dateTime={resource.expiresAt}>{formatDateTime(resource.expiresAt)}</time></strong></div></section>
+    <section className="gf-metric-grid"><MetricCard label="State" value={<StatusPill status={resourceState(resource)} />} icon={Server} /><MetricCard label="Fencing counter" value={resource.fencingToken ?? 0} icon={Activity} /><MetricCard label="Expiry" value={<time dateTime={resource.expiresAt}>{formatDateTime(resource.expiresAt)}</time>} icon={Timer} /></section>
     <section className="gf-card-panel"><h2>Active holder</h2>{resource.holder ? <Identifier id={resource.holder} href={`/runs/${resource.holder}`} copyLabel="Copy run ID" /> : <p className="gf-muted">No active lease.</p>}</section>
     {manage && <div className="gf-dialog-actions"><DangerousAction label="Delete resource" onConfirm={() => api.delete(`/api/v1/resources/${encodeURIComponent(resource.id)}`).then(() => navigate('/resources'))} /></div>}
   </>}</QueryState></main>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { taskDetailLinks, taskQuery, taskStateMatches, taskVersionDiff } from './task-pages'
+import { taskDetailLinks, taskNameLabel, taskQuery, taskStateMatches, taskVersionDiff } from './task-pages'
 
 describe('task pages', () => {
   it('builds server-side filters and related links safely', () => {
@@ -14,6 +14,11 @@ describe('task pages', () => {
     expect(taskStateMatches({ enabled: true }, 'enabled')).toBe(true)
     expect(taskStateMatches({ enabled: true }, 'disabled')).toBe(false)
     expect(taskStateMatches({ enabled: false }, 'disabled')).toBe(true)
+  })
+
+  it('truncates task names only after 30 characters', () => {
+    expect(taskNameLabel('a'.repeat(30))).toBe('a'.repeat(30))
+    expect(taskNameLabel('a'.repeat(31))).toBe(`${'a'.repeat(30)}…`)
   })
 
   it('compares a task version with its previous immutable version', () => {
