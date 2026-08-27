@@ -3,6 +3,7 @@ package worker
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"runtime"
@@ -119,6 +120,68 @@ func TestOrderRuntimeExecutesOrderAndPublishesEvents(t *testing.T) {
 		if !strings.HasPrefix(line, "> ") || !strings.Contains(line, `Task "Example task" v2 - ID "task-1"`) || !strings.Contains(line, `Run "run-1"`) {
 			t.Fatalf("terminal line = %q, want prefixed task and run context", line)
 		}
+	}
+}
+
+func TestOrderRuntimeVerifiesCancellationOrders(t *testing.T) {
+	local, err := OpenStore(t.TempDir() + "/runner.sqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer local.Close()
+	controlKey, err := protocol.GenerateSigningKey("control-plane", time.Now().UTC(), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workerKey, err := protocol.GenerateSigningKey("runner:runner-1", time.Now().UTC(), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range []struct {
+		name      string
+		unsigned  bool
+		tampered  bool
+		cancelled bool
+	}{
+		{name: "unsigned", unsigned: true},
+		{name: "tampered", tampered: true},
+		{name: "valid", cancelled: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			active := &ActiveOrders{}
+			item := active.put("attempt-1", func() {})
+			now := time.Now().UTC()
+			order := protocol.OrderPayload{Version: protocol.ProtocolVersion, OrderID: "cancel-1", RunID: "run-1", TaskID: "task-1", Attempt: 1, LeaseToken: "lease-1", RunnerID: "runner-1", RunnerSessionID: "session-1", IssuedAt: now, NotBefore: now, ExpiresAt: now.Add(time.Minute), Type: protocol.OrderCancel, Command: []string{"true"}, WorkingDir: ".", DurationSeconds: 1, TargetOrderID: "attempt-1"}
+			rawPayload, err := protocol.EncodeOrderPayload(order)
+			if err != nil {
+				t.Fatal(err)
+			}
+			envelope, err := controlKey.SignOrder(rawPayload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.unsigned {
+				envelope.Signature = ""
+			}
+			if test.tampered {
+				tampered := append([]byte(nil), rawPayload...)
+				tampered[0] ^= 1
+				envelope.Payload = base64.StdEncoding.EncodeToString(tampered)
+			}
+			rawOrder, err := protocol.EncodeEnvelope(envelope)
+			if err != nil {
+				t.Fatal(err)
+			}
+			runtime := OrderRuntime{Store: local, Publisher: &runtimePublisher{}, StartClaimer: testStartClaimer{}, RunnerID: order.RunnerID, ControlPublicKey: controlKey.Public.PublicKey, SigningKey: workerKey, Active: active}
+			err = runtime.Handle(context.Background(), queue.Message{Subject: queue.Subject("orders", order.RunnerID), ID: order.OrderID, Data: rawOrder})
+			if (err == nil) != test.cancelled {
+				t.Fatalf("Handle() error = %v, cancelled = %v", err, test.cancelled)
+			}
+			if item.cancelled.Load() != test.cancelled {
+				t.Fatalf("active cancellation = %v, want %v", item.cancelled.Load(), test.cancelled)
+			}
+		})
 	}
 }
 

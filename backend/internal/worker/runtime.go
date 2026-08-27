@@ -92,6 +92,10 @@ func (r OrderRuntime) Handle(ctx context.Context, message queue.Message) error {
 	if err != nil {
 		return err
 	}
+	keyring := protocol.Keyring{"control-plane": {ID: "control-plane", PublicKey: r.ControlPublicKey}}
+	if err := keyring.VerifyAt(envelope, protocol.OrderSignatureDomain, time.Now().UTC()); err != nil {
+		return err
+	}
 	rawPayload, err := envelope.PayloadBytes()
 	if err != nil {
 		return err
@@ -117,7 +121,7 @@ func (r OrderRuntime) Handle(ctx context.Context, message queue.Message) error {
 		}
 		return nil
 	}
-	payload, err := protocol.VerifyOrder(message.Data, protocol.Keyring{"control-plane": {ID: "control-plane", PublicKey: r.ControlPublicKey}}, time.Now().UTC(), r.RunnerID, order.RunID, order.Attempt, order.LeaseToken, time.Second, nil)
+	payload, err := protocol.VerifyOrder(message.Data, keyring, time.Now().UTC(), r.RunnerID, order.RunID, order.Attempt, order.LeaseToken, time.Second, nil)
 	if err != nil {
 		return err
 	}
