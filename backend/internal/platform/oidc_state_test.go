@@ -1,10 +1,28 @@
 package platform
 
 import (
+	"crypto/rand"
+	"errors"
 	"sync"
 	"testing"
 	"time"
 )
+
+type failingRandomReader struct{}
+
+func (failingRandomReader) Read([]byte) (int, error) { return 0, errors.New("entropy unavailable") }
+
+func TestAuthorizationStateStoreFailsClosedWithoutEntropy(t *testing.T) {
+	original := rand.Reader
+	rand.Reader = failingRandomReader{}
+	defer func() { rand.Reader = original }()
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected constructor to fail closed")
+		}
+	}()
+	NewAuthorizationStateStore()
+}
 
 func TestAuthorizationStateIsSingleUseUnderConcurrentCallbacks(t *testing.T) {
 	store := NewAuthorizationStateStore()

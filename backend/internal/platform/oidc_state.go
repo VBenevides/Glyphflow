@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"io"
 	"sync"
 	"time"
 )
@@ -29,7 +30,9 @@ type authorizationState struct {
 
 func NewAuthorizationStateStore() *AuthorizationStateStore {
 	key := make([]byte, 32)
-	_, _ = rand.Read(key)
+	if _, err := io.ReadFull(rand.Reader, key); err != nil {
+		panic("authorization state key entropy unavailable")
+	}
 	return &AuthorizationStateStore{states: make(map[string]authorizationState), key: key}
 }
 
