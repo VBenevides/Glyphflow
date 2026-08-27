@@ -57,6 +57,7 @@ describe('UI layout contracts', () => {
     expect(css).toContain('.gf-sidebar.is-collapsed .gf-nav-link.is-active')
     expect(css).toContain('.gf-pagination { margin-top: 0.75rem; padding: 0; background: transparent; border: 0; border-radius: 0;')
     expect(css).toContain('.gf-card-panel > .gf-button, .gf-card-panel > .gf-dialog-actions, .gf-content > .gf-dialog-actions { margin-top: 0.75rem; }')
+    expect(css).toContain('.gf-overview-conflict-notice { margin-bottom: 1rem; }')
     expect(css).not.toContain('.gf-table-wrap:has(+ .gf-pagination)')
     expect(css).toContain('.gf-content { width: 90%; max-width: none; padding: 1.5rem 0; }')
     expect(css).toContain('.gf-content { padding: clamp(1rem, 2.5vw, 1.75rem) 0; }')
