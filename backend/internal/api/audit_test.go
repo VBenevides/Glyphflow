@@ -119,6 +119,23 @@ func TestAuditQueryFiltersRedactsAndPaginates(t *testing.T) {
 	}
 }
 
+func TestAuditHidesAcceptedPreflightByDefault(t *testing.T) {
+	audit := NewAuditQueryService()
+	audit.Add(AuditEvent{ID: "accepted", Action: http.MethodPost, Target: "/api/v1/tasks", Result: "accepted"})
+	audit.Add(AuditEvent{ID: "success", Action: http.MethodPost, Target: "/api/v1/tasks", Result: "success"})
+
+	response := httptest.NewRecorder()
+	audit.query(response, httptest.NewRequest(http.MethodGet, "/api/v1/audit", nil))
+	if response.Code != http.StatusOK || bytes.Contains(response.Body.Bytes(), []byte(`"id":"accepted"`)) || !bytes.Contains(response.Body.Bytes(), []byte(`"id":"success"`)) || !bytes.Contains(response.Body.Bytes(), []byte(`"total":1`)) {
+		t.Fatalf("default audit events = %s", response.Body.String())
+	}
+	response = httptest.NewRecorder()
+	audit.query(response, httptest.NewRequest(http.MethodGet, "/api/v1/audit?result=accepted", nil))
+	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"id":"accepted"`)) || bytes.Contains(response.Body.Bytes(), []byte(`"id":"success"`)) {
+		t.Fatalf("accepted audit events = %s", response.Body.String())
+	}
+}
+
 type recordingAuditRepository struct {
 	filter store.AuditFilter
 }
@@ -226,6 +243,23 @@ func TestAuditCapturesEndpointMethodAndBody(t *testing.T) {
 	responseBody, ok := output["body"].(map[string]any)
 	if !ok || responseBody["name"] != "Task" || responseBody["token"] != "[REDACTED]" {
 		t.Fatalf("audit output body = %#v", output["body"])
+	}
+}
+
+func TestAuditCapturesMutationBeforeAndAfter(t *testing.T) {
+	globalVariables := NewGlobalVariableService()
+	globalVariables.items["global-1"] = store.GlobalVariableRecord{ID: "global-1", Name: "NAME", Value: "before"}
+	audit := NewAuditQueryService()
+	server := Server{Auth: func(*http.Request) (Claims, bool) { return Claims{UserID: "user-1"}, true }, Permissions: func(Claims) map[string]bool { return map[string]bool{"users.manage": true} }, AuditQuery: audit, GlobalVariables: globalVariables}
+	request := httptest.NewRequest(http.MethodPut, "/api/v1/global-variables/global-1", bytes.NewBufferString(`{"name":"NAME","value":"after"}`))
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || len(audit.events) != 1 {
+		t.Fatalf("global variable update: status=%d events=%d", response.Code, len(audit.events))
+	}
+	event := audit.events[0]
+	if event.Before["value"] != "before" || event.After["value"] != "after" {
+		t.Fatalf("mutation snapshots = before=%#v after=%#v", event.Before, event.After)
 	}
 }
 

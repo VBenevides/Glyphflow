@@ -13,6 +13,8 @@ describe('UI layout contracts', () => {
 
   it('keeps run filters flexible and empty states compact', () => {
     expect(css).toContain('.gf-filter-bar > label, .gf-filter-bar > .gf-filter-field, .gf-filter-bar > .gf-task-picker { min-width: 10rem; max-width: 18rem; flex: 0 1 16rem; }')
+    expect(css).toContain('.gf-filter-checkboxes { flex: 0 0 100%; display: flex; flex-wrap: wrap; gap: 0.75rem; }')
+    expect(css).toContain('.gf-filter-checkboxes label { min-width: 10rem; max-width: 18rem; flex: 0 1 16rem; }')
     expect(css).toContain(".gf-filter-bar > label:has(> input[data-utc-datetime]) { min-width: 18rem; max-width: 22rem; flex-basis: 18rem; }")
     expect(css).toContain('.gf-filter-datetime { display: grid; grid-template-columns: repeat(2, minmax(18rem, 22rem));')
     expect(css).toContain('.gf-state.gf-empty { min-height: 7rem; padding: 1.25rem; }')

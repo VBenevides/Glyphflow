@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,6 +28,8 @@ type Authenticator func(*http.Request) (Claims, bool)
 
 type requestAuditDetails struct {
 	Input     map[string]any
+	Before    map[string]any
+	After     map[string]any
 	Error     string
 	Traceback string
 }
@@ -420,7 +423,7 @@ func (s Server) require(role string, next http.Handler) http.Handler {
 			writeJSON(w, 403, map[string]string{"error": "forbidden"})
 			return
 		}
-		auditDetails := &requestAuditDetails{Input: captureAuditInput(r)}
+		auditDetails := &requestAuditDetails{Input: captureAuditInput(r), Before: s.auditBefore(r)}
 		if isMutatingMethod(r.Method) && s.AuditQuery != nil && s.AuditQuery.hasDurableRepository() {
 			actorName, actorEmail := s.auditActor(claims.UserID)
 			if err := s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: "accepted", CorrelationID: r.Header.Get("X-Correlation-ID"), Input: auditDetails.Input}); err != nil {
@@ -446,6 +449,13 @@ func (s Server) require(role string, next http.Handler) http.Handler {
 			if recorder.status >= http.StatusBadRequest {
 				result = "failure"
 			}
+			if result == "success" && isMutatingMethod(r.Method) {
+				if auditDetails.Before != nil {
+					auditDetails.After = s.auditBefore(r)
+				} else if body := auditResponseBody(recorder.body); body != nil {
+					auditDetails.After = auditSnapshot(body)
+				}
+			}
 			if !(r.Method == http.MethodPost && r.URL.Path == "/api/v1/admin/auth/settings" && result == "success") {
 				output := map[string]any{"status": recorder.status}
 				if body := auditResponseBody(recorder.body); body != nil {
@@ -456,10 +466,177 @@ func (s Server) require(role string, next http.Handler) http.Handler {
 					output["error"] = auditDetails.Error
 					traceback = auditDetails.Error + "\n" + auditDetails.Traceback
 				}
-				s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: result, CorrelationID: r.Header.Get("X-Correlation-ID"), Input: auditDetails.Input, Output: output, Traceback: traceback})
+				s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: result, CorrelationID: r.Header.Get("X-Correlation-ID"), Input: auditDetails.Input, Output: output, Before: auditDetails.Before, After: auditDetails.After, Traceback: traceback})
 			}
 		}
 	})
+}
+
+func auditSnapshot(value any) map[string]any {
+	if value == nil {
+		return nil
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return map[string]any{"value": value}
+	}
+	var snapshot map[string]any
+	if json.Unmarshal(raw, &snapshot) != nil {
+		return map[string]any{"value": value}
+	}
+	return snapshot
+}
+
+func (s Server) auditBefore(r *http.Request) map[string]any {
+	if !isMutatingMethod(r.Method) {
+		return nil
+	}
+	path := strings.TrimSuffix(r.URL.Path, "/")
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) < 4 || parts[0] != "api" || parts[1] != "v1" {
+		return nil
+	}
+	find := func(value any, found bool) map[string]any {
+		if !found {
+			return nil
+		}
+		return auditSnapshot(value)
+	}
+	switch parts[2] {
+	case "global-variables":
+		if len(parts) != 4 || parts[3] == "options" || s.GlobalVariables == nil {
+			return nil
+		}
+		s.GlobalVariables.mu.RLock()
+		repository := s.GlobalVariables.repository
+		item, found := s.GlobalVariables.items[parts[3]]
+		s.GlobalVariables.mu.RUnlock()
+		if repository != nil {
+			stored, ok, _ := repository.Find(r.Context(), parts[3])
+			return find(stored, ok)
+		}
+		return find(item, found)
+	case "tasks":
+		if len(parts) < 4 || s.Operations == nil {
+			return nil
+		}
+		s.Operations.mu.RLock()
+		repository := s.Operations.repository
+		s.Operations.mu.RUnlock()
+		if repository != nil {
+			stored, ok, _ := repository.Find(r.Context(), parts[3])
+			return find(taskRecordFromStore(stored), ok)
+		}
+		item, ok := s.Operations.task(parts[3])
+		return find(item, ok)
+	case "schedules":
+		if len(parts) < 4 || s.Operations == nil {
+			return nil
+		}
+		s.Operations.mu.RLock()
+		repository := s.Operations.scheduleRepository
+		s.Operations.mu.RUnlock()
+		if repository != nil {
+			stored, ok, _ := repository.Find(r.Context(), parts[3])
+			return find(scheduleRecordFromStore(stored), ok)
+		}
+		item, ok := s.Operations.schedule(parts[3])
+		return find(item, ok)
+	case "resources":
+		if len(parts) < 4 || s.Infrastructure == nil {
+			return nil
+		}
+		s.Infrastructure.mu.RLock()
+		repository := s.Infrastructure.resourceRepository
+		item, found := s.Infrastructure.resources[parts[3]]
+		s.Infrastructure.mu.RUnlock()
+		if repository != nil {
+			stored, ok, _ := repository.Find(r.Context(), parts[3])
+			return find(resourceRecordFromStore(stored), ok)
+		}
+		return find(item, found)
+	case "runners":
+		if len(parts) < 4 || s.Infrastructure == nil {
+			return nil
+		}
+		s.Infrastructure.mu.RLock()
+		runnerRepository, poolRepository := s.Infrastructure.runnerRepository, s.Infrastructure.runnerRepository
+		runner, runnerFound := s.Infrastructure.runners[parts[3]]
+		pool, poolFound := s.Infrastructure.pools[parts[3]]
+		s.Infrastructure.mu.RUnlock()
+		if len(parts) >= 5 && parts[3] == "pools" {
+			if poolRepository != nil {
+				stored, ok, _ := poolRepository.FindPool(r.Context(), parts[4])
+				return find(runnerPoolRecordFromStore(stored), ok)
+			}
+			return find(pool, poolFound)
+		}
+		if runnerRepository != nil {
+			stored, ok, _ := runnerRepository.Find(r.Context(), parts[3])
+			return find(runnerRecordFromStore(stored), ok)
+		}
+		return find(runner, runnerFound)
+	case "runs":
+		if len(parts) < 4 || s.Runs == nil || parts[3] == "execute" {
+			return nil
+		}
+		s.Runs.mu.RLock()
+		repository := s.Runs.repository
+		item, found := s.Runs.runs[parts[3]]
+		s.Runs.mu.RUnlock()
+		if repository != nil {
+			stored, ok, _ := repository.Find(r.Context(), parts[3])
+			return find(runRecordFromStore(stored), ok)
+		}
+		return find(item, found)
+	case "admin":
+		if len(parts) == 5 && parts[3] == "auth" && parts[4] == "providers" && s.AuthAdmin != nil && s.AuthAdmin.OIDC != nil {
+			var input struct {
+				Key string `json:"key"`
+			}
+			if r.Body != nil {
+				raw, _ := io.ReadAll(r.Body)
+				r.Body = io.NopCloser(bytes.NewReader(raw))
+				_ = json.Unmarshal(raw, &input)
+			}
+			if input.Key != "" {
+				provider, ok := s.AuthAdmin.OIDC.Provider(input.Key)
+				return find(provider, ok)
+			}
+		}
+		if len(parts) == 5 && parts[3] == "execution-status" && s.ExitCodes != nil {
+			code, err := strconv.Atoi(parts[4])
+			if err != nil {
+				return nil
+			}
+			items, err := s.ExitCodes.List(r.Context())
+			if err != nil {
+				return nil
+			}
+			for _, item := range items {
+				if item.Code == code {
+					return auditSnapshot(exitCodeRecords([]store.ExitCodeRecord{item})[0])
+				}
+			}
+			return nil
+		}
+		if len(parts) >= 5 && parts[3] == "roles" && s.Roles != nil {
+			role, ok, _ := s.Roles.role(parts[4])
+			if !ok {
+				return nil
+			}
+			return auditSnapshot(map[string]any{"id": role.ID, "name": role.Name, "description": role.Description, "system": role.System, "permissions": role.Permissions, "assignedUsers": role.AssignedUsers})
+		}
+		if len(parts) >= 6 && parts[3] == "auth" && parts[4] == "users" && s.AuthAdmin != nil && s.AuthAdmin.Auth != nil {
+			user, ok := s.AuthAdmin.Auth.UserProfile(parts[5])
+			return find(user, ok)
+		}
+		if len(parts) >= 5 && parts[3] == "dead-letters" && s.DeadLetters != nil && s.DeadLetters.repository != nil {
+			item, ok, _ := s.DeadLetters.repository.Find(r.Context(), parts[4])
+			return find(deadLetterView(item), ok)
+		}
+	}
+	return nil
 }
 
 func isMutatingMethod(method string) bool {
