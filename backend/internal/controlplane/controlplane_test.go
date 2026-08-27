@@ -71,6 +71,19 @@ func TestCronCalendarAndDSTBoundaries(t *testing.T) {
 	}
 }
 
+func TestImpossibleCronDateSkipsMinuteScan(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	started := time.Now()
+	for range 100 {
+		if _, err := NextFire("0 0 31 2 *", "UTC", now); err == nil {
+			t.Fatal("impossible calendar date was accepted")
+		}
+	}
+	if elapsed := time.Since(started); elapsed >= 100*time.Millisecond {
+		t.Fatalf("impossible date took too long: %s", elapsed)
+	}
+}
+
 func TestScheduleSupportsWholeHourUTCOffsets(t *testing.T) {
 	next, err := (Schedule{Cron: "0 0 * * *", Timezone: "UTC+23:00"}).Next(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
 	if err != nil {
