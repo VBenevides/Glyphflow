@@ -3,7 +3,7 @@ set -eu
 
 test -f backend/internal/protocol/keyring.go
 test -f backend/internal/worker/store.go
-! rg -n 'DATABASE_URL|postgres://' backend/cmd/worker backend/internal/worker
+! grep -R -n -E 'DATABASE_URL|postgres://' backend/cmd/worker backend/internal/worker
 (cd backend && GOCACHE="${GOCACHE:-/tmp/glyphflow-go-cache-security}" go test ./...)
 (cd backend && GOCACHE="${GOCACHE:-/tmp/glyphflow-go-cache-security}" go vet ./...)
 (cd backend && GOCACHE="${GOCACHE:-/tmp/glyphflow-go-cache-security}" "${GOVULNCHECK_BIN:-govulncheck}" ./...)

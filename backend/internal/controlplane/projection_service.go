@@ -106,6 +106,9 @@ func (s *ProjectionService) Run(ctx context.Context, interval time.Duration) {
 	for {
 		select {
 		case <-ticker.C:
+			if ctx.Err() != nil {
+				return
+			}
 			_ = s.Refresh(ctx)
 		case <-ctx.Done():
 			return
