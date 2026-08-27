@@ -5,7 +5,7 @@
 <h1 align="center">Glyphflow</h1>
 
 <p align="center">
-  <a href="VERSION"><img src="https://img.shields.io/badge/dynamic/text?url=https%3A%2F%2Fraw.githubusercontent.com%2FVBenevides%2FGlyphflow%2Fmain%2FVERSION&amp;label=version&amp;prefix=v&amp;color=blue&amp;style=flat-square" alt="Version from VERSION"></a>
+  <a href="VERSION"><img src="https://img.shields.io/badge/dynamic/regex?url=https%3A%2F%2Fraw.githubusercontent.com%2FVBenevides%2FGlyphflow%2Fmain%2FVERSION&amp;search=%28%5B0-9.%5D%2B%29&amp;replace=%241&amp;label=version&amp;prefix=v&amp;color=blue&amp;style=flat-square" alt="Version from VERSION"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/VBenevides/Glyphflow?style=flat-square" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/phase-alpha-orange?style=flat-square" alt="Phase alpha">
   <a href="https://github.com/VBenevides/Glyphflow/actions/workflows/ci.yml"><img src="https://github.com/VBenevides/Glyphflow/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
