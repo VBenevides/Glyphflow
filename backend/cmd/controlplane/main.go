@@ -44,13 +44,13 @@ func run() error {
 		fmt.Fprintln(os.Stderr, `WARNING: CORS set to "*", this is NOT RECOMMENDED for production environments`)
 		break
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, stop := notifyContext()
 	defer stop()
 	db, err := pgxpool.New(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer closeControlPlaneDB(db)
 	if err := waitForDatabase(ctx, db.Ping, time.Second); err != nil {
 		return err
 	}
@@ -411,6 +411,12 @@ func run() error {
 	}
 	return nil
 }
+
+var notifyContext = func() (context.Context, context.CancelFunc) {
+	return signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+}
+
+var closeControlPlaneDB = func(db *pgxpool.Pool) { db.Close() }
 
 func waitForDatabase(ctx context.Context, ping func(context.Context) error, retryInterval time.Duration) error {
 	for {

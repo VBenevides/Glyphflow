@@ -54,7 +54,7 @@ func runWorker(ctx context.Context, stdout, stderr io.Writer, status StatusSink)
 	if err != nil {
 		return fmt.Errorf("open worker store: %w", err)
 	}
-	defer func() { _ = localStore.Close() }()
+	defer closeWorkerStore(localStore)
 	connection, found, err := localStore.LoadConnection()
 	if err != nil {
 		return fmt.Errorf("load worker connection: %w", err)
@@ -252,6 +252,8 @@ func runWorker(ctx context.Context, stdout, stderr io.Writer, status StatusSink)
 }
 
 var setenv = os.Setenv
+
+var closeWorkerStore = func(localStore *worker.LocalStore) { _ = localStore.Close() }
 
 func setWorkerEnv(name, value string) error {
 	if err := setenv(name, value); err != nil {

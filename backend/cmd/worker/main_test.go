@@ -1,8 +1,12 @@
 package main
 
 import (
+	"context"
+	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -184,5 +188,49 @@ func TestSetWorkerEnvReportsFailure(t *testing.T) {
 
 	if err := setWorkerEnv("NATS_URL", "nats://example:4222"); err == nil || !strings.Contains(err.Error(), "set worker environment NATS_URL") {
 		t.Fatalf("setWorkerEnv() error = %v", err)
+	}
+}
+
+func TestRunWorkerReturnsOnStartupCancellationAndClosesStore(t *testing.T) {
+	dataDir := t.TempDir()
+	controlKey, err := protocol.GenerateSigningKey("control-plane", time.Now().UTC(), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	localStore, err := worker.OpenStore(dataDir + "/runner.sqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := localStore.SaveConnection(worker.RunnerConnection{
+		RunnerID:         "runner-1",
+		NATSURL:          "nats://127.0.0.1:1",
+		MaxMessageBytes:  1 << 20,
+		ControlPublicKey: base64.RawStdEncoding.EncodeToString(ed25519.PublicKey(controlKey.Public.PublicKey)),
+	}); err != nil {
+		localStore.Close()
+		t.Fatal(err)
+	}
+	if err := localStore.Close(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DATA_DIR", dataDir)
+	t.Setenv("ENVIRONMENT", "development")
+	t.Setenv("ALLOW_INSECURE_TRANSPORT", "true")
+
+	closed := false
+	previousClose := closeWorkerStore
+	closeWorkerStore = func(store *worker.LocalStore) {
+		previousClose(store)
+		closed = true
+	}
+	t.Cleanup(func() { closeWorkerStore = previousClose })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := runWorker(ctx, io.Discard, io.Discard, nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("runWorker cancellation = %v", err)
+	}
+	if !closed {
+		t.Fatal("runWorker did not close the local store")
 	}
 }
