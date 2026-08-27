@@ -200,6 +200,7 @@ func run() error {
 	audit.SetRepository(store.NewAuditRepository(db))
 	metrics := new(platform.Metrics)
 	logger := &platform.Logger{Out: os.Stderr}
+	projectionService := controlplane.NewProjectionService(scheduleRepository, logger)
 	audit.SetAppendFailureHandler(func(event api.AuditEvent, err error) {
 		metrics.AuditAppendErrors.Add(1)
 		_ = logger.Event("audit.append_failed", map[string]string{"id": event.ID, "actor": event.Actor, "error": err.Error(), "count": strconv.FormatUint(metrics.AuditAppendErrors.Load(), 10)})
@@ -354,6 +355,7 @@ func run() error {
 			}
 		}
 	}()
+	go projectionService.Run(ctx, 30*time.Minute)
 	server := &http.Server{
 		Addr: ":8080",
 		Handler: func() http.Handler {
