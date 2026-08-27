@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ganttConflictsInRange, ganttDayDivisions, ganttLanes, ganttRange, ganttSegmentsInRange, projectionIsStale, projectionSegmentPercent } from './schedule-gantt'
+import { ganttConflictsInRange, ganttDayDivisions, ganttHourDivisions, ganttLanes, ganttRange, ganttSegmentsInRange, projectionIsStale, projectionSegmentPercent } from './schedule-gantt'
 import type { ScheduleProjection, ScheduleProjectionSegment } from './api'
 
 const segment = (id: string, laneId: string, laneLabel: string, startAt: string, endAt: string): ScheduleProjectionSegment => ({
@@ -58,5 +58,12 @@ describe('schedule gantt helpers', () => {
     ]
     expect(ganttSegmentsInRange(segments, range)).toHaveLength(2)
     expect(ganttConflictsInRange([{ id: 'conflict', resourceId: 'resource-1', resourceName: 'Database', startAt: '2026-08-27T00:00:00Z', endAt: '2026-08-27T01:00:00Z', occurrences: [] }], range)).toHaveLength(1)
+  })
+
+  it('draws hourly divisions for a daily range', () => {
+    const divisions = ganttHourDivisions({ startAt: '2026-08-27T00:00:00.000Z', endAt: '2026-08-28T00:00:00.000Z' })
+    expect(divisions).toHaveLength(25)
+    expect(divisions[0]).toEqual({ at: '2026-08-27T00:00:00.000Z', label: '00:00' })
+    expect(divisions[divisions.length - 1]).toEqual({ at: '2026-08-28T00:00:00.000Z', label: '24:00' })
   })
 })

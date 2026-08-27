@@ -11,6 +11,7 @@ export type GanttRange = { startAt: string; endAt: string }
 export type GanttLane = { id: string; label: string; segments: ScheduleProjectionSegment[] }
 
 export const GANTT_DAY_MS = 24 * 60 * 60 * 1000
+export const GANTT_HOUR_MS = 60 * 60 * 1000
 export const DAILY_MIN_OFFSET = 0
 export const DAILY_MAX_OFFSET = 7
 
@@ -111,6 +112,19 @@ export function ganttDayDivisions(range: GanttRange) {
   return divisions
 }
 
+export function ganttHourDivisions(range: GanttRange) {
+  const start = Date.parse(range.startAt)
+  const end = Date.parse(range.endAt)
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return []
+  const divisions: Array<{ at: string; label: string }> = []
+  for (let cursor = Math.ceil(start / GANTT_HOUR_MS) * GANTT_HOUR_MS; cursor <= end; cursor += GANTT_HOUR_MS) {
+    const date = new Date(cursor)
+    const hours = cursor === end && end - start === GANTT_DAY_MS ? 24 : date.getUTCHours()
+    divisions.push({ at: date.toISOString(), label: String(hours).padStart(2, '0') + ':00' })
+  }
+  return divisions
+}
+
 function segmentDetails(segment: ScheduleProjectionSegment) {
   return segment.taskName + ' · ' + segment.scheduleName + ' · ' + segment.laneLabel + ' · ' + formatDateTime(segment.startAt) + '–' + formatDateTime(segment.endAt) + (segment.conflicted ? ' · Conflict' : '')
 }
@@ -138,9 +152,9 @@ export function SchedulingGantt({ report }: { report: ScheduleProjection }) {
   const timelineLeft = 270
   const timelineWidth = 900
   const rowHeight = 58
-  const chartTop = 36
+  const chartTop = 56
   const height = chartTop + Math.max(1, lanes.length) * rowHeight + 12
-  const divisions = ganttDayDivisions(range)
+  const divisions = view === 'daily' ? ganttHourDivisions(range) : ganttDayDivisions(range)
   const stale = projectionIsStale(report.calculatedAt)
   const previousDisabled = dayOffset <= DAILY_MIN_OFFSET
   const nextDisabled = dayOffset >= DAILY_MAX_OFFSET
@@ -170,13 +184,14 @@ export function SchedulingGantt({ report }: { report: ScheduleProjection }) {
     {!segments.length && <p className="gf-gantt-empty gf-muted">No projected executions in this range.</p>}
     <div className="gf-gantt-scroll">
       <svg viewBox={'0 0 ' + width + ' ' + height} role="img" aria-label={viewLabel + ' by ' + groupLabel.toLowerCase()}>
-        <text x={timelineLeft} y="16" className="gf-gantt-axis-label">{formatDateTime(range.startAt)}</text>
-        <text x={width - 10} y="16" textAnchor="end" className="gf-gantt-axis-label">{formatDateTime(range.endAt)}</text>
+        <text x={timelineLeft + 4} y="16" className="gf-gantt-axis-label">{formatDateTime(range.startAt)}</text>
+        <text x={timelineLeft + timelineWidth - 4} y="16" textAnchor="end" className="gf-gantt-axis-label">{formatDateTime(range.endAt)}</text>
         <text x="8" y="16" className="gf-gantt-group-label">{groupLabel}</text>
         {divisions.map((division) => {
           const position = projectionSegmentPercent({ startAt: division.at, endAt: division.at, id: division.at } as ScheduleProjectionSegment, report, range)
           const x = timelineLeft + (position.left / 100) * timelineWidth
-          return <g key={division.at}><line x1={x} y1={chartTop - 8} x2={x} y2={height - 6} className="gf-gantt-day-line" /><text x={x + 4} y={chartTop - 12} className="gf-gantt-day-label">{division.label}</text></g>
+          const atEnd = x >= timelineLeft + timelineWidth - 1
+          return <g key={division.at}><line x1={x} y1={chartTop - 8} x2={x} y2={height - 6} className="gf-gantt-day-line" /><text x={atEnd ? x - 4 : x + 4} y={chartTop - 12} textAnchor={atEnd ? 'end' : undefined} className="gf-gantt-day-label">{division.label}</text></g>
         })}
         {lanes.map((lane, laneIndex) => {
           const y = chartTop + laneIndex * rowHeight

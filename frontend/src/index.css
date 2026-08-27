@@ -437,7 +437,7 @@ body { background-image: var(--gf-page-glow); }
 .gf-gantt-control-group { display: inline-flex; flex-wrap: wrap; gap: 0.2rem; }
 .gf-gantt-day-navigation { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
 .gf-gantt-scroll { max-height: 38rem; overflow: auto; padding: 0.5rem; background: var(--gf-card); border: 1px solid var(--gf-border); border-radius: var(--gf-radius); }
-.gf-gantt-scroll svg { display: block; min-width: 75rem; width: 75rem; }
+.gf-gantt-scroll svg { display: block; min-width: 75rem; width: 100%; }
 .gf-gantt-axis-label, .gf-gantt-lane-label { fill: var(--gf-muted); font-size: 13px; }
 .gf-gantt-group-label, .gf-gantt-day-label { fill: var(--gf-muted); font-size: 12px; font-weight: 650; }
 .gf-gantt-lane-label { font-weight: 650; }
