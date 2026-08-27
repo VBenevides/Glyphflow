@@ -360,23 +360,40 @@ func run() error {
 		}
 	}()
 	go projectionService.Run(ctx, 30*time.Minute)
-	server := &http.Server{
-		Addr: ":8080",
-		Handler: func() http.Handler {
-			application.Ready = func(ctx context.Context) error {
-				if err := db.Ping(ctx); err != nil {
-					return err
-				}
-				if jetstream == nil {
-					return fmt.Errorf("NATS is not connected")
-				}
-				return health.Ready()
+	application.Ready = func(ctx context.Context) error {
+		if err := db.Ping(ctx); err != nil {
+			return err
+		}
+		if jetstream == nil {
+			return fmt.Errorf("NATS is not connected")
+		}
+		return health.Ready()
+	}
+	systemMetrics := api.NewSystemMetricsService(metrics, application.Ready, logger)
+	systemMetrics.DataPath = cfg.DataDir
+	systemMetrics.Signals = deadLetterSignals
+	application.SystemMetrics = systemMetrics
+	go func() {
+		evaluate := func() {
+			if err := systemMetrics.Evaluate(ctx); err != nil && ctx.Err() == nil {
+				_ = logger.Event("system.alert_evaluation_failed", map[string]string{"error": err.Error()})
 			}
-			application.SystemMetrics = api.NewSystemMetricsService(metrics, application.Ready, logger)
-			application.SystemMetrics.DataPath = cfg.DataDir
-			application.SystemMetrics.Signals = deadLetterSignals
-			return application.Handler()
-		}(),
+		}
+		evaluate()
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				evaluate()
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	server := &http.Server{
+		Addr:              ":8080",
+		Handler:           application.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,

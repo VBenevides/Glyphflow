@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/VBenevides/Glyphflow/backend/internal/platform"
@@ -75,5 +76,23 @@ func TestSystemMetricsRouteReportsSignalProviderFailure(t *testing.T) {
 	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/admin/system/metrics", nil))
 	if response.Code != http.StatusServiceUnavailable {
 		t.Fatalf("failure status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestSystemMetricsEvaluatesAlertsWithoutHTTP(t *testing.T) {
+	var log bytes.Buffer
+	service := &SystemMetricsService{
+		Signals: func(context.Context) (platform.OperationalSignals, error) {
+			return platform.OperationalSignals{QueueLagSeconds: 60}, nil
+		},
+		Thresholds: platform.DefaultAlertThresholds(),
+		Tracker:    platform.NewAlertTracker(),
+		Logger:     &platform.Logger{Out: &log},
+	}
+	if err := service.Evaluate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(log.String(), `"event":"system.alert"`) {
+		t.Fatalf("periodic evaluation emitted no alert: %s", log.String())
 	}
 }

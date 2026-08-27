@@ -68,6 +68,11 @@ func (s *SystemMetricsService) snapshot(ctx context.Context) (platform.SystemMet
 	}, nil
 }
 
+func (s *SystemMetricsService) Evaluate(ctx context.Context) error {
+	_, err := s.snapshot(ctx)
+	return err
+}
+
 func (s *SystemMetricsService) metrics(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
