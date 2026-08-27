@@ -93,8 +93,8 @@ func BuildScheduleProjection(inputs []store.ScheduleProjectionInput, now time.Ti
 		if input.ScheduleID == "" || input.TaskID == "" || input.TaskVersionID == "" || input.Expression == "" {
 			return ProjectionReport{}, errors.New("projection input is incomplete")
 		}
-		if input.TimeoutSeconds <= 0 {
-			return ProjectionReport{}, fmt.Errorf("schedule %q has invalid task timeout", input.ScheduleID)
+		if input.DurationSeconds <= 0 {
+			return ProjectionReport{}, fmt.Errorf("schedule %q has invalid task duration", input.ScheduleID)
 		}
 		laneID, laneLabel := projectionLane(input)
 		cursor := start
@@ -109,10 +109,10 @@ func BuildScheduleProjection(inputs []store.ScheduleProjectionInput, now time.Ti
 			if !next.Before(end) {
 				break
 			}
-			duration := time.Duration(input.TimeoutSeconds) * time.Second
+			duration := time.Duration(input.DurationSeconds) * time.Second
 			finish := next.Add(duration)
 			if !finish.After(next) {
-				return ProjectionReport{}, fmt.Errorf("schedule %q has an invalid task timeout", input.ScheduleID)
+				return ProjectionReport{}, fmt.Errorf("schedule %q has an invalid task duration", input.ScheduleID)
 			}
 			occurrence := ProjectionOccurrence{
 				ID:                input.ScheduleID + "@" + next.UTC().Format(time.RFC3339Nano),
@@ -150,7 +150,7 @@ func BuildScheduleProjection(inputs []store.ScheduleProjectionInput, now time.Ti
 		CalculatedAt:   start,
 		WindowStart:    start,
 		WindowEnd:      end,
-		DurationSource: "execution_timeout",
+		DurationSource: "task_duration",
 		Segments:       segments,
 		Conflicts:      conflicts,
 	}, nil

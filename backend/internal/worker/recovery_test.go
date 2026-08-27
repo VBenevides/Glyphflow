@@ -35,7 +35,7 @@ func TestSignedDurableRecoveryProducesVerifiableUnknownEvent(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	order := protocol.OrderPayload{Version: protocol.ProtocolVersion, OrderID: "o-signed", RunID: "r-signed", TaskID: "t-signed", Attempt: 2, LeaseToken: "lease", RunnerID: "runner", RunnerSessionID: "session", FencingToken: 4, IssuedAt: now, NotBefore: now, ExpiresAt: now.Add(time.Minute), Type: protocol.OrderExecute, Command: []string{"true"}, WorkingDir: ".", TimeoutSeconds: 1}
+	order := protocol.OrderPayload{Version: protocol.ProtocolVersion, OrderID: "o-signed", RunID: "r-signed", TaskID: "t-signed", Attempt: 2, LeaseToken: "lease", RunnerID: "runner", RunnerSessionID: "session", FencingToken: 4, IssuedAt: now, NotBefore: now, ExpiresAt: now.Add(time.Minute), Type: protocol.OrderExecute, Command: []string{"true"}, WorkingDir: ".", DurationSeconds: 1}
 	payload, err := protocol.EncodeOrderPayload(order)
 	if err != nil {
 		t.Fatal(err)

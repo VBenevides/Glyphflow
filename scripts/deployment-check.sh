@@ -168,7 +168,7 @@ run_dispatch_check() {
   task_json="$dispatch_dir/task.json"
   curl --fail --silent --show-error -b "$cookie_jar" \
     -H 'Content-Type: application/json' -H "Origin: $origin" -H "X-CSRF-Token: $csrf" \
-    --data '{"name":"deployment-check","command":["printf","deployment-check"],"runner_pool":"default","timeout_seconds":30,"max_output_bytes":1024}' \
+    --data '{"name":"deployment-check","command":["printf","deployment-check"],"runner_pool":"default","duration_seconds":30,"max_output_bytes":1024}' \
     "$base_url/api/v1/tasks" > "$task_json"
   task_id=$(jq -r '.id // empty' "$task_json")
   [ -n "$task_id" ] || { echo "deployment check: task was not created" >&2; return 1; }

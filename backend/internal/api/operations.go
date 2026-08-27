@@ -28,7 +28,7 @@ type TaskRecord struct {
 	PlacementSelectors map[string]any `json:"placementSelectors,omitempty"`
 	Environment        map[string]any `json:"environment,omitempty"`
 	SecretReferences   map[string]any `json:"secretReferences,omitempty"`
-	TimeoutSeconds     int            `json:"timeoutSeconds"`
+	DurationSeconds    int            `json:"durationSeconds"`
 	MaxOutputBytes     int64          `json:"maxOutputBytes"`
 	MaxAttempts        int            `json:"maxAttempts"`
 	AmbiguityPolicy    string         `json:"ambiguityPolicy,omitempty"`
@@ -43,7 +43,7 @@ type TaskVersionRecord struct {
 	PinnedRunner        string   `json:"pinnedRunner,omitempty"`
 	Command             []string `json:"command,omitempty"`
 	WorkingDirectory    string   `json:"workingDirectory,omitempty"`
-	TimeoutSeconds      int      `json:"timeoutSeconds"`
+	DurationSeconds     int      `json:"durationSeconds"`
 	MaxOutputBytes      int64    `json:"maxOutputBytes"`
 	MaxAttempts         int      `json:"maxAttempts"`
 	AmbiguityPolicy     string   `json:"ambiguityPolicy,omitempty"`
@@ -109,7 +109,7 @@ func taskRecordFromStore(task store.TaskRecord) TaskRecord {
 		mapped := runRecordFromStore(*task.LatestRun)
 		latestRun = &mapped
 	}
-	return TaskRecord{ID: task.ID, Name: task.Name, Enabled: task.Enabled, IsDeleted: task.IsDeleted, ActiveVersion: task.ActiveVersion, Pool: task.RunnerPoolID, PinnedRunner: task.PinnedRunnerID, Command: append([]string(nil), task.Command...), WorkingDirectory: task.WorkingDirectory, PlacementSelectors: task.PlacementSelectors, Environment: task.Environment, SecretReferences: task.SecretReferences, TimeoutSeconds: task.TimeoutSeconds, MaxOutputBytes: task.MaxOutputBytes, MaxAttempts: task.MaxAttempts, AmbiguityPolicy: task.AmbiguityPolicy, Resources: append([]string(nil), task.ResourceIDs...), LatestRun: latestRun}
+	return TaskRecord{ID: task.ID, Name: task.Name, Enabled: task.Enabled, IsDeleted: task.IsDeleted, ActiveVersion: task.ActiveVersion, Pool: task.RunnerPoolID, PinnedRunner: task.PinnedRunnerID, Command: append([]string(nil), task.Command...), WorkingDirectory: task.WorkingDirectory, PlacementSelectors: task.PlacementSelectors, Environment: task.Environment, SecretReferences: task.SecretReferences, DurationSeconds: task.DurationSeconds, MaxOutputBytes: task.MaxOutputBytes, MaxAttempts: task.MaxAttempts, AmbiguityPolicy: task.AmbiguityPolicy, Resources: append([]string(nil), task.ResourceIDs...), LatestRun: latestRun}
 }
 
 func taskVersionRecordFromStore(version store.TaskVersionRecord) TaskVersionRecord {
@@ -117,7 +117,7 @@ func taskVersionRecordFromStore(version store.TaskVersionRecord) TaskVersionReco
 	if !version.CreatedAt.IsZero() {
 		createdAt = version.CreatedAt.UTC().Format(time.RFC3339)
 	}
-	return TaskVersionRecord{ID: version.ID, Version: version.Version, Pool: version.RunnerPoolID, PinnedRunner: version.PinnedRunnerID, Command: append([]string(nil), version.Command...), WorkingDirectory: version.WorkingDirectory, TimeoutSeconds: version.TimeoutSeconds, MaxOutputBytes: version.MaxOutputBytes, MaxAttempts: version.MaxAttempts, AmbiguityPolicy: version.AmbiguityPolicy, Resources: append([]string(nil), version.ResourceIDs...), ExecutionSpecDigest: version.ExecutionSpecDigest, CreatedAt: createdAt}
+	return TaskVersionRecord{ID: version.ID, Version: version.Version, Pool: version.RunnerPoolID, PinnedRunner: version.PinnedRunnerID, Command: append([]string(nil), version.Command...), WorkingDirectory: version.WorkingDirectory, DurationSeconds: version.DurationSeconds, MaxOutputBytes: version.MaxOutputBytes, MaxAttempts: version.MaxAttempts, AmbiguityPolicy: version.AmbiguityPolicy, Resources: append([]string(nil), version.ResourceIDs...), ExecutionSpecDigest: version.ExecutionSpecDigest, CreatedAt: createdAt}
 }
 
 type taskInput struct {
@@ -129,7 +129,7 @@ type taskInput struct {
 	PlacementSelectors map[string]any `json:"placement_selectors"`
 	Environment        map[string]any `json:"environment"`
 	SecretReferences   map[string]any `json:"secret_references"`
-	TimeoutSeconds     int            `json:"timeout_seconds"`
+	DurationSeconds    int            `json:"duration_seconds"`
 	MaxOutputBytes     int64          `json:"max_output_bytes"`
 	MaxAttempts        int            `json:"max_attempts"`
 	AmbiguityPolicy    string         `json:"ambiguity_policy"`
@@ -137,7 +137,7 @@ type taskInput struct {
 }
 
 func taskDefinition(id string, input taskInput) store.TaskDefinition {
-	return store.TaskDefinition{ID: id, Name: strings.TrimSpace(input.Name), RunnerPoolID: strings.TrimSpace(input.RunnerPool), PinnedRunnerID: strings.TrimSpace(input.PinnedRunner), Command: append([]string(nil), input.Command...), WorkingDirectory: input.WorkingDirectory, PlacementSelectors: input.PlacementSelectors, Environment: input.Environment, SecretReferences: input.SecretReferences, TimeoutSeconds: input.TimeoutSeconds, MaxOutputBytes: input.MaxOutputBytes, MaxAttempts: input.MaxAttempts, AmbiguityPolicy: input.AmbiguityPolicy, ResourceIDs: append([]string(nil), input.Resources...), Enabled: true}
+	return store.TaskDefinition{ID: id, Name: strings.TrimSpace(input.Name), RunnerPoolID: strings.TrimSpace(input.RunnerPool), PinnedRunnerID: strings.TrimSpace(input.PinnedRunner), Command: append([]string(nil), input.Command...), WorkingDirectory: input.WorkingDirectory, PlacementSelectors: input.PlacementSelectors, Environment: input.Environment, SecretReferences: input.SecretReferences, DurationSeconds: input.DurationSeconds, MaxOutputBytes: input.MaxOutputBytes, MaxAttempts: input.MaxAttempts, AmbiguityPolicy: input.AmbiguityPolicy, ResourceIDs: append([]string(nil), input.Resources...), Enabled: true}
 }
 
 func validateTaskSecrets(input taskInput) error {
@@ -229,7 +229,7 @@ func (o *OperationsService) taskCollection(w http.ResponseWriter, r *http.Reques
 		writeJSON(w, http.StatusCreated, taskRecordFromStore(created))
 		return
 	}
-	task := o.createTask(input.Name, input.Command, input.RunnerPool, input.PinnedRunner, input.TimeoutSeconds, input.Resources)
+	task := o.createTask(input.Name, input.Command, input.RunnerPool, input.PinnedRunner, input.DurationSeconds, input.Resources)
 	writeJSON(w, http.StatusCreated, task)
 }
 
@@ -578,11 +578,11 @@ type scheduleInput struct {
 	MaxConcurrentRuns int    `json:"max_concurrent_runs"`
 }
 
-func (o *OperationsService) createTask(name string, command []string, pool, pinnedRunner string, timeout int, resources []string) TaskRecord {
+func (o *OperationsService) createTask(name string, command []string, pool, pinnedRunner string, duration int, resources []string) TaskRecord {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.nextTaskID++
-	task := TaskRecord{ID: "task-" + strconv.Itoa(o.nextTaskID), Name: strings.TrimSpace(name), Enabled: true, ActiveVersion: 1, Pool: strings.TrimSpace(pool), PinnedRunner: strings.TrimSpace(pinnedRunner), Command: append([]string(nil), command...), Resources: append([]string(nil), resources...), TimeoutSeconds: timeout}
+	task := TaskRecord{ID: "task-" + strconv.Itoa(o.nextTaskID), Name: strings.TrimSpace(name), Enabled: true, ActiveVersion: 1, Pool: strings.TrimSpace(pool), PinnedRunner: strings.TrimSpace(pinnedRunner), Command: append([]string(nil), command...), Resources: append([]string(nil), resources...), DurationSeconds: duration}
 	o.tasks[task.ID] = task
 	return task
 }
@@ -632,8 +632,8 @@ func (o *OperationsService) addTaskVersion(id string, input taskInput) (TaskReco
 	if input.Resources != nil {
 		task.Resources = append([]string(nil), input.Resources...)
 	}
-	if input.TimeoutSeconds > 0 {
-		task.TimeoutSeconds = input.TimeoutSeconds
+	if input.DurationSeconds > 0 {
+		task.DurationSeconds = input.DurationSeconds
 	}
 	task.ActiveVersion++
 	o.tasks[id] = task

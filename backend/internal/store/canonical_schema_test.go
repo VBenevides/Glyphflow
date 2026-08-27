@@ -67,6 +67,7 @@ func TestCanonicalSchemaContainsFinalTables(t *testing.T) {
 func TestCanonicalSchemaContainsFinalShape(t *testing.T) {
 	sql := canonicalMigrationSQL(t)
 	for _, fragment := range []string{
+		"duration_seconds integer not null check (duration_seconds > 0)",
 		"observed_state text not null default 'pending' check (observed_state in ('pending', 'online', 'offline', 'revoked'))",
 		"capacity integer not null default 10",
 		"current_capacity integer check (current_capacity > 0)",

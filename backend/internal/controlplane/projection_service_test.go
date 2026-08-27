@@ -21,7 +21,7 @@ func (f projectionRepositoryFunc) ListScheduleProjection(ctx context.Context) ([
 
 func projectionTestInput() []store.ScheduleProjectionInput {
 	return []store.ScheduleProjectionInput{{
-		ScheduleID: "schedule-1", TaskID: "task-1", TaskVersionID: "task-1-v1", Expression: "0 * * * *", Timezone: "UTC", RunnerPoolID: "pool-1", TimeoutSeconds: 60,
+		ScheduleID: "schedule-1", TaskID: "task-1", TaskVersionID: "task-1-v1", Expression: "0 * * * *", Timezone: "UTC", RunnerPoolID: "pool-1", DurationSeconds: 60,
 	}}
 }
 
@@ -45,7 +45,7 @@ func TestProjectionServiceRetainsLastSuccessOnFailure(t *testing.T) {
 	if !want.Available || len(want.Segments) == 0 {
 		t.Fatalf("snapshot = %#v", want)
 	}
-	if want.DurationSource != "execution_timeout" || !strings.Contains(log.String(), `schedule_projection.calculated`) {
+	if want.DurationSource != "task_duration" || !strings.Contains(log.String(), `schedule_projection.calculated`) {
 		t.Fatalf("metadata/log = %#v / %s", want, log.String())
 	}
 	if err := service.Refresh(context.Background()); err == nil {

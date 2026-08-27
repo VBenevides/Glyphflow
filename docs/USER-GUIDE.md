@@ -99,7 +99,7 @@ new version.
 4. Optionally set **Working directory**.
 5. Select a **Runner pool**. Optionally select a specific **Runner**; the
    default **Any in Pool** lets placement choose an eligible runner.
-6. Set **Execution Timeout Seconds**, **Maximum attempts**, and **Ambiguity
+6. Set **Task Duration in Seconds**, **Maximum attempts**, and **Ambiguity
    policy**.
 7. Optionally add **Environment variables**, **Resources**, and **Tags**.
    Tags are key/value requirements that must match runner capabilities, such as

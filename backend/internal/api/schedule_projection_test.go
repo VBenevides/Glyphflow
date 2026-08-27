@@ -22,7 +22,7 @@ func TestScheduleProjectionEndpointReadsOnlyTheLatestSnapshot(t *testing.T) {
 	calls := 0
 	service := controlplane.NewProjectionService(scheduleProjectionRepositoryFunc(func(context.Context) ([]store.ScheduleProjectionInput, error) {
 		calls++
-		return []store.ScheduleProjectionInput{{ScheduleID: "schedule-1", TaskID: "task-1", TaskVersionID: "task-1-v1", Expression: "0 * * * *", Timezone: "UTC", RunnerPoolID: "pool-1", TimeoutSeconds: 60}}, nil
+		return []store.ScheduleProjectionInput{{ScheduleID: "schedule-1", TaskID: "task-1", TaskVersionID: "task-1-v1", Expression: "0 * * * *", Timezone: "UTC", RunnerPoolID: "pool-1", DurationSeconds: 60}}, nil
 	}), nil)
 	server := Server{
 		Auth:               func(*http.Request) (Claims, bool) { return Claims{Roles: map[string]bool{"tasks.read": true}}, true },

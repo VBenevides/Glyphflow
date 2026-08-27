@@ -40,7 +40,7 @@ type ScheduleProjectionInput struct {
 	Expression, Timezone                        string
 	RunnerPoolID, RunnerPoolName                string
 	PinnedRunnerID, PinnedRunnerName            string
-	TimeoutSeconds                              int
+	DurationSeconds                             int
 	Resources                                   []ScheduleProjectionResource
 }
 
@@ -104,7 +104,7 @@ func (s *ScheduleStore) Find(ctx context.Context, id string) (ScheduleRecord, bo
 }
 
 func (s *ScheduleStore) ListScheduleProjection(ctx context.Context) ([]ScheduleProjectionInput, error) {
-	rows, err := s.pool.Query(ctx, `SELECT s.id, s.name, sv.id, s.task_id, t.name, tv.id, sv.expression, sv.timezone, tv.runner_pool_id, rp.name, COALESCE(tv.pinned_runner_id, ''), COALESCE(pr.name, ''), tv.timeout_seconds, resource.id, resource.name, resource.kind FROM schedules s JOIN schedule_versions sv ON sv.id = s.current_version_id JOIN tasks t ON t.id = s.task_id AND t.enabled AND NOT t.is_deleted JOIN task_versions tv ON tv.id = sv.task_version_id AND tv.task_id = sv.task_id JOIN runner_pools rp ON rp.id = tv.runner_pool_id LEFT JOIN runners pr ON pr.id = tv.pinned_runner_id LEFT JOIN task_resource_requirements req ON req.task_version_id = tv.id LEFT JOIN resources resource ON resource.id = req.resource_id WHERE s.enabled ORDER BY lower(s.name), s.id, resource.id`)
+	rows, err := s.pool.Query(ctx, `SELECT s.id, s.name, sv.id, s.task_id, t.name, tv.id, sv.expression, sv.timezone, tv.runner_pool_id, rp.name, COALESCE(tv.pinned_runner_id, ''), COALESCE(pr.name, ''), tv.duration_seconds, resource.id, resource.name, resource.kind FROM schedules s JOIN schedule_versions sv ON sv.id = s.current_version_id JOIN tasks t ON t.id = s.task_id AND t.enabled AND NOT t.is_deleted JOIN task_versions tv ON tv.id = sv.task_version_id AND tv.task_id = sv.task_id JOIN runner_pools rp ON rp.id = tv.runner_pool_id LEFT JOIN runners pr ON pr.id = tv.pinned_runner_id LEFT JOIN task_resource_requirements req ON req.task_version_id = tv.id LEFT JOIN resources resource ON resource.id = req.resource_id WHERE s.enabled ORDER BY lower(s.name), s.id, resource.id`)
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +113,7 @@ func (s *ScheduleStore) ListScheduleProjection(ctx context.Context) ([]ScheduleP
 	for rows.Next() {
 		var item ScheduleProjectionInput
 		var resourceID, resourceName, resourceKind *string
-		if err := rows.Scan(&item.ScheduleID, &item.ScheduleName, &item.ScheduleVersionID, &item.TaskID, &item.TaskName, &item.TaskVersionID, &item.Expression, &item.Timezone, &item.RunnerPoolID, &item.RunnerPoolName, &item.PinnedRunnerID, &item.PinnedRunnerName, &item.TimeoutSeconds, &resourceID, &resourceName, &resourceKind); err != nil {
+		if err := rows.Scan(&item.ScheduleID, &item.ScheduleName, &item.ScheduleVersionID, &item.TaskID, &item.TaskName, &item.TaskVersionID, &item.Expression, &item.Timezone, &item.RunnerPoolID, &item.RunnerPoolName, &item.PinnedRunnerID, &item.PinnedRunnerName, &item.DurationSeconds, &resourceID, &resourceName, &resourceKind); err != nil {
 			return nil, err
 		}
 		index := len(items) - 1

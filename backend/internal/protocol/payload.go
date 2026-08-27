@@ -37,7 +37,7 @@ type OrderPayload struct {
 	Environment         map[string]string `json:"environment,omitempty"`
 	SecretRefs          []string          `json:"secret_refs,omitempty"`
 	TargetOrderID       string            `json:"target_order_id,omitempty"`
-	TimeoutSeconds      uint32            `json:"timeout_seconds"`
+	DurationSeconds     uint32            `json:"duration_seconds"`
 	Limits              ResourceLimits    `json:"limits"`
 	Resources           map[string]string `json:"resources,omitempty"`
 	Issuer              string            `json:"issuer,omitempty"`

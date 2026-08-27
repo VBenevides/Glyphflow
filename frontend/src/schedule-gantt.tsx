@@ -50,7 +50,7 @@ export function SchedulingGantt({ report }: { report: ScheduleProjection }) {
   const height = 34 + lanes.length * rowHeight
   const stale = projectionIsStale(report.calculatedAt)
   return <section className="gf-gantt" aria-labelledby="schedule-gantt-title">
-    <div className="gf-gantt-meta"><div><h2 id="schedule-gantt-title">Seven-day placement</h2><p className="gf-muted">Calculated {formatDateTime(report.calculatedAt)} · {report.durationSource === 'execution_timeout' ? 'Intervals use each task execution timeout.' : 'Intervals use the calculated duration.'}</p></div><span className="gf-gantt-count">{segments.length} displayed segments · {report.conflicts?.length ?? 0} conflicts</span></div>
+    <div className="gf-gantt-meta"><div><h2 id="schedule-gantt-title">Seven-day placement</h2><p className="gf-muted">Calculated {formatDateTime(report.calculatedAt)} · {report.durationSource === 'task_duration' ? 'Intervals use each task duration.' : 'Intervals use the calculated duration.'}</p></div><span className="gf-gantt-count">{segments.length} displayed segments · {report.conflicts?.length ?? 0} conflicts</span></div>
     {stale && <p className="gf-stale-warning" role="status">This projection is older than one hour. The last successful snapshot is shown.</p>}
     <div className="gf-gantt-scroll">
       <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Seven-day schedule placement by runner or runner pool">

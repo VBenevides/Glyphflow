@@ -80,7 +80,7 @@ type DispatchCandidate struct {
 	PlacementSelectors                      map[string]any
 	Resources                               map[string]string
 	AttemptNumber                           int
-	TimeoutSeconds, MaxOutputBytes          int
+	DurationSeconds, MaxOutputBytes         int
 	FencingToken                            int64
 	LeaseNotAfter                           time.Time
 }
@@ -541,8 +541,8 @@ func (s *RunStore) ClaimWaiting(ctx context.Context, build func(DispatchCandidat
 	defer tx.Rollback(ctx)
 	var candidate DispatchCandidate
 	var command, environment, secrets, selectors, resources, resolvedGlobals []byte
-	var timeout, maxOutput, attempt int
-	err = tx.QueryRow(ctx, `SELECT r.id, r.task_id, r.task_version_id, t.name, tv.version, tv.command, COALESCE(NULLIF(tv.working_directory, ''), '.'), tv.timeout_seconds, tv.max_output_bytes, tv.execution_spec_digest, COALESCE(r.resolved_global_variables, '{}'::jsonb), COALESCE(tv.environment, '{}'::jsonb), COALESCE(tv.secret_references, '{}'::jsonb), COALESCE(tv.placement_selectors, '{}'::jsonb), COALESCE((SELECT jsonb_agg(req.resource_id) FROM task_resource_requirements req JOIN resources resource ON resource.id = req.resource_id WHERE req.task_version_id = tv.id AND LOWER(REPLACE(resource.kind, '_', '-')) <> 'non-blocking'), '[]'::jsonb), rp.name, rs.id, rs.runner_id, COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = r.id), 0) + 1 FROM runs r JOIN task_versions tv ON tv.id = r.task_version_id JOIN tasks t ON t.id = r.task_id JOIN runners rr ON rr.pool_id = tv.runner_pool_id AND NOT rr.is_archived AND NOT rr.is_deleted AND rr.desired_state = 'ENABLED' AND rr.active_count < rr.capacity AND (tv.pinned_runner_id IS NULL OR tv.pinned_runner_id = rr.id) JOIN runner_pools rp ON rp.id = rr.pool_id JOIN runner_sessions rs ON rs.runner_id = rr.id AND rs.disconnected_at IS NULL AND rs.last_heartbeat_at >= now() - interval '30 seconds' WHERE (r.state = 'WAITING' OR (r.state = 'RETRY_WAIT' AND (r.retry_not_before IS NULL OR r.retry_not_before <= now()))) AND r.scheduled_for <= now() AND (r.state = 'WAITING' OR COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = r.id), 0) < tv.max_attempts) AND rr.capabilities @> COALESCE(tv.placement_selectors, '{}'::jsonb) AND NOT EXISTS (SELECT 1 FROM task_resource_requirements req JOIN resources resource ON resource.id = req.resource_id LEFT JOIN resource_leases lease ON lease.resource_id = req.resource_id AND lease.state = 'ACTIVE' AND lease.expires_at > now() WHERE req.task_version_id = tv.id AND LOWER(REPLACE(resource.kind, '_', '-')) <> 'non-blocking' AND (NOT resource.enabled OR lease.id IS NOT NULL)) ORDER BY r.created_at, r.id FOR UPDATE OF r, rr, rs SKIP LOCKED LIMIT 1`).Scan(&candidate.RunID, &candidate.TaskID, &candidate.TaskVersionID, &candidate.TaskName, &candidate.TaskVersion, &command, &candidate.WorkingDirectory, &timeout, &maxOutput, &candidate.ExecutionSpecDigest, &resolvedGlobals, &environment, &secrets, &selectors, &resources, &candidate.Pool, &candidate.RunnerSessionID, &candidate.RunnerID, &attempt)
+	var duration, maxOutput, attempt int
+	err = tx.QueryRow(ctx, `SELECT r.id, r.task_id, r.task_version_id, t.name, tv.version, tv.command, COALESCE(NULLIF(tv.working_directory, ''), '.'), tv.duration_seconds, tv.max_output_bytes, tv.execution_spec_digest, COALESCE(r.resolved_global_variables, '{}'::jsonb), COALESCE(tv.environment, '{}'::jsonb), COALESCE(tv.secret_references, '{}'::jsonb), COALESCE(tv.placement_selectors, '{}'::jsonb), COALESCE((SELECT jsonb_agg(req.resource_id) FROM task_resource_requirements req JOIN resources resource ON resource.id = req.resource_id WHERE req.task_version_id = tv.id AND LOWER(REPLACE(resource.kind, '_', '-')) <> 'non-blocking'), '[]'::jsonb), rp.name, rs.id, rs.runner_id, COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = r.id), 0) + 1 FROM runs r JOIN task_versions tv ON tv.id = r.task_version_id JOIN tasks t ON t.id = r.task_id JOIN runners rr ON rr.pool_id = tv.runner_pool_id AND NOT rr.is_archived AND NOT rr.is_deleted AND rr.desired_state = 'ENABLED' AND rr.active_count < rr.capacity AND (tv.pinned_runner_id IS NULL OR tv.pinned_runner_id = rr.id) JOIN runner_pools rp ON rp.id = rr.pool_id JOIN runner_sessions rs ON rs.runner_id = rr.id AND rs.disconnected_at IS NULL AND rs.last_heartbeat_at >= now() - interval '30 seconds' WHERE (r.state = 'WAITING' OR (r.state = 'RETRY_WAIT' AND (r.retry_not_before IS NULL OR r.retry_not_before <= now()))) AND r.scheduled_for <= now() AND (r.state = 'WAITING' OR COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = r.id), 0) < tv.max_attempts) AND rr.capabilities @> COALESCE(tv.placement_selectors, '{}'::jsonb) AND NOT EXISTS (SELECT 1 FROM task_resource_requirements req JOIN resources resource ON resource.id = req.resource_id LEFT JOIN resource_leases lease ON lease.resource_id = req.resource_id AND lease.state = 'ACTIVE' AND lease.expires_at > now() WHERE req.task_version_id = tv.id AND LOWER(REPLACE(resource.kind, '_', '-')) <> 'non-blocking' AND (NOT resource.enabled OR lease.id IS NOT NULL)) ORDER BY r.created_at, r.id FOR UPDATE OF r, rr, rs SKIP LOCKED LIMIT 1`).Scan(&candidate.RunID, &candidate.TaskID, &candidate.TaskVersionID, &candidate.TaskName, &candidate.TaskVersion, &command, &candidate.WorkingDirectory, &duration, &maxOutput, &candidate.ExecutionSpecDigest, &resolvedGlobals, &environment, &secrets, &selectors, &resources, &candidate.Pool, &candidate.RunnerSessionID, &candidate.RunnerID, &attempt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return DispatchCandidate{}, false, nil
 	}
@@ -608,8 +608,8 @@ func (s *RunStore) ClaimWaiting(ctx context.Context, build func(DispatchCandidat
 		return DispatchCandidate{}, false, err
 	}
 	candidate.FencingToken = time.Now().UTC().UnixNano()
-	candidate.LeaseNotAfter = time.Now().UTC().Add(time.Duration(timeout+30) * time.Second)
-	candidate.TimeoutSeconds = timeout
+	candidate.LeaseNotAfter = time.Now().UTC().Add(time.Duration(duration+30) * time.Second)
+	candidate.DurationSeconds = duration
 	candidate.MaxOutputBytes = maxOutput
 	envelope, err := build(candidate)
 	if err != nil {
@@ -659,7 +659,7 @@ func (s *RunStore) ReconcileTimedOutDispatches(ctx context.Context, now time.Tim
 		return err
 	}
 	defer tx.Rollback(ctx)
-	rows, err := tx.Query(ctx, `SELECT a.id, a.run_id, a.runner_id, a.state, a.last_applied_state_sequence, COALESCE(r.start_deadline_at, a.dispatched_at + $1 * interval '1 second') <= $2 AS start_failed FROM runs r JOIN execution_attempts a ON a.run_id = r.id JOIN task_versions tv ON tv.id = r.task_version_id WHERE ((r.state = 'DISPATCHED' AND a.state IN ('DISPATCHED','ACCEPTED') AND COALESCE(r.start_deadline_at, a.dispatched_at + $1 * interval '1 second') <= $2) OR (r.state = 'RUNNING' AND a.state IN ('DISPATCHED','ACCEPTED','RUNNING') AND a.dispatched_at IS NOT NULL AND a.dispatched_at + (tv.timeout_seconds * interval '1 second') + interval '10 minutes' <= $2)) ORDER BY a.dispatched_at, a.id FOR UPDATE OF r, a SKIP LOCKED LIMIT 100`, int64(defaultStartDelay/time.Second), now)
+	rows, err := tx.Query(ctx, `SELECT a.id, a.run_id, a.runner_id, a.state, a.last_applied_state_sequence, COALESCE(r.start_deadline_at, a.dispatched_at + $1 * interval '1 second') <= $2 AS start_failed FROM runs r JOIN execution_attempts a ON a.run_id = r.id JOIN task_versions tv ON tv.id = r.task_version_id WHERE ((r.state = 'DISPATCHED' AND a.state IN ('DISPATCHED','ACCEPTED') AND COALESCE(r.start_deadline_at, a.dispatched_at + $1 * interval '1 second') <= $2) OR (r.state = 'RUNNING' AND a.state IN ('DISPATCHED','ACCEPTED','RUNNING') AND a.dispatched_at IS NOT NULL AND a.dispatched_at + (tv.duration_seconds * interval '1 second') + interval '10 minutes' <= $2)) ORDER BY a.dispatched_at, a.id FOR UPDATE OF r, a SKIP LOCKED LIMIT 100`, int64(defaultStartDelay/time.Second), now)
 	if err != nil {
 		return err
 	}
@@ -743,8 +743,8 @@ func resolvedExecutionDigest(candidate DispatchCandidate) (string, error) {
 		SecretRefs                    []string
 		PlacementSelectors            map[string]any
 		Resources                     map[string]string
-		TimeoutSeconds, MaxOutput     int
-	}{candidate.TaskVersionID, candidate.WorkingDirectory, candidate.Command, candidate.Environment, candidate.SecretRefs, candidate.PlacementSelectors, candidate.Resources, candidate.TimeoutSeconds, candidate.MaxOutputBytes})
+		DurationSeconds, MaxOutput    int
+	}{candidate.TaskVersionID, candidate.WorkingDirectory, candidate.Command, candidate.Environment, candidate.SecretRefs, candidate.PlacementSelectors, candidate.Resources, candidate.DurationSeconds, candidate.MaxOutputBytes})
 	if err != nil {
 		return "", err
 	}

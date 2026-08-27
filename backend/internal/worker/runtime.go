@@ -151,7 +151,7 @@ func (r OrderRuntime) Handle(ctx context.Context, message queue.Message) error {
 	if err := r.publishEvent(ctx, payload, protocol.EventStarted, 2, "", "", nil, nil); err != nil {
 		return err
 	}
-	executionContext, cancel := context.WithTimeout(ctx, time.Duration(payload.TimeoutSeconds)*time.Second)
+	executionContext, cancel := context.WithTimeout(ctx, time.Duration(payload.DurationSeconds)*time.Second)
 	defer cancel()
 	var active *activeOrder
 	if r.Active != nil {
