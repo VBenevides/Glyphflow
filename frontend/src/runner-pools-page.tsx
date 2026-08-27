@@ -1,17 +1,18 @@
-import { useState, type FormEvent } from 'react'
+import { useState, type FormEvent, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { Server } from 'lucide-react'
 import { useAuth } from './auth'
 import { api, type Page, type RunnerPool } from './api'
 import { DangerousAction } from './actions'
 import { Button, DataTable, Dialog, DropdownMenuItem, DropdownMenuSeparator, EmptyState, Input, MetricCard, PageHeader, Pagination, StatusPill, TableActions } from './components'
 import { describeError } from './errors'
-import { QueryState } from './query'
+import { QueryRefresh, QueryState } from './query'
 import { hasPermission } from './permissions'
 
 type PoolDraft = { name: string; description: string; enabled: boolean }
 const emptyDraft: PoolDraft = { name: '', description: '', enabled: true }
 
-export function RunnerPoolsPage({ embedded = false }: { embedded?: boolean } = {}) {
+export function RunnerPoolsPage({ navigation, title = 'Pools', description = 'Group runners for task placement and enrollment.' }: { navigation?: ReactNode; title?: string; description?: string } = {}) {
   const { permissions } = useAuth()
   const manage = hasPermission(permissions, 'runners.manage')
   const [draft, setDraft] = useState<PoolDraft>(emptyDraft)
@@ -54,11 +55,11 @@ export function RunnerPoolsPage({ embedded = false }: { embedded?: boolean } = {
     </form>
   </Dialog> : null
   const content = <>
-    {embedded && <div className="gf-section-heading"><h2>Pools</h2>{create}</div>}
     {form}
     <QueryState query={query} empty="Create a pool before enrolling runners.">
       {(data) => <>
-        <div className="gf-metric-grid"><MetricCard label="Number of pools" value={data.total ?? data.items.length} detail="Configured runner pools" /></div>
+        <div className="gf-metric-grid"><MetricCard label="Number of pools" value={data.total ?? data.items.length} detail="Configured runner pools" icon={Server} /></div>
+        <div className="gf-table-toolbar">{create}</div>
         {data.items.length ? <>
           <DataTable caption="Runner pools" rows={data.items} columns={[
             { key: 'name', label: 'Pool' },
@@ -75,5 +76,5 @@ export function RunnerPoolsPage({ embedded = false }: { embedded?: boolean } = {
       </>}
     </QueryState>
   </>
-  return embedded ? content : <main className="gf-content"><PageHeader title="Pools" description="Group runners for task placement and enrollment." action={create} />{content}</main>
+  return <main className="gf-content"><PageHeader title={title} description={description} refresh={<QueryRefresh query={query} />} />{navigation}{content}</main>
 }

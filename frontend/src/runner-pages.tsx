@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Archive, CircleOff, Server, WifiOff } from 'lucide-react'
+import { Activity, Archive, CircleOff, HardDrive, ListChecks, Server, WifiOff } from 'lucide-react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useAuth } from './auth'
-import { api, type Page, type Run, type Runner } from './api'
+import { api, type Page, type Run, type Runner, type RunnerMetric, type RunnerMetricHistory } from './api'
 import { DangerousAction } from './actions'
-import { Button, DataTable, EmptyState, FilterInput, Input, MetricCard, PageHeader, Pagination, StatusPill, Tabs, TabsContent, TabsList, TabsTrigger } from './components'
-import { QueryState } from './query'
+import { Button, DataTable, EmptyState, FilterInput, Identifier, Input, MetricCard, PageHeader, Pagination, StatusPill, Tabs, TabsContent, TabsList, TabsTrigger } from './components'
+import { QueryRefresh, QueryState } from './query'
 import { hasPermission } from './permissions'
 import { describeError } from './errors'
 import { downloadArtifact, type WorkerUI, workerUIOptions } from './enrollment-page'
@@ -22,6 +22,34 @@ export function runnerIsRevoked(runner: Pick<Runner, 'desiredState' | 'observedS
   return [runner.observedState, runner.desiredState].some((state) => state?.toUpperCase() === 'REVOKED')
 }
 
+export type RunnerMetricRange = '1h' | '6h' | '24h' | '7d' | '30d'
+
+const runnerMetricRangeHours: Record<RunnerMetricRange, number> = { '1h': 1, '6h': 6, '24h': 24, '7d': 24 * 7, '30d': 24 * 30 }
+
+export function runnerMetricWindow(range: RunnerMetricRange, now = Date.now()) {
+  const to = new Date(now)
+  const from = new Date(now - runnerMetricRangeHours[range] * 60 * 60 * 1000)
+  return { from: from.toISOString(), to: to.toISOString() }
+}
+
+export function formatMetricPercent(value?: number) {
+  return value === undefined ? '—' : `${value.toFixed(1)}%`
+}
+
+function metricPoints(items: RunnerMetric[], field: 'cpuPercent' | 'memoryPercent') {
+  if (!items.length) return ''
+  const width = 720
+  const height = 180
+  const maxIndex = Math.max(1, items.length - 1)
+  return items.map((item, index) => `${(index / maxIndex) * width},${height - (item[field] / 100) * height}`).join(' ')
+}
+
+function RunnerMetricChart({ label, items, field }: { label: string; items: RunnerMetric[]; field: 'cpuPercent' | 'memoryPercent' }) {
+  if (!items.length) return <p className="gf-muted">No {label.toLowerCase()} samples in this range.</p>
+  const latest = items[items.length - 1]
+  return <div className="gf-runner-metric-chart"><div className="gf-runner-metric-chart-heading"><strong>{label}</strong><span>{formatMetricPercent(latest[field])} current</span></div><svg viewBox="0 0 720 180" role="img" aria-label={`${label} history`} preserveAspectRatio="none"><polyline points={metricPoints(items, field)} fill="none" stroke="currentColor" strokeWidth="3" vectorEffect="non-scaling-stroke" /><line x1="0" y1="0" x2="0" y2="180" stroke="currentColor" opacity="0.2" /><line x1="0" y1="180" x2="720" y2="180" stroke="currentColor" opacity="0.2" /></svg></div>
+}
+
 function hasActiveRunners(data?: Page<Runner>) {
   return Boolean(data?.items.some((runner) => ['online', 'busy', 'draining', 'starting'].includes((runner.observedState ?? '').toLowerCase())))
 }
@@ -33,8 +61,8 @@ export function RunnerInventoryPage({ view = 'runners' }: { view?: 'runners' | '
   const runnerOptions = optionsQuery.data?.items ?? query.data?.items ?? []
   const summaryQuery = useQuery({ queryKey: ['runner-summary'], queryFn: async ({ signal }) => { const [all, disabled, offline, archivedRunners] = await Promise.all([api.get<Page<Runner>>('/api/v1/runners', { page: 1, limit: 1 }, signal), api.get<Page<Runner>>('/api/v1/runners', { page: 1, limit: 1, desired_state: 'DISABLED' }, signal), api.get<Page<Runner>>('/api/v1/runners', { page: 1, limit: 1, state: 'OFFLINE' }, signal), api.get<Page<Runner>>('/api/v1/runners', { page: 1, limit: 1, archived: true }, signal)]); return { total: all.total ?? 0, disabled: disabled.total ?? 0, offline: offline.total ?? 0, archived: archivedRunners.total ?? 0 } }, enabled: view === 'runners', refetchInterval: 5_000 })
   const manage = hasPermission(permissions, 'runners.manage')
-  const tabs = <nav className="gf-account-tabs" aria-label="Runner sections"><Link className={view === 'runners' ? 'is-active' : ''} to="/runners">Runners</Link><Link className={view === 'pools' ? 'is-active' : ''} to="/runners/pools">Pools</Link></nav>
-  return <main className="gf-content"><PageHeader title="Runners and pools" description="Capacity, sessions, capabilities, and lifecycle state." action={manage && <Button onClick={() => navigate('/runners/enroll')}>Enroll runner</Button>} />{tabs}{view === 'pools' ? <RunnerPoolsPage embedded /> : <><div className="gf-metric-grid"><MetricCard label="Number of runners" value={summaryQuery.data?.total ?? '—'} detail="Active runner registrations" icon={Server} tone="info" /><MetricCard label="Disabled runners" value={summaryQuery.data?.disabled ?? '—'} detail="Runners not accepting work" icon={CircleOff} tone="warning" /><MetricCard label="Offline runners" value={summaryQuery.data?.offline ?? '—'} detail="Runners not reporting" icon={WifiOff} tone={summaryQuery.data?.offline && summaryQuery.data.offline > 0 ? 'danger' : 'default'} /><MetricCard label="Archived runners" value={summaryQuery.data?.archived ?? '—'} detail="Permanently archived registrations" icon={Archive} tone="default" /></div><nav className="gf-account-tabs" aria-label="Runner status"><Link className={!archived ? 'is-active' : ''} to="/runners">Runners</Link><Link className={archived ? 'is-active' : ''} to="/runners?archived=true">Archived Runners</Link></nav><div className="gf-filter-bar"><FilterInput label="Search" options={runnerOptions.flatMap((runner) => [runner.name, runner.id, runner.pool].filter((value): value is string => Boolean(value)))} value={search} onChange={(value) => { setSearch(value); setPage(1) }} placeholder="Name or pool" /></div><QueryState query={query} empty={archived ? 'No archived runners.' : 'Enroll a runner to execute tasks.'}>{(data) => data.items.length ? <><DataTable caption={archived ? 'Archived runners' : 'Runners'} rows={data.items} columns={[{ key: 'name', label: 'Runner', render: (runner) => <Link to={`/runners/${runner.id}`}>{runner.name}</Link> }, { key: 'pool', label: 'Pool' }, { key: 'desiredState', label: 'Desired', render: (runner) => <StatusPill status={runner.desiredState ?? '—'} /> }, { key: 'observedState', label: 'Observed', render: (runner) => <StatusPill status={runner.observedState ?? '—'} /> }, { key: 'capacity', label: 'Capacity', render: (runner) => `${runner.activeCount ?? 0}/${runner.capacity ?? 0}` }, { key: 'heartbeatAt', label: 'Heartbeat', render: (runner) => runnerIsStale(runner.heartbeatAt) ? <span className="gf-stale-warning">Stale</span> : formatDateTime(runner.heartbeatAt) }]} /><Pagination page={data.page} pages={data.pages ?? 1} limit={limit} onChange={setPage} onLimitChange={(next) => { setLimit(next); setPage(1) }} /></> : <EmptyState title={archived ? 'No archived runners' : 'No runners'}>{archived ? 'Archived runners cannot be recovered.' : 'Enroll a runner to execute tasks.'}</EmptyState>}</QueryState></>}</main>
+  const tabs = <div className="gf-runner-navigation"><nav className="gf-account-tabs" aria-label="Runner sections"><Link className={view === 'runners' ? 'is-active' : ''} to="/runners">Runners</Link><Link className={view === 'pools' ? 'is-active' : ''} to="/runners/pools">Pools</Link></nav>{view === 'runners' && <><span className="gf-runner-navigation-arrow" aria-hidden="true">→</span><nav className="gf-account-tabs" aria-label="Runner status"><Link className={!archived ? 'is-active' : ''} to="/runners">Current Runners</Link><Link className={archived ? 'is-active' : ''} to="/runners?archived=true">Archived Runners</Link></nav></>}</div>
+  if (view === 'pools') return <RunnerPoolsPage navigation={tabs} title="Runners and pools" description="Capacity, sessions, capabilities, and lifecycle state." />; return <main className="gf-content"><PageHeader title="Runners and pools" description="Capacity, sessions, capabilities, and lifecycle state." refresh={view === 'runners' ? <QueryRefresh query={query} /> : undefined} />{tabs}<><div className="gf-metric-grid"><MetricCard label="Number of runners" value={summaryQuery.data?.total ?? '—'} detail="Active runner registrations" icon={Server} tone="info" /><MetricCard label="Disabled runners" value={summaryQuery.data?.disabled ?? '—'} detail="Runners not accepting work" icon={CircleOff} tone="warning" /><MetricCard label="Offline runners" value={summaryQuery.data?.offline ?? '—'} detail="Runners not reporting" icon={WifiOff} tone={summaryQuery.data?.offline && summaryQuery.data.offline > 0 ? 'danger' : 'default'} /><MetricCard label="Archived runners" value={summaryQuery.data?.archived ?? '—'} detail="Permanently archived registrations" icon={Archive} tone="default" /></div><div className="gf-filter-bar"><FilterInput label="Search" options={runnerOptions.flatMap((runner) => [runner.name, runner.id, runner.pool].filter((value): value is string => Boolean(value)))} value={search} onChange={(value) => { setSearch(value); setPage(1) }} placeholder="Name or pool" /></div>{manage && <div className="gf-table-toolbar"><Button onClick={() => navigate('/runners/enroll')}>Enroll runner</Button></div>}<QueryState query={query} empty={archived ? 'No archived runners.' : 'Enroll a runner to execute tasks.'}>{(data) => data.items.length ? <><DataTable caption={archived ? 'Archived runners' : 'Runners'} rows={data.items} columns={[{ key: 'name', label: 'Runner', render: (runner) => <Identifier id={runner.id} name={runner.name} href={`/runners/${runner.id}`} copyLabel="Copy runner ID" /> }, { key: 'pool', label: 'Pool' }, { key: 'desiredState', label: 'Desired', render: (runner) => <StatusPill status={runner.desiredState ?? '—'} /> }, { key: 'observedState', label: 'Observed', render: (runner) => <StatusPill status={runner.observedState ?? '—'} /> }, { key: 'capacity', label: 'Capacity', render: (runner) => `${runner.activeCount ?? 0}/${runner.capacity ?? 0}` }, { key: 'cpu', label: 'CPU', render: (runner) => runnerIsStale(runner.heartbeatAt) ? 'Stale' : formatMetricPercent(runner.currentMetrics?.cpuPercent) }, { key: 'memory', label: 'Memory', render: (runner) => runnerIsStale(runner.heartbeatAt) ? 'Stale' : formatMetricPercent(runner.currentMetrics?.memoryPercent) }, { key: 'heartbeatAt', label: 'Heartbeat', render: (runner) => runnerIsStale(runner.heartbeatAt) ? <span className="gf-stale-warning">Stale</span> : formatDateTime(runner.heartbeatAt) }]} /><Pagination page={data.page} pages={data.pages ?? 1} limit={limit} onChange={setPage} onLimitChange={(next) => { setLimit(next); setPage(1) }} /></> : <EmptyState title={archived ? 'No archived runners' : 'No runners'}>{archived ? 'Archived runners cannot be recovered.' : 'Enroll a runner to execute tasks.'}</EmptyState>}</QueryState></></main>
 }
 
 export function RunnerDetailPage() {
@@ -53,9 +81,11 @@ export function RunnerDetailPage() {
   const [controlPlaneURLDraft, setControlPlaneURLDraft] = useState<string>()
   const [controlPlaneURLBusy, setControlPlaneURLBusy] = useState(false)
   const [controlPlaneURLError, setControlPlaneURLError] = useState('')
+  const [metricRange, setMetricRange] = useState<RunnerMetricRange>('24h')
   const [runPage, setRunPage] = useState(1); const [runLimit, setRunLimit] = useState(10)
   const query = useQuery({ queryKey: ['runner', runnerId], queryFn: ({ signal }) => api.get<Runner>(`/api/v1/runners/${encodeURIComponent(runnerId)}`, undefined, signal), enabled: Boolean(runnerId) })
   const currentRuns = useQuery({ queryKey: ['runner-runs', runnerId, runPage, runLimit], queryFn: ({ signal }) => api.get<Page<Run>>('/api/v1/runs', { runner: runnerId, state: 'ACTIVE', page: runPage, limit: runLimit }, signal), enabled: Boolean(runnerId), refetchInterval: 5_000 })
+  const metricsQuery = useQuery({ queryKey: ['runner-metrics', runnerId, metricRange], queryFn: ({ signal }) => api.get<RunnerMetricHistory>(`/api/v1/runners/${encodeURIComponent(runnerId)}/metrics`, { ...runnerMetricWindow(metricRange), limit: 2000 }, signal), enabled: Boolean(runnerId), refetchInterval: 15_000 })
   const manage = hasPermission(permissions, 'runners.manage')
   const action = (state: string) => api.post(`/api/v1/runners/${encodeURIComponent(runnerId)}/${state}`).then(() => { void query.refetch() })
   const updateCapacity = async (runner: Runner) => { const value = Number(capacityDraft || runner.capacity || 0); if (!Number.isInteger(value) || value < 1) { setCapacityError('Capacity must be at least 1.'); return }; setCapacityBusy(true); setCapacityError(''); try { await api.put(`/api/v1/runners/${encodeURIComponent(runner.id)}`, { capacity: value }); setCapacityDraft(String(value)); await query.refetch() } catch (cause) { setCapacityError(describeError(cause).message) } finally { setCapacityBusy(false) } }
@@ -67,12 +97,18 @@ export function RunnerDetailPage() {
       <QueryState query={query}>
         {(runner) => (
           <>
-            <PageHeader title={runner.name} description={`Pool ${runner.pool ?? '—'} · ${runner.observedState ?? '—'}`} />
+            <PageHeader title={runner.name} description={`Pool ${runner.pool ?? '—'} · ${runner.observedState ?? '—'}`} refresh={<QueryRefresh query={query} />} />
             {runner.isArchived && <p className="gf-form-error" role="alert">This runner is archived permanently and cannot be recovered.</p>}
             <section className="gf-metric-grid">
-              <div className="gf-metric"><span>Desired state</span><strong><StatusPill status={runner.desiredState ?? '—'} /></strong></div>
-              <div className="gf-metric"><span>Observed state</span><strong><StatusPill status={runner.observedState ?? '—'} /></strong></div>
-              <div className="gf-metric"><span>Capacity</span><strong>{runner.activeCount ?? 0}/{runner.capacity ?? 0}</strong><small>{runner.currentCapacity && runner.currentCapacity !== runner.capacity ? `Heartbeat current: ${runner.currentCapacity}` : runnerIsStale(runner.heartbeatAt) ? 'Heartbeat stale' : 'Heartbeat current'}</small></div>
+              <MetricCard label="Desired state" value={<StatusPill status={runner.desiredState ?? '—'} />} icon={Server} />
+              <MetricCard label="Observed state" value={<StatusPill status={runner.observedState ?? '—'} />} icon={Activity} />
+              <MetricCard label="Capacity" value={`${runner.activeCount ?? 0}/${runner.capacity ?? 0}`} detail={runner.currentCapacity && runner.currentCapacity !== runner.capacity ? `Heartbeat current: ${runner.currentCapacity}` : runnerIsStale(runner.heartbeatAt) ? 'Heartbeat stale' : 'Heartbeat current'} icon={ListChecks} />
+              <MetricCard label="CPU" value={runnerIsStale(runner.heartbeatAt) ? 'Stale' : formatMetricPercent(runner.currentMetrics?.cpuPercent)} detail={runner.currentMetrics ? `Sampled ${formatDateTime(runner.currentMetrics.sampledAt)}` : 'No samples'} icon={Activity} />
+              <MetricCard label="Memory" value={runnerIsStale(runner.heartbeatAt) ? 'Stale' : formatMetricPercent(runner.currentMetrics?.memoryPercent)} detail={runner.currentMetrics ? `Sampled ${formatDateTime(runner.currentMetrics.sampledAt)}` : 'No samples'} icon={HardDrive} />
+            </section>
+            <section className="gf-card-panel">
+              <div className="gf-runner-metrics-header"><h2>Resource history</h2><label>Range<select className="gf-input" aria-label="Resource history range" value={metricRange} onChange={(event) => setMetricRange(event.target.value as RunnerMetricRange)}><option value="1h">Last hour</option><option value="6h">Last 6 hours</option><option value="24h">Last 24 hours</option><option value="7d">Last 7 days</option><option value="30d">Last 30 days</option></select></label></div>
+              <QueryState query={metricsQuery} empty="No resource samples in this range.">{(history) => <div className="gf-runner-metrics-charts"><RunnerMetricChart label="CPU" items={history.items} field="cpuPercent" /><RunnerMetricChart label="Memory" items={history.items} field="memoryPercent" /></div>}</QueryState>
             </section>
             <section className="gf-card-panel">
               <h2>Capacity</h2>

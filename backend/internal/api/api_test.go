@@ -209,6 +209,25 @@ func TestRunnerPoolCRUD(t *testing.T) {
 	}
 }
 
+func TestRunnerMetricsRequiresRunnerReadPermission(t *testing.T) {
+	path := "/api/v1/runners/runner-1/metrics"
+	for name, test := range map[string]struct {
+		server Server
+		want   int
+	}{
+		"authentication": {server: Server{}, want: http.StatusUnauthorized},
+		"permission":     {server: Server{Auth: func(*http.Request) (Claims, bool) { return Claims{}, true }, Permissions: func(Claims) map[string]bool { return map[string]bool{} }}, want: http.StatusForbidden},
+	} {
+		t.Run(name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			test.server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+			if response.Code != test.want {
+				t.Fatalf("metrics route returned %d, want %d", response.Code, test.want)
+			}
+		})
+	}
+}
+
 func TestInMemoryTaskAndScheduleDeletion(t *testing.T) {
 	permissions := map[string]bool{"task.create": true, "task.manage": true, "task.read": true, "tasks.manage": true, "tasks.read": true}
 	h := (Server{Auth: func(*http.Request) (Claims, bool) { return Claims{Roles: permissions}, true }}).Handler()

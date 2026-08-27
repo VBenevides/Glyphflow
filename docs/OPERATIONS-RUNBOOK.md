@@ -5,7 +5,7 @@ profile](DEV-PROFILE.md). Its values are not production guarantees.
 
 ## Supported topology
 
-Glyphflow 0.2.3 supports one isolated stack per client: one control-plane
+Glyphflow 0.2.4 supports one isolated stack per client: one control-plane
 process connected to one PostgreSQL database and one NATS JetStream deployment.
 Workers are separate processes or hosts and connect outbound. Shared tenancy
 and service replicas are unsupported in this release; it does not claim

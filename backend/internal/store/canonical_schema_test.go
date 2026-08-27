@@ -54,7 +54,7 @@ func TestCanonicalSchemaContainsFinalTables(t *testing.T) {
 	for _, table := range []string{
 		"config", "users", "user_passwords", "auth_sessions", "roles", "permissions", "role_permissions", "role_assignments",
 		"sso_providers", "sso_group_role_mappings", "user_sso_identities", "sso_authorization_states", "audit_events", "exit_code",
-		"global_variables", "global_variable_references", "runner_pools", "runners", "runner_sessions", "runner_keys", "runner_enrollments",
+		"global_variables", "global_variable_references", "runner_pools", "runners", "runner_sessions", "runner_metrics", "runner_keys", "runner_enrollments",
 		"tasks", "task_versions", "schedules", "schedule_versions", "runs", "execution_attempts", "run_events", "execution_log_chunks",
 		"resources", "task_resource_requirements", "resource_leases", "dispatch_outbox", "event_inbox", "dead_letters", "retention_legal_holds",
 	} {
@@ -77,6 +77,7 @@ func TestCanonicalSchemaContainsFinalShape(t *testing.T) {
 		"average_memory_used_bytes bigint not null default 0",
 		"foreign key (exit_code) references exit_code(code)",
 		"retry_delivery_id text not null default ''",
+		"cpu_percent double precision not null",
 		"name ~ '^[a-z_][a-z0-9_]*$'",
 	} {
 		if !strings.Contains(sql, fragment) {

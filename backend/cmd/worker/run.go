@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,6 +23,8 @@ import (
 	"github.com/VBenevides/Glyphflow/backend/internal/queue"
 	"github.com/VBenevides/Glyphflow/backend/internal/store"
 	"github.com/VBenevides/Glyphflow/backend/internal/worker"
+	"github.com/shirou/gopsutil/v4/cpu"
+	"github.com/shirou/gopsutil/v4/mem"
 )
 
 func runWorker(ctx context.Context, stdout, stderr io.Writer, status StatusSink) error {
@@ -62,6 +65,9 @@ func runWorker(ctx context.Context, stdout, stderr io.Writer, status StatusSink)
 	}
 	if bootstrap != nil && needsRunnerEnrollment(bootstrap, found, foundKey, storedKey) {
 		bootstrap.ControlPlaneURL = resolveControlPlaneEndpoint(bootstrap)
+		if err := validateWorkerControlPlaneEndpoint(bootstrap.ControlPlaneURL); err != nil {
+			return fmt.Errorf("worker control-plane endpoint: %w", err)
+		}
 		enrollmentKey := storedKey
 		enrollmentKey, err = protocol.GenerateSigningKey("runner:"+bootstrap.RunnerID, time.Now().UTC(), 365*24*time.Hour)
 		if err != nil {
@@ -298,12 +304,57 @@ func resolveControlPlaneEndpoint(bootstrap *worker.Bootstrap) string {
 	return ""
 }
 
+func validateWorkerControlPlaneEndpoint(endpoint string) error {
+	parsed, err := url.Parse(endpoint)
+	if err != nil || parsed.Host == "" || parsed.User != nil {
+		return errors.New("must be a URL with a host and no credentials")
+	}
+	if parsed.Scheme == "https" {
+		return nil
+	}
+	if parsed.Scheme == "http" && strings.EqualFold(strings.TrimSpace(os.Getenv("ENVIRONMENT")), "development") && strings.EqualFold(strings.TrimSpace(os.Getenv("ALLOW_INSECURE_TRANSPORT")), "true") {
+		return nil
+	}
+	return errors.New("must use HTTPS outside development")
+}
+
+type runnerResourceMetrics struct {
+	CPUPercent       float64
+	MemoryPercent    float64
+	MemoryUsedBytes  int64
+	MemoryTotalBytes int64
+}
+
+func sampleRunnerResources() *runnerResourceMetrics {
+	memory, err := mem.VirtualMemory()
+	if err != nil || memory.Total == 0 {
+		return nil
+	}
+	cpuPercent := 0.0
+	if values, err := cpu.Percent(100*time.Millisecond, false); err == nil && len(values) > 0 {
+		cpuPercent = values[0]
+	}
+	return &runnerResourceMetrics{CPUPercent: cpuPercent, MemoryPercent: memory.UsedPercent, MemoryUsedBytes: int64(memory.Used), MemoryTotalBytes: int64(memory.Total)}
+}
+
+func runnerHeartbeatPayload(runnerID, bootID string, now time.Time, capacity int64, metrics *runnerResourceMetrics) []byte {
+	payload := map[string]any{"runner_id": runnerID, "boot_id": bootID, "at": now.UTC().Format(time.RFC3339Nano), "capacity": capacity}
+	if metrics != nil {
+		payload["cpu_percent"] = metrics.CPUPercent
+		payload["memory_percent"] = metrics.MemoryPercent
+		payload["memory_used_bytes"] = metrics.MemoryUsedBytes
+		payload["memory_total_bytes"] = metrics.MemoryTotalBytes
+	}
+	raw, _ := json.Marshal(payload)
+	return raw
+}
+
 func workerHeartbeat(ctx context.Context, jetstream *queue.JetStream, runnerID, bootID string, signingKey protocol.SigningKey, capacity *atomic.Int64, stderr io.Writer) {
 	if stderr == nil {
 		stderr = io.Discard
 	}
 	publish := func(now time.Time) {
-		payload, _ := json.Marshal(map[string]any{"runner_id": runnerID, "boot_id": bootID, "at": now.UTC().Format(time.RFC3339Nano), "capacity": capacity.Load()})
+		payload := runnerHeartbeatPayload(runnerID, bootID, now, capacity.Load(), sampleRunnerResources())
 		envelope, err := signingKey.SignEvent(payload)
 		if err != nil {
 			return

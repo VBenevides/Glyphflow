@@ -1,13 +1,31 @@
+export type PrivilegeLevel = 'standard' | 'elevated'
+export type PermissionDefinition = { name: string; privilegeLevel: PrivilegeLevel }
+
 export const PERMISSIONS = [
-  'users.read', 'users.manage', 'roles.read', 'roles.manage', 'sso.read', 'sso.manage',
-  'auth.settings.manage', 'tasks.read', 'tasks.manage', 'runs.read', 'runs.execute',
-  'runs.cancel', 'runs.retry', 'logs.read', 'resources.read', 'resources.manage',
-  'runners.read', 'runners.manage', 'audit.read', 'system.metrics.read', 'system.deadletter.read', 'system.deadletter.manage',
+  { name: 'users.read', privilegeLevel: 'elevated' }, { name: 'users.manage', privilegeLevel: 'elevated' },
+  { name: 'roles.read', privilegeLevel: 'elevated' }, { name: 'roles.manage', privilegeLevel: 'elevated' },
+  { name: 'sso.read', privilegeLevel: 'elevated' }, { name: 'sso.manage', privilegeLevel: 'elevated' },
+  { name: 'auth.settings.manage', privilegeLevel: 'elevated' }, { name: 'tasks.read', privilegeLevel: 'standard' },
+  { name: 'tasks.manage', privilegeLevel: 'standard' }, { name: 'runs.read', privilegeLevel: 'standard' },
+  { name: 'runs.execute', privilegeLevel: 'standard' }, { name: 'runs.cancel', privilegeLevel: 'elevated' },
+  { name: 'runs.retry', privilegeLevel: 'elevated' }, { name: 'logs.read', privilegeLevel: 'elevated' },
+  { name: 'resources.read', privilegeLevel: 'standard' }, { name: 'resources.manage', privilegeLevel: 'standard' },
+  { name: 'runners.read', privilegeLevel: 'standard' }, { name: 'runners.manage', privilegeLevel: 'standard' },
+  { name: 'audit.read', privilegeLevel: 'elevated' }, { name: 'system.metrics.read', privilegeLevel: 'standard' },
+  { name: 'system.deadletter.read', privilegeLevel: 'standard' }, { name: 'system.deadletter.manage', privilegeLevel: 'standard' },
 ] as const
 
-export type Permission = (typeof PERMISSIONS)[number]
+export type Permission = (typeof PERMISSIONS)[number]['name']
 export type Access = 'public' | 'authenticated' | 'permission'
 export type RouteRule = { path: string; label: string; access: Access; permission?: string }
+
+export function permissionPrivilegeLevel(permission: string): PrivilegeLevel {
+  return PERMISSIONS.find(({ name }) => name === permission)?.privilegeLevel ?? 'standard'
+}
+
+export function sortedPermissions(): readonly PermissionDefinition[] {
+  return [...PERMISSIONS].sort((left, right) => left.name.localeCompare(right.name))
+}
 
 export const ROUTES: RouteRule[] = [
   { path: '/', label: 'Overview', access: 'authenticated' },

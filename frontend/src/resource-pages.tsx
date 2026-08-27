@@ -1,11 +1,12 @@
 import { useState, type FormEvent } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { Activity, Box, Lock, Server, Timer } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from './auth'
 import { api, type Page, type Resource } from './api'
 import { DangerousAction } from './actions'
-import { Button, DataTable, DropdownMenuItem, EmptyState, Input, MetricCard, PageHeader, Pagination, StatusPill, TableActions } from './components'
-import { QueryState } from './query'
+import { Button, DataTable, DropdownMenuItem, EmptyState, Identifier, Input, MetricCard, PageHeader, Pagination, StatusPill, TableActions } from './components'
+import { QueryRefresh, QueryState } from './query'
 import { hasPermission } from './permissions'
 import { formatDateTime } from './format'
 
@@ -45,8 +46,9 @@ export function ResourceInventoryPage() {
     }
   }
   return <main className="gf-content">
-    <PageHeader title="Resources and leases" description="Exclusive and non-blocking resources, fencing counters, and active holders." action={manage && <Button onClick={() => { setCreating(true); setError('') }}>Create resource</Button>} />
-    <div className="gf-metric-grid"><MetricCard label="Total number of resources" value={summaryQuery.data?.total ?? '—'} detail="All configured resources" /><MetricCard label="Total number of exclusive resources" value={summaryQuery.data?.exclusive ?? '—'} detail="Resources that block concurrent runs" /></div>
+    <PageHeader title="Resources and leases" description="Exclusive and non-blocking resources, fencing counters, and active holders." refresh={<QueryRefresh query={query} />} />
+    <div className="gf-metric-grid"><MetricCard label="Total number of resources" value={summaryQuery.data?.total ?? '—'} detail="All configured resources" icon={Box} /><MetricCard label="Total number of exclusive resources" value={summaryQuery.data?.exclusive ?? '—'} detail="Resources that block concurrent runs" icon={Lock} /></div>
+    {manage && <div className="gf-table-toolbar"><Button onClick={() => { setCreating(true); setError('') }}>Create resource</Button></div>}
     {creating && <section className="gf-card-panel"><h2>Create resource</h2><form className="gf-editor-form" onSubmit={create}>
       <label>Name<Input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} required /></label>
       <label>Kind<select className="gf-input" value={draft.kind} onChange={(event) => setDraft({ ...draft, kind: event.target.value })}><option value="exclusive">Exclusive</option><option value="non-blocking">Non-blocking</option></select></label>
@@ -56,10 +58,10 @@ export function ResourceInventoryPage() {
     <QueryState query={query} empty="Create a resource for task placement.">
       {(data) => data.items.length ? <>
         <DataTable caption="Resources" rows={data.items} columns={[
-          { key: 'name', label: 'Resource', render: (resource) => <Link to={`/resources/${resource.id}`}>{resource.name}</Link> },
+          { key: 'name', label: 'Resource', render: (resource) => <Identifier id={resource.id} name={resource.name} href={`/resources/${resource.id}`} copyLabel="Copy resource ID" /> },
           { key: 'kind', label: 'Type', render: (resource) => resourceKindLabel(resource.kind) },
           { key: 'enabled', label: 'State', render: (resource) => <StatusPill status={resourceState(resource)} /> },
-          { key: 'holder', label: 'Holder', render: (resource) => resource.holder ? <Link to={`/runs/${resource.holder}`}>{resource.holder}</Link> : '—' },
+          { key: 'holder', label: 'Holder', render: (resource) => resource.holder ? <Identifier id={resource.holder} href={`/runs/${resource.holder}`} copyLabel="Copy run ID" /> : '—' },
           { key: 'expiresAt', label: 'Lease expiry', className: 'gf-cell-nowrap', render: (resource) => <time dateTime={resource.expiresAt}>{formatDateTime(resource.expiresAt)}</time> },
           { key: 'fencingToken', label: 'Fencing token' },
           { key: 'actions', label: 'Actions', render: (resource) => manage && <TableActions label={`Actions for ${resource.name}`}>
@@ -79,9 +81,9 @@ export function ResourceDetailPage() {
   const { permissions } = useAuth()
   const manage = hasPermission(permissions, 'resources.manage')
   return <main className="gf-content"><QueryState query={query}>{(resource) => <>
-    <PageHeader title={resource.name} description="Lease ownership and fencing state." />
-    <section className="gf-metric-grid"><div className="gf-metric"><span>State</span><strong><StatusPill status={resourceState(resource)} /></strong></div><div className="gf-metric"><span>Fencing counter</span><strong>{resource.fencingToken ?? 0}</strong></div><div className="gf-metric"><span>Expiry</span><strong><time dateTime={resource.expiresAt}>{formatDateTime(resource.expiresAt)}</time></strong></div></section>
-    <section className="gf-card-panel"><h2>Active holder</h2>{resource.holder ? <Link to={`/runs/${resource.holder}`}>{resource.holder}</Link> : <p className="gf-muted">No active lease.</p>}</section>
+    <PageHeader title={resource.name} description="Lease ownership and fencing state." refresh={<QueryRefresh query={query} />} />
+    <section className="gf-metric-grid"><MetricCard label="State" value={<StatusPill status={resourceState(resource)} />} icon={Server} /><MetricCard label="Fencing counter" value={resource.fencingToken ?? 0} icon={Activity} /><MetricCard label="Expiry" value={<time dateTime={resource.expiresAt}>{formatDateTime(resource.expiresAt)}</time>} icon={Timer} /></section>
+    <section className="gf-card-panel"><h2>Active holder</h2>{resource.holder ? <Identifier id={resource.holder} href={`/runs/${resource.holder}`} copyLabel="Copy run ID" /> : <p className="gf-muted">No active lease.</p>}</section>
     {manage && <div className="gf-dialog-actions"><DangerousAction label="Delete resource" onConfirm={() => api.delete(`/api/v1/resources/${encodeURIComponent(resource.id)}`).then(() => navigate('/resources'))} /></div>}
   </>}</QueryState></main>
 }

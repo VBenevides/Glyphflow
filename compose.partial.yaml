@@ -1,12 +1,14 @@
-# Production overlay. Keep compose.yaml as the local-development quick start.
+# Partial deployment: NATS and PostgreSQL run as separately managed services.
 name: ${COMPOSE_PROJECT_NAME:?COMPOSE_PROJECT_NAME must be unique per client}
 
 networks:
-  default:
-    internal: true
+  glyphflow:
+    external: true
+    name: ${GLYPHFLOW_NETWORK:?GLYPHFLOW_NETWORK must name a pre-created network}
 
 services:
   controlplane:
+    image: ${GLYPHFLOW_IMAGE:?GLYPHFLOW_IMAGE must identify the released application image}
     entrypoint: ["/bin/sh", "-ec"]
     command:
       - |
@@ -18,7 +20,7 @@ services:
         export PASSWORD_PEPPER="$$(cat /run/secrets/password-pepper)"
         export GLYPHFLOW_BOOTSTRAP_PASSWORD="$$(cat /run/secrets/bootstrap-password)"
         exec /usr/local/bin/glyphflow-controlplane
-    environment: !override
+    environment:
       NATS_CERT_FILE: /run/secrets/nats-cert
       NATS_KEY_FILE: /run/secrets/nats-key
       NATS_CA_FILE: /run/secrets/nats-ca
@@ -36,27 +38,28 @@ services:
       ENABLE_PASSWORD_LOGIN: ${ENABLE_PASSWORD_LOGIN:-false}
       ENABLE_PASSWORD_REGISTRATION: ${ENABLE_PASSWORD_REGISTRATION:-false}
       DEFAULT_ROLE_ID: ${DEFAULT_ROLE_ID:-system-user}
-      RUNNER_NATS_URL: ""
-      RUNNER_CONTROL_PLANE_URL: ""
+      RUNNER_NATS_URL: ${RUNNER_NATS_URL:?RUNNER_NATS_URL must be reachable by workers}
+      RUNNER_CONTROL_PLANE_URL: ${RUNNER_CONTROL_PLANE_URL:?RUNNER_CONTROL_PLANE_URL must be reachable by workers}
       RUNNER_BINARIES_DIR: /app/runner-binaries
+      GLYPHFLOW_DISABLE_NGINX: "true"
     user: "65532:65532"
     read_only: true
     cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true
-    deploy:
-      resources:
-        limits:
-          cpus: "1.0"
-          memory: 512M
-          pids: 256
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=64m
-    volumes: !override
-      - type: volume
-        source: glyphflow-data
-        target: /data
-        read_only: true
+    volumes:
+      - glyphflow-data:/data
+    ports:
+      - "${GLYPHFLOW_PORT:-8080}:8080"
+    networks:
+      - glyphflow
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080/api/v1/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     secrets:
       - source: database-url
         target: /run/secrets/database-url
@@ -114,133 +117,8 @@ services:
         gid: "65532"
         mode: 0440
 
-  web:
-    user: "101:101"
-    read_only: true
-    cap_drop: [ALL]
-    cap_add: [NET_BIND_SERVICE]
-    security_opt:
-      - no-new-privileges:true
-    deploy:
-      resources:
-        limits:
-          cpus: "0.50"
-          memory: 128M
-          pids: 128
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777
-      - /var/cache/nginx:rw,noexec,nosuid,nodev,size=16m,uid=101,gid=101,mode=0700
-      - /var/run:rw,noexec,nosuid,nodev,size=1m,uid=101,gid=101,mode=0700
-    ports: !override
-      - "127.0.0.1:${GLYPHFLOW_PORT:?GLYPHFLOW_PORT must be set}:80"
-
-  postgres:
-    user: "70:70"
-    read_only: true
-    cap_drop: [ALL]
-    security_opt:
-      - no-new-privileges:true
-    deploy:
-      resources:
-        limits:
-          cpus: "2.0"
-          memory: 1G
-          pids: 256
-    environment: !override
-      POSTGRES_DB: glyphflow
-      POSTGRES_USER: glyphflow
-      POSTGRES_PASSWORD_FILE: /run/secrets/postgres-password
-    command:
-      - postgres
-      - -c
-      - ssl=on
-      - -c
-      - ssl_cert_file=/run/secrets/postgres-cert
-      - -c
-      - ssl_key_file=/run/secrets/postgres-key
-      - -c
-      - ssl_ca_file=/run/secrets/postgres-ca
-    ports: !override []
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,nodev,size=64m,uid=70,gid=70,mode=1770
-      - /var/run/postgresql:rw,noexec,nosuid,nodev,size=16m,uid=70,gid=70,mode=0700
-    volumes: !override
-      - type: volume
-        source: postgres-data
-        target: /var/lib/postgresql/data
-        read_only: false
-    secrets:
-      - source: postgres-password
-        target: /run/secrets/postgres-password
-        uid: "70"
-        gid: "70"
-        mode: 0400
-      - source: postgres-cert
-        target: /run/secrets/postgres-cert
-        uid: "70"
-        gid: "70"
-        mode: 0400
-      - source: postgres-key
-        target: /run/secrets/postgres-key
-        uid: "70"
-        gid: "70"
-        mode: 0400
-      - source: postgres-ca
-        target: /run/secrets/postgres-ca
-        uid: "70"
-        gid: "70"
-        mode: 0440
-
-  nats:
-    user: "1000:1000"
-    read_only: true
-    cap_drop: [ALL]
-    security_opt:
-      - no-new-privileges:true
-    deploy:
-      resources:
-        limits:
-          cpus: "1.0"
-          memory: 512M
-          pids: 256
-    command:
-      - --jetstream
-      - --store_dir
-      - /data
-      - --http_port
-      - "8222"
-      - --tls
-      - --tlscert
-      - /run/secrets/nats-cert
-      - --tlskey
-      - /run/secrets/nats-key
-      - --tlscacert
-      - /run/secrets/nats-ca
-      - --tlsverify
-    ports: !override []
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,nodev,size=16m,uid=1000,gid=1000,mode=1770
-    volumes: !override
-      - type: volume
-        source: nats-data
-        target: /data
-        read_only: false
-    secrets:
-      - source: nats-cert
-        target: /run/secrets/nats-cert
-        uid: "1000"
-        gid: "1000"
-        mode: 0400
-      - source: nats-key
-        target: /run/secrets/nats-key
-        uid: "1000"
-        gid: "1000"
-        mode: 0400
-      - source: nats-ca
-        target: /run/secrets/nats-ca
-        uid: "1000"
-        gid: "1000"
-        mode: 0440
+volumes:
+  glyphflow-data:
 
 secrets:
   database-url:
@@ -257,17 +135,11 @@ secrets:
     file: ${SECRET_ENCRYPTION_KEY_FILE:?SECRET_ENCRYPTION_KEY_FILE must point to a protected key}
   bootstrap-password:
     file: ${GLYPHFLOW_BOOTSTRAP_PASSWORD_FILE:?GLYPHFLOW_BOOTSTRAP_PASSWORD_FILE must point to a protected secret}
-  postgres-password:
-    file: ${POSTGRES_PASSWORD_FILE:?POSTGRES_PASSWORD_FILE must point to a protected secret file}
-  postgres-cert:
-    file: ${POSTGRES_CERT_SOURCE:?POSTGRES_CERT_SOURCE must point to a certificate}
-  postgres-key:
-    file: ${POSTGRES_KEY_SOURCE:?POSTGRES_KEY_SOURCE must point to a private key}
-  postgres-ca:
-    file: ${POSTGRES_CA_SOURCE:?POSTGRES_CA_SOURCE must point to a CA certificate}
   nats-cert:
     file: ${NATS_CERT_SOURCE:?NATS_CERT_SOURCE must point to a certificate}
   nats-key:
     file: ${NATS_KEY_SOURCE:?NATS_KEY_SOURCE must point to a private key}
   nats-ca:
     file: ${NATS_CA_SOURCE:?NATS_CA_SOURCE must point to a CA certificate}
+  postgres-ca:
+    file: ${POSTGRES_CA_SOURCE:?POSTGRES_CA_SOURCE must point to a CA certificate}

@@ -40,6 +40,7 @@ type Config struct {
 	CSRFOrigins                   []string
 	PasswordLoginEnabled          bool
 	PasswordRegistrationEnabled   bool
+	RequireUserApproval           bool
 	DefaultRoleID                 string
 	LockdownScheduler             bool
 	BootstrapUsername             string
@@ -52,6 +53,7 @@ type Config struct {
 	DataDir                       string
 	LogMonthsKeep                 int
 	AuditMonthsKeep               int
+	RunnerMetricsMonthsKeep       int
 	RunnerID                      string
 	MaxMessageBytes               int
 	MaxOutputBytes                int
@@ -67,6 +69,10 @@ func FromEnv(role Role) (Config, error) {
 		return Config{}, err
 	}
 	passwordRegistration, err := envBool("ENABLE_PASSWORD_REGISTRATION", true)
+	if err != nil {
+		return Config{}, err
+	}
+	userApproval, err := envBool("REQUIRE_USER_APPROVAL", true)
 	if err != nil {
 		return Config{}, err
 	}
@@ -90,6 +96,7 @@ func FromEnv(role Role) (Config, error) {
 		CSRFOrigins:                   csrfOrigins,
 		PasswordLoginEnabled:          passwordLogin,
 		PasswordRegistrationEnabled:   passwordRegistration,
+		RequireUserApproval:           userApproval,
 		DefaultRoleID:                 strings.TrimSpace(envStringDefault("DEFAULT_ROLE_ID", "system-user")),
 		BootstrapUsername:             strings.TrimSpace(os.Getenv("GLYPHFLOW_BOOTSTRAP_EMAIL")),
 		BootstrapPassword:             os.Getenv("GLYPHFLOW_BOOTSTRAP_PASSWORD"),
@@ -100,6 +107,7 @@ func FromEnv(role Role) (Config, error) {
 		DataDir:                       os.Getenv("DATA_DIR"),
 		LogMonthsKeep:                 3,
 		AuditMonthsKeep:               12,
+		RunnerMetricsMonthsKeep:       3,
 		RunnerID:                      os.Getenv("RUNNER_ID"),
 	}
 	if config.AllowInsecureTransport, err = envBool("ALLOW_INSECURE_TRANSPORT", false); err != nil {
@@ -118,6 +126,9 @@ func FromEnv(role Role) (Config, error) {
 			return Config{}, err
 		}
 		if config.AuditMonthsKeep, err = envIntDefault("AUDIT_MONTHS_KEEP", 12); err != nil {
+			return Config{}, err
+		}
+		if config.RunnerMetricsMonthsKeep, err = envIntDefault("RUNNER_METRICS_MONTHS_KEEP", 3); err != nil {
 			return Config{}, err
 		}
 	}
@@ -161,8 +172,8 @@ func (c Config) Validate() error {
 	if c.MaxMessageBytes <= 0 {
 		return errors.New("MAX_MESSAGE_BYTES must be greater than zero")
 	}
-	if c.Role == ControlPlane && (c.LogMonthsKeep <= 0 || c.AuditMonthsKeep <= 0) {
-		return errors.New("LOG_MONTHS_KEEP and AUDIT_MONTHS_KEEP must be greater than zero")
+	if c.Role == ControlPlane && (c.LogMonthsKeep <= 0 || c.AuditMonthsKeep <= 0 || c.RunnerMetricsMonthsKeep <= 0) {
+		return errors.New("LOG_MONTHS_KEEP, AUDIT_MONTHS_KEEP, and RUNNER_METRICS_MONTHS_KEEP must be greater than zero")
 	}
 	if c.Role == ControlPlane {
 		if len([]byte(c.AccessTokenSecret)) < 32 {
@@ -213,6 +224,14 @@ func (c Config) Validate() error {
 	}
 	if c.Environment == "production" && (c.NATSCertFile == "" || c.NATSKeyFile == "" || c.NATSCAFile == "") {
 		return errors.New("production requires NATS client certificate, key, and CA files")
+	}
+	if parsed, err := url.Parse(c.NATSURL); err != nil || parsed.User != nil {
+		return errors.New("NATS_URL must not contain credentials")
+	}
+	if !c.AllowInsecureTransport || c.Environment != "development" {
+		if !strings.HasPrefix(c.NATSURL, "tls://") {
+			return errors.New("NATS_URL must use TLS outside development")
+		}
 	}
 	return nil
 }

@@ -10,7 +10,7 @@ import (
 
 func TestDefaultRetentionPolicy(t *testing.T) {
 	policy := DefaultRetentionPolicy()
-	if policy.LogMonthsKeep != 3 || policy.AuditMonthsKeep != 12 || !policy.valid() {
+	if policy.LogMonthsKeep != 3 || policy.AuditMonthsKeep != 12 || policy.RunnerMetricsMonthsKeep != 3 || !policy.valid() {
 		t.Fatalf("default retention policy = %#v", policy)
 	}
 }

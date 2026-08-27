@@ -12,8 +12,8 @@ describe('safe output rendering', () => {
   })
 
   it('prefixes each displayed log line', () => {
-    expect(prefixLogLines('first\n\nsecond\n')).toBe('0 > first\n> \n> second\n')
-    expect(prefixLogLines(`${Array.from({ length: 51 }, (_, index) => `line ${index}`).join('\n')}`)).toContain('\n50 > line 50')
+    expect(prefixLogLines('first\n\nsecond\n')).toBe('0 $ first\n$ \n$ second\n')
+    expect(prefixLogLines(`${Array.from({ length: 51 }, (_, index) => `line ${index}`).join('\n')}`)).toContain('\n50 $ line 50')
   })
 
   it('redacts secret-shaped audit keys and rejects external links', () => {

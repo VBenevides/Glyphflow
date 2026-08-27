@@ -1,15 +1,16 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState, type FormEvent, type ReactNode } from 'react'
-import { MoreHorizontal } from 'lucide-react'
+import { Monitor, MoreHorizontal, UserPlus, Users } from 'lucide-react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { api, type AdminSession, type ExitCode, type OidcProvider, type Page, type RoleDefinition, type UserRecord } from './api'
+import { api, type AdminSession, type ExitCode, type OidcProvider, type Page, type QueryValue, type RoleDefinition, type UserRecord } from './api'
 import { DangerousAction } from './actions'
-import { Button, DataTable, Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuSeparator, DropdownMenuTrigger, EmptyState, FilterInput, Input, PageHeader, Pagination, StatusPill, TableActions, Tabs, TabsList, TabsTrigger } from './components'
-import { QueryState } from './query'
-import { hasPermission, PERMISSIONS } from './permissions'
+import { Button, DataTable, Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuSeparator, DropdownMenuTrigger, EmptyState, FilterInput, Identifier, Input, MetricCard, PageHeader, Pagination, StatusPill, TableActions, Tabs, TabsList, TabsTrigger } from './components'
+import { QueryRefresh, QueryState } from './query'
+import { hasPermission, permissionPrivilegeLevel, sortedPermissions } from './permissions'
 import { useAuth } from './auth'
 import { useUnsavedChanges } from './unsaved'
 import { formatDateTime } from './format'
+import { sessionDeviceLabel } from './session-device'
 
 type GroupRoleMapping = { group: string; role: string }
 
@@ -25,8 +26,20 @@ function asPage(value: Page<UserRecord> | UserRecord[], page = 1, limit = 10): P
   return Array.isArray(value) ? { items: value.slice((page - 1) * limit, page * limit), page, limit, total: value.length, pages: Math.max(1, Math.ceil(value.length / limit)) } : value
 }
 
-function InlinePills({ values }: { values?: string[] }) {
-  return values?.length ? <span className="gf-pill-list">{values.map((value) => <span className="gf-inline-pill" key={value}>{value}</span>)}</span> : '—'
+export function filterUsersPage(users: UserRecord[], page: number, limit: number, email: string, status: string, role: string): Page<UserRecord> {
+  const emailNeedle = email.trim().toLowerCase()
+  const roleNeedle = role.trim().toLowerCase()
+  const filtered = users.filter((user) => (!emailNeedle || (user.email ?? user.username).toLowerCase().includes(emailNeedle)) && (!status || user.status === status) && (!roleNeedle || user.roles?.some((assigned) => assigned.toLowerCase() === roleNeedle)))
+  const start = (page - 1) * limit
+  return { items: filtered.slice(start, start + limit), page, limit, total: filtered.length, pages: Math.max(1, Math.ceil(filtered.length / limit)) }
+}
+
+export function userListQuery(page: number, limit: number, email: string, status: string, role = ''): Record<string, QueryValue> {
+  return { page, limit, email: email.trim() || undefined, status: status || undefined, roles: role.trim() || undefined }
+}
+
+function InlinePills({ values, markElevated = false }: { values?: string[]; markElevated?: boolean }) {
+  return values?.length ? <span className="gf-pill-list">{values.map((value) => <span className={`gf-inline-pill${markElevated && permissionPrivilegeLevel(value) === 'elevated' ? ' gf-permission-elevated' : ''}`} key={value}>{value}</span>)}</span> : '—'
 }
 
 export function filterAndSortRoles(roles: RoleDefinition[], search: string): RoleDefinition[] {
@@ -34,16 +47,18 @@ export function filterAndSortRoles(roles: RoleDefinition[], search: string): Rol
   return roles.filter((role) => !needle || [role.id, role.name, role.description ?? '', ...role.permissions].some((value) => value.toLowerCase().includes(needle))).sort((left, right) => Number(Boolean(right.system)) - Number(Boolean(left.system)) || left.name.localeCompare(right.name))
 }
 
-function UserActionsMenu({ user, manage, onAccess, onDisable }: { user: UserRecord; manage: boolean; onAccess: () => void; onDisable: () => void }) {
+function UserActionsMenu({ user, manage, onAccess, onDisable, onApprove }: { user: UserRecord; manage: boolean; onAccess: () => void; onDisable: () => void; onApprove: () => void }) {
   const userLabel = user.displayName ?? user.email ?? user.username
-  return <DropdownMenu><DropdownMenuTrigger asChild><Button type="button" variant="ghost" aria-label={`Actions for ${userLabel}`}><MoreHorizontal size={18} /></Button></DropdownMenuTrigger><DropdownMenuPortal><DropdownMenuContent align="end">{manage && <DropdownMenuItem onSelect={onAccess}>Manage access</DropdownMenuItem>}{manage && !user.systemAdmin && <><DropdownMenuSeparator /><DangerousAction label="Disable" title="Disable user" onConfirm={onDisable} renderTrigger={(open) => <DropdownMenuItem onSelect={(event) => { event.preventDefault(); open() }}>Disable</DropdownMenuItem>} /></>}<DropdownMenuSeparator /><DropdownMenuItem asChild><Link to={`/admin/users/${encodeURIComponent(user.id)}`}>Details</Link></DropdownMenuItem></DropdownMenuContent></DropdownMenuPortal></DropdownMenu>
+  const statusAction = user.status === 'pending' ? 'Approve' : user.status === 'disabled' ? 'Enable' : 'Disable'
+  const statusChange = user.status === 'active' ? onDisable : onApprove
+  return <DropdownMenu><DropdownMenuTrigger asChild><Button type="button" variant="ghost" aria-label={`Actions for ${userLabel}`}><MoreHorizontal size={18} /></Button></DropdownMenuTrigger><DropdownMenuPortal><DropdownMenuContent align="end">{manage && <DropdownMenuItem onSelect={onAccess}>Manage access</DropdownMenuItem>}{manage && !user.systemAdmin && <><DropdownMenuSeparator /><DangerousAction label={statusAction} title={`${statusAction} user`} onConfirm={statusChange} renderTrigger={(open) => <DropdownMenuItem onSelect={(event) => { event.preventDefault(); open() }}>{statusAction}</DropdownMenuItem>} /></>}<DropdownMenuSeparator /><DropdownMenuItem asChild><Link to={`/admin/users/${encodeURIComponent(user.id)}`}>Details</Link></DropdownMenuItem></DropdownMenuContent></DropdownMenuPortal></DropdownMenu>
 }
 
 type IdentityView = 'users' | 'sessions' | 'sso'
 
-function IdentityAdminLayout({ view, title, description, action, children }: { view: IdentityView; title: string; description: string; action?: ReactNode; children: ReactNode }) {
+function IdentityAdminLayout({ view, title, description, refresh, children }: { view: IdentityView; title: string; description: string; refresh?: ReactNode; children: ReactNode }) {
   const navigate = useNavigate()
-  return <main className="gf-content"><PageHeader title={title} description={description} action={action} /><Tabs value={view} onValueChange={(next) => navigate(next === 'sso' ? '/admin/sso' : next === 'sessions' ? '/admin/users/sessions' : '/admin/users')}><TabsList aria-label="Identity administration"><TabsTrigger value="users">Users</TabsTrigger><TabsTrigger value="sessions">Sessions</TabsTrigger><TabsTrigger value="sso">SSO</TabsTrigger></TabsList></Tabs>{children}</main>
+  return <main className="gf-content"><PageHeader title={title} description={description} refresh={refresh} /><Tabs value={view} onValueChange={(next) => navigate(next === 'sso' ? '/admin/sso' : next === 'sessions' ? '/admin/users/sessions' : '/admin/users')}><TabsList aria-label="Identity administration"><TabsTrigger value="users">Users</TabsTrigger><TabsTrigger value="sessions">Sessions</TabsTrigger><TabsTrigger value="sso">SSO</TabsTrigger></TabsList></Tabs>{children}</main>
 }
 
 export function UserCreationForm({ onCreated }: { onCreated: (userID: string) => Promise<void> }) {
@@ -82,29 +97,42 @@ export function UserManagementPage({ view = 'users' }: { view?: IdentityView } =
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(10)
   const [email, setEmail] = useState('')
+  const [status, setStatus] = useState('')
+  const [roleFilter, setRoleFilter] = useState('')
   const [creating, setCreating] = useState(false)
   const [accessUserID, setAccessUserID] = useState<string | null>(null)
-  const query = useQuery({ queryKey: ['admin-users', page, limit, email], queryFn: ({ signal }) => api.get<Page<UserRecord> | UserRecord[]>('/api/v1/users', { page, limit, email: email || undefined }, signal).then((value) => asPage(value, page, limit)) })
+  const query = useQuery({ queryKey: ['admin-users', page, limit, email, status, roleFilter], queryFn: ({ signal }) => api.get<Page<UserRecord> | UserRecord[]>('/api/v1/users', userListQuery(page, limit, email, status, roleFilter), signal).then((value) => asPage(value, page, limit)) })
   const optionsQuery = useQuery({ queryKey: ['admin-user-filter-options'], queryFn: ({ signal }) => api.get<Page<UserRecord> | UserRecord[]>('/api/v1/users', { all: true }, signal).then((value) => asPage(value)) })
+  const pendingUsersQuery = useQuery({ queryKey: ['admin-pending-users'], queryFn: ({ signal }) => api.get<Page<UserRecord> | UserRecord[]>('/api/v1/users', { page: 1, limit: 1, status: 'pending' }, signal).then((value) => asPage(value, 1, 1)) })
   const rolesQuery = useQuery({ queryKey: ['admin-user-role-options'], queryFn: ({ signal }) => api.get<RoleDefinition[]>('/api/v1/admin/roles', undefined, signal), enabled: manage })
-  const disable = async (user: UserRecord) => { await api.post(`/api/v1/admin/auth/users/${encodeURIComponent(user.id)}/disable`); await query.refetch() }
-  const refreshUsers = async () => { await query.refetch() }
-  const created = async (userID: string) => { setCreating(false); setAccessUserID(userID); await query.refetch() }
-  return <IdentityAdminLayout view={view} title="Users and sessions" description="Review identity methods, role sources, permissions, and active sessions." action={manage && <Button onClick={() => setCreating((value) => !value)}>{creating ? 'Cancel' : 'Create user'}</Button>}>
+  const filterUsers = optionsQuery.data?.items ?? query.data?.items ?? []
+  const roleOptions = [...new Set([...filterUsers.flatMap((user) => user.roles ?? []), ...(rolesQuery.data ?? []).map((role) => role.name), ...(roleFilter ? [roleFilter] : [])])].sort()
+  const totalUsers = optionsQuery.data?.total
+  const pendingUsers = pendingUsersQuery.data?.total ?? pendingUsersQuery.data?.items.length
+  const registeredUsers = totalUsers !== undefined && pendingUsers !== undefined ? totalUsers - pendingUsers : '—'
+  const refreshUsers = async () => { await Promise.all([query.refetch(), optionsQuery.refetch(), pendingUsersQuery.refetch()]) }
+  const disable = async (user: UserRecord) => { await api.post(`/api/v1/admin/auth/users/${encodeURIComponent(user.id)}/disable`); await refreshUsers() }
+  const approve = async (user: UserRecord) => { await api.post(`/api/v1/admin/auth/users/${encodeURIComponent(user.id)}/approve`); await refreshUsers() }
+  const created = async (userID: string) => { setCreating(false); setAccessUserID(userID); await refreshUsers() }
+  return <IdentityAdminLayout view={view} title="Users and sessions" description="Review identity methods, role sources, permissions, and active sessions." refresh={<QueryRefresh query={[query, optionsQuery, pendingUsersQuery]} />}>
     {creating && <Dialog open title="Create user" onClose={() => setCreating(false)}><UserCreationForm onCreated={created} /></Dialog>}
-    <div className="gf-filter-bar"><FilterInput label="Email" type="email" value={email} options={(optionsQuery.data?.items ?? query.data?.items ?? []).map((user) => user.email ?? user.username)} onChange={(value) => { setEmail(value); setPage(1) }} placeholder="Filter by email" /></div>
+    <div className="gf-metric-grid gf-identity-metrics"><MetricCard label="Number of Registered Users" value={registeredUsers} detail="Active and disabled accounts" icon={Users} /><MetricCard label="Number of Pending Users" value={pendingUsers ?? '—'} detail="Awaiting administrator approval" icon={UserPlus} tone={pendingUsers ? 'warning' : 'default'} /></div>
+    <div className="gf-filter-bar"><FilterInput label="Email" type="email" value={email} options={filterUsers.map((user) => user.email ?? user.username)} onChange={(value) => { setEmail(value); setPage(1) }} placeholder="Filter by email" /><label>Status<select className="gf-input" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1) }}><option value="">All statuses</option><option value="active">Active</option><option value="pending">Pending</option><option value="disabled">Disabled</option></select></label><label>Roles<select className="gf-input" value={roleFilter} onChange={(event) => { setRoleFilter(event.target.value); setPage(1) }}><option value="">All roles</option>{roleOptions.map((role) => <option key={role} value={role}>{role}</option>)}</select></label></div>
+    {manage && <div className="gf-table-toolbar"><Button onClick={() => setCreating((value) => !value)}>{creating ? 'Cancel' : 'Create user'}</Button></div>}
     <QueryState query={query} empty="No users are available.">{(raw) => {
       const data = asPage(raw)
-      if (!data.items.length) return <EmptyState title="No users">Create or provision a user before managing access.</EmptyState>
-      const accessUser = data.items.find((user) => user.id === accessUserID)
-      return <><DataTable caption="Users" rows={data.items} columns={[
+      const serverIgnoredRole = roleFilter && data.items.some((user) => !user.roles?.some((assigned) => assigned.toLowerCase() === roleFilter.toLowerCase()))
+      const visibleData = serverIgnoredRole ? filterUsersPage(optionsQuery.data?.items ?? data.items, page, limit, email, status, roleFilter) : data
+      if (!visibleData.items.length) return <EmptyState title="No users">Create or provision a user before managing access.</EmptyState>
+      const accessUser = visibleData.items.find((user) => user.id === accessUserID)
+      return <><DataTable caption="Users" rows={visibleData.items} columns={[
         { key: 'email', label: 'User', render: (user) => <span><strong>{user.displayName ?? user.email ?? user.username}</strong><br /><small>{user.email ?? user.username}</small></span> },
         { key: 'status', label: 'Status', render: (user) => <StatusPill status={user.status ?? (user.enabled === false ? 'disabled' : 'active')} /> },
         { key: 'loginMethods', label: 'Login methods', render: (user) => <InlinePills values={user.loginMethods} /> },
         { key: 'roles', label: 'Roles', render: (user) => <InlinePills values={user.roles} /> },
-        { key: 'actions', label: 'Actions', render: (user) => <UserActionsMenu user={user} manage={manage} onAccess={() => setAccessUserID(user.id)} onDisable={() => disable(user)} /> },
+        { key: 'actions', label: 'Actions', render: (user) => <UserActionsMenu user={user} manage={manage} onAccess={() => setAccessUserID(user.id)} onDisable={() => disable(user)} onApprove={() => approve(user)} /> },
       ]} />
-      <Pagination page={data.page ?? page} pages={data.pages ?? 1} limit={limit} onChange={setPage} onLimitChange={(next) => { setLimit(next); setPage(1) }} />
+      <Pagination page={visibleData.page ?? page} pages={visibleData.pages ?? 1} limit={limit} onChange={setPage} onLimitChange={(next) => { setLimit(next); setPage(1) }} />
       {accessUser && <UserAccessEditor user={accessUser} roles={rolesQuery.data} onChanged={refreshUsers} onClose={() => setAccessUserID(null)} />}
     </> }}</QueryState>
   </IdentityAdminLayout>
@@ -117,9 +145,10 @@ export function SessionManagementPage() {
   const query = useQuery({ queryKey: ['admin-sessions', page, limit, email], queryFn: ({ signal }) => api.get<Page<AdminSession>>('/api/v1/admin/auth/sessions', { page, limit, email: email || undefined }, signal) })
   const optionsQuery = useQuery({ queryKey: ['admin-session-filter-options'], queryFn: ({ signal }) => api.get<Page<AdminSession>>('/api/v1/admin/auth/sessions', { all: true }, signal) })
   const revoke = async (session: AdminSession) => { await api.post(`/api/v1/admin/auth/sessions/revoke?session_id=${encodeURIComponent(session.id)}`); await query.refetch() }
-  return <IdentityAdminLayout view="sessions" title="Sessions" description="Review active authentication sessions across users.">
+  return <IdentityAdminLayout view="sessions" title="Sessions" description="Review active authentication sessions across users." refresh={<QueryRefresh query={query} />}>
+    <div className="gf-metric-grid gf-identity-metrics"><MetricCard label="Number of Sessions" value={optionsQuery.data?.total ?? '—'} detail="Active authentication sessions" icon={Monitor} /></div>
     <div className="gf-filter-bar"><FilterInput label="User email" type="email" value={email} options={(optionsQuery.data?.items ?? query.data?.items ?? []).map((session) => session.userEmail)} onChange={(value) => { setEmail(value); setPage(1) }} placeholder="Filter by user email" /></div>
-    <QueryState query={query} empty="No active sessions match this filter.">{(data) => data.items.length ? <><DataTable caption="Sessions" rows={data.items} columns={[{ key: 'userEmail', label: 'User', render: (session) => <Link to={`/admin/users/${encodeURIComponent(session.userId)}`}>{session.userEmail}</Link> }, { key: 'id', label: 'Session ID', render: (session) => <code>{session.id}</code> }, { key: 'lastSeenAt', label: 'Last seen', render: (session) => session.lastSeenAt ? formatDateTime(session.lastSeenAt) : '—' }, { key: 'expiresAt', label: 'Expires', render: (session) => session.expiresAt ? formatDateTime(session.expiresAt) : '—' }, { key: 'userAgent', label: 'Client', render: (session) => session.userAgent ?? '—' }, { key: 'actions', label: 'Actions', render: (session) => manage && <TableActions label={`Actions for ${session.userEmail}`}><DangerousAction label="Revoke" warning="This will immediately invalidate the session." onConfirm={() => revoke(session)} renderTrigger={(open) => <DropdownMenuItem onSelect={(event) => { event.preventDefault(); open() }}>Revoke</DropdownMenuItem>} /></TableActions> }]} /><Pagination page={data.page} pages={data.pages ?? 1} limit={limit} onChange={setPage} onLimitChange={(next) => { setLimit(next); setPage(1) }} /></> : <EmptyState title="No active sessions">No active sessions match this filter.</EmptyState>}</QueryState>
+    <QueryState query={query} empty="No active sessions match this filter.">{(data) => data.items.length ? <><DataTable caption="Sessions" rows={data.items} columns={[{ key: 'userEmail', label: 'User', render: (session) => <Link to={`/admin/users/${encodeURIComponent(session.userId)}`}>{session.userEmail}</Link> }, { key: 'id', label: 'Session ID', render: (session) => <Identifier id={session.id} copyLabel="Copy session ID" /> }, { key: 'lastSeenAt', label: 'Last seen', render: (session) => session.lastSeenAt ? formatDateTime(session.lastSeenAt) : '—' }, { key: 'expiresAt', label: 'Expires', render: (session) => session.expiresAt ? formatDateTime(session.expiresAt) : '—' }, { key: 'userAgent', label: 'Device', render: (session) => sessionDeviceLabel(session.userAgent, session.ipAddress) }, { key: 'actions', label: 'Actions', render: (session) => manage && <TableActions label={`Actions for ${session.userEmail}`}><DangerousAction label="Revoke" warning="This will immediately invalidate the session." onConfirm={() => revoke(session)} renderTrigger={(open) => <DropdownMenuItem onSelect={(event) => { event.preventDefault(); open() }}>Revoke</DropdownMenuItem>} /></TableActions> }]} /><Pagination page={data.page} pages={data.pages ?? 1} limit={limit} onChange={setPage} onLimitChange={(next) => { setLimit(next); setPage(1) }} /></> : <EmptyState title="No active sessions">No active sessions match this filter.</EmptyState>}</QueryState>
   </IdentityAdminLayout>
 }
 
@@ -128,6 +157,7 @@ function RoleEditor({ role, onDone }: { role?: RoleDefinition; onDone: () => voi
   const [selected, setSelected] = useState(() => new Set(role?.permissions ?? []))
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const permissionOptions = sortedPermissions()
   useUnsavedChanges(Boolean(name.trim() || selected.size))
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setBusy(true); setError('')
@@ -139,7 +169,7 @@ function RoleEditor({ role, onDone }: { role?: RoleDefinition; onDone: () => voi
   }
   return <form className="gf-editor-form" onSubmit={submit}>
     <label htmlFor="role-name">Role name<Input id="role-name" value={name} onChange={(event) => setName(event.target.value)} disabled={role?.system} required /></label>
-    <fieldset><legend>Permissions</legend><div className="gf-permission-grid">{PERMISSIONS.map((permission) => <label key={permission}><input type="checkbox" checked={selected.has(permission)} onChange={(event) => setSelected((current) => { const next = new Set(current); event.target.checked ? next.add(permission) : next.delete(permission); return next })} /> {permission}</label>)}</div></fieldset>
+    <fieldset><legend>Permissions</legend><div className="gf-permission-grid">{permissionOptions.map(({ name, privilegeLevel }) => <label className={privilegeLevel === 'elevated' ? 'gf-permission-elevated' : undefined} key={name}><input type="checkbox" checked={selected.has(name)} onChange={(event) => setSelected((current) => { const next = new Set(current); event.target.checked ? next.add(name) : next.delete(name); return next })} /> {name}</label>)}</div></fieldset>
     {error && <p className="gf-form-error" role="alert">{error}</p>}
     <div className="gf-dialog-actions"><Button type="submit" busy={busy}>{role ? 'Save permissions' : 'Create role'}</Button><Button type="button" variant="ghost" onClick={onDone}>Cancel</Button></div>
   </form>
@@ -154,12 +184,12 @@ export function RoleManagementPage() {
   const [search, setSearch] = useState('')
   const refresh = async () => { setEditing(undefined); await query.refetch() }
   const remove = async (role: RoleDefinition) => { await api.delete(`/api/v1/admin/roles/${encodeURIComponent(role.id)}`); await query.refetch() }
-  return <main className="gf-content"><PageHeader title="Roles and permissions" description="Seeded roles are immutable. Custom roles select from the application permission catalog." action={manage && <Button onClick={() => setEditing(null)}>Create role</Button>} />
+  return <main className="gf-content"><PageHeader title="Roles and permissions" description="Seeded roles are immutable. Custom roles select from the application permission catalog." refresh={<QueryRefresh query={query} />} />
     {editing !== undefined && <Dialog open title={editing ? `Edit ${editing.name}` : 'New custom role'} onClose={() => setEditing(undefined)}><RoleEditor role={editing ?? undefined} onDone={refresh} /></Dialog>}
-    <QueryState query={query} empty="No roles are configured.">{(roles) => { const filteredRoles = filterAndSortRoles(roles, search); return <><div className="gf-filter-bar"><FilterInput label="Search" options={roles.flatMap((role) => [role.name, role.id, ...role.permissions])} value={search} onChange={(value) => { setSearch(value); setPage(1) }} placeholder="Role name, key, or permission" /></div>{filteredRoles.length ? <div className="gf-role-table"><DataTable caption="Roles" rows={filteredRoles.slice((page - 1) * limit, page * limit)} columns={[
+    <QueryState query={query} empty="No roles are configured.">{(roles) => { const filteredRoles = filterAndSortRoles(roles, search); return <><div className="gf-filter-bar"><FilterInput label="Search" options={roles.flatMap((role) => [role.name, role.id, ...role.permissions])} value={search} onChange={(value) => { setSearch(value); setPage(1) }} placeholder="Role name, key, or permission" /></div>{manage && <div className="gf-table-toolbar"><Button onClick={() => setEditing(null)}>Create role</Button></div>}{filteredRoles.length ? <div className="gf-role-table"><DataTable caption="Roles" rows={filteredRoles.slice((page - 1) * limit, page * limit)} columns={[
       { key: 'name', label: 'Role', render: (role) => <strong>{role.name}</strong> },
       { key: 'system', label: 'Source', render: (role) => <StatusPill status={role.system ? 'system' : 'custom'} /> },
-      { key: 'permissions', label: 'Permissions', render: (role) => <InlinePills values={role.permissions} /> },
+      { key: 'permissions', label: 'Permissions', render: (role) => <InlinePills values={role.permissions} markElevated /> },
       { key: 'assignedUsers', label: 'Affected users', render: (role) => role.assignedUsers ?? 0 },
       { key: 'actions', label: 'Actions', render: (role) => manage && !role.system && <TableActions label={`Actions for ${role.name}`}><DropdownMenuItem onSelect={() => setEditing(role)}>Edit</DropdownMenuItem><DropdownMenuSeparator /><DangerousAction label="Delete" warning={`Review ${role.assignedUsers ?? 0} affected users before deleting this role.`} onConfirm={() => remove(role)} renderTrigger={(open) => <DropdownMenuItem onSelect={(event) => { event.preventDefault(); open() }}>Delete</DropdownMenuItem>} /></TableActions> },
     ]} /><Pagination page={page} pages={Math.max(1, Math.ceil(filteredRoles.length / limit))} limit={limit} onChange={setPage} onLimitChange={(next) => { setLimit(next); setPage(1) }} /></div> : <EmptyState title="No matching roles">Try another role name, key, or permission.</EmptyState>}</> }}</QueryState>
@@ -188,7 +218,8 @@ export function SsoSettingsPage() {
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Provider update failed') } finally { setBusy(false) }
   }
   const toggle = async (provider: OidcProvider) => { await api.post('/api/v1/admin/auth/providers', { ...provider, enabled: provider.enabled === false }); await query.refetch() }
-  return <IdentityAdminLayout view="sso" title="Single sign-on" description="Configure generic OIDC providers and group-to-role mappings. Resolved secrets are never shown." action={manage && <Button onClick={() => setCreating(true)}>Add provider</Button>}>
+  return <IdentityAdminLayout view="sso" title="Single sign-on" description="Configure generic OIDC providers and group-to-role mappings. Resolved secrets are never shown." refresh={<QueryRefresh query={query} />}>
+    {manage && <div className="gf-table-toolbar"><Button onClick={() => setCreating(true)}>Add provider</Button></div>}
     {manage && <Dialog open={creating} title="Add provider" onClose={closeProvider}><form className="gf-editor-form" onSubmit={addProvider}><div className="gf-form-grid"><label htmlFor="sso-key">Key<Input id="sso-key" value={draft.key} onChange={(event) => setDraft({ ...draft, key: event.target.value })} required /></label><label htmlFor="sso-name">Name<Input id="sso-name" value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} required /></label><label htmlFor="sso-issuer">Issuer URL<Input id="sso-issuer" type="url" value={draft.issuer} onChange={(event) => setDraft({ ...draft, issuer: event.target.value })} required /></label><label htmlFor="sso-client">Client ID<Input id="sso-client" value={draft.clientId} onChange={(event) => setDraft({ ...draft, clientId: event.target.value })} /></label><label htmlFor="sso-secret">Secret reference<Input id="sso-secret" value={draft.secretReference} onChange={(event) => setDraft({ ...draft, secretReference: event.target.value })} placeholder="env://OIDC_CLIENT_SECRET" /><small>Use an env:// reference; the secret value is never rendered.</small></label></div><fieldset><legend>Group roles</legend>{groupMappings.map((mapping, index) => <div className="gf-form-grid" key={index}><label htmlFor={`sso-group-${index}`}>Group name<Input id={`sso-group-${index}`} value={mapping.group} onChange={(event) => setGroupMappings((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, group: event.target.value } : item))} /></label><label htmlFor={`sso-group-role-${index}`}>Role<RoleSelect id={`sso-group-role-${index}`} value={mapping.role} roles={rolesQuery.data} disabled={rolesQuery.isPending || rolesQuery.isError} onChange={(role) => setGroupMappings((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, role } : item))} /></label></div>)}<Button type="button" variant="secondary" onClick={() => setGroupMappings((current) => [...current, { group: '', role: '' }])}>Add group</Button>{rolesQuery.isError && <small className="gf-form-error">Roles could not be loaded.</small>}</fieldset>{error && <p className="gf-form-error" role="alert">{error}</p>}<div className="gf-dialog-actions"><Button type="button" variant="secondary" onClick={closeProvider}>Cancel</Button><Button type="submit" busy={busy}>Add provider</Button></div></form></Dialog>}
     <QueryState query={query} empty="No SSO providers are configured.">{(providers) => providers.length ? <><DataTable caption="SSO providers" rows={providers.slice((page - 1) * limit, page * limit)} columns={[{ key: 'key', label: 'Provider', render: (provider) => <strong>{provider.name ?? provider.key}</strong> }, { key: 'issuer', label: 'Issuer', render: (provider) => <span>{provider.issuer}</span> }, { key: 'enabled', label: 'State', render: (provider) => <StatusPill status={provider.enabled === false ? 'disabled' : 'enabled'} /> }, { key: 'secretReference', label: 'Secret', render: (provider) => <span className="gf-secret-reference">{provider.secretReference ?? 'Configured by deployment'}</span> }, { key: 'actions', label: 'Actions', render: (provider) => manage && <TableActions label={`Actions for ${provider.name ?? provider.key}`}><DangerousAction label={provider.enabled === false ? 'Enable' : 'Disable'} warning="Disabling a provider can remove a login method. Confirm another administrator login method is available." onConfirm={() => toggle(provider)} renderTrigger={(open) => <DropdownMenuItem onSelect={(event) => { event.preventDefault(); open() }}>{provider.enabled === false ? 'Enable' : 'Disable'}</DropdownMenuItem>} /></TableActions> }]} /><Pagination page={page} pages={Math.max(1, Math.ceil(providers.length / limit))} limit={limit} onChange={setPage} onLimitChange={(next) => { setLimit(next); setPage(1) }} /></> : <EmptyState title="No providers">Add an OIDC provider to enable single sign-on.</EmptyState>}</QueryState>
   </IdentityAdminLayout>
@@ -200,14 +231,15 @@ function AuthenticationTab() {
   const rolesQuery = useQuery({ queryKey: ['admin-role-options'], queryFn: ({ signal }) => api.get<RoleDefinition[]>('/api/v1/admin/roles', undefined, signal) })
   const [passwordLogin, setPasswordLogin] = useState(config.passwordLogin)
   const [registration, setRegistration] = useState(config.registration)
+  const [requireUserApproval, setRequireUserApproval] = useState(config.requireUserApproval !== false)
   const [defaultRoleId, setDefaultRoleId] = useState(config.defaultRoleId ?? '')
-  const [saved, setSaved] = useState({ passwordLogin: config.passwordLogin, registration: config.registration, defaultRoleId: config.defaultRoleId ?? '' })
+  const [saved, setSaved] = useState({ passwordLogin: config.passwordLogin, registration: config.registration, requireUserApproval: config.requireUserApproval !== false, defaultRoleId: config.defaultRoleId ?? '' })
   const [error, setError] = useState('')
-  useUnsavedChanges(passwordLogin !== saved.passwordLogin || registration !== saved.registration || defaultRoleId !== saved.defaultRoleId)
-  const save = async () => { setError(''); try { await api.post('/api/v1/admin/auth/settings', { enabled: passwordLogin, registration, default_role_id: defaultRoleId }); setSaved({ passwordLogin, registration, defaultRoleId }); setConfig({ ...config, passwordLogin, registration, defaultRoleId }) } catch (cause) { setError(cause instanceof Error ? cause.message : 'Authentication settings update failed') } }
+  useUnsavedChanges(passwordLogin !== saved.passwordLogin || registration !== saved.registration || requireUserApproval !== saved.requireUserApproval || defaultRoleId !== saved.defaultRoleId)
+  const save = async () => { setError(''); try { await api.post('/api/v1/admin/auth/settings', { enabled: passwordLogin, registration, require_user_approval: requireUserApproval, default_role_id: defaultRoleId }); setSaved({ passwordLogin, registration, requireUserApproval, defaultRoleId }); setConfig({ ...config, passwordLogin, registration, requireUserApproval, defaultRoleId }) } catch (cause) { setError(cause instanceof Error ? cause.message : 'Authentication settings update failed') } }
   const defaultRole = defaultRoleId
   const setDefaultRole = setDefaultRoleId
-  return <section className="gf-card-panel"><div className="gf-editor-form"><label><input type="checkbox" checked={passwordLogin} onChange={(event) => setPasswordLogin(event.target.checked)} /> Enable password login</label><label><input type="checkbox" checked={registration} onChange={(event) => setRegistration(event.target.checked)} /> Allow password registration</label><label htmlFor="default-role">Default role<RoleSelect id="default-role" value={defaultRole} roles={rolesQuery.data} disabled={rolesQuery.isPending || rolesQuery.isError} onChange={setDefaultRole} /></label>{rolesQuery.isError && <small className="gf-form-error">Roles could not be loaded.</small>}{error && <p className="gf-form-error" role="alert">{error}</p>}{manage && <DangerousAction label="Save settings" warning="Changing login methods can lock out administrators. Verify that another working login method remains before saving." onConfirm={save} />}</div></section>
+  return <section className="gf-card-panel"><div className="gf-editor-form"><label><input type="checkbox" checked={passwordLogin} onChange={(event) => setPasswordLogin(event.target.checked)} /> Enable password login</label><label><input type="checkbox" checked={registration} onChange={(event) => setRegistration(event.target.checked)} /> Allow password registration</label><label><input type="checkbox" checked={requireUserApproval} onChange={(event) => setRequireUserApproval(event.target.checked)} /> Require administrator approval for new users</label><p className="gf-muted">Pending users cannot sign in until an administrator approves them.</p><label htmlFor="default-role">Default role<RoleSelect id="default-role" value={defaultRole} roles={rolesQuery.data} disabled={rolesQuery.isPending || rolesQuery.isError} onChange={setDefaultRole} /></label>{rolesQuery.isError && <small className="gf-form-error">Roles could not be loaded.</small>}{error && <p className="gf-form-error" role="alert">{error}</p>}{manage && <DangerousAction label="Save settings" warning="Changing login methods can lock out administrators. Verify that another working login method remains available before saving." onConfirm={save} />}</div></section>
 }
 
 function GeneralSettingsTab() {
@@ -261,7 +293,8 @@ export function ExecutionStatusPage() {
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Exit code update failed') } finally { setBusy(false) }
   }
   const remove = async (item: ExitCode) => { setError(''); try { await api.delete(`/api/v1/admin/execution-status/${encodeURIComponent(item.code)}`); await query.refetch() } catch (cause) { setError(cause instanceof Error ? cause.message : 'Exit code deletion failed') } }
-  return <main className="gf-content"><PageHeader title="Execution Status" description="Exit codes reported by completed task processes." action={manage && !formOpen && <Button onClick={create}>Create exit code</Button>} />
+  return <main className="gf-content"><PageHeader title="Execution Status" description="Exit codes reported by completed task processes." refresh={<QueryRefresh query={query} />} />
+    {manage && !formOpen && <div className="gf-table-toolbar"><Button onClick={create}>Create exit code</Button></div>}
     {formOpen && <section className="gf-card-panel"><form className="gf-editor-form" onSubmit={save}><div className="gf-form-grid"><label>Exit Code<Input type="number" step="1" value={draft.code} onChange={(event) => setDraft({ ...draft, code: event.target.value })} required /></label><label>Meaning<Input value={draft.meaning} onChange={(event) => setDraft({ ...draft, meaning: event.target.value })} required /></label></div>{error && <p className="gf-form-error" role="alert">{error}</p>}<div className="gf-dialog-actions"><Button type="submit" busy={busy}>{editing !== null ? 'Save exit code' : 'Create exit code'}</Button><Button type="button" variant="ghost" onClick={closeForm}>Cancel</Button></div></form></section>}
     <QueryState query={query} empty="No exit code meanings are configured.">{(items) => items.length ? <><DataTable caption="Execution status" rows={items.slice((page - 1) * limit, page * limit).map((item) => ({ ...item, id: item.code }))} columns={[{ key: 'code', label: 'Exit Code' }, { key: 'meaning', label: 'Meaning' }, { key: 'isSystem', label: 'Type', render: (item) => <StatusPill status={item.isSystem ? 'system' : 'custom'} /> }, { key: 'actions', label: 'Actions', render: (item) => !item.isSystem && manage && <TableActions label={`Actions for exit code ${item.code}`}><DropdownMenuItem onSelect={() => edit(item)}>Edit</DropdownMenuItem><DropdownMenuSeparator /><DangerousAction label="Delete" onConfirm={() => remove(item)} renderTrigger={(open) => <DropdownMenuItem onSelect={(event) => { event.preventDefault(); open() }}>Delete</DropdownMenuItem>} /></TableActions> }]} /><Pagination page={page} pages={Math.max(1, Math.ceil(items.length / limit))} limit={limit} onChange={setPage} onLimitChange={(next) => { setLimit(next); setPage(1) }} /></> : <EmptyState title="No execution statuses">Create an exit code meaning.</EmptyState>}</QueryState>{error && !formOpen && <p className="gf-form-error" role="alert">{error}</p>}</main>
 }

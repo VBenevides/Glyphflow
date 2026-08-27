@@ -49,6 +49,12 @@ jobs:
       - name: Build image
         run: docker build --platform linux/amd64 --file build/Dockerfile --tag "$GLYPHFLOW_IMAGE" .
 
+      - name: Validate deployment topologies
+        env:
+          NATS_IMAGE_REF: nats@sha256:b83efabe3e7def1e0a4a31ec6e078999bb17c80363f881df35edc70fcb6bb927
+          POSTGRES_IMAGE_REF: postgres@sha256:44c4ee9810eff91f7eab4d822642e01115b1a9eccce4bcbdde7604752d68eac6
+        run: ./scripts/deployment-check.sh "$GLYPHFLOW_IMAGE"
+
       - name: Smoke test image
         run: |
           set -Eeuo pipefail

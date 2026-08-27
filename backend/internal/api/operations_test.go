@@ -20,6 +20,15 @@ func TestPreviewOccurrencesReturnsFiveIncreasingTimes(t *testing.T) {
 	}
 }
 
+func TestPreviewRejectsImpossibleCronDate(t *testing.T) {
+	o := NewOperationsService()
+	response := httptest.NewRecorder()
+	o.preview(response, httptest.NewRequest(http.MethodPost, "/api/v1/schedules/preview", bytes.NewBufferString(`{"expression":"0 0 31 2 *","timezone":"UTC"}`)))
+	if response.Code != http.StatusBadRequest || !bytes.Contains(response.Body.Bytes(), []byte("no occurrence")) {
+		t.Fatalf("invalid preview response = %d %s", response.Code, response.Body.String())
+	}
+}
+
 func TestTaskDefinitionIncludesResourceRequirements(t *testing.T) {
 	definition := taskDefinition("task-1", taskInput{Name: "Build", RunnerPool: "default", Command: []string{"echo", "ok"}, Resources: []string{"resource-1", "resource-2"}})
 	if len(definition.ResourceIDs) != 2 || definition.ResourceIDs[0] != "resource-1" || definition.ResourceIDs[1] != "resource-2" {

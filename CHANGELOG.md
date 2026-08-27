@@ -2,6 +2,35 @@
 
 All notable changes to Glyphflow are documented here.
 
+## [0.2.4] - 2026-08-26
+
+### Features
+
+- Added full and partial deployment bundles with pinned Glyphflow, NATS, and PostgreSQL images, offline archives, manifests, checksums, and topology validation.
+- Added direct control-plane container mode for private ingress, including ACA-style routing to port 8080 and private PostgreSQL/NATS network contracts.
+- Added runner CPU and memory samples with current values, history charts, and configurable retention.
+- Added pending-user approval, user status filtering, human-friendly copyable identifiers, and normalized session device labels.
+- Added registered, pending, and session counters, single-role user filtering, contextual metric icons, and elevated permission indicators.
+- Ordered custom-role permissions alphabetically by column and row, and standardized console actions, navigation, and refresh controls.
+
+### Bugfixes
+
+- Enforced secure worker endpoints and private PostgreSQL CA trust, and preserved immutable run references.
+- Excluded GET audit events by default and retained mutation request/response change details.
+- Corrected cron preview wildcard, step, calendar, leap-year, timezone, and DST handling.
+- Improved log prefixes and frontend control widths, sidebar footer visibility, and dialog/tooltip layering.
+- Improved modal titlebars and scrolling, task name display and archive spacing, table/pagination connections, and page layout consistency.
+- Hid accepted audit preflight events by default and recorded before/after values for write operations.
+
+### Other
+
+- Pinned release build inputs, added image provenance/SBOM attestations, expanded release smoke tests, and synchronized 0.2.4 documentation and metadata.
+
+### Breaking Changes
+
+- Version 0.2.4 is clean-install-only and does not upgrade earlier PostgreSQL schemas.
+- Outside development, worker control-plane endpoints must use HTTPS and NATS endpoints must use TLS; insecure transport requires explicit development settings.
+
 ## [0.2.3] - 2026-08-25
 
 ### Features

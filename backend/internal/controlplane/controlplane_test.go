@@ -35,6 +35,40 @@ func TestCronRangesStepsAndDayRules(t *testing.T) {
 	if _, err := (Schedule{Cron: "0 0 1-99 * *", Timezone: "UTC"}).Next(now); err == nil {
 		t.Fatal("out-of-range cron was accepted")
 	}
+	next, err = (Schedule{Cron: "0 0 1-31 2 1", Timezone: "UTC"}).Next(time.Date(2026, 2, 2, 0, 1, 0, 0, time.UTC))
+	if err != nil || !next.Equal(time.Date(2026, 2, 9, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("full DOM field was not treated as any: %v %v", next, err)
+	}
+	next, err = (Schedule{Cron: "1/2 0 * * *", Timezone: "UTC"}).Next(time.Date(2026, 1, 1, 0, 1, 0, 0, time.UTC))
+	if err != nil || !next.Equal(time.Date(2026, 1, 1, 0, 3, 0, 0, time.UTC)) {
+		t.Fatalf("numeric step cron failed: %v %v", next, err)
+	}
+}
+
+func TestCronCalendarAndDSTBoundaries(t *testing.T) {
+	newYork, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, err := (Schedule{Cron: "30 2 * * *", Timezone: "America/New_York"}).Next(time.Date(2026, 3, 8, 1, 59, 0, 0, newYork))
+	if err != nil || !next.Equal(time.Date(2026, 3, 9, 2, 30, 0, 0, newYork)) {
+		t.Fatalf("DST gap = %v %v", next, err)
+	}
+	next, err = (Schedule{Cron: "0 0 29 2 *", Timezone: "UTC"}).Next(time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil || !next.Equal(time.Date(2028, 2, 29, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("leap day = %v %v", next, err)
+	}
+	first, err := (Schedule{Cron: "30 1 * * *", Timezone: "America/New_York"}).Next(time.Date(2026, 11, 1, 0, 0, 0, 0, newYork))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := (Schedule{Cron: "30 1 * * *", Timezone: "America/New_York"}).Next(first)
+	if err != nil || !second.Equal(first.Add(time.Hour)) || second.Format("-0700") != "-0500" {
+		t.Fatalf("DST fold = %v %v after %v", second, err, first)
+	}
+	if _, err := NextFire("0 0 31 2 *", "UTC", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)); err == nil {
+		t.Fatal("impossible calendar date was accepted")
+	}
 }
 
 func TestScheduleSupportsWholeHourUTCOffsets(t *testing.T) {

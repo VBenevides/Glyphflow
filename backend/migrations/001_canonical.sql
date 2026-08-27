@@ -197,6 +197,16 @@ CREATE TABLE runner_sessions (
     UNIQUE (id, runner_id)
 );
 CREATE UNIQUE INDEX runner_sessions_active_idx ON runner_sessions(runner_id) WHERE disconnected_at IS NULL;
+CREATE TABLE runner_metrics (
+    runner_id text NOT NULL REFERENCES runners(id) ON DELETE CASCADE,
+    sampled_at timestamptz NOT NULL,
+    cpu_percent double precision NOT NULL CHECK (cpu_percent >= 0 AND cpu_percent <= 100),
+    memory_percent double precision NOT NULL CHECK (memory_percent >= 0 AND memory_percent <= 100),
+    memory_used_bytes bigint NOT NULL CHECK (memory_used_bytes >= 0),
+    memory_total_bytes bigint NOT NULL CHECK (memory_total_bytes > 0),
+    PRIMARY KEY (runner_id, sampled_at)
+);
+CREATE INDEX runner_metrics_sampled_idx ON runner_metrics (sampled_at);
 CREATE TABLE runner_keys (
     key_id text PRIMARY KEY,
     runner_id text NOT NULL REFERENCES runners(id) ON DELETE CASCADE,

@@ -17,6 +17,9 @@ import (
 type RunRecord struct {
 	ID                string `json:"id"`
 	TaskID            string `json:"taskId"`
+	TaskVersionID     string `json:"taskVersionId,omitempty"`
+	ScheduleID        string `json:"scheduleId,omitempty"`
+	ScheduleVersionID string `json:"scheduleVersionId,omitempty"`
 	TaskName          string `json:"taskName,omitempty"`
 	State             string `json:"state"`
 	PlacementBlocker  string `json:"placementBlocker,omitempty"`
@@ -68,7 +71,7 @@ func runRecordFromStore(run store.RunRecord) RunRecord {
 	if !run.ScheduledFor.IsZero() {
 		scheduledFor = run.ScheduledFor.UTC().Format(time.RFC3339)
 	}
-	return RunRecord{ID: run.ID, TaskID: run.TaskID, TaskName: run.TaskName, State: run.State, PlacementBlocker: run.PlacementBlocker, Attempt: run.Attempt, ExitCode: run.ExitCode, ExitCodeMeaning: run.ExitCodeMeaning, Error: run.Error, Runner: run.Runner, Trigger: run.TriggerType, ScheduledFor: scheduledFor, MaxMemoryUsed: run.MaxMemoryUsedBytes, AverageMemoryUsed: run.AverageMemoryUsedBytes}
+	return RunRecord{ID: run.ID, TaskID: run.TaskID, TaskVersionID: run.TaskVersionID, ScheduleID: run.ScheduleID, ScheduleVersionID: run.ScheduleVersionID, TaskName: run.TaskName, State: run.State, PlacementBlocker: run.PlacementBlocker, Attempt: run.Attempt, ExitCode: run.ExitCode, ExitCodeMeaning: run.ExitCodeMeaning, Error: run.Error, Runner: run.Runner, Trigger: run.TriggerType, ScheduledFor: scheduledFor, MaxMemoryUsed: run.MaxMemoryUsedBytes, AverageMemoryUsed: run.AverageMemoryUsedBytes}
 }
 
 func (s *RunService) collection(w http.ResponseWriter, r *http.Request) {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -9,6 +10,26 @@ import (
 	"github.com/VBenevides/Glyphflow/backend/internal/protocol"
 	"github.com/VBenevides/Glyphflow/backend/internal/worker"
 )
+
+func TestRunnerHeartbeatPayloadIncludesResourceMetrics(t *testing.T) {
+	raw := runnerHeartbeatPayload("runner-1", "boot-1", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), 4, &runnerResourceMetrics{CPUPercent: 12.5, MemoryPercent: 37.5, MemoryUsedBytes: 100, MemoryTotalBytes: 200})
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range map[string]float64{"cpu_percent": 12.5, "memory_percent": 37.5, "memory_used_bytes": 100, "memory_total_bytes": 200} {
+		if payload[key] != want {
+			t.Fatalf("payload[%q] = %v, want %v", key, payload[key], want)
+		}
+	}
+}
+
+func TestSampleRunnerResourcesReadsHostMemory(t *testing.T) {
+	metrics := sampleRunnerResources()
+	if metrics == nil || metrics.MemoryTotalBytes <= 0 || metrics.MemoryUsedBytes < 0 || metrics.MemoryPercent < 0 || metrics.MemoryPercent > 100 || metrics.CPUPercent < 0 || metrics.CPUPercent > 100 {
+		t.Fatalf("sampled resources = %#v", metrics)
+	}
+}
 
 func TestNeedsRunnerEnrollmentForUnenrolledStore(t *testing.T) {
 	bootstrap := &worker.Bootstrap{RunnerID: "runner-1"}
@@ -69,6 +90,34 @@ func TestResolveControlPlaneEndpointPriority(t *testing.T) {
 	t.Setenv("RUNNER_CONTROL_PLANE_URL", "")
 	if got := resolveControlPlaneEndpoint(bootstrap); got != "http://embedded:8080" {
 		t.Fatalf("embedded endpoint = %q", got)
+	}
+}
+
+func TestValidateWorkerControlPlaneEndpoint(t *testing.T) {
+	for _, test := range []struct {
+		name, environment, allow, endpoint, wantErr string
+	}{
+		{name: "secure production", environment: "production", allow: "false", endpoint: "https://control.example"},
+		{name: "insecure development opt in", environment: "development", allow: "true", endpoint: "http://control.example"},
+		{name: "production rejects HTTP", environment: "production", allow: "false", endpoint: "http://control.example", wantErr: "HTTPS"},
+		{name: "development requires opt in", environment: "development", allow: "false", endpoint: "http://control.example", wantErr: "HTTPS"},
+		{name: "missing host", environment: "production", allow: "false", endpoint: "https://", wantErr: "URL"},
+		{name: "userinfo", environment: "production", allow: "false", endpoint: "https://user@control.example", wantErr: "URL"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("ENVIRONMENT", test.environment)
+			t.Setenv("ALLOW_INSECURE_TRANSPORT", test.allow)
+			err := validateWorkerControlPlaneEndpoint(test.endpoint)
+			if test.wantErr == "" {
+				if err != nil {
+					t.Fatalf("validateWorkerControlPlaneEndpoint() error = %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("validateWorkerControlPlaneEndpoint() error = %v; want %q", err, test.wantErr)
+			}
+		})
 	}
 }
 

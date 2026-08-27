@@ -9,12 +9,14 @@ import (
 
 	"github.com/VBenevides/Glyphflow/backend/internal/protocol"
 	"github.com/VBenevides/Glyphflow/backend/internal/queue"
+	"github.com/VBenevides/Glyphflow/backend/internal/store"
 )
 
 type heartbeatRepository struct {
 	id       string
 	at       time.Time
 	capacity int
+	metrics  *store.RunnerMetricsSample
 	key      protocol.SigningKey
 }
 
@@ -51,6 +53,11 @@ func (r *heartbeatRepository) HeartbeatWithKeyAndCapacity(_ context.Context, id,
 	return nil
 }
 
+func (r *heartbeatRepository) HeartbeatWithKeyAndCapacityAndMetrics(_ context.Context, id, _ string, at time.Time, capacity int, sample store.RunnerMetricsSample, _ string, _ []byte) error {
+	r.id, r.at, r.capacity, r.metrics = id, at, capacity, &sample
+	return nil
+}
+
 func (r *heartbeatRepository) MarkStale(context.Context, time.Time) error { return nil }
 
 func TestRecordRunnerHeartbeat(t *testing.T) {
@@ -80,6 +87,30 @@ func TestRecordRunnerHeartbeat(t *testing.T) {
 	}
 	if err := recordRunnerHeartbeatForSubject(context.Background(), repository, queue.Subject("heartbeats", "runner-1"), raw); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRecordRunnerHeartbeatForwardsSignedResourceMetrics(t *testing.T) {
+	repository := &heartbeatRepository{}
+	key, err := protocol.GenerateSigningKey("runner:1", time.Now().UTC(), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository.key = key
+	payload, _ := json.Marshal(map[string]any{"runner_id": "runner-1", "boot_id": "boot-1", "at": time.Now().UTC().Format(time.RFC3339Nano), "capacity": 42, "cpu_percent": 12.5, "memory_percent": 37.5, "memory_used_bytes": 100, "memory_total_bytes": 200})
+	envelope, err := key.SignEvent(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := protocol.EncodeEnvelope(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := recordRunnerHeartbeatForSubject(context.Background(), repository, queue.Subject("heartbeats", "runner-1"), raw); err != nil {
+		t.Fatal(err)
+	}
+	if repository.metrics == nil || repository.metrics.CPUPercent != 12.5 || repository.metrics.MemoryPercent != 37.5 || repository.metrics.MemoryUsedBytes != 100 || repository.metrics.MemoryTotalBytes != 200 {
+		t.Fatalf("metrics = %#v", repository.metrics)
 	}
 }
 

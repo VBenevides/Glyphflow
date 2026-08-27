@@ -1,7 +1,8 @@
 import * as TabsPrimitive from '@radix-ui/react-tabs'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu'
-import { MoreHorizontal } from 'lucide-react'
+import { Copy, MoreHorizontal } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { Children, forwardRef, useId, useState, type ButtonHTMLAttributes, type ComponentPropsWithoutRef, type ComponentType, type ElementRef, type InputHTMLAttributes, type ReactNode } from 'react'
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -37,7 +38,15 @@ export function FilterInput({ label, options = [], value, onChange, id, ...props
 }
 
 export function InfoTooltip({ text }: { text: string }) {
-  return <span className="gf-info-tooltip"><button type="button" className="gf-info-tooltip-trigger" aria-label="More information">i</button><span className="gf-info-tooltip-content" role="tooltip">{text}</span></span>
+  return <span className="gf-info-tooltip"><button type="button" className="gf-info-tooltip-trigger" aria-label="More information" title={text}>i</button></span>
+}
+
+export function Identifier({ id, name, href, className, linkClassName, copyLabel = 'Copy identifier' }: { id?: string; name?: string; href?: string; className?: string; linkClassName?: string; copyLabel?: string }) {
+  if (!id) return <span>—</span>
+  const compact = id.length > 5 ? `…${id.slice(-5)}` : id
+  const label = name ? `${name} · ${compact}` : compact
+  const content = href ? <Link className={linkClassName} to={href} title={id}>{label}</Link> : <span title={id}>{label}</span>
+  return <span className={`gf-identifier${className ? ` ${className}` : ''}`}>{content}<Button variant="ghost" className="gf-identifier-copy" aria-label={copyLabel} onClick={() => { void navigator.clipboard?.writeText(id).catch(() => undefined) }}><Copy size={15} aria-hidden="true" /></Button></span>
 }
 
 export function FieldLabel({ children, info, htmlFor }: { children: ReactNode; info?: string; htmlFor?: string }) {
@@ -46,7 +55,7 @@ export function FieldLabel({ children, info, htmlFor }: { children: ReactNode; i
 
 export function Dialog({ open, title, children, onClose, className }: { open: boolean; title: string; children: ReactNode; onClose: () => void; className?: string }) {
   const titleId = useId()
-  return <DialogPrimitive.Root open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose() }}><DialogPrimitive.Overlay className="gf-dialog-backdrop" /><DialogPrimitive.Content aria-modal="true" aria-labelledby={titleId} className={`gf-dialog${className ? ` ${className}` : ''}`}><div className="gf-dialog-header"><DialogPrimitive.Title asChild><h2 id={titleId}>{title}</h2></DialogPrimitive.Title><DialogPrimitive.Close asChild><Button variant="ghost" aria-label="Close dialog">×</Button></DialogPrimitive.Close></div>{children}</DialogPrimitive.Content></DialogPrimitive.Root>
+  return <DialogPrimitive.Root open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose() }}><DialogPrimitive.Portal><DialogPrimitive.Overlay className="gf-dialog-backdrop" /><DialogPrimitive.Content aria-modal="true" aria-labelledby={titleId} className={`gf-dialog${className ? ` ${className}` : ''}`}><div className="gf-dialog-header"><DialogPrimitive.Title asChild><h2 id={titleId}>{title}</h2></DialogPrimitive.Title><DialogPrimitive.Close asChild><Button className="gf-dialog-close" variant="ghost" aria-label="Close dialog">×</Button></DialogPrimitive.Close></div><div className="gf-dialog-body">{children}</div></DialogPrimitive.Content></DialogPrimitive.Portal></DialogPrimitive.Root>
 }
 
 export function StatusPill({ status }: { status: string }) {
@@ -54,8 +63,8 @@ export function StatusPill({ status }: { status: string }) {
   return <span className={`gf-status gf-status-${normalized}`}>{status}</span>
 }
 
-export function PageHeader({ title, description, action, meta }: { title: string; description?: string; action?: ReactNode; meta?: ReactNode }) {
-  return <header className="gf-page-header"><div><h1>{title}</h1>{description && <p>{description}</p>}</div><div className="gf-page-header-actions">{meta && <div className="gf-page-header-meta">{meta}</div>}{action}</div></header>
+export function PageHeader({ title, description, action, meta, refresh }: { title: string; description?: string; action?: ReactNode; meta?: ReactNode; refresh?: ReactNode }) {
+  return <header className="gf-page-header"><div><h1>{title}</h1>{description && <p>{description}</p>}{refresh && <div className="gf-page-header-refresh">{refresh}</div>}</div><div className="gf-page-header-actions">{meta && <div className="gf-page-header-meta">{meta}</div>}{action}</div></header>
 }
 
 export const Tabs = TabsPrimitive.Root
@@ -94,8 +103,8 @@ export function TableActions({ label = 'Actions', children }: { label?: string; 
 
 export type MetricTone = 'default' | 'success' | 'warning' | 'danger' | 'info'
 
-export function MetricCard({ label, value, detail, icon: Icon, tone = 'default' }: { label: string; value: ReactNode; detail?: ReactNode; icon?: ComponentType<{ className?: string; size?: string | number }>; tone?: MetricTone }) {
-  return <section className={`gf-metric gf-metric-${tone}`}><div className="gf-metric-heading"><span>{label}</span>{Icon && <span className="gf-metric-icon" aria-hidden="true"><Icon size={16} /></span>}</div><strong>{value}</strong>{detail && <small>{detail}</small>}</section>
+export function MetricCard({ label, value, detail, icon: Icon, tone = 'default' }: { label: string; value: ReactNode; detail?: ReactNode; icon: ComponentType<{ className?: string; size?: string | number }>; tone?: MetricTone }) {
+  return <section className={`gf-metric gf-metric-${tone}`}><div className="gf-metric-heading"><span>{label}</span><span className="gf-metric-icon" aria-hidden="true"><Icon size={16} /></span></div><strong>{value}</strong>{detail && <small>{detail}</small>}</section>
 }
 
 export type Column<T> = { key: string; label: string; className?: string; render?: (row: T) => ReactNode }

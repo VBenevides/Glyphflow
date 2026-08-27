@@ -69,6 +69,9 @@ func TestAuthServiceRegistrationLoginRefreshReplayAndPermissionRevocation(t *tes
 	if !auth.Permissions(Claims{UserID: registered.ID})["tasks.read"] {
 		t.Fatal("default role permission missing")
 	}
+	if user, ok := auth.User(registered.ID); !ok || user.DisplayName != "Alice" {
+		t.Fatalf("derived display name = %#v, %v", user, ok)
+	}
 }
 
 func TestAuthServiceProtectsLastAdministrator(t *testing.T) {

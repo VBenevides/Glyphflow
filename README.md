@@ -5,7 +5,7 @@
 <h1 align="center">Glyphflow</h1>
 
 <p align="center">
-  <a href="VERSION"><img src="https://img.shields.io/badge/version-v0.2.3-blue?style=flat-square" alt="Version v0.2.3"></a>
+  <a href="VERSION"><img src="https://img.shields.io/badge/version-v0.2.4-blue?style=flat-square" alt="Version v0.2.4"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/VBenevides/Glyphflow?style=flat-square" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/phase-alpha-orange?style=flat-square" alt="Phase alpha">
   <a href="https://github.com/VBenevides/Glyphflow/actions/workflows/ci.yml"><img src="https://github.com/VBenevides/Glyphflow/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
@@ -217,13 +217,17 @@ it; generate a new artifact if the enrollment expires or is consumed.
 
 ## Production deployment
 
+The released [deployment contract](docs/DEPLOYMENT.md) covers both the full
+Compose stack and a partial deployment with separately managed NATS and
+PostgreSQL services.
+
 The release workflow publishes a ready-to-use image to GitHub Container
 Registry when a GitHub release is published. The release tag must match
 `VERSION`, with or without a leading `v`. Stable releases also receive the
 `latest` tag.
 
 ```bash
-export GLYPHFLOW_IMAGE=ghcr.io/vbenevides/glyphflow:0.2.3
+export GLYPHFLOW_IMAGE=ghcr.io/vbenevides/glyphflow:0.2.4
 docker pull "$GLYPHFLOW_IMAGE"
 ```
 
@@ -231,11 +235,11 @@ The GitHub release also contains a Linux AMD64 image archive and SHA-256
 checksum for environments without registry access:
 
 ```bash
-sha256sum -c glyphflow-0.2.3-linux-amd64.tar.gz.sha256
-docker load -i glyphflow-0.2.3-linux-amd64.tar.gz
+sha256sum -c glyphflow-0.2.4-linux-amd64.tar.gz.sha256
+docker load -i glyphflow-0.2.4-linux-amd64.tar.gz
 ```
 
-Version 0.2.3 is clean-install-only. On first start, the image applies its
+Version 0.2.4 is clean-install-only. On first start, the image applies its
 single canonical PostgreSQL schema to a new database; it does not upgrade
 databases from earlier releases.
 
@@ -250,7 +254,7 @@ For production, provide the required values and secret files described in
 COMPOSE_PROJECT_NAME=client-example docker compose -f compose.yaml -f compose.production.yaml up -d
 ```
 
-Version 0.2.3 supports one isolated production stack per client. Use a unique
+Version 0.2.4 supports one isolated production stack per client. Use a unique
 `COMPOSE_PROJECT_NAME` for each client so its PostgreSQL data, NATS authority,
 network, secrets, backups, and administrator scope stay separate. Shared
 tenancy and scaling any service beyond one replica are unsupported in this
@@ -340,6 +344,10 @@ with `_FILE` or `_SOURCE`.
 | `ENABLE_PASSWORD_REGISTRATION` | Enable self-service password registration; production defaults to disabled |
 | `DEFAULT_ROLE_ID` | Role assigned to newly created users |
 | `DATA_DIR` | Persistent control-plane data, including the development signing key |
+| `GLYPHFLOW_DISABLE_NGINX` | Set to `true` when private ingress targets the control-plane listener directly on port `8080`; defaults to `false` and starts Nginx on port `80` |
+
+For private container ingress such as ACA, set `GLYPHFLOW_DISABLE_NGINX=true`
+and route ingress to port `8080`.
 
 `GLYPHFLOW_BOOTSTRAP_EMAIL` and either `GLYPHFLOW_BOOTSTRAP_PASSWORD` (local
 development) or the protected `GLYPHFLOW_BOOTSTRAP_PASSWORD_FILE` (production
@@ -359,10 +367,14 @@ started without an embedded bootstrap, configure:
 | `DATA_DIR` | Persistent worker directory containing `runner.sqlite` and signing keys |
 | `MAX_MESSAGE_BYTES` | Maximum accepted protocol message size |
 | `MAX_OUTPUT_BYTES` | Maximum captured process output; cannot exceed `MAX_MESSAGE_BYTES` |
-| `ENVIRONMENT` | Use `development` for a plain local NATS endpoint and `production` for TLS validation |
+| `ENVIRONMENT` | Use `development` with `ALLOW_INSECURE_TRANSPORT=true` only for plain local endpoints; production requires HTTPS and NATS TLS |
 | `NATS_CERT_FILE`, `NATS_KEY_FILE`, `NATS_CA_FILE` | Worker NATS client TLS material in production |
 | `GLYPHFLOW_CONTROL_PLANE_URL` | Optional override for the enrollment endpoint |
 | `GLYPHFLOW_NATS_ENDPOINT` | Optional override for the NATS endpoint embedded in an artifact |
+
+Outside development, the effective control-plane endpoint must use `https://`
+and the NATS endpoint must use `tls://`. Plain `http://` and `nats://` values
+require both `ENVIRONMENT=development` and `ALLOW_INSECURE_TRANSPORT=true`.
 
 Persist `DATA_DIR`. Deleting it removes the worker's local recovery state and
 identity, so the worker may need to be enrolled again.

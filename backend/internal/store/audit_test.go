@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"testing"
 	"time"
@@ -25,7 +26,10 @@ func TestAuditRepositoryPersistsFiltersAndAppendOnlyRows(t *testing.T) {
 	if err := repository.Append(ctx, AuditEventRecord{ID: id, ActorName: "actor", Method: "POST", Description: "Create task", Endpoint: "/api/v1/tasks", Target: "task-1", Result: "success", RequestInput: map[string]any{"name": "task"}, CorrelationID: "corr", CreatedAt: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
 	}
-	events, counts, err := repository.Query(ctx, AuditFilter{Actor: "actor", CorrelationID: "corr", Page: 1, Limit: 10})
+	if err := repository.Append(ctx, AuditEventRecord{ID: id + "-read", ActorName: "actor", Method: http.MethodGet, Description: "List tasks", Endpoint: "/api/v1/tasks", Target: "task-1", Result: "success", CorrelationID: "corr", CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	events, counts, err := repository.Query(ctx, AuditFilter{Actor: "actor", CorrelationID: "corr", ExcludeMethod: http.MethodGet, Page: 1, Limit: 10})
 	if err != nil || counts.Total != 1 || counts.Writes != 1 || counts.Failures != 0 || len(events) != 1 || events[0].Method != "POST" {
 		t.Fatalf("events = %#v, counts=%+v, err=%v", events, counts, err)
 	}

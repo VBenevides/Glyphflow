@@ -10,6 +10,15 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+func TestNormalizeDisplayName(t *testing.T) {
+	if got := NormalizeDisplayName("john.doe-smith@example.com", ""); got != "John Doe Smith" {
+		t.Fatalf("derived display name = %q", got)
+	}
+	if got := NormalizeDisplayName("john@example.com", " Custom Name "); got != "Custom Name" {
+		t.Fatalf("custom display name = %q", got)
+	}
+}
+
 func TestUserRepositoryRoundTrip(t *testing.T) {
 	url := os.Getenv("DATABASE_URL")
 	if url == "" {
@@ -29,7 +38,7 @@ func TestUserRepositoryRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := UserRecord{ID: id, Username: email, Email: email, DisplayName: "Test User", Enabled: true}
+	want := UserRecord{ID: id, Username: email, Email: email, DisplayName: "Test User", Status: StatusActive, Enabled: true}
 	if err := repository.Create(ctx, want, hash); err != nil {
 		t.Fatal(err)
 	}

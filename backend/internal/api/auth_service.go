@@ -16,8 +16,13 @@ import (
 	"github.com/VBenevides/Glyphflow/backend/internal/store"
 )
 
+var ErrPendingUser = errors.New("account pending administrator approval")
+
+const defaultAdminDisplayName = "Default Admin"
+
 type AuthUser struct {
 	ID, Username, Email, DisplayName string
+	Status                           string
 	Enabled                          bool
 }
 type AuthTokens struct {
@@ -36,6 +41,7 @@ type AuthService struct {
 	roles                                store.RoleRepository
 	config                               *store.ConfigStore
 	passwordEnabled, registrationEnabled bool
+	userApprovalRequired                 bool
 	defaultRoleID                        string
 	lockdownScheduler                    bool
 	sessions                             *SessionManager
@@ -104,7 +110,14 @@ func (s *AuthService) SetSSORepository(repository store.SSORepository) {
 }
 
 func toAuthUser(user store.UserRecord) AuthUser {
-	return AuthUser{ID: user.ID, Username: user.Username, Email: user.Email, DisplayName: user.DisplayName, Enabled: user.Enabled}
+	status := user.Status
+	if status == "" {
+		status = store.StatusDisabled
+		if user.Enabled {
+			status = store.StatusActive
+		}
+	}
+	return AuthUser{ID: user.ID, Username: user.Username, Email: user.Email, DisplayName: store.NormalizeDisplayName(user.Email, user.DisplayName), Status: status, Enabled: status == store.StatusActive}
 }
 
 func (s *AuthService) userByID(id string) (AuthUser, bool, error) {
@@ -126,7 +139,7 @@ func (s *AuthService) SetSystemAdminEmails(emails []string) error {
 		}
 		configured[email] = true
 	}
-	users, err := s.users.List(context.Background())
+	users, err := s.users.List(context.Background(), "")
 	if err != nil {
 		return err
 	}
@@ -208,7 +221,7 @@ func (s *AuthService) SetDefaultRoleID(roleID string) error {
 func (s *AuthService) AuthSettings() map[string]any {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return map[string]any{"passwordLoginEnabled": s.passwordEnabled, "registration": s.registrationEnabled, "defaultRoleId": s.defaultRoleID, "lockdownScheduler": s.lockdownScheduler}
+	return map[string]any{"passwordLoginEnabled": s.passwordEnabled, "registration": s.registrationEnabled, "requireUserApproval": s.userApprovalRequired, "defaultRoleId": s.defaultRoleID, "lockdownScheduler": s.lockdownScheduler}
 }
 
 func (s *AuthService) LockdownScheduler() bool {
@@ -248,9 +261,21 @@ func (s *AuthService) RegistrationEnabled() bool {
 	return s.registrationEnabled
 }
 
+func (s *AuthService) UserApprovalRequired() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.userApprovalRequired
+}
+
+func (s *AuthService) SetUserApprovalRequired(required bool) {
+	s.mu.Lock()
+	s.userApprovalRequired = required
+	s.mu.Unlock()
+}
+
 func (s *AuthService) SessionManager() *SessionManager { return s.sessions }
 
-func (s *AuthService) UpdateAuthSettings(passwordEnabled, registrationEnabled bool, defaultRole string) error {
+func (s *AuthService) UpdateAuthSettings(passwordEnabled, registrationEnabled bool, defaultRole string, userApproval ...bool) error {
 	defaultRoleID := defaultRole
 	if defaultRole != "" {
 		definition, ok, err := s.roles.FindByID(context.Background(), defaultRole)
@@ -273,9 +298,13 @@ func (s *AuthService) UpdateAuthSettings(passwordEnabled, registrationEnabled bo
 		defaultRoleID = s.defaultRoleID
 	}
 	config := s.config
+	approvalRequired := s.userApprovalRequired
+	if len(userApproval) > 0 {
+		approvalRequired = userApproval[0]
+	}
 	s.mu.RUnlock()
 	if config != nil {
-		if err := config.SetAuthenticationSettings(context.Background(), passwordEnabled, registrationEnabled, defaultRoleID); err != nil {
+		if err := config.SetAuthenticationSettings(context.Background(), passwordEnabled, registrationEnabled, defaultRoleID, approvalRequired); err != nil {
 			return err
 		}
 	}
@@ -286,6 +315,7 @@ func (s *AuthService) UpdateAuthSettings(passwordEnabled, registrationEnabled bo
 	}
 	s.passwordEnabled = passwordEnabled
 	s.registrationEnabled = registrationEnabled
+	s.userApprovalRequired = approvalRequired
 	return nil
 }
 
@@ -294,21 +324,39 @@ func (s *AuthService) EnsureBootstrap(username, password, provider, subject stri
 	if err != nil || password == "" {
 		return AuthUser{}, errors.New("bootstrap email and password are required")
 	}
-	existing, found, findErr := s.userByEmail(key)
+	stored, found, findErr := s.users.FindByEmail(context.Background(), key)
 	if findErr != nil {
 		return AuthUser{}, findErr
 	}
 	if found {
+		existing := toAuthUser(stored)
+		if strings.TrimSpace(stored.DisplayName) == "" {
+			if err := s.users.UpdateDisplayName(context.Background(), stored.ID, defaultAdminDisplayName); err != nil {
+				return AuthUser{}, err
+			}
+			existing.DisplayName = defaultAdminDisplayName
+		}
+		if existing.Status != store.StatusActive {
+			if err := s.users.SetStatus(context.Background(), existing.ID, store.StatusActive); err != nil {
+				return AuthUser{}, err
+			}
+			existing.Status = store.StatusActive
+			existing.Enabled = true
+		}
 		if err := s.Grant(existing.ID, "admin"); err != nil {
 			return AuthUser{}, err
 		}
 		return existing, nil
 	}
-	user, err := s.register(key, password, false)
+	user, err := s.registerWithStatus(key, password, false, store.StatusActive)
 	if err != nil {
 		return AuthUser{}, err
 	}
 	if err := s.Grant(user.ID, "admin"); err != nil {
+		return AuthUser{}, err
+	}
+	user.DisplayName = defaultAdminDisplayName
+	if err := s.users.UpdateDisplayName(context.Background(), user.ID, defaultAdminDisplayName); err != nil {
 		return AuthUser{}, err
 	}
 	return user, nil
@@ -337,7 +385,8 @@ func (s *AuthService) AddRole(role string, permissions ...string) error {
 	return nil
 }
 func (s *AuthService) Grant(userID, role string) error {
-	if _, ok, err := s.userByID(userID); err != nil {
+	user, ok, err := s.userByID(userID)
+	if err != nil {
 		return err
 	} else if !ok {
 		return errors.New("user not found")
@@ -352,7 +401,7 @@ func (s *AuthService) Grant(userID, role string) error {
 	if err := s.roles.Assign(context.Background(), userID, definition.ID, "manual", "auth-service"); err != nil {
 		return err
 	}
-	if role == "admin" {
+	if role == "admin" && user.Status == store.StatusActive {
 		s.adminGuard.Add(userID)
 	}
 	return nil
@@ -363,6 +412,10 @@ func (s *AuthService) Register(email, password string) (AuthUser, error) {
 }
 
 func (s *AuthService) register(email, password string, requireRegistration bool) (AuthUser, error) {
+	return s.registerWithStatus(email, password, requireRegistration, "")
+}
+
+func (s *AuthService) registerWithStatus(email, password string, requireRegistration bool, requestedStatus string) (AuthUser, error) {
 	key, err := platform.NormalizeEmail(email)
 	if err != nil {
 		return AuthUser{}, err
@@ -376,6 +429,7 @@ func (s *AuthService) register(email, password string, requireRegistration bool)
 	s.mu.RLock()
 	roleID := s.defaultRoleID
 	systemAdmin := s.systemAdminEmails[key]
+	approvalRequired := s.userApprovalRequired
 	s.mu.RUnlock()
 	if roleID == "" {
 		return AuthUser{}, errors.New("default role is not configured")
@@ -408,8 +462,15 @@ func (s *AuthService) register(email, password string, requireRegistration bool)
 	if err != nil {
 		return AuthUser{}, err
 	}
-	user := AuthUser{ID: id, Username: key, Email: key, Enabled: true}
-	userRecord := store.UserRecord{ID: user.ID, Username: user.Username, Email: user.Email, Enabled: user.Enabled}
+	status := requestedStatus
+	if status == "" {
+		status = store.StatusActive
+		if approvalRequired {
+			status = store.StatusPending
+		}
+	}
+	user := AuthUser{ID: id, Username: key, Email: key, DisplayName: store.DefaultUserDisplayName(key), Status: status, Enabled: status == store.StatusActive}
+	userRecord := store.UserRecord{ID: user.ID, Username: user.Username, Email: user.Email, DisplayName: user.DisplayName, Status: user.Status, Enabled: user.Enabled}
 	if provisioner, ok := s.users.(interface {
 		ProvisionLocal(context.Context, store.UserRecord, string, string, string) error
 	}); ok {
@@ -432,7 +493,7 @@ func (s *AuthService) register(email, password string, requireRegistration bool)
 	s.mu.Lock()
 	audit := s.audit
 	s.mu.Unlock()
-	if systemAdmin {
+	if systemAdmin && user.Enabled {
 		s.adminGuard.Add(id)
 	}
 	if audit != nil {
@@ -456,7 +517,12 @@ func (s *AuthService) Login(email, password string) (AuthTokens, error) {
 	audit := s.audit
 	s.mu.RUnlock()
 	valid := false
-	if enabled && ok && user.Enabled && hasHash {
+	if enabled && ok && user.Status == store.StatusPending && hasHash {
+		valid, _ = s.hasher.Verify(hash, password)
+		if valid {
+			return AuthTokens{}, ErrPendingUser
+		}
+	} else if enabled && ok && user.Enabled && hasHash {
 		valid, _ = s.hasher.Verify(hash, password)
 		if valid && s.hasher.NeedsRehash(hash) {
 			if upgraded, err := s.hasher.Hash(password); err == nil {
@@ -539,7 +605,11 @@ func (s *AuthService) loginOIDC(provider, subject, username, email string, autoP
 			}
 			adminRoleID = adminRole.ID
 		}
-		userRecord := store.UserRecord{ID: userID, Username: email, Email: email, Enabled: true}
+		status := store.StatusActive
+		if s.UserApprovalRequired() {
+			status = store.StatusPending
+		}
+		userRecord := store.UserRecord{ID: userID, Username: email, Email: email, DisplayName: store.DefaultUserDisplayName(email), Status: status, Enabled: status == store.StatusActive}
 		identity := store.SSOIdentityRecord{ID: "identity-" + userID + "-" + provider, UserID: userID, ProviderID: provider, Subject: subject}
 		if provisioner, ok := ssoRepository.(store.OIDCProvisioner); ok {
 			if err := provisioner.ProvisionOIDC(context.Background(), userRecord, roleDefinition.ID, adminRoleID, identity); err != nil {
@@ -572,7 +642,13 @@ func (s *AuthService) loginOIDC(provider, subject, username, email string, autoP
 	if err != nil {
 		return AuthTokens{}, err
 	}
-	if !exists || !user.Enabled {
+	if !exists {
+		return AuthTokens{}, errors.New("OIDC identity is not linked")
+	}
+	if user.Status == store.StatusPending {
+		return AuthTokens{}, ErrPendingUser
+	}
+	if !user.Enabled {
 		return AuthTokens{}, errors.New("OIDC identity is not linked")
 	}
 	if systemAdmin {
@@ -774,8 +850,12 @@ func (s *AuthService) identityProviderNames(userID string) []string {
 	return providers
 }
 
-func (s *AuthService) Users() []map[string]any {
-	records, err := s.users.List(context.Background())
+func (s *AuthService) Users(statusFilter ...string) []map[string]any {
+	status := ""
+	if len(statusFilter) > 0 {
+		status = statusFilter[0]
+	}
+	records, err := s.users.List(context.Background(), status)
 	if err != nil {
 		return []map[string]any{}
 	}
@@ -800,14 +880,14 @@ func (s *AuthService) Users() []map[string]any {
 		systemAdmin := s.systemAdminEmails[user.Email] || hasSystemAdminAssignment(userRoles, assignments)
 		s.mu.RUnlock()
 		sort.Strings(methods)
-		users = append(users, map[string]any{"id": user.ID, "username": user.Username, "email": user.Email, "displayName": user.DisplayName, "enabled": user.Enabled, "systemAdmin": systemAdmin, "status": map[bool]string{true: "active", false: "disabled"}[user.Enabled], "roles": roles, "loginMethods": methods, "sessions": s.sessions.List(user.ID)})
+		users = append(users, map[string]any{"id": user.ID, "username": user.Username, "email": user.Email, "displayName": user.DisplayName, "enabled": user.Enabled, "systemAdmin": systemAdmin, "status": user.Status, "roles": roles, "loginMethods": methods, "sessions": s.sessions.List(user.ID)})
 	}
 	sort.Slice(users, func(i, j int) bool { return users[i]["username"].(string) < users[j]["username"].(string) })
 	return users
 }
 
 func (s *AuthService) AdminSessions() []AdminSession {
-	records, err := s.users.List(context.Background())
+	records, err := s.users.List(context.Background(), "")
 	if err != nil {
 		return []AdminSession{}
 	}
@@ -970,6 +1050,37 @@ func (s *AuthService) DisableUser(userID string) error {
 	return disable()
 }
 
+func (s *AuthService) ApproveUser(userID string) error {
+	user, ok, err := s.userByID(userID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.New("user not found")
+	}
+	if user.Status == store.StatusActive {
+		return nil
+	}
+	if err := s.users.SetStatus(context.Background(), userID, store.StatusActive); err != nil {
+		return err
+	}
+	roles, assignments, err := s.roles.UserRoles(context.Background(), userID)
+	if err != nil {
+		return err
+	}
+	s.mu.RLock()
+	systemAdmin := s.systemAdminEmails[user.Email] || hasSystemAdminAssignment(roles, assignments)
+	s.mu.RUnlock()
+	for _, role := range roles {
+		if role.Name == "admin" || systemAdmin {
+			s.adminGuard.Add(userID)
+			break
+		}
+	}
+	s.LogoutAll(userID)
+	return nil
+}
+
 func (s *AuthService) Revoke(userID, role string) error {
 	user, ok, err := s.userByID(userID)
 	if err != nil {
@@ -1093,7 +1204,7 @@ func (s *AuthService) Profile(claims Claims) map[string]any {
 	}
 	methods = append(methods, s.identityProviderNames(claims.UserID)...)
 	sort.Strings(methods)
-	return map[string]any{"id": user.ID, "username": user.Username, "email": user.Email, "displayName": user.DisplayName, "enabled": user.Enabled, "systemAdmin": systemAdmin, "status": map[bool]string{true: "active", false: "disabled"}[user.Enabled], "roles": roles, "roleSources": roleSources, "permissions": permissionKeys, "loginMethods": methods, "sessions": sessions, "identities": s.Identities(claims.UserID)}
+	return map[string]any{"id": user.ID, "username": user.Username, "email": user.Email, "displayName": user.DisplayName, "enabled": user.Enabled, "systemAdmin": systemAdmin, "status": user.Status, "roles": roles, "roleSources": roleSources, "permissions": permissionKeys, "loginMethods": methods, "sessions": sessions, "identities": s.Identities(claims.UserID)}
 }
 
 func (s *AuthService) UserProfile(userID string) (map[string]any, bool) {

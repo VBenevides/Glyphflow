@@ -21,6 +21,9 @@ func TestEnsureBootstrapRequiresCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if user.DisplayName != "Default Admin" {
+		t.Fatalf("bootstrap display name = %q", user.DisplayName)
+	}
 	if !auth.Permissions(Claims{UserID: user.ID})["users.manage"] {
 		t.Fatal("bootstrap admin role missing")
 	}

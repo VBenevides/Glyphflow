@@ -55,12 +55,17 @@ func NewOIDCProviderRepository(pool *pgxpool.Pool) *OIDCProviderStore {
 }
 
 func (s *OIDCProviderStore) ProvisionOIDC(ctx context.Context, user UserRecord, defaultRoleID, adminRoleID string, identity SSOIdentityRecord) error {
+	user.DisplayName = NormalizeDisplayName(user.Email, user.DisplayName)
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `INSERT INTO users (id, username, email, display_name, status) VALUES ($1, $2, $3, $4, $5)`, user.ID, user.Username, user.Email, user.DisplayName, "active"); err != nil {
+	status, err := userStatus(user)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO users (id, username, email, display_name, status) VALUES ($1, $2, $3, $4, $5)`, user.ID, user.Username, user.Email, user.DisplayName, status); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO role_assignments (user_id, role_id, source_type, source_key) VALUES ($1, $2, 'default', $2)`, user.ID, defaultRoleID); err != nil {
