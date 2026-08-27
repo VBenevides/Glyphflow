@@ -38,12 +38,14 @@ control plane's message bus, execute commands locally, and report signed
 lifecycle events and logs back to the console. PostgreSQL stays with the
 control plane; workers do not need database credentials or a PostgreSQL client.
 
-## Why Glyphflow
+## Main features
 
 Glyphflow is for teams that need more control than “run this script somewhere”
 but less ceremony than a full container-orchestration platform.
 
 - **Central operations:** define tasks, schedules, runner pools, resources, and permissions in one console.
+- **Schedule Gantt chart:** project seven days of cron executions in week or daily views, group by runner or task, filter the timeline, and inspect occurrence details.
+- **Resource conflict detection and notification:** reject schedules that would overlap on exclusive resources, mark conflicts in the Gantt, and notify operators in the Overview with a link to the affected projection.
 - **Distributed execution:** run work on Linux or Windows machines without opening inbound worker ports.
 - **Useful history:** inspect attempts, state transitions, streamed stdout/stderr, exit codes, and audit events.
 - **Deliberate placement:** send work to a pool, pin it to a runner, or match runner capability tags.
@@ -227,7 +229,8 @@ Registry when a GitHub release is published. The release tag must match
 `latest` tag.
 
 ```bash
-export GLYPHFLOW_IMAGE=ghcr.io/vbenevides/glyphflow:0.2.4
+export GLYPHFLOW_VERSION="$(tr -d '[:space:]' < VERSION)"
+export GLYPHFLOW_IMAGE="ghcr.io/vbenevides/glyphflow:${GLYPHFLOW_VERSION}"
 docker pull "$GLYPHFLOW_IMAGE"
 ```
 
@@ -235,12 +238,14 @@ The GitHub release also contains a Linux AMD64 image archive and SHA-256
 checksum for environments without registry access:
 
 ```bash
-sha256sum -c glyphflow-0.2.4-linux-amd64.tar.gz.sha256
-docker load -i glyphflow-0.2.4-linux-amd64.tar.gz
+export GLYPHFLOW_VERSION="$(tr -d '[:space:]' < VERSION)"
+archive="glyphflow-${GLYPHFLOW_VERSION}-linux-amd64.tar.gz"
+sha256sum -c "$archive.sha256"
+docker load -i "$archive"
 ```
 
-Version 0.2.4 is clean-install-only. On first start, the image applies its
-single canonical PostgreSQL schema to a new database; it does not upgrade
+The current release is clean-install-only. On first start, the image applies
+its single canonical PostgreSQL schema to a new database; it does not upgrade
 databases from earlier releases.
 
 The base [`compose.yaml`](compose.yaml) is intentionally convenient for local
@@ -254,11 +259,11 @@ For production, provide the required values and secret files described in
 COMPOSE_PROJECT_NAME=client-example docker compose -f compose.yaml -f compose.production.yaml up -d
 ```
 
-Version 0.2.4 supports one isolated production stack per client. Use a unique
-`COMPOSE_PROJECT_NAME` for each client so its PostgreSQL data, NATS authority,
-network, secrets, backups, and administrator scope stay separate. Shared
-tenancy and scaling any service beyond one replica are unsupported in this
-release.
+The deployment contract supports one isolated production stack per client. Use
+a unique `COMPOSE_PROJECT_NAME` for each client so its PostgreSQL data, NATS
+authority, network, secrets, backups, and administrator scope stay separate.
+Shared tenancy and scaling any service beyond one replica are unsupported in
+this release.
 
 Production configuration requires, at minimum:
 
