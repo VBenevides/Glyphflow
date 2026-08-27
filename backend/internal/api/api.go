@@ -778,9 +778,7 @@ func (s Server) withCorrelation(next http.Handler) http.Handler {
 }
 func (s Server) noStore(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Path, "enrollment") || strings.HasSuffix(r.URL.Path, "/enroll") {
-			w.Header().Set("Cache-Control", "no-store")
-		}
+		w.Header().Set("Cache-Control", "no-store")
 		next.ServeHTTP(w, r)
 	})
 }
