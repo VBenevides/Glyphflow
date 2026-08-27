@@ -447,6 +447,7 @@ body { background-image: var(--gf-page-glow); }
 .gf-gantt-lane-line { stroke: var(--gf-border); stroke-width: 1; }
 .gf-gantt-runner-divider { stroke: var(--gf-border); stroke-dasharray: 8 5; stroke-width: 1; }
 .gf-gantt-day-line { stroke: var(--gf-border); stroke-dasharray: 4 3; stroke-width: 1; }
+.gf-gantt-boundary { fill: url(#gf-gantt-boundary-hatch); pointer-events: none; }
 .gf-gantt-segment { fill: var(--gf-action); outline: none; }
 .gf-gantt-segment:hover, .gf-gantt-segment:focus-visible { fill: var(--gf-info); stroke: var(--gf-text); stroke-width: 2; }
 .gf-gantt-segment.is-conflicted { fill: var(--gf-danger); stroke: var(--gf-danger); }

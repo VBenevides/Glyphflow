@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ganttConflictNumberMap, ganttConflictsInRange, ganttDayDivisions, ganttHourDivisions, ganttLanes, ganttRange, ganttRunnerDividerAt, ganttSegmentMatchesFilters, ganttSegmentsInRange, projectionIsStale, projectionSegmentPercent, truncateGanttLabel } from './schedule-gantt'
+import { ganttBoundaryBands, ganttConflictNumberMap, ganttConflictsInRange, ganttDayDivisions, ganttHourDivisions, ganttLanes, ganttRange, ganttRunnerDividerAt, ganttSegmentMatchesFilters, ganttSegmentsInRange, projectionIsStale, projectionSegmentPercent, truncateGanttLabel } from './schedule-gantt'
 import type { ScheduleProjection, ScheduleProjectionConflict, ScheduleProjectionSegment } from './api'
 
 const segment = (id: string, laneId: string, laneLabel: string, startAt: string, endAt: string): ScheduleProjectionSegment => ({
@@ -80,6 +80,12 @@ describe('schedule gantt helpers', () => {
     expect(divisions).toHaveLength(25)
     expect(divisions[0]).toEqual({ at: '2026-08-27T00:00:00.000Z', label: '00:00' })
     expect(divisions[divisions.length - 1]).toEqual({ at: '2026-08-28T00:00:00.000Z', label: '24:00' })
+  })
+
+  it('marks daily time outside the seven-day projection', () => {
+    const report: ScheduleProjection = { available: true, windowStart: '2026-08-27T11:29:00Z', windowEnd: '2026-09-03T11:29:00Z' }
+    expect(ganttBoundaryBands({ startAt: '2026-08-27T00:00:00Z', endAt: '2026-08-28T00:00:00Z' }, report)).toEqual([{ side: 'before', startAt: '2026-08-27T00:00:00.000Z', endAt: '2026-08-27T11:29:00.000Z' }])
+    expect(ganttBoundaryBands({ startAt: '2026-09-03T00:00:00Z', endAt: '2026-09-04T00:00:00Z' }, report)).toEqual([{ side: 'after', startAt: '2026-09-03T11:29:00.000Z', endAt: '2026-09-04T00:00:00.000Z' }])
   })
 
   it('truncates labels that would crowd the timeline', () => {

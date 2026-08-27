@@ -153,6 +153,18 @@ export function ganttHourDivisions(range: GanttRange) {
   return divisions
 }
 
+export function ganttBoundaryBands(range: GanttRange, report: ScheduleProjection) {
+  const rangeStart = Date.parse(range.startAt)
+  const rangeEnd = Date.parse(range.endAt)
+  const projectionStart = Date.parse(report.windowStart ?? '')
+  const projectionEnd = Date.parse(report.windowEnd ?? '')
+  if (![rangeStart, rangeEnd, projectionStart, projectionEnd].every(Number.isFinite) || rangeEnd <= rangeStart || projectionEnd <= projectionStart) return []
+  const bands: Array<{ side: 'before' | 'after'; startAt: string; endAt: string }> = []
+  if (projectionStart > rangeStart) bands.push({ side: 'before', startAt: new Date(rangeStart).toISOString(), endAt: new Date(Math.min(projectionStart, rangeEnd)).toISOString() })
+  if (projectionEnd < rangeEnd) bands.push({ side: 'after', startAt: new Date(Math.max(projectionEnd, rangeStart)).toISOString(), endAt: new Date(rangeEnd).toISOString() })
+  return bands.filter((band) => Date.parse(band.endAt) > Date.parse(band.startAt))
+}
+
 function segmentDetails(segment: ScheduleProjectionSegment) {
   return segment.taskName + ' · ' + segment.scheduleName + ' · ' + segment.laneLabel + ' · ' + formatDateTime(segment.startAt) + '–' + formatDateTime(segment.endAt) + (segment.conflicted ? ' · Conflict' : '')
 }
@@ -227,6 +239,14 @@ export function SchedulingGantt({ report }: { report: ScheduleProjection }) {
         <text x={timelineLeft + 4} y="16" className="gf-gantt-axis-label">{formatDateTime(range.startAt)}</text>
         <text x={timelineLeft + timelineWidth - 4} y="16" textAnchor="end" className="gf-gantt-axis-label">{formatDateTime(range.endAt)}</text>
         <text x="8" y="16" className="gf-gantt-group-label">{groupLabel}</text>
+        <defs><pattern id="gf-gantt-boundary-hatch" width="8" height="8" patternUnits="userSpaceOnUse"><rect width="8" height="8" fill="var(--gf-muted)" fillOpacity="0.08" /><path d="M-2 2L2-2M0 8L8 0M6 10L10 6" stroke="var(--gf-muted)" strokeOpacity="0.38" strokeWidth="2" /></pattern></defs>
+        {ganttBoundaryBands(range, report).map((band) => {
+          const start = projectionSegmentPercent({ startAt: band.startAt, endAt: band.startAt, id: band.startAt } as ScheduleProjectionSegment, report, range)
+          const end = projectionSegmentPercent({ startAt: band.endAt, endAt: band.endAt, id: band.endAt } as ScheduleProjectionSegment, report, range)
+          const x = timelineLeft + (start.left / 100) * timelineWidth
+          const bandWidth = Math.max(0, ((end.left - start.left) / 100) * timelineWidth)
+          return <rect key={band.side} x={x} y={chartTop - 8} width={bandWidth} height={height - chartTop - 2} className="gf-gantt-boundary" aria-label={band.side === 'before' ? 'Before the seven-day projection' : 'After the seven-day projection'} />
+        })}
         {divisions.map((division) => {
           const position = projectionSegmentPercent({ startAt: division.at, endAt: division.at, id: division.at } as ScheduleProjectionSegment, report, range)
           const x = timelineLeft + (position.left / 100) * timelineWidth
