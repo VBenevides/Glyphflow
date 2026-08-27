@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DASHBOARD_WIDGETS, permittedWidgets } from './dashboard'
+import { DASHBOARD_WIDGETS, permittedWidgets, projectionDismissalKey } from './dashboard'
 
 describe('dashboard permissions', () => {
   it('does not request widgets hidden by permissions', () => {
@@ -11,5 +11,9 @@ describe('dashboard permissions', () => {
   it('keeps the overview metrics separate from recent activity', () => {
     expect(DASHBOARD_WIDGETS.filter((widget) => widget.kind === 'metric').map((widget) => widget.key)).toEqual(['runs', 'schedules', 'runners'])
     expect(DASHBOARD_WIDGETS.find((widget) => widget.key === 'audit')?.kind).toBe('list')
+  })
+
+  it('keys conflict dismissals by the projection calculation timestamp', () => {
+    expect(projectionDismissalKey('2026-08-26T12:00:00Z')).toBe('glyphflow:schedule-projection-dismissed:2026-08-26T12:00:00Z')
   })
 })
