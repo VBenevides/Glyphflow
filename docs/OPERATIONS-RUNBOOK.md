@@ -5,7 +5,7 @@ profile](DEV-PROFILE.md). Its values are not production guarantees.
 
 ## Supported topology
 
-Glyphflow 0.2.4 supports one isolated stack per client: one control-plane
+Glyphflow 0.3.0 supports one isolated stack per client: one control-plane
 process connected to one PostgreSQL database and one NATS JetStream deployment.
 Workers are separate processes or hosts and connect outbound. Shared tenancy
 and service replicas are unsupported in this release; it does not claim
@@ -27,9 +27,9 @@ operating targets, not a service guarantee:
 | Control-plane availability | Restart downtime is expected; no HA target | Deployment operator |
 | RPO | The interval between verified PostgreSQL backups | Deployment operator |
 | RTO | Restart or restore time measured in the client environment | Deployment operator |
-| Audit retention | Append-only until the client's approved retention policy is implemented | Deployment operator |
+| Audit retention | 12 calendar months by default (`AUDIT_MONTHS_KEEP`); hourly cleanup applies unless a legal hold protects the record | Deployment operator |
 | Worker published-event retention | 24 hours after successful publish; pending events are retained | Glyphflow worker |
-| Run/log retention | No automatic PostgreSQL deletion in this release | Deployment operator |
+| Run/log retention | 3 calendar months by default (`LOG_MONTHS_KEEP`); hourly cleanup removes eligible terminal runs and their logs | Deployment operator |
 
 Do not advertise an RPO, RTO, or uptime value until it is measured against
 the client's backup, restore, network, and restart procedures.
