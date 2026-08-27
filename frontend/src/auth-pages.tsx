@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { LogIn, ShieldCheck } from 'lucide-react'
+import { Eye, EyeOff, LogIn, ShieldCheck } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from './auth'
 import { api, ApiError, type OidcProvider } from './api'
@@ -31,6 +31,7 @@ export function LoginPage() {
   const redirect = safeReturnPath(new URLSearchParams(location.search).get('redirect'))
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [passwordVisible, setPasswordVisible] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [providers, setProviders] = useState<OidcProvider[]>([])
@@ -55,7 +56,7 @@ export function LoginPage() {
     }
   }
   return <AuthFrame title="Sign in"><form className="gf-form" onSubmit={submit}>
-    {config.passwordLogin && <><label htmlFor="email">Email</label><Input id="email" type="text" inputMode="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /><label htmlFor="password">Password</label><Input id="password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /><Button type="submit" busy={busy}>Sign in</Button></>}
+    {config.passwordLogin && <><label htmlFor="email">Email</label><Input id="email" type="text" inputMode="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /><label htmlFor="password">Password</label><div className="gf-password-field"><Input id="password" type={passwordVisible ? 'text' : 'password'} className="gf-password-input" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /><button type="button" className="gf-password-toggle" aria-label={passwordVisible ? 'Hide password' : 'Show password'} aria-pressed={passwordVisible} onClick={() => setPasswordVisible((visible) => !visible)}>{passwordVisible ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}</button></div><Button type="submit" busy={busy}>Sign in</Button></>}
     {!config.passwordLogin && <p className="gf-muted">Password sign-in is disabled.</p>}
     {!methods.length && <p className="gf-form-error" role="alert">No sign-in methods are configured. Contact an administrator.</p>}
     {error && <p className="gf-form-error" role="alert">{error}</p>}

@@ -92,7 +92,7 @@ func dispatchWaiting(ctx context.Context, events queue.Publisher, runs DispatchR
 				TaskID: candidate.TaskID, TaskName: candidate.TaskName, TaskVersion: uint32(candidate.TaskVersion), Attempt: uint32(candidate.AttemptNumber), LeaseToken: candidate.LeaseToken,
 				RunnerID: candidate.RunnerID, IssuedAt: time.Now().UTC(), NotBefore: time.Now().UTC(),
 				ExpiresAt: candidate.LeaseNotAfter, Type: protocol.OrderExecute, Command: candidate.Command,
-				WorkingDir: candidate.WorkingDirectory, TimeoutSeconds: uint32(candidate.TimeoutSeconds),
+				WorkingDir: candidate.WorkingDirectory, DurationSeconds: uint32(candidate.DurationSeconds),
 				Limits: protocol.ResourceLimits{MaxOutputBytes: uint64(candidate.MaxOutputBytes)}, Issuer: signingKey.ID,
 				Recipient: candidate.RunnerID, RunnerSessionID: candidate.RunnerSessionID,
 				FencingToken: uint64(candidate.FencingToken), LeaseNotAfter: candidate.LeaseNotAfter,
@@ -130,7 +130,7 @@ func dispatchCancellations(ctx context.Context, events queue.Publisher, runs Dis
 				IssuedAt: now, NotBefore: now, ExpiresAt: candidate.LeaseNotAfter, Type: protocol.OrderCancel,
 				Issuer: signingKey.ID, Recipient: candidate.RunnerID, RunnerSessionID: candidate.RunnerSessionID,
 				FencingToken: uint64(candidate.FencingToken), LeaseNotAfter: candidate.LeaseNotAfter,
-				ExecutionSpecDigest: "cancel:" + candidate.Reason, Command: []string{"true"}, WorkingDir: ".", TimeoutSeconds: 1}
+				ExecutionSpecDigest: "cancel:" + candidate.Reason, Command: []string{"true"}, WorkingDir: ".", DurationSeconds: 1}
 			raw, err := protocol.EncodeOrderPayload(payload)
 			if err != nil {
 				return nil, err

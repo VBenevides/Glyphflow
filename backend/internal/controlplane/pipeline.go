@@ -19,7 +19,7 @@ type TaskRequest struct {
 	LeaseToken string
 	Command    []string
 	WorkingDir string
-	Timeout    time.Duration
+	Duration   time.Duration
 	MaxOutput  int
 }
 
@@ -40,15 +40,15 @@ func (p *Pipeline) Execute(ctx context.Context, request TaskRequest) (RunResult,
 	if p.Queue == nil || p.Store == nil || len(p.ControlPrivate) != ed25519.PrivateKeySize || len(p.WorkerPrivate) != ed25519.PrivateKeySize {
 		return RunResult{}, errors.New("pipeline is not configured")
 	}
-	if request.Timeout <= 0 {
-		return RunResult{}, errors.New("task timeout is required")
+	if request.Duration <= 0 {
+		return RunResult{}, errors.New("task duration is required")
 	}
 	now := time.Now().UTC()
 	order := protocol.OrderPayload{
 		Version: protocol.ProtocolVersion, OrderID: request.OrderID, RunID: request.RunID, TaskID: request.TaskID,
 		Attempt: 1, LeaseToken: request.LeaseToken, RunnerID: request.RunnerID, RunnerSessionID: request.RunnerID + "-session", IssuedAt: now,
-		NotBefore: now, ExpiresAt: now.Add(request.Timeout), Type: protocol.OrderExecute,
-		Command: request.Command, WorkingDir: request.WorkingDir, TimeoutSeconds: uint32((request.Timeout + time.Second - 1) / time.Second),
+		NotBefore: now, ExpiresAt: now.Add(request.Duration), Type: protocol.OrderExecute,
+		Command: request.Command, WorkingDir: request.WorkingDir, DurationSeconds: uint32((request.Duration + time.Second - 1) / time.Second),
 		Limits: protocol.ResourceLimits{MaxOutputBytes: uint64(request.MaxOutput)},
 	}
 	orderBytes, err := protocol.EncodeOrderPayload(order)
@@ -74,7 +74,7 @@ func (p *Pipeline) Execute(ctx context.Context, request TaskRequest) (RunResult,
 	if err != nil {
 		return RunResult{}, err
 	}
-	executionContext, cancel := context.WithTimeout(ctx, request.Timeout)
+	executionContext, cancel := context.WithTimeout(ctx, request.Duration)
 	defer cancel()
 	executor := p.Executor
 	if executor.MaxOutputBytes == 0 {

@@ -18,7 +18,7 @@ func TestAcceptOrderVerifiesBeforePersistence(t *testing.T) {
 		Version: protocol.ProtocolVersion, OrderID: "order-1", RunID: "run-1", TaskID: "task-1",
 		Attempt: 1, LeaseToken: "lease-1", RunnerID: "runner-1", RunnerSessionID: "session-1", IssuedAt: now,
 		NotBefore: now, ExpiresAt: now.Add(time.Minute), Type: protocol.OrderExecute,
-		Command: []string{"echo", "ok"}, WorkingDir: t.TempDir(), TimeoutSeconds: 1,
+		Command: []string{"echo", "ok"}, WorkingDir: t.TempDir(), DurationSeconds: 1,
 		Limits: protocol.ResourceLimits{MaxOutputBytes: 1024},
 	}
 	payloadBytes, err := protocol.EncodeOrderPayload(payload)

@@ -22,7 +22,7 @@ func TestPipelineExecutesOneVerifiedTask(t *testing.T) {
 	defer store.Close()
 	dir := t.TempDir()
 	pipeline := Pipeline{ControlPrivate: controlPrivate, WorkerPrivate: workerPrivate, Queue: queue.NewMemory(), Store: store, Executor: worker.Executor{Roots: []string{dir}, AllowedCommands: map[string]bool{"printf": true}, MaxOutputBytes: 1024}}
-	result, err := pipeline.Execute(context.Background(), TaskRequest{OrderID: "order-1", RunID: "run-1", TaskID: "task-1", RunnerID: "worker-1", LeaseToken: "lease-1", Command: []string{"printf", "ok"}, WorkingDir: dir, Timeout: time.Second, MaxOutput: 1024})
+	result, err := pipeline.Execute(context.Background(), TaskRequest{OrderID: "order-1", RunID: "run-1", TaskID: "task-1", RunnerID: "worker-1", LeaseToken: "lease-1", Command: []string{"printf", "ok"}, WorkingDir: dir, Duration: time.Second, MaxOutput: 1024})
 	if err != nil || result.State != "completed" || string(result.Output) != "ok" {
 		t.Fatalf("pipeline failed: %#v %v", result, err)
 	}

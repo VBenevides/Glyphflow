@@ -13,7 +13,7 @@ func TestVerifyOrderAndEventBeforeReplayAcceptance(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Unix(100, 0).UTC()
-	order := OrderPayload{Version: ProtocolVersion, OrderID: "order-1", RunID: "run-1", Attempt: 1, LeaseToken: "lease", RunnerID: "worker-1", RunnerSessionID: "session-1", IssuedAt: now.Add(-time.Second), NotBefore: now.Add(-time.Second), ExpiresAt: now.Add(time.Minute), Type: OrderExecute, Command: []string{"echo"}, WorkingDir: "/tmp", TimeoutSeconds: 1}
+	order := OrderPayload{Version: ProtocolVersion, OrderID: "order-1", RunID: "run-1", Attempt: 1, LeaseToken: "lease", RunnerID: "worker-1", RunnerSessionID: "session-1", IssuedAt: now.Add(-time.Second), NotBefore: now.Add(-time.Second), ExpiresAt: now.Add(time.Minute), Type: OrderExecute, Command: []string{"echo"}, WorkingDir: "/tmp", DurationSeconds: 1}
 	orderBytes, _ := json.Marshal(order)
 	orderEnvelope := NewEnvelope("key", orderBytes)
 	_ = orderEnvelope.SignOrder(private)

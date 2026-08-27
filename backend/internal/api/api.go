@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/VBenevides/Glyphflow/backend/internal/controlplane"
 	"github.com/VBenevides/Glyphflow/backend/internal/platform"
 	"github.com/VBenevides/Glyphflow/backend/internal/store"
 )
@@ -95,6 +96,7 @@ type Server struct {
 	GlobalVariables            *GlobalVariableService
 	SystemMetrics              *SystemMetricsService
 	DeadLetters                *DeadLetterService
+	ScheduleProjection         *controlplane.ProjectionService
 	RequireDurableRepositories bool
 }
 
@@ -203,6 +205,7 @@ func (s Server) Handler() http.Handler {
 		}
 		return "tasks.manage"
 	}, http.HandlerFunc(s.Operations.scheduleCollection)))
+	mux.Handle("/api/v1/schedule-projection", s.require("tasks.read", http.HandlerFunc(s.scheduleProjection)))
 	mux.Handle("/api/v1/schedules/preview", s.require("tasks.manage", http.HandlerFunc(s.Operations.preview)))
 	mux.Handle("/api/v1/global-variables/options", s.require("tasks.read", http.HandlerFunc(s.GlobalVariables.collection)))
 	mux.Handle("/api/v1/global-variables", s.require("users.manage", http.HandlerFunc(s.GlobalVariables.collection)))

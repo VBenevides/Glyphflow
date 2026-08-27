@@ -255,7 +255,7 @@ CREATE TABLE task_versions (
     working_directory text NOT NULL DEFAULT '',
     environment jsonb NOT NULL DEFAULT '{}'::jsonb,
     secret_references jsonb NOT NULL DEFAULT '{}'::jsonb,
-    timeout_seconds integer NOT NULL CHECK (timeout_seconds > 0),
+    duration_seconds integer NOT NULL CHECK (duration_seconds > 0),
     max_output_bytes bigint NOT NULL CHECK (max_output_bytes > 0),
     max_attempts integer NOT NULL DEFAULT 1 CHECK (max_attempts > 0),
     initial_backoff_seconds integer NOT NULL DEFAULT 1 CHECK (initial_backoff_seconds >= 0),

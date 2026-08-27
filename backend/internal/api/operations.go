@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -28,7 +29,7 @@ type TaskRecord struct {
 	PlacementSelectors map[string]any `json:"placementSelectors,omitempty"`
 	Environment        map[string]any `json:"environment,omitempty"`
 	SecretReferences   map[string]any `json:"secretReferences,omitempty"`
-	TimeoutSeconds     int            `json:"timeoutSeconds"`
+	DurationSeconds    int            `json:"durationSeconds"`
 	MaxOutputBytes     int64          `json:"maxOutputBytes"`
 	MaxAttempts        int            `json:"maxAttempts"`
 	AmbiguityPolicy    string         `json:"ambiguityPolicy,omitempty"`
@@ -43,7 +44,7 @@ type TaskVersionRecord struct {
 	PinnedRunner        string   `json:"pinnedRunner,omitempty"`
 	Command             []string `json:"command,omitempty"`
 	WorkingDirectory    string   `json:"workingDirectory,omitempty"`
-	TimeoutSeconds      int      `json:"timeoutSeconds"`
+	DurationSeconds     int      `json:"durationSeconds"`
 	MaxOutputBytes      int64    `json:"maxOutputBytes"`
 	MaxAttempts         int      `json:"maxAttempts"`
 	AmbiguityPolicy     string   `json:"ambiguityPolicy,omitempty"`
@@ -75,6 +76,8 @@ type OperationsService struct {
 	nextTaskID, nextScheduleID int
 	repository                 store.TaskRepository
 	scheduleRepository         store.ScheduleRepository
+	resourceRepository         store.ResourceRepository
+	scheduleProjection         *controlplane.ProjectionService
 }
 
 func NewOperationsService() *OperationsService {
@@ -97,6 +100,20 @@ func (o *OperationsService) SetScheduleRepository(repository store.ScheduleRepos
 	}
 }
 
+func (o *OperationsService) SetResourceRepository(repository store.ResourceRepository) {
+	if repository != nil {
+		o.mu.Lock()
+		o.resourceRepository = repository
+		o.mu.Unlock()
+	}
+}
+
+func (o *OperationsService) SetScheduleProjection(projection *controlplane.ProjectionService) {
+	o.mu.Lock()
+	o.scheduleProjection = projection
+	o.mu.Unlock()
+}
+
 func (o *OperationsService) hasDurableRepositories() bool {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
@@ -109,7 +126,7 @@ func taskRecordFromStore(task store.TaskRecord) TaskRecord {
 		mapped := runRecordFromStore(*task.LatestRun)
 		latestRun = &mapped
 	}
-	return TaskRecord{ID: task.ID, Name: task.Name, Enabled: task.Enabled, IsDeleted: task.IsDeleted, ActiveVersion: task.ActiveVersion, Pool: task.RunnerPoolID, PinnedRunner: task.PinnedRunnerID, Command: append([]string(nil), task.Command...), WorkingDirectory: task.WorkingDirectory, PlacementSelectors: task.PlacementSelectors, Environment: task.Environment, SecretReferences: task.SecretReferences, TimeoutSeconds: task.TimeoutSeconds, MaxOutputBytes: task.MaxOutputBytes, MaxAttempts: task.MaxAttempts, AmbiguityPolicy: task.AmbiguityPolicy, Resources: append([]string(nil), task.ResourceIDs...), LatestRun: latestRun}
+	return TaskRecord{ID: task.ID, Name: task.Name, Enabled: task.Enabled, IsDeleted: task.IsDeleted, ActiveVersion: task.ActiveVersion, Pool: task.RunnerPoolID, PinnedRunner: task.PinnedRunnerID, Command: append([]string(nil), task.Command...), WorkingDirectory: task.WorkingDirectory, PlacementSelectors: task.PlacementSelectors, Environment: task.Environment, SecretReferences: task.SecretReferences, DurationSeconds: task.DurationSeconds, MaxOutputBytes: task.MaxOutputBytes, MaxAttempts: task.MaxAttempts, AmbiguityPolicy: task.AmbiguityPolicy, Resources: append([]string(nil), task.ResourceIDs...), LatestRun: latestRun}
 }
 
 func taskVersionRecordFromStore(version store.TaskVersionRecord) TaskVersionRecord {
@@ -117,7 +134,7 @@ func taskVersionRecordFromStore(version store.TaskVersionRecord) TaskVersionReco
 	if !version.CreatedAt.IsZero() {
 		createdAt = version.CreatedAt.UTC().Format(time.RFC3339)
 	}
-	return TaskVersionRecord{ID: version.ID, Version: version.Version, Pool: version.RunnerPoolID, PinnedRunner: version.PinnedRunnerID, Command: append([]string(nil), version.Command...), WorkingDirectory: version.WorkingDirectory, TimeoutSeconds: version.TimeoutSeconds, MaxOutputBytes: version.MaxOutputBytes, MaxAttempts: version.MaxAttempts, AmbiguityPolicy: version.AmbiguityPolicy, Resources: append([]string(nil), version.ResourceIDs...), ExecutionSpecDigest: version.ExecutionSpecDigest, CreatedAt: createdAt}
+	return TaskVersionRecord{ID: version.ID, Version: version.Version, Pool: version.RunnerPoolID, PinnedRunner: version.PinnedRunnerID, Command: append([]string(nil), version.Command...), WorkingDirectory: version.WorkingDirectory, DurationSeconds: version.DurationSeconds, MaxOutputBytes: version.MaxOutputBytes, MaxAttempts: version.MaxAttempts, AmbiguityPolicy: version.AmbiguityPolicy, Resources: append([]string(nil), version.ResourceIDs...), ExecutionSpecDigest: version.ExecutionSpecDigest, CreatedAt: createdAt}
 }
 
 type taskInput struct {
@@ -129,7 +146,7 @@ type taskInput struct {
 	PlacementSelectors map[string]any `json:"placement_selectors"`
 	Environment        map[string]any `json:"environment"`
 	SecretReferences   map[string]any `json:"secret_references"`
-	TimeoutSeconds     int            `json:"timeout_seconds"`
+	DurationSeconds    int            `json:"duration_seconds"`
 	MaxOutputBytes     int64          `json:"max_output_bytes"`
 	MaxAttempts        int            `json:"max_attempts"`
 	AmbiguityPolicy    string         `json:"ambiguity_policy"`
@@ -137,7 +154,7 @@ type taskInput struct {
 }
 
 func taskDefinition(id string, input taskInput) store.TaskDefinition {
-	return store.TaskDefinition{ID: id, Name: strings.TrimSpace(input.Name), RunnerPoolID: strings.TrimSpace(input.RunnerPool), PinnedRunnerID: strings.TrimSpace(input.PinnedRunner), Command: append([]string(nil), input.Command...), WorkingDirectory: input.WorkingDirectory, PlacementSelectors: input.PlacementSelectors, Environment: input.Environment, SecretReferences: input.SecretReferences, TimeoutSeconds: input.TimeoutSeconds, MaxOutputBytes: input.MaxOutputBytes, MaxAttempts: input.MaxAttempts, AmbiguityPolicy: input.AmbiguityPolicy, ResourceIDs: append([]string(nil), input.Resources...), Enabled: true}
+	return store.TaskDefinition{ID: id, Name: strings.TrimSpace(input.Name), RunnerPoolID: strings.TrimSpace(input.RunnerPool), PinnedRunnerID: strings.TrimSpace(input.PinnedRunner), Command: append([]string(nil), input.Command...), WorkingDirectory: input.WorkingDirectory, PlacementSelectors: input.PlacementSelectors, Environment: input.Environment, SecretReferences: input.SecretReferences, DurationSeconds: input.DurationSeconds, MaxOutputBytes: input.MaxOutputBytes, MaxAttempts: input.MaxAttempts, AmbiguityPolicy: input.AmbiguityPolicy, ResourceIDs: append([]string(nil), input.Resources...), Enabled: true}
 }
 
 func validateTaskSecrets(input taskInput) error {
@@ -163,6 +180,73 @@ func scheduleDefinition(id string, input scheduleInput) (store.ScheduleDefinitio
 	}
 	definition.NextFireAt = &next
 	return definition, nil
+}
+
+func (o *OperationsService) checkScheduleConflicts(ctx context.Context, definition store.ScheduleDefinition) ([]controlplane.ProjectionConflict, error) {
+	o.mu.RLock()
+	projection, taskRepository, resourceRepository := o.scheduleProjection, o.repository, o.resourceRepository
+	o.mu.RUnlock()
+	if projection == nil || taskRepository == nil || resourceRepository == nil {
+		return nil, nil
+	}
+	task, found, err := taskRepository.Find(ctx, definition.TaskID)
+	if err != nil {
+		return nil, err
+	}
+	if !found || len(task.ResourceIDs) == 0 {
+		return nil, nil
+	}
+	taskVersionID := task.CurrentVersionID
+	if taskVersionID == "" {
+		version := task.ActiveVersion
+		if version < 1 {
+			version = 1
+		}
+		taskVersionID = task.ID + "-v" + strconv.Itoa(version)
+	}
+	candidate := store.ScheduleProjectionInput{
+		ScheduleID:        definition.ID,
+		ScheduleName:      definition.Name,
+		ScheduleVersionID: definition.ID + "-candidate",
+		TaskID:            task.ID,
+		TaskName:          task.Name,
+		TaskVersionID:     taskVersionID,
+		Expression:        definition.Expression,
+		Timezone:          definition.Timezone,
+		RunnerPoolID:      task.RunnerPoolID,
+		PinnedRunnerID:    task.PinnedRunnerID,
+		DurationSeconds:   task.DurationSeconds,
+	}
+	for _, resourceID := range task.ResourceIDs {
+		resource, found, err := resourceRepository.Find(ctx, resourceID)
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			candidate.Resources = append(candidate.Resources, store.ScheduleProjectionResource{ID: resource.ID, Name: resource.Name, Kind: resource.Kind})
+		}
+	}
+	if len(candidate.Resources) == 0 {
+		return nil, nil
+	}
+	return projection.CheckScheduleConflicts(ctx, candidate, definition.ID)
+}
+
+func writeScheduleConflict(w http.ResponseWriter, conflicts []controlplane.ProjectionConflict) {
+	writeJSON(w, http.StatusConflict, map[string]any{
+		"error":     "schedule conflicts with exclusive resources",
+		"code":      "exclusive_resource_conflict",
+		"conflicts": conflicts,
+	})
+}
+
+func (o *OperationsService) refreshScheduleProjection(ctx context.Context) {
+	o.mu.RLock()
+	projection := o.scheduleProjection
+	o.mu.RUnlock()
+	if projection != nil {
+		_ = projection.Refresh(context.WithoutCancel(ctx))
+	}
 }
 
 func (o *OperationsService) taskCollection(w http.ResponseWriter, r *http.Request) {
@@ -226,10 +310,12 @@ func (o *OperationsService) taskCollection(w http.ResponseWriter, r *http.Reques
 			writeError(w, http.StatusBadRequest, "task creation failed", err)
 			return
 		}
+		o.refreshScheduleProjection(r.Context())
 		writeJSON(w, http.StatusCreated, taskRecordFromStore(created))
 		return
 	}
-	task := o.createTask(input.Name, input.Command, input.RunnerPool, input.PinnedRunner, input.TimeoutSeconds, input.Resources)
+	task := o.createTask(input.Name, input.Command, input.RunnerPool, input.PinnedRunner, input.DurationSeconds, input.Resources)
+	o.refreshScheduleProjection(r.Context())
 	writeJSON(w, http.StatusCreated, task)
 }
 
@@ -301,6 +387,7 @@ func (o *OperationsService) taskPath(w http.ResponseWriter, r *http.Request) {
 				writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})
 				return
 			}
+			o.refreshScheduleProjection(r.Context())
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -308,6 +395,7 @@ func (o *OperationsService) taskPath(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})
 			return
 		}
+		o.refreshScheduleProjection(r.Context())
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -330,6 +418,7 @@ func (o *OperationsService) taskPath(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusBadRequest, "task version creation failed", err)
 				return
 			}
+			o.refreshScheduleProjection(r.Context())
 			writeJSON(w, http.StatusCreated, taskRecordFromStore(updated))
 			return
 		}
@@ -338,6 +427,7 @@ func (o *OperationsService) taskPath(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})
 			return
 		}
+		o.refreshScheduleProjection(r.Context())
 		writeJSON(w, http.StatusCreated, updated)
 		return
 	}
@@ -399,11 +489,21 @@ func (o *OperationsService) scheduleCollection(w http.ResponseWriter, r *http.Re
 			writeError(w, http.StatusBadRequest, "schedule creation failed", err)
 			return
 		}
+		conflicts, err := o.checkScheduleConflicts(r.Context(), definition)
+		if err != nil {
+			writeError(w, http.StatusServiceUnavailable, "schedule conflict check unavailable", err)
+			return
+		}
+		if len(conflicts) > 0 {
+			writeScheduleConflict(w, conflicts)
+			return
+		}
 		created, err := repository.Create(r.Context(), definition)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
+		o.refreshScheduleProjection(r.Context())
 		writeJSON(w, http.StatusCreated, scheduleRecordFromStore(created))
 		return
 	}
@@ -412,6 +512,7 @@ func (o *OperationsService) scheduleCollection(w http.ResponseWriter, r *http.Re
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	o.refreshScheduleProjection(r.Context())
 	writeJSON(w, http.StatusCreated, schedule)
 }
 
@@ -434,6 +535,7 @@ func (o *OperationsService) schedulePath(w http.ResponseWriter, r *http.Request)
 					writeJSON(w, http.StatusNotFound, map[string]string{"error": "schedule not found"})
 					return
 				}
+				o.refreshScheduleProjection(r.Context())
 				writeJSON(w, http.StatusOK, scheduleRecordFromStore(item))
 				return
 			}
@@ -448,6 +550,7 @@ func (o *OperationsService) schedulePath(w http.ResponseWriter, r *http.Request)
 				writeJSON(w, http.StatusNotFound, map[string]string{"error": "schedule not found"})
 				return
 			}
+			o.refreshScheduleProjection(r.Context())
 			writeJSON(w, http.StatusOK, item)
 			return
 		}
@@ -489,6 +592,7 @@ func (o *OperationsService) schedulePath(w http.ResponseWriter, r *http.Request)
 				writeJSON(w, http.StatusNotFound, map[string]string{"error": "schedule not found"})
 				return
 			}
+			o.refreshScheduleProjection(r.Context())
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -496,6 +600,7 @@ func (o *OperationsService) schedulePath(w http.ResponseWriter, r *http.Request)
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "schedule not found"})
 			return
 		}
+		o.refreshScheduleProjection(r.Context())
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -516,11 +621,21 @@ func (o *OperationsService) schedulePath(w http.ResponseWriter, r *http.Request)
 			writeError(w, http.StatusBadRequest, "schedule update failed", err)
 			return
 		}
+		conflicts, err := o.checkScheduleConflicts(r.Context(), definition)
+		if err != nil {
+			writeError(w, http.StatusServiceUnavailable, "schedule conflict check unavailable", err)
+			return
+		}
+		if len(conflicts) > 0 {
+			writeScheduleConflict(w, conflicts)
+			return
+		}
 		updated, err := repository.Update(r.Context(), id, definition)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
+		o.refreshScheduleProjection(r.Context())
 		writeJSON(w, http.StatusOK, scheduleRecordFromStore(updated))
 		return
 	}
@@ -529,6 +644,7 @@ func (o *OperationsService) schedulePath(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	o.refreshScheduleProjection(r.Context())
 	writeJSON(w, http.StatusOK, schedule)
 }
 
@@ -578,11 +694,11 @@ type scheduleInput struct {
 	MaxConcurrentRuns int    `json:"max_concurrent_runs"`
 }
 
-func (o *OperationsService) createTask(name string, command []string, pool, pinnedRunner string, timeout int, resources []string) TaskRecord {
+func (o *OperationsService) createTask(name string, command []string, pool, pinnedRunner string, duration int, resources []string) TaskRecord {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.nextTaskID++
-	task := TaskRecord{ID: "task-" + strconv.Itoa(o.nextTaskID), Name: strings.TrimSpace(name), Enabled: true, ActiveVersion: 1, Pool: strings.TrimSpace(pool), PinnedRunner: strings.TrimSpace(pinnedRunner), Command: append([]string(nil), command...), Resources: append([]string(nil), resources...), TimeoutSeconds: timeout}
+	task := TaskRecord{ID: "task-" + strconv.Itoa(o.nextTaskID), Name: strings.TrimSpace(name), Enabled: true, ActiveVersion: 1, Pool: strings.TrimSpace(pool), PinnedRunner: strings.TrimSpace(pinnedRunner), Command: append([]string(nil), command...), Resources: append([]string(nil), resources...), DurationSeconds: duration}
 	o.tasks[task.ID] = task
 	return task
 }
@@ -632,8 +748,8 @@ func (o *OperationsService) addTaskVersion(id string, input taskInput) (TaskReco
 	if input.Resources != nil {
 		task.Resources = append([]string(nil), input.Resources...)
 	}
-	if input.TimeoutSeconds > 0 {
-		task.TimeoutSeconds = input.TimeoutSeconds
+	if input.DurationSeconds > 0 {
+		task.DurationSeconds = input.DurationSeconds
 	}
 	task.ActiveVersion++
 	o.tasks[id] = task

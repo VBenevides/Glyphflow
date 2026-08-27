@@ -51,7 +51,7 @@ func run() error {
 		return err
 	}
 	defer db.Close()
-	if err := db.Ping(ctx); err != nil {
+	if err := waitForDatabase(ctx, db.Ping, time.Second); err != nil {
 		return err
 	}
 	if err := store.ApplyMigrations(ctx, db, "migrations"); err != nil {
@@ -157,7 +157,8 @@ func run() error {
 		return err
 	}
 	operations := api.NewOperationsService()
-	operations.SetTaskRepository(store.NewTaskRepository(db))
+	taskRepository := store.NewTaskRepository(db)
+	operations.SetTaskRepository(taskRepository)
 	scheduleRepository := store.NewScheduleRepository(db)
 	retentionRepository := store.NewRetentionRepository(db)
 	storageMonitor := new(platform.StoragePressureMonitor)
@@ -182,7 +183,9 @@ func run() error {
 	}
 	infrastructure := api.NewInfrastructureService()
 	infrastructure.SetRunnerRepository(runnerRepository)
-	infrastructure.SetResourceRepository(store.NewResourceRepository(db))
+	resourceRepository := store.NewResourceRepository(db)
+	infrastructure.SetResourceRepository(resourceRepository)
+	operations.SetResourceRepository(resourceRepository)
 	infrastructure.SetRunnerBinaryDirectory(os.Getenv("RUNNER_BINARIES_DIR"))
 	runnerNATSURL := strings.TrimSpace(os.Getenv("RUNNER_NATS_URL"))
 	if runnerNATSURL == "" {
@@ -200,6 +203,8 @@ func run() error {
 	audit.SetRepository(store.NewAuditRepository(db))
 	metrics := new(platform.Metrics)
 	logger := &platform.Logger{Out: os.Stderr}
+	projectionService := controlplane.NewProjectionService(scheduleRepository, logger)
+	operations.SetScheduleProjection(projectionService)
 	audit.SetAppendFailureHandler(func(event api.AuditEvent, err error) {
 		metrics.AuditAppendErrors.Add(1)
 		_ = logger.Event("audit.append_failed", map[string]string{"id": event.ID, "actor": event.Actor, "error": err.Error(), "count": strconv.FormatUint(metrics.AuditAppendErrors.Load(), 10)})
@@ -211,7 +216,7 @@ func run() error {
 			return err
 		}
 		return nil
-	}, RequireDurableRepositories: true}
+	}, ScheduleProjection: projectionService, RequireDurableRepositories: true}
 	if err := application.ValidateDurableRepositories(); err != nil {
 		return err
 	}
@@ -225,9 +230,9 @@ func run() error {
 	}
 	var jetstream *queue.JetStream
 	if strings.HasPrefix(cfg.NATSURL, "tls://") {
-		jetstream, err = queue.ConnectJetStreamTLS(cfg.NATSURL, queue.TLSConfig{CertificateFile: cfg.NATSCertFile, KeyFile: cfg.NATSKeyFile, CAFile: cfg.NATSCAFile})
+		jetstream, err = queue.ConnectJetStreamTLSWithContext(ctx, cfg.NATSURL, queue.TLSConfig{CertificateFile: cfg.NATSCertFile, KeyFile: cfg.NATSKeyFile, CAFile: cfg.NATSCAFile})
 	} else {
-		jetstream, err = queue.ConnectJetStreamPlain(cfg.NATSURL)
+		jetstream, err = queue.ConnectJetStreamPlainWithContext(ctx, cfg.NATSURL)
 	}
 	if err != nil {
 		return err
@@ -354,6 +359,7 @@ func run() error {
 			}
 		}
 	}()
+	go projectionService.Run(ctx, 30*time.Minute)
 	server := &http.Server{
 		Addr: ":8080",
 		Handler: func() http.Handler {
@@ -387,4 +393,28 @@ func run() error {
 		return err
 	}
 	return nil
+}
+
+func waitForDatabase(ctx context.Context, ping func(context.Context) error, retryInterval time.Duration) error {
+	for {
+		if err := ping(ctx); err == nil {
+			return nil
+		} else if ctx.Err() != nil {
+			return ctx.Err()
+		} else {
+			fmt.Fprintln(os.Stderr, "database connection:", err)
+		}
+		timer := time.NewTimer(retryInterval)
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			return ctx.Err()
+		}
+	}
 }

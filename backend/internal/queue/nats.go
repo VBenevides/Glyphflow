@@ -42,7 +42,15 @@ func ConnectJetStream(url string) (*JetStream, error) {
 	if err != nil || parsed.Scheme != "tls" {
 		return nil, errors.New("NATS mutual TLS is required")
 	}
-	return connectJetStream(url)
+	return connectJetStream(context.Background(), url, false)
+}
+
+func ConnectJetStreamWithContext(ctx context.Context, url string) (*JetStream, error) {
+	parsed, err := urlpkg.Parse(url)
+	if err != nil || parsed.Scheme != "tls" {
+		return nil, errors.New("NATS mutual TLS is required")
+	}
+	return connectJetStream(ctx, url, true)
 }
 
 func ConnectJetStreamPlain(url string) (*JetStream, error) {
@@ -50,7 +58,15 @@ func ConnectJetStreamPlain(url string) (*JetStream, error) {
 	if err != nil || parsed.Scheme != "nats" {
 		return nil, errors.New("plain NATS requires a nats:// URL")
 	}
-	return connectJetStream(url)
+	return connectJetStream(context.Background(), url, false)
+}
+
+func ConnectJetStreamPlainWithContext(ctx context.Context, url string) (*JetStream, error) {
+	parsed, err := urlpkg.Parse(url)
+	if err != nil || parsed.Scheme != "nats" {
+		return nil, errors.New("plain NATS requires a nats:// URL")
+	}
+	return connectJetStream(ctx, url, true)
 }
 
 func ConnectJetStreamTLS(url string, tls TLSConfig) (*JetStream, error) {
@@ -58,10 +74,24 @@ func ConnectJetStreamTLS(url string, tls TLSConfig) (*JetStream, error) {
 	if err != nil {
 		return nil, err
 	}
-	return connectJetStream(url, options...)
+	return connectJetStream(context.Background(), url, false, options...)
 }
 
-func connectJetStream(url string, options ...nats.Option) (*JetStream, error) {
+func ConnectJetStreamTLSWithContext(ctx context.Context, url string, tls TLSConfig) (*JetStream, error) {
+	options, err := tls.options()
+	if err != nil {
+		return nil, err
+	}
+	return connectJetStream(ctx, url, true, options...)
+}
+
+func connectJetStream(ctx context.Context, url string, retry bool, options ...nats.Option) (*JetStream, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if retry {
+		options = append(options, nats.RetryOnFailedConnect(true), nats.MaxReconnects(-1), nats.ReconnectWait(time.Second))
+	}
 	conn, err := nats.Connect(url, options...)
 	if err != nil {
 		return nil, err
@@ -71,12 +101,33 @@ func connectJetStream(url string, options ...nats.Option) (*JetStream, error) {
 		conn.Close()
 		return nil, err
 	}
-	stream, err := js.CreateOrUpdateStream(context.Background(), jetstream.StreamConfig{Name: "GLYPHFLOW", Subjects: []string{"glyphflow.orders.>", "glyphflow.events.>", "glyphflow.heartbeats.>", "glyphflow.control.>", "glyphflow.deadletter.>"}, Storage: jetstream.FileStorage, Retention: jetstream.LimitsPolicy, MaxMsgSize: 1 << 20})
-	if err != nil {
-		conn.Close()
-		return nil, err
+	streamConfig := jetstream.StreamConfig{Name: "GLYPHFLOW", Subjects: []string{"glyphflow.orders.>", "glyphflow.events.>", "glyphflow.heartbeats.>", "glyphflow.control.>", "glyphflow.deadletter.>"}, Storage: jetstream.FileStorage, Retention: jetstream.LimitsPolicy, MaxMsgSize: 1 << 20}
+	for {
+		stream, streamErr := js.CreateOrUpdateStream(ctx, streamConfig)
+		if streamErr == nil {
+			return &JetStream{conn: conn, js: js, stream: stream}, nil
+		}
+		if !retry || ctx.Err() != nil || conn.IsClosed() || conn.IsConnected() {
+			conn.Close()
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			return nil, streamErr
+		}
+		timer := time.NewTimer(time.Second)
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			conn.Close()
+			return nil, ctx.Err()
+		}
 	}
-	return &JetStream{conn: conn, js: js, stream: stream}, nil
 }
 
 func (j *JetStream) Close() {

@@ -69,7 +69,7 @@ func TestTaskJSONMatchesFrontendContract(t *testing.T) {
 		},
 	}).Handler()
 
-	requestBody := []byte(`{"name":"demo","command":["echo","ok"],"runner_pool":"default","timeout_seconds":30}`)
+	requestBody := []byte(`{"name":"demo","command":["echo","ok"],"runner_pool":"default","duration_seconds":30}`)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/tasks", bytes.NewReader(requestBody)))
 	if response.Code != http.StatusCreated {
@@ -77,16 +77,16 @@ func TestTaskJSONMatchesFrontendContract(t *testing.T) {
 	}
 
 	var task struct {
-		ID             string   `json:"id"`
-		Name           string   `json:"name"`
-		Pool           string   `json:"pool"`
-		TimeoutSeconds int      `json:"timeoutSeconds"`
-		Command        []string `json:"command"`
+		ID              string   `json:"id"`
+		Name            string   `json:"name"`
+		Pool            string   `json:"pool"`
+		DurationSeconds int      `json:"durationSeconds"`
+		Command         []string `json:"command"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &task); err != nil {
 		t.Fatal(err)
 	}
-	if task.ID == "" || task.Name != "demo" || task.Pool != "default" || task.TimeoutSeconds != 30 || len(task.Command) != 2 {
+	if task.ID == "" || task.Name != "demo" || task.Pool != "default" || task.DurationSeconds != 30 || len(task.Command) != 2 {
 		t.Fatalf("task response = %+v", task)
 	}
 }

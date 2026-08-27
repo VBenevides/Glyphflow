@@ -18,10 +18,10 @@ describe('task version editor', () => {
 	})
 
 	it('loads an edit baseline from the task record', () => {
-		const draft = taskDraftFromRecord({ id: 'task-1', name: 'Nightly', pool: 'default', timeoutSeconds: 90, command: ['python', 'script.py'], environment: { CACHE_PATH: '/tmp/cache' }, maxAttempts: 3 })
+	const draft = taskDraftFromRecord({ id: 'task-1', name: 'Nightly', pool: 'default', durationSeconds: 90, command: ['python', 'script.py'], environment: { CACHE_PATH: '/tmp/cache' }, maxAttempts: 3 })
 		expect(draft.name).toBe('Nightly')
 		expect(draft.pool).toBe('default')
-		expect(draft.timeoutSeconds).toBe('90')
+	expect(draft.durationSeconds).toBe('90')
 		expect(draft.command).toBe('python\nscript.py')
 		expect(draft.environment).toEqual([{ name: 'CACHE_PATH', value: '/tmp/cache' }])
 		expect(draft.maxAttempts).toBe('3')

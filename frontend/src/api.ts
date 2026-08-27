@@ -5,12 +5,14 @@ export type ApiErrorBody = {
   code?: string
   message?: string
   fields?: Record<string, string>
+  conflicts?: ScheduleProjectionConflict[]
 }
 
 export class ApiError extends Error {
   readonly status: number
   readonly code?: string
   readonly fields: Record<string, string>
+  readonly conflicts: ScheduleProjectionConflict[]
   readonly correlationId?: string
   readonly retryAfter?: number
 
@@ -21,6 +23,7 @@ export class ApiError extends Error {
     this.status = status
     this.code = typeof body === 'string' ? undefined : body.code
     this.fields = typeof body === 'string' ? {} : body.fields ?? {}
+    this.conflicts = typeof body === 'string' ? [] : body.conflicts ?? []
     this.correlationId = headers?.get('X-Correlation-ID') ?? undefined
     const retryAfter = headers?.get('Retry-After')
     this.retryAfter = retryAfter ? Number(retryAfter) || undefined : undefined
@@ -33,9 +36,14 @@ export type Profile = { id: string; username: string; displayName?: string; stat
 export type PermissionSnapshot = { permissions: string[]; roles?: string[] }
 export type RuntimeConfig = { brand: string; passwordLogin: boolean; registration: boolean; requireUserApproval?: boolean; oidc: boolean; csrfCookie: string; defaultRoleId?: string; lockdownScheduler?: boolean }
 export type OidcProvider = { id?: string; key: string; name?: string; issuer: string; icon?: string; enabled?: boolean; clientId?: string; secretReference?: string; groupMapping?: Record<string, string> }
-export type TaskVersion = { id: string; version: number; pool?: string; pinnedRunner?: string; command?: string[]; workingDirectory?: string; timeoutSeconds?: number; maxAttempts?: number; ambiguityPolicy?: string; resources?: string[]; executionSpecDigest?: string; createdAt?: string }
-export type Task = { id: string; name: string; enabled?: boolean; isDeleted?: boolean; state?: string; activeVersion?: number; pool?: string; pinnedRunner?: string; command?: string[]; workingDirectory?: string; placementSelectors?: Record<string, unknown>; environment?: Record<string, string>; timeoutSeconds?: number; maxAttempts?: number; ambiguityPolicy?: string; resources?: string[]; latestRun?: Run }
+export type TaskVersion = { id: string; version: number; pool?: string; pinnedRunner?: string; command?: string[]; workingDirectory?: string; durationSeconds?: number; maxAttempts?: number; ambiguityPolicy?: string; resources?: string[]; executionSpecDigest?: string; createdAt?: string }
+export type Task = { id: string; name: string; enabled?: boolean; isDeleted?: boolean; state?: string; activeVersion?: number; pool?: string; pinnedRunner?: string; command?: string[]; workingDirectory?: string; placementSelectors?: Record<string, unknown>; environment?: Record<string, string>; durationSeconds?: number; maxAttempts?: number; ambiguityPolicy?: string; resources?: string[]; latestRun?: Run }
 export type Schedule = { id: string; name: string; taskId: string; enabled?: boolean; nextFireAt?: string; state?: string; timezone?: string; expression?: string; misfirePolicy?: string; catchupLimit?: number; deadlineSeconds?: number; concurrencyPolicy?: string; maxConcurrentRuns?: number }
+export type ScheduleProjectionResource = { id: string; name: string }
+export type ScheduleProjectionOccurrence = { id: string; scheduleId: string; scheduleName: string; scheduleVersionId: string; taskId: string; taskName: string; taskVersionId: string; timezone: string; laneId: string; laneLabel: string; startAt: string; endAt: string }
+export type ScheduleProjectionSegment = ScheduleProjectionOccurrence & { occurrenceCount: number; conflicted: boolean; exclusiveResources: ScheduleProjectionResource[] }
+export type ScheduleProjectionConflict = { id: string; resourceId: string; resourceName: string; startAt: string; endAt: string; occurrences: ScheduleProjectionOccurrence[] }
+export type ScheduleProjection = { available: boolean; calculatedAt?: string; windowStart?: string; windowEnd?: string; durationSource?: string; segments?: ScheduleProjectionSegment[]; conflicts?: ScheduleProjectionConflict[] }
 export type RunAttempt = { id?: string; attemptNumber?: number; state: string; runnerId?: string; runnerSessionId?: string; fencingToken?: number; dispatchedAt?: string; startedAt?: string; finishedAt?: string }
 export type RunEvent = { id?: string; eventId?: string; attemptId?: string; stateSequence?: number; eventKind?: string; reportedAt?: string; payload?: unknown }
 export type RunSession = { id: string; runnerId?: string; bootId?: string; connectedAt?: string; lastHeartbeatAt?: string; disconnectedAt?: string }

@@ -23,12 +23,12 @@ describe('task pages', () => {
 
   it('compares a task version with its previous immutable version', () => {
     expect(taskVersionDiff(
-      { id: 'v1', version: 1, command: ['echo', 'one'], pool: 'default', resources: ['db'], timeoutSeconds: 30 },
-      { id: 'v2', version: 2, command: ['echo', 'two'], pool: 'default', resources: [], timeoutSeconds: 60 },
+		{ id: 'v1', version: 1, command: ['echo', 'one'], pool: 'default', resources: ['db'], durationSeconds: 30 },
+		{ id: 'v2', version: 2, command: ['echo', 'two'], pool: 'default', resources: [], durationSeconds: 60 },
     )).toEqual([
       { id: 'command', field: 'Command', previous: 'echo one', current: 'echo two' },
       { id: 'resources', field: 'Resources', previous: 'db', current: 'None' },
-      { id: 'timeout', field: 'Execution Timeout Seconds', previous: '30s', current: '60s' },
+		{ id: 'duration', field: 'Task Duration in Seconds', previous: '30s', current: '60s' },
     ])
   })
 })

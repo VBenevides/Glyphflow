@@ -145,7 +145,7 @@ func TestSessionAuthenticatorAndCreateRole(t *testing.T) {
 }
 
 func TestTaskCreationStoresAndReturnsTask(t *testing.T) {
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", bytes.NewBufferString(`{"name":"Nightly","command":["echo","hi"],"runner_pool":"default","timeout_seconds":30}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", bytes.NewBufferString(`{"name":"Nightly","command":["echo","hi"],"runner_pool":"default","duration_seconds":30}`))
 	sessions, err := NewSessionManager("01234567890123456789012345678901")
 	if err != nil {
 		t.Fatal(err)

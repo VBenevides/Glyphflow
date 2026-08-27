@@ -99,7 +99,7 @@ new version.
 4. Optionally set **Working directory**.
 5. Select a **Runner pool**. Optionally select a specific **Runner**; the
    default **Any in Pool** lets placement choose an eligible runner.
-6. Set **Execution Timeout Seconds**, **Maximum attempts**, and **Ambiguity
+6. Set **Task Duration in Seconds**, **Maximum attempts**, and **Ambiguity
    policy**.
 7. Optionally add **Environment variables**, **Resources**, and **Tags**.
    Tags are key/value requirements that must match runner capabilities, such as
@@ -182,6 +182,17 @@ message shown above the run details.
    `ALLOW`. If you select `ALLOW`, set **Max concurrent runs**.
 9. Select **Preview next occurrences** and review **Next occurrences**.
 10. Select **Save schedule version**.
+
+The **Scheduling Gantt** tab projects the next seven days of cron executions
+using each task's duration. It can group placements by runner or task and show
+exclusive-resource conflicts. The projection refreshes at startup, every 30
+minutes, and immediately after a successful task or schedule change; the last
+successful snapshot remains available if a refresh fails.
+
+Glyphflow rejects a schedule before saving when its projected executions would
+overlap another execution on an exclusive resource. The editor lists each
+conflicting resource, affected task or schedule, and overlap times. The
+**Overview** page also alerts you when the latest projection contains conflicts.
 
 Editing a schedule creates a new immutable schedule version. The schedule list
 shows its **Next fire** time and **State**. The control-plane scheduler creates

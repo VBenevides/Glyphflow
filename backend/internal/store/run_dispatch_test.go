@@ -39,7 +39,7 @@ func TestRunRepositoryClaimsAndReconcilesStartFailure(t *testing.T) {
 	if _, err := pool.Exec(ctx, `INSERT INTO runner_sessions (id, runner_id, boot_id, last_heartbeat_at) VALUES ($1, $2, $3, now())`, runnerID+"/boot", runnerID, "boot"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewTaskRepository(pool).Create(ctx, TaskDefinition{ID: taskID, Name: taskID, RunnerPoolID: poolID, Command: []string{"echo", "ok"}, Environment: map[string]any{"PORT": 8080}, TimeoutSeconds: 1, Enabled: true}); err != nil {
+	if _, err := NewTaskRepository(pool).Create(ctx, TaskDefinition{ID: taskID, Name: taskID, RunnerPoolID: poolID, Command: []string{"echo", "ok"}, Environment: map[string]any{"PORT": 8080}, DurationSeconds: 1, Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := NewRunRepository(pool).Create(ctx, RunDefinition{ID: runID, TaskID: taskID, TriggerType: "MANUAL", ScheduledFor: time.Now().UTC().Add(-11 * time.Minute), IdempotencyKey: "dispatch-idempotency-" + suffix}); err != nil {
@@ -112,7 +112,7 @@ func TestRunRepositoryClaimsStartBeforeTimeout(t *testing.T) {
 	if _, err := db.Exec(ctx, `INSERT INTO runner_sessions (id, runner_id, boot_id, last_heartbeat_at) VALUES ($1, $2, $3, now())`, runnerID+"/boot", runnerID, "boot"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewTaskRepository(db).Create(ctx, TaskDefinition{ID: taskID, Name: taskID, RunnerPoolID: poolID, Command: []string{"echo", "ok"}, TimeoutSeconds: 1, Enabled: true}); err != nil {
+	if _, err := NewTaskRepository(db).Create(ctx, TaskDefinition{ID: taskID, Name: taskID, RunnerPoolID: poolID, Command: []string{"echo", "ok"}, DurationSeconds: 1, Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := NewRunRepository(db).Create(ctx, RunDefinition{ID: runID, TaskID: taskID, TriggerType: "MANUAL", IdempotencyKey: "start-idempotency-" + suffix}); err != nil {

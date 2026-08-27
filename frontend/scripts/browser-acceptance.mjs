@@ -223,7 +223,7 @@ async function runLogs(page, state) {
   if (!runID) {
     state.createdTaskID = await page.evaluate(async () => {
       const csrf = decodeURIComponent(document.cookie.split('; ').find((part) => part.startsWith('glyphflow_csrf='))?.split('=').slice(1).join('=') ?? '')
-      const response = await fetch('/api/v1/tasks', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, body: JSON.stringify({ name: `browser-acceptance-${Date.now()}`, command: ['/bin/echo', 'browser acceptance'], runner_pool: 'default', timeout_seconds: 60, max_output_bytes: 1024, max_attempts: 1 }) })
+      const response = await fetch('/api/v1/tasks', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, body: JSON.stringify({ name: `browser-acceptance-${Date.now()}`, command: ['/bin/echo', 'browser acceptance'], runner_pool: 'default', duration_seconds: 60, max_output_bytes: 1024, max_attempts: 1 }) })
       if (!response.ok) throw new Error(`/api/v1/tasks returned HTTP ${response.status}`)
       return (await response.json()).id
     })

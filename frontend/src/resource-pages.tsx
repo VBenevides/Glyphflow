@@ -12,6 +12,7 @@ import { formatDateTime } from './format'
 
 export function resourceState(resource: Resource) { return resource.enabled === false ? 'disabled' : resource.holder ? 'leased' : 'available' }
 export function resourceKindLabel(kind?: string) { return kind?.toLowerCase().replace('_', '-') === 'non-blocking' ? 'Non-blocking' : 'Exclusive' }
+export function resourceNameLabel(name: string) { return name.length > 30 ? `${name.slice(0, 29)}…` : name }
 
 export function ResourceInventoryPage() {
   const { permissions } = useAuth()
@@ -58,7 +59,8 @@ export function ResourceInventoryPage() {
     <QueryState query={query} empty="Create a resource for task placement.">
       {(data) => data.items.length ? <>
         <DataTable caption="Resources" rows={data.items} columns={[
-          { key: 'name', label: 'Resource', render: (resource) => <Identifier id={resource.id} name={resource.name} href={`/resources/${resource.id}`} copyLabel="Copy resource ID" /> },
+          { key: 'name', label: 'Resource Name', render: (resource) => <Link to={`/resources/${encodeURIComponent(resource.id)}`} title={resource.name}>{resourceNameLabel(resource.name)}</Link> },
+          { key: 'id', label: 'Resource Id', render: (resource) => <Identifier id={resource.id} copyLabel="Copy resource ID" /> },
           { key: 'kind', label: 'Type', render: (resource) => resourceKindLabel(resource.kind) },
           { key: 'enabled', label: 'State', render: (resource) => <StatusPill status={resourceState(resource)} /> },
           { key: 'holder', label: 'Holder', render: (resource) => resource.holder ? <Identifier id={resource.holder} href={`/runs/${resource.holder}`} copyLabel="Copy run ID" /> : '—' },
