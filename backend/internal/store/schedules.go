@@ -30,6 +30,20 @@ type ScheduleRecord struct {
 	ActiveVersion                                    int
 }
 
+type ScheduleProjectionResource struct {
+	ID, Name, Kind string
+}
+
+type ScheduleProjectionInput struct {
+	ScheduleID, ScheduleName, ScheduleVersionID string
+	TaskID, TaskName, TaskVersionID             string
+	Expression, Timezone                        string
+	RunnerPoolID, RunnerPoolName                string
+	PinnedRunnerID, PinnedRunnerName            string
+	TimeoutSeconds                              int
+	Resources                                   []ScheduleProjectionResource
+}
+
 type ScheduleRepository interface {
 	List(context.Context) ([]ScheduleRecord, error)
 	Find(context.Context, string) (ScheduleRecord, bool, error)
@@ -38,6 +52,10 @@ type ScheduleRepository interface {
 	SetEnabled(context.Context, string, bool) (ScheduleRecord, bool, error)
 	Delete(context.Context, string) (bool, error)
 	CreateDueRun(context.Context, time.Time, func(DueScheduleRecord) (time.Time, error)) (string, bool, error)
+}
+
+type ScheduleProjectionRepository interface {
+	ListScheduleProjection(context.Context) ([]ScheduleProjectionInput, error)
 }
 
 type DueScheduleRecord struct {
@@ -83,6 +101,45 @@ func (s *ScheduleStore) Find(ctx context.Context, id string) (ScheduleRecord, bo
 		return ScheduleRecord{}, false, nil
 	}
 	return item, err == nil, err
+}
+
+func (s *ScheduleStore) ListScheduleProjection(ctx context.Context) ([]ScheduleProjectionInput, error) {
+	rows, err := s.pool.Query(ctx, `SELECT s.id, s.name, sv.id, s.task_id, t.name, tv.id, sv.expression, sv.timezone, tv.runner_pool_id, rp.name, COALESCE(tv.pinned_runner_id, ''), COALESCE(pr.name, ''), tv.timeout_seconds, resource.id, resource.name, resource.kind FROM schedules s JOIN schedule_versions sv ON sv.id = s.current_version_id JOIN tasks t ON t.id = s.task_id AND t.enabled AND NOT t.is_deleted JOIN task_versions tv ON tv.id = sv.task_version_id AND tv.task_id = sv.task_id JOIN runner_pools rp ON rp.id = tv.runner_pool_id LEFT JOIN runners pr ON pr.id = tv.pinned_runner_id LEFT JOIN task_resource_requirements req ON req.task_version_id = tv.id LEFT JOIN resources resource ON resource.id = req.resource_id WHERE s.enabled ORDER BY lower(s.name), s.id, resource.id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ScheduleProjectionInput{}
+	for rows.Next() {
+		var item ScheduleProjectionInput
+		var resourceID, resourceName, resourceKind *string
+		if err := rows.Scan(&item.ScheduleID, &item.ScheduleName, &item.ScheduleVersionID, &item.TaskID, &item.TaskName, &item.TaskVersionID, &item.Expression, &item.Timezone, &item.RunnerPoolID, &item.RunnerPoolName, &item.PinnedRunnerID, &item.PinnedRunnerName, &item.TimeoutSeconds, &resourceID, &resourceName, &resourceKind); err != nil {
+			return nil, err
+		}
+		index := len(items) - 1
+		if index < 0 || items[index].ScheduleID != item.ScheduleID {
+			items = append(items, item)
+			index++
+		}
+		if resourceID != nil && *resourceID != "" {
+			items[index].Resources = append(items[index].Resources, ScheduleProjectionResource{ID: *resourceID, Name: valueOrID(resourceName, *resourceID), Kind: valueOrEmpty(resourceKind)})
+		}
+	}
+	return items, rows.Err()
+}
+
+func valueOrID(value *string, id string) string {
+	if value != nil && *value != "" {
+		return *value
+	}
+	return id
+}
+
+func valueOrEmpty(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func scanSchedule(row interface{ Scan(...any) error }) (ScheduleRecord, error) {
