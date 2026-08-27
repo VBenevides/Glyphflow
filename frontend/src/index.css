@@ -383,7 +383,7 @@ body { background-image: var(--gf-page-glow); }
 .gf-table .gf-cell-endpoint { max-width: 34rem; }
 .gf-table .gf-cell-endpoint a { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gf-table.gf-audit-table { min-width: 72rem; }
-.gf-pagination { margin-top: 0; padding: 0.6rem 0.8rem; background: color-mix(in oklab, var(--gf-card), transparent 20%); border: 1px solid var(--gf-border); border-top: 0; border-radius: 0 0 var(--gf-radius) var(--gf-radius); font-size: 0.8rem; }
+.gf-pagination { margin-top: 0.75rem; padding: 0; background: transparent; border: 0; border-radius: 0; font-size: 0.8rem; }
 .gf-filter-bar { gap: 0.6rem; padding: 0; background: transparent; border: 0; border-radius: 0; }
 .gf-filter-bar label, .gf-filter-bar .gf-filter-field, .gf-filter-bar .gf-task-picker { min-width: 10rem; font-size: 0.78rem; font-weight: 550; }
 .gf-card-panel { margin-top: 0.75rem; padding: 1rem; }
@@ -510,6 +510,7 @@ body { background-image: var(--gf-page-glow); }
 /* Keep compact controls and collection states consistent across pages. */
 .gf-editor-form label:has(> input[type='checkbox']) { display: inline-flex; align-items: center; gap: 0.5rem; }
 .gf-editor-form fieldset > .gf-button { margin-top: 0.75rem; }
+.gf-card-panel > .gf-button, .gf-card-panel > .gf-dialog-actions, .gf-content > .gf-dialog-actions { margin-top: 0.75rem; }
 .gf-editor-form label:has(> input[type='checkbox']) input[type='checkbox'], .gf-filter-bar label:has(> input[type='checkbox']) input[type='checkbox'] { width: 1rem; height: 1rem; flex: 0 0 auto; margin: 0; }
 .gf-editor-form label:has(> select#default-role) { display: flex; align-items: center; gap: 0.75rem; }
 .gf-editor-form label:has(> select#default-role) > select { width: 12rem; flex: 0 0 12rem; }
@@ -603,7 +604,6 @@ body { background-image: var(--gf-page-glow); }
 .gf-metric-info .gf-metric-icon { color: var(--gf-info); background: color-mix(in oklab, var(--gf-info), transparent 88%); border-color: color-mix(in oklab, var(--gf-info), transparent 68%); }
 .gf-filter-bar .gf-input { min-height: 2.6rem; border-radius: 0.75rem; background: var(--gf-card); }
 .gf-table-wrap { border-radius: 0.9rem; border-color: var(--gf-border); }
-.gf-table-wrap:has(+ .gf-pagination) { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
 .gf-role-table .gf-table { min-width: 58rem; }
 .gf-role-table .gf-table th, .gf-role-table .gf-table td { padding: 0.6rem 0.8rem; }
 .gf-pill-list { gap: 0.25rem; }
