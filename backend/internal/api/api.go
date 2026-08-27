@@ -631,7 +631,7 @@ func (s Server) auditBefore(r *http.Request) map[string]any {
 			return auditSnapshot(map[string]any{"id": role.ID, "name": role.Name, "description": role.Description, "system": role.System, "permissions": role.Permissions, "assignedUsers": role.AssignedUsers})
 		}
 		if len(parts) >= 6 && parts[3] == "auth" && parts[4] == "users" && s.AuthAdmin != nil && s.AuthAdmin.Auth != nil {
-			user, ok := s.AuthAdmin.Auth.UserProfile(parts[5])
+			user, ok, _ := s.AuthAdmin.Auth.UserProfile(parts[5])
 			return find(user, ok)
 		}
 		if len(parts) >= 5 && parts[3] == "dead-letters" && s.DeadLetters != nil && s.DeadLetters.repository != nil {

@@ -121,10 +121,9 @@ func (m *SessionManager) IssueForSession(userID, sessionID string, lifetime time
 	return token, Claims{Subject: userID, UserID: userID, SessionID: sessionID}, nil
 }
 
-func (m *SessionManager) RevokeUser(userID string) {
+func (m *SessionManager) RevokeUser(userID string) error {
 	if m.repository != nil {
-		_ = m.repository.RevokeUser(context.Background(), userID)
-		return
+		return m.repository.RevokeUser(context.Background(), userID)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -133,20 +132,21 @@ func (m *SessionManager) RevokeUser(userID string) {
 			delete(m.sessions, id)
 		}
 	}
+	return nil
 }
 
-func (m *SessionManager) List(userID string) []SessionInfo {
+func (m *SessionManager) List(userID string) ([]SessionInfo, error) {
 	if m.repository != nil {
 		sessions, err := m.repository.List(context.Background(), userID)
 		if err != nil {
-			return []SessionInfo{}
+			return nil, err
 		}
 		out := make([]SessionInfo, 0, len(sessions))
 		for _, session := range sessions {
 			lastSeenAt := session.LastSeenAt
 			out = append(out, SessionInfo{ID: session.ID, UserID: userID, ExpiresAt: session.AccessExpiresAt, LastSeenAt: &lastSeenAt, UserAgent: session.UserAgent, IPAddress: session.IPAddress})
 		}
-		return out
+		return out, nil
 	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -156,17 +156,17 @@ func (m *SessionManager) List(userID string) []SessionInfo {
 			out = append(out, SessionInfo{ID: id, UserID: userID, ExpiresAt: time.Unix(session.ExpiresAt, 0)})
 		}
 	}
-	return out
+	return out, nil
 }
 
-func (m *SessionManager) Revoke(sessionID string) {
+func (m *SessionManager) Revoke(sessionID string) error {
 	if m.repository != nil {
-		_ = m.repository.Revoke(context.Background(), sessionID)
-		return
+		return m.repository.Revoke(context.Background(), sessionID)
 	}
 	m.mu.Lock()
 	delete(m.sessions, sessionID)
 	m.mu.Unlock()
+	return nil
 }
 
 func (m *SessionManager) Authenticator() Authenticator {

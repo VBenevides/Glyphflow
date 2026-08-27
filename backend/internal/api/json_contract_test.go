@@ -19,7 +19,11 @@ func TestFrontendAuthenticationJSONContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	profile, err := json.Marshal(auth.Profile(Claims{UserID: user.ID}))
+	profileData, err := auth.Profile(Claims{UserID: user.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, err := json.Marshal(profileData)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -163,7 +163,10 @@ func (s Server) passwordRoutes(mux routeRegistrar) {
 			if claims, ok := s.AuthService.Authenticator()(r); ok {
 				in.SessionID = claims.SessionID
 			}
-			s.AuthService.Logout(in.SessionID)
+			if err := s.AuthService.Logout(in.SessionID); err != nil {
+				writeError(w, http.StatusInternalServerError, "logout failed", err)
+				return
+			}
 			s.clearSessionCookies(w)
 			writeJSON(w, 204, nil)
 		})
@@ -177,7 +180,10 @@ func (s Server) passwordRoutes(mux routeRegistrar) {
 				writeJSON(w, 401, map[string]string{"error": "authentication required"})
 				return
 			}
-			s.AuthService.LogoutAll(claims.UserID)
+			if err := s.AuthService.LogoutAll(claims.UserID); err != nil {
+				writeError(w, http.StatusInternalServerError, "logout-all failed", err)
+				return
+			}
 			writeJSON(w, 204, nil)
 		})
 		return

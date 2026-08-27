@@ -124,7 +124,10 @@ func TestAuthenticationAdministrationCreatesPromotesAndRevokesRoles(t *testing.T
 	if response := request(http.MethodPost, "/api/v1/admin/auth/users/"+user.ID+"/roles", `{"role":"admin"}`); response.Code != http.StatusNoContent {
 		t.Fatalf("promote admin: %d %s", response.Code, response.Body.String())
 	}
-	profile, ok := auth.UserProfile(user.ID)
+	profile, ok, err := auth.UserProfile(user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !ok || !containsString(profile["roles"].([]string), "admin") || !containsString(profile["roles"].([]string), "operator") {
 		t.Fatalf("assigned roles missing: %#v", profile)
 	}
@@ -229,7 +232,10 @@ func TestAuthenticationAdministrationReportsImmutableSystemAdmin(t *testing.T) {
 	if body["error"] == "user not found" || body["error"] == "" {
 		t.Fatalf("unexpected immutable admin error: %q", body["error"])
 	}
-	users := auth.Users()
+	users, err := auth.Users()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(users) != 1 || users[0]["systemAdmin"] != true {
 		t.Fatalf("system admin flag missing: %#v", users)
 	}

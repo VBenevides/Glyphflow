@@ -139,10 +139,15 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 			writeJSON(w, 405, map[string]string{"error": "method not allowed"})
 			return
 		}
+		var err error
 		if s.AuthAdmin.Auth != nil {
-			s.AuthAdmin.Auth.Logout(r.URL.Query().Get("session_id"))
+			err = s.AuthAdmin.Auth.Logout(r.URL.Query().Get("session_id"))
 		} else {
-			s.AuthAdmin.Sessions.Revoke(r.URL.Query().Get("session_id"))
+			err = s.AuthAdmin.Sessions.Revoke(r.URL.Query().Get("session_id"))
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "session revoke failed", err)
+			return
 		}
 		writeJSON(w, 204, nil)
 	})))
@@ -153,7 +158,11 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 			return
 		}
-		sessions := s.AuthAdmin.Auth.AdminSessions()
+		sessions, err := s.AuthAdmin.Auth.AdminSessions()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "session list failed", err)
+			return
+		}
 		email := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("email")))
 		if email != "" {
 			filtered := sessions[:0]
@@ -268,11 +277,14 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 			writeJSON(w, http.StatusNoContent, nil)
 		case r.Method == http.MethodPost && strings.HasSuffix(path, "/sessions/revoke-all"):
 			userID := strings.TrimSuffix(path, "/sessions/revoke-all")
-			if _, ok := s.AuthAdmin.Auth.UserProfile(userID); !ok {
+			if _, ok := s.AuthAdmin.Auth.User(userID); !ok {
 				writeJSON(w, http.StatusNotFound, map[string]string{"error": "user not found"})
 				return
 			}
-			s.AuthAdmin.Auth.LogoutAll(userID)
+			if err := s.AuthAdmin.Auth.LogoutAll(userID); err != nil {
+				writeError(w, http.StatusInternalServerError, "session revoke-all failed", err)
+				return
+			}
 			writeJSON(w, http.StatusNoContent, nil)
 		default:
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -294,7 +306,11 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid user status"})
 				return
 			}
-			users := s.AuthAdmin.Auth.Users(status)
+			users, err := s.AuthAdmin.Auth.Users(status)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "user list failed", err)
+				return
+			}
 			email := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("email")))
 			if email != "" {
 				filtered := users[:0]
@@ -354,7 +370,11 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 			writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
 			return
 		}
-		profile, ok := s.AuthAdmin.Auth.UserProfile(userID)
+		profile, ok, err := s.AuthAdmin.Auth.UserProfile(userID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "user details unavailable", err)
+			return
+		}
 		if !ok {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "user not found"})
 			return
