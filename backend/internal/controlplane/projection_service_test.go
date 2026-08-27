@@ -104,3 +104,22 @@ func TestProjectionServiceStartsImmediatelyAndDoesNotOverlap(t *testing.T) {
 		t.Fatalf("calls=%d max_active=%d", calls.Load(), maxActive.Load())
 	}
 }
+
+func TestProjectionServiceChecksCandidateScheduleConflicts(t *testing.T) {
+	service := NewProjectionService(projectionRepositoryFunc(func(context.Context) ([]store.ScheduleProjectionInput, error) {
+		return []store.ScheduleProjectionInput{{
+			ScheduleID: "schedule-existing", ScheduleName: "Existing", ScheduleVersionID: "schedule-existing-v1", TaskID: "task-existing", TaskName: "Existing task", TaskVersionID: "task-existing-v1", Expression: "30 * * * *", Timezone: "UTC", RunnerPoolID: "pool-1", DurationSeconds: 1800,
+			Resources: []store.ScheduleProjectionResource{{ID: "resource-1", Name: "Database", Kind: "exclusive"}},
+		}}, nil
+	}), nil)
+	conflicts, err := service.CheckScheduleConflicts(context.Background(), store.ScheduleProjectionInput{
+		ScheduleID: "schedule-candidate", ScheduleName: "Candidate", ScheduleVersionID: "schedule-candidate-v1", TaskID: "task-candidate", TaskName: "Candidate task", TaskVersionID: "task-candidate-v1", Expression: "0 * * * *", Timezone: "UTC", RunnerPoolID: "pool-1", DurationSeconds: 3600,
+		Resources: []store.ScheduleProjectionResource{{ID: "resource-1", Name: "Database", Kind: "exclusive"}},
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(conflicts) == 0 || conflicts[0].ResourceName != "Database" || len(conflicts[0].Occurrences) < 2 {
+		t.Fatalf("candidate conflicts = %#v", conflicts)
+	}
+}

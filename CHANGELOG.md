@@ -2,6 +2,33 @@
 
 All notable changes to Glyphflow are documented here.
 
+## [0.3.0] - 2026-08-27
+
+### Features
+
+- Added seven-day cron schedule projection with deterministic runner-pool placement and exclusive-resource conflict detection.
+- Added startup and thirty-minute projection refreshes with atomic retention of the last successful snapshot.
+- Added an authenticated schedule-projection API endpoint with task-read authorization.
+- Added the Scheduling Gantt with week and daily views, runner/task grouping, hourly divisions, filters, conflict-only mode, runner separators, hover details, and numbered conflict markers.
+- Added Overview conflict alerts with a dismissible dialog and persistent notice linking to the Gantt.
+- Added a login password-visibility toggle, clearer resource name/ID presentation, and consistent schedule controls and tabs.
+
+### Bugfixes
+
+- Aligned projection timestamps, identifiers, placement fields, and resource fields across the backend API and frontend.
+- Preserved every projected occurrence and filtered conflict details consistently with Gantt selections.
+- Corrected Gantt label sizing, timeline width, daily axis spacing, clipping, and repeated row labels.
+- Added PostgreSQL startup retries and persistent NATS reconnect attempts for control plane and workers.
+- Standardized page action spacing and Overview conflict-notice placement.
+
+### Breaking Changes
+
+- Renamed task execution timeout fields to duration fields (`timeout_seconds`/`timeoutSeconds` became `duration_seconds`/`durationSeconds`) across schemas, APIs, protocols, scripts, and the UI.
+
+### Other
+
+- Bumped the application version to 0.3.0.
+
 ## [0.2.4] - 2026-08-26
 
 ### Features

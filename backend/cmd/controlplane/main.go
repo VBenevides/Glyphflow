@@ -157,7 +157,8 @@ func run() error {
 		return err
 	}
 	operations := api.NewOperationsService()
-	operations.SetTaskRepository(store.NewTaskRepository(db))
+	taskRepository := store.NewTaskRepository(db)
+	operations.SetTaskRepository(taskRepository)
 	scheduleRepository := store.NewScheduleRepository(db)
 	retentionRepository := store.NewRetentionRepository(db)
 	storageMonitor := new(platform.StoragePressureMonitor)
@@ -182,7 +183,9 @@ func run() error {
 	}
 	infrastructure := api.NewInfrastructureService()
 	infrastructure.SetRunnerRepository(runnerRepository)
-	infrastructure.SetResourceRepository(store.NewResourceRepository(db))
+	resourceRepository := store.NewResourceRepository(db)
+	infrastructure.SetResourceRepository(resourceRepository)
+	operations.SetResourceRepository(resourceRepository)
 	infrastructure.SetRunnerBinaryDirectory(os.Getenv("RUNNER_BINARIES_DIR"))
 	runnerNATSURL := strings.TrimSpace(os.Getenv("RUNNER_NATS_URL"))
 	if runnerNATSURL == "" {
@@ -201,6 +204,7 @@ func run() error {
 	metrics := new(platform.Metrics)
 	logger := &platform.Logger{Out: os.Stderr}
 	projectionService := controlplane.NewProjectionService(scheduleRepository, logger)
+	operations.SetScheduleProjection(projectionService)
 	audit.SetAppendFailureHandler(func(event api.AuditEvent, err error) {
 		metrics.AuditAppendErrors.Add(1)
 		_ = logger.Event("audit.append_failed", map[string]string{"id": event.ID, "actor": event.Actor, "error": err.Error(), "count": strconv.FormatUint(metrics.AuditAppendErrors.Load(), 10)})

@@ -5,12 +5,14 @@ export type ApiErrorBody = {
   code?: string
   message?: string
   fields?: Record<string, string>
+  conflicts?: ScheduleProjectionConflict[]
 }
 
 export class ApiError extends Error {
   readonly status: number
   readonly code?: string
   readonly fields: Record<string, string>
+  readonly conflicts: ScheduleProjectionConflict[]
   readonly correlationId?: string
   readonly retryAfter?: number
 
@@ -21,6 +23,7 @@ export class ApiError extends Error {
     this.status = status
     this.code = typeof body === 'string' ? undefined : body.code
     this.fields = typeof body === 'string' ? {} : body.fields ?? {}
+    this.conflicts = typeof body === 'string' ? [] : body.conflicts ?? []
     this.correlationId = headers?.get('X-Correlation-ID') ?? undefined
     const retryAfter = headers?.get('Retry-After')
     this.retryAfter = retryAfter ? Number(retryAfter) || undefined : undefined

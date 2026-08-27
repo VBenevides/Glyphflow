@@ -19,6 +19,7 @@ describe('api client', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new DOMException('aborted', 'AbortError')))
     await expect(new ApiClient().get('/api/v1/tasks', undefined, controller.signal)).rejects.toBeInstanceOf(DOMException)
     expect(new ApiError(422, { code: 'validation', fields: { name: 'required' } }).fields.name).toBe('required')
+    expect(new ApiError(409, { code: 'exclusive_resource_conflict', conflicts: [{ id: 'conflict-1', resourceId: 'resource-1', resourceName: 'Database', startAt: '', endAt: '', occurrences: [] }] }).conflicts).toHaveLength(1)
   })
 
   it('sends CSRF and shares one refresh across concurrent 401 responses', async () => {

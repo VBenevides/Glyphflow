@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -75,6 +76,8 @@ type OperationsService struct {
 	nextTaskID, nextScheduleID int
 	repository                 store.TaskRepository
 	scheduleRepository         store.ScheduleRepository
+	resourceRepository         store.ResourceRepository
+	scheduleProjection         *controlplane.ProjectionService
 }
 
 func NewOperationsService() *OperationsService {
@@ -95,6 +98,20 @@ func (o *OperationsService) SetScheduleRepository(repository store.ScheduleRepos
 		o.scheduleRepository = repository
 		o.mu.Unlock()
 	}
+}
+
+func (o *OperationsService) SetResourceRepository(repository store.ResourceRepository) {
+	if repository != nil {
+		o.mu.Lock()
+		o.resourceRepository = repository
+		o.mu.Unlock()
+	}
+}
+
+func (o *OperationsService) SetScheduleProjection(projection *controlplane.ProjectionService) {
+	o.mu.Lock()
+	o.scheduleProjection = projection
+	o.mu.Unlock()
 }
 
 func (o *OperationsService) hasDurableRepositories() bool {
@@ -165,6 +182,73 @@ func scheduleDefinition(id string, input scheduleInput) (store.ScheduleDefinitio
 	return definition, nil
 }
 
+func (o *OperationsService) checkScheduleConflicts(ctx context.Context, definition store.ScheduleDefinition) ([]controlplane.ProjectionConflict, error) {
+	o.mu.RLock()
+	projection, taskRepository, resourceRepository := o.scheduleProjection, o.repository, o.resourceRepository
+	o.mu.RUnlock()
+	if projection == nil || taskRepository == nil || resourceRepository == nil {
+		return nil, nil
+	}
+	task, found, err := taskRepository.Find(ctx, definition.TaskID)
+	if err != nil {
+		return nil, err
+	}
+	if !found || len(task.ResourceIDs) == 0 {
+		return nil, nil
+	}
+	taskVersionID := task.CurrentVersionID
+	if taskVersionID == "" {
+		version := task.ActiveVersion
+		if version < 1 {
+			version = 1
+		}
+		taskVersionID = task.ID + "-v" + strconv.Itoa(version)
+	}
+	candidate := store.ScheduleProjectionInput{
+		ScheduleID:        definition.ID,
+		ScheduleName:      definition.Name,
+		ScheduleVersionID: definition.ID + "-candidate",
+		TaskID:            task.ID,
+		TaskName:          task.Name,
+		TaskVersionID:     taskVersionID,
+		Expression:        definition.Expression,
+		Timezone:          definition.Timezone,
+		RunnerPoolID:      task.RunnerPoolID,
+		PinnedRunnerID:    task.PinnedRunnerID,
+		DurationSeconds:   task.DurationSeconds,
+	}
+	for _, resourceID := range task.ResourceIDs {
+		resource, found, err := resourceRepository.Find(ctx, resourceID)
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			candidate.Resources = append(candidate.Resources, store.ScheduleProjectionResource{ID: resource.ID, Name: resource.Name, Kind: resource.Kind})
+		}
+	}
+	if len(candidate.Resources) == 0 {
+		return nil, nil
+	}
+	return projection.CheckScheduleConflicts(ctx, candidate, definition.ID)
+}
+
+func writeScheduleConflict(w http.ResponseWriter, conflicts []controlplane.ProjectionConflict) {
+	writeJSON(w, http.StatusConflict, map[string]any{
+		"error":     "schedule conflicts with exclusive resources",
+		"code":      "exclusive_resource_conflict",
+		"conflicts": conflicts,
+	})
+}
+
+func (o *OperationsService) refreshScheduleProjection(ctx context.Context) {
+	o.mu.RLock()
+	projection := o.scheduleProjection
+	o.mu.RUnlock()
+	if projection != nil {
+		_ = projection.Refresh(context.WithoutCancel(ctx))
+	}
+}
+
 func (o *OperationsService) taskCollection(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
 		archived := strings.EqualFold(r.URL.Query().Get("archived"), "true")
@@ -226,10 +310,12 @@ func (o *OperationsService) taskCollection(w http.ResponseWriter, r *http.Reques
 			writeError(w, http.StatusBadRequest, "task creation failed", err)
 			return
 		}
+		o.refreshScheduleProjection(r.Context())
 		writeJSON(w, http.StatusCreated, taskRecordFromStore(created))
 		return
 	}
 	task := o.createTask(input.Name, input.Command, input.RunnerPool, input.PinnedRunner, input.DurationSeconds, input.Resources)
+	o.refreshScheduleProjection(r.Context())
 	writeJSON(w, http.StatusCreated, task)
 }
 
@@ -301,6 +387,7 @@ func (o *OperationsService) taskPath(w http.ResponseWriter, r *http.Request) {
 				writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})
 				return
 			}
+			o.refreshScheduleProjection(r.Context())
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -308,6 +395,7 @@ func (o *OperationsService) taskPath(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})
 			return
 		}
+		o.refreshScheduleProjection(r.Context())
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -330,6 +418,7 @@ func (o *OperationsService) taskPath(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusBadRequest, "task version creation failed", err)
 				return
 			}
+			o.refreshScheduleProjection(r.Context())
 			writeJSON(w, http.StatusCreated, taskRecordFromStore(updated))
 			return
 		}
@@ -338,6 +427,7 @@ func (o *OperationsService) taskPath(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})
 			return
 		}
+		o.refreshScheduleProjection(r.Context())
 		writeJSON(w, http.StatusCreated, updated)
 		return
 	}
@@ -399,11 +489,21 @@ func (o *OperationsService) scheduleCollection(w http.ResponseWriter, r *http.Re
 			writeError(w, http.StatusBadRequest, "schedule creation failed", err)
 			return
 		}
+		conflicts, err := o.checkScheduleConflicts(r.Context(), definition)
+		if err != nil {
+			writeError(w, http.StatusServiceUnavailable, "schedule conflict check unavailable", err)
+			return
+		}
+		if len(conflicts) > 0 {
+			writeScheduleConflict(w, conflicts)
+			return
+		}
 		created, err := repository.Create(r.Context(), definition)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
+		o.refreshScheduleProjection(r.Context())
 		writeJSON(w, http.StatusCreated, scheduleRecordFromStore(created))
 		return
 	}
@@ -412,6 +512,7 @@ func (o *OperationsService) scheduleCollection(w http.ResponseWriter, r *http.Re
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	o.refreshScheduleProjection(r.Context())
 	writeJSON(w, http.StatusCreated, schedule)
 }
 
@@ -434,6 +535,7 @@ func (o *OperationsService) schedulePath(w http.ResponseWriter, r *http.Request)
 					writeJSON(w, http.StatusNotFound, map[string]string{"error": "schedule not found"})
 					return
 				}
+				o.refreshScheduleProjection(r.Context())
 				writeJSON(w, http.StatusOK, scheduleRecordFromStore(item))
 				return
 			}
@@ -448,6 +550,7 @@ func (o *OperationsService) schedulePath(w http.ResponseWriter, r *http.Request)
 				writeJSON(w, http.StatusNotFound, map[string]string{"error": "schedule not found"})
 				return
 			}
+			o.refreshScheduleProjection(r.Context())
 			writeJSON(w, http.StatusOK, item)
 			return
 		}
@@ -489,6 +592,7 @@ func (o *OperationsService) schedulePath(w http.ResponseWriter, r *http.Request)
 				writeJSON(w, http.StatusNotFound, map[string]string{"error": "schedule not found"})
 				return
 			}
+			o.refreshScheduleProjection(r.Context())
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -496,6 +600,7 @@ func (o *OperationsService) schedulePath(w http.ResponseWriter, r *http.Request)
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "schedule not found"})
 			return
 		}
+		o.refreshScheduleProjection(r.Context())
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -516,11 +621,21 @@ func (o *OperationsService) schedulePath(w http.ResponseWriter, r *http.Request)
 			writeError(w, http.StatusBadRequest, "schedule update failed", err)
 			return
 		}
+		conflicts, err := o.checkScheduleConflicts(r.Context(), definition)
+		if err != nil {
+			writeError(w, http.StatusServiceUnavailable, "schedule conflict check unavailable", err)
+			return
+		}
+		if len(conflicts) > 0 {
+			writeScheduleConflict(w, conflicts)
+			return
+		}
 		updated, err := repository.Update(r.Context(), id, definition)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
+		o.refreshScheduleProjection(r.Context())
 		writeJSON(w, http.StatusOK, scheduleRecordFromStore(updated))
 		return
 	}
@@ -529,6 +644,7 @@ func (o *OperationsService) schedulePath(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	o.refreshScheduleProjection(r.Context())
 	writeJSON(w, http.StatusOK, schedule)
 }
 

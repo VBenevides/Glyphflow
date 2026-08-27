@@ -183,6 +183,17 @@ message shown above the run details.
 9. Select **Preview next occurrences** and review **Next occurrences**.
 10. Select **Save schedule version**.
 
+The **Scheduling Gantt** tab projects the next seven days of cron executions
+using each task's duration. It can group placements by runner or task and show
+exclusive-resource conflicts. The projection refreshes at startup, every 30
+minutes, and immediately after a successful task or schedule change; the last
+successful snapshot remains available if a refresh fails.
+
+Glyphflow rejects a schedule before saving when its projected executions would
+overlap another execution on an exclusive resource. The editor lists each
+conflicting resource, affected task or schedule, and overlap times. The
+**Overview** page also alerts you when the latest projection contains conflicts.
+
 Editing a schedule creates a new immutable schedule version. The schedule list
 shows its **Next fire** time and **State**. The control-plane scheduler creates
 due runs from the saved schedule; see the [architecture

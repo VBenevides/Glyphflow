@@ -52,6 +52,38 @@ func (s *ProjectionService) Refresh(ctx context.Context) error {
 	return nil
 }
 
+func (s *ProjectionService) CheckScheduleConflicts(ctx context.Context, candidate store.ScheduleProjectionInput, excludeScheduleID string) ([]ProjectionConflict, error) {
+	if s == nil || s.repository == nil {
+		return nil, nil
+	}
+	s.refreshMu.Lock()
+	defer s.refreshMu.Unlock()
+	inputs, err := s.repository.ListScheduleProjection(ctx)
+	if err != nil {
+		return nil, err
+	}
+	filtered := make([]store.ScheduleProjectionInput, 0, len(inputs)+1)
+	for _, input := range inputs {
+		if excludeScheduleID == "" || input.ScheduleID != excludeScheduleID {
+			filtered = append(filtered, input)
+		}
+	}
+	report, err := BuildScheduleProjection(append(filtered, candidate), time.Now().UTC())
+	if err != nil {
+		return nil, err
+	}
+	conflicts := make([]ProjectionConflict, 0)
+	for _, conflict := range report.Conflicts {
+		for _, occurrence := range conflict.Occurrences {
+			if occurrence.ScheduleID == candidate.ScheduleID {
+				conflicts = append(conflicts, conflict)
+				break
+			}
+		}
+	}
+	return conflicts, nil
+}
+
 func (s *ProjectionService) Snapshot() ProjectionReport {
 	s.snapshotMu.RLock()
 	defer s.snapshotMu.RUnlock()
