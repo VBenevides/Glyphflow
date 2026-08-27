@@ -67,3 +67,27 @@ func TestAuthorizationChallengeBindsCallbackAndPKCEVerifier(t *testing.T) {
 		t.Fatal("challenge replay accepted")
 	}
 }
+
+func TestAuthorizationStateStoreRemovesConsumedAndExpiredEntries(t *testing.T) {
+	store := NewAuthorizationStateStore()
+	now := time.Now()
+	state, nonce, err := store.Create("provider", "login", now, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Consume(state, nonce, "provider", "login", now); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.states) != 0 {
+		t.Fatalf("consumed states = %d, want 0", len(store.states))
+	}
+	if _, _, err := store.Create("provider", "login", now.Add(-time.Minute), time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.Create("provider", "login", now, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.states) != 1 {
+		t.Fatalf("expired states retained = %d, want 1 active state", len(store.states))
+	}
+}
