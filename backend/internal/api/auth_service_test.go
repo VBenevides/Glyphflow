@@ -230,3 +230,49 @@ func TestPasswordFlagsBlockBackendEndpoints(t *testing.T) {
 		t.Fatalf("disabled password registration returned %d", register.Code)
 	}
 }
+
+func TestChangePasswordRevokesExistingSessions(t *testing.T) {
+	auth, err := NewAuthService("01234567890123456789012345678901", true, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.AddRole("user"); err != nil {
+		t.Fatal(err)
+	}
+	auth.SetDefaultRole("user")
+	user, err := auth.Register("alice@example.com", "correct horse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := auth.Login("alice@example.com", "correct horse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := auth.Login("alice@example.com", "correct horse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, token := range []string{first.AccessToken, second.AccessToken} {
+		request := httptest.NewRequest(http.MethodGet, "/", nil)
+		request.Header.Set("Authorization", "Bearer "+token)
+		if _, ok := auth.Authenticator()(request); !ok {
+			t.Fatal("session was not active before password change")
+		}
+	}
+	if err := auth.ChangePassword(user.ID, "correct horse", "new correct horse"); err != nil {
+		t.Fatal(err)
+	}
+	for _, session := range []AuthTokens{first, second} {
+		request := httptest.NewRequest(http.MethodGet, "/", nil)
+		request.Header.Set("Authorization", "Bearer "+session.AccessToken)
+		if _, ok := auth.Authenticator()(request); ok {
+			t.Fatal("access token survived password change")
+		}
+		if _, err := auth.Refresh(session.SessionID, session.RefreshToken); err == nil {
+			t.Fatal("refresh token survived password change")
+		}
+	}
+	if _, err := auth.Login("alice@example.com", "new correct horse"); err != nil {
+		t.Fatalf("new password rejected: %v", err)
+	}
+}

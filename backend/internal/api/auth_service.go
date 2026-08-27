@@ -779,7 +779,10 @@ func (s *AuthService) ChangePassword(userID, currentPassword, newPassword string
 	if err != nil {
 		return err
 	}
-	return s.users.SetPasswordHash(context.Background(), userID, updated)
+	if err := s.users.SetPasswordHash(context.Background(), userID, updated); err != nil {
+		return err
+	}
+	return s.LogoutAll(userID)
 }
 
 func (s *AuthService) Identities(userID string) []map[string]any {
