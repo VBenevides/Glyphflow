@@ -51,7 +51,7 @@ func run() error {
 		return err
 	}
 	defer db.Close()
-	if err := db.Ping(ctx); err != nil {
+	if err := waitForDatabase(ctx, db.Ping, time.Second); err != nil {
 		return err
 	}
 	if err := store.ApplyMigrations(ctx, db, "migrations"); err != nil {
@@ -226,9 +226,9 @@ func run() error {
 	}
 	var jetstream *queue.JetStream
 	if strings.HasPrefix(cfg.NATSURL, "tls://") {
-		jetstream, err = queue.ConnectJetStreamTLS(cfg.NATSURL, queue.TLSConfig{CertificateFile: cfg.NATSCertFile, KeyFile: cfg.NATSKeyFile, CAFile: cfg.NATSCAFile})
+		jetstream, err = queue.ConnectJetStreamTLSWithContext(ctx, cfg.NATSURL, queue.TLSConfig{CertificateFile: cfg.NATSCertFile, KeyFile: cfg.NATSKeyFile, CAFile: cfg.NATSCAFile})
 	} else {
-		jetstream, err = queue.ConnectJetStreamPlain(cfg.NATSURL)
+		jetstream, err = queue.ConnectJetStreamPlainWithContext(ctx, cfg.NATSURL)
 	}
 	if err != nil {
 		return err
@@ -389,4 +389,28 @@ func run() error {
 		return err
 	}
 	return nil
+}
+
+func waitForDatabase(ctx context.Context, ping func(context.Context) error, retryInterval time.Duration) error {
+	for {
+		if err := ping(ctx); err == nil {
+			return nil
+		} else if ctx.Err() != nil {
+			return ctx.Err()
+		} else {
+			fmt.Fprintln(os.Stderr, "database connection:", err)
+		}
+		timer := time.NewTimer(retryInterval)
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			return ctx.Err()
+		}
+	}
 }

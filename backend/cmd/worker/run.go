@@ -166,9 +166,9 @@ func runWorker(ctx context.Context, stdout, stderr io.Writer, status StatusSink)
 	}
 	defer closeJetStream()
 	if strings.HasPrefix(cfg.NATSURL, "tls://") {
-		jetstream, err = queue.ConnectJetStreamTLS(cfg.NATSURL, queue.TLSConfig{CertificateFile: cfg.NATSCertFile, KeyFile: cfg.NATSKeyFile, CAFile: cfg.NATSCAFile})
+		jetstream, err = queue.ConnectJetStreamTLSWithContext(ctx, cfg.NATSURL, queue.TLSConfig{CertificateFile: cfg.NATSCertFile, KeyFile: cfg.NATSKeyFile, CAFile: cfg.NATSCAFile})
 	} else {
-		jetstream, err = queue.ConnectJetStreamPlain(cfg.NATSURL)
+		jetstream, err = queue.ConnectJetStreamPlainWithContext(ctx, cfg.NATSURL)
 	}
 	if err != nil {
 		return fmt.Errorf("connect to NATS JetStream: %w", err)

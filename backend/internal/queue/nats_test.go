@@ -103,6 +103,14 @@ func TestConnectJetStreamRequiresMutualTLS(t *testing.T) {
 	}
 }
 
+func TestConnectJetStreamWithContextStopsRetryingWhenCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := ConnectJetStreamPlainWithContext(ctx, "nats://127.0.0.1:4222"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled NATS connection = %v", err)
+	}
+}
+
 func TestConsumeConcurrentRunsDeliveredMessagesTogether(t *testing.T) {
 	messages := newTestMessages(testMessage{subject: "orders"}, testMessage{subject: "orders"})
 	ctx, cancel := context.WithCancel(context.Background())
