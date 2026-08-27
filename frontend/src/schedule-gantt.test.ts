@@ -14,6 +14,7 @@ describe('schedule gantt helpers', () => {
       segment('a2', 'pool-1', 'Any runner in A', '2026-08-26T03:00:00Z', '2026-08-26T03:01:00Z'),
     ])
     expect(lanes.map((lane) => [lane.id, lane.segments.length])).toEqual([['pool-1', 2], ['pool-2', 1]])
+    expect(lanes.map((lane) => lane.label)).toEqual(['A', 'B'])
   })
 
   it('groups rows by task when requested', () => {

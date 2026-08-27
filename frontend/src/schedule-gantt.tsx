@@ -14,11 +14,15 @@ export const GANTT_DAY_MS = 24 * 60 * 60 * 1000
 export const DAILY_MIN_OFFSET = 0
 export const DAILY_MAX_OFFSET = 7
 
+function runnerLabel(segment: ScheduleProjectionSegment) {
+  return (segment.laneLabel.replace(/^Runner:\s*/, '').replace(/^Any runner in\s*/, '') || segment.laneId)
+}
+
 export function ganttLanes(segments: ScheduleProjectionSegment[], grouping: GanttGrouping = 'runner'): GanttLane[] {
   const lanes = new Map<string, GanttLane>()
   for (const segment of segments) {
     const id = grouping === 'task' ? 'task:' + segment.taskId : segment.laneId
-    const label = grouping === 'task' ? (segment.taskName || segment.taskId) : segment.laneLabel
+    const label = grouping === 'task' ? (segment.taskName || segment.taskId) : runnerLabel(segment)
     const lane = lanes.get(id) ?? { id, label, segments: [] }
     lane.segments.push(segment)
     lanes.set(id, lane)
