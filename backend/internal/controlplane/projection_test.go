@@ -7,7 +7,7 @@ import (
 	"github.com/VBenevides/Glyphflow/backend/internal/store"
 )
 
-func TestBuildScheduleProjectionUsesTimeoutAndPlacement(t *testing.T) {
+func TestBuildScheduleProjectionUsesTaskDurationAndPlacement(t *testing.T) {
 	now := time.Date(2026, 8, 26, 0, 0, 0, 0, time.UTC)
 	report, err := BuildScheduleProjection([]store.ScheduleProjectionInput{{
 		ScheduleID: "schedule-1", ScheduleName: "Hourly", ScheduleVersionID: "schedule-1-v1", TaskID: "task-1", TaskName: "Backup", TaskVersionID: "task-1-v1", Expression: "0 * * * *", Timezone: "UTC", RunnerPoolID: "pool-1", RunnerPoolName: "Build", PinnedRunnerID: "runner-1", PinnedRunnerName: "Runner A", DurationSeconds: 90,
@@ -33,6 +33,15 @@ func TestBuildScheduleProjectionGroupsExclusiveConflicts(t *testing.T) {
 	}
 	if len(report.Conflicts) != 167 {
 		t.Fatalf("conflicts = %d, want 167", len(report.Conflicts))
+	}
+	hourlySegments := 0
+	for _, segment := range report.Segments {
+		if segment.ScheduleID == "schedule-a" {
+			hourlySegments++
+		}
+	}
+	if hourlySegments != 167 {
+		t.Fatalf("hourly segments = %d, want 167", hourlySegments)
 	}
 	if report.Conflicts[0].ResourceID != "resource-1" || len(report.Conflicts[0].Occurrences) < 2 {
 		t.Fatalf("first conflict = %#v", report.Conflicts[0])

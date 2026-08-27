@@ -433,11 +433,16 @@ body { background-image: var(--gf-page-glow); }
 .gf-gantt-meta h2, .gf-gantt-conflicts h2 { margin: 0; }
 .gf-gantt-meta p { margin: 0.35rem 0 0; }
 .gf-gantt-count { color: var(--gf-muted); font-size: 0.82rem; }
-.gf-gantt-scroll { overflow-x: auto; padding: 0.5rem; background: var(--gf-card); border: 1px solid var(--gf-border); border-radius: var(--gf-radius); }
-.gf-gantt-scroll svg { display: block; min-width: 54rem; width: 100%; min-height: 8rem; }
+.gf-gantt-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 0.75rem; }
+.gf-gantt-control-group { display: inline-flex; flex-wrap: wrap; gap: 0.2rem; }
+.gf-gantt-day-navigation { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
+.gf-gantt-scroll { max-height: 38rem; overflow: auto; padding: 0.5rem; background: var(--gf-card); border: 1px solid var(--gf-border); border-radius: var(--gf-radius); }
+.gf-gantt-scroll svg { display: block; min-width: 75rem; width: 75rem; }
 .gf-gantt-axis-label, .gf-gantt-lane-label { fill: var(--gf-muted); font-size: 13px; }
+.gf-gantt-group-label, .gf-gantt-day-label { fill: var(--gf-muted); font-size: 12px; font-weight: 650; }
 .gf-gantt-lane-label { font-weight: 650; }
 .gf-gantt-lane-line { stroke: var(--gf-border); stroke-width: 1; }
+.gf-gantt-day-line { stroke: var(--gf-border); stroke-dasharray: 4 3; stroke-width: 1; }
 .gf-gantt-segment { fill: var(--gf-action); outline: none; }
 .gf-gantt-segment:hover, .gf-gantt-segment:focus-visible { fill: var(--gf-info); stroke: var(--gf-text); stroke-width: 2; }
 .gf-gantt-segment.is-conflicted { fill: var(--gf-danger); stroke: var(--gf-danger); }

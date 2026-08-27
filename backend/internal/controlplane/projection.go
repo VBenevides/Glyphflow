@@ -201,18 +201,6 @@ func projectionSegments(windows []projectionWindow, conflicted map[string]bool) 
 	for _, window := range windows {
 		o := window.occurrence
 		resources := append([]ProjectionResource(nil), window.resources...)
-		if len(segments) > 0 {
-			current := &segments[len(segments)-1]
-			if current.LaneID == o.LaneID && current.ScheduleID == o.ScheduleID && !o.StartAt.After(current.EndAt) {
-				if o.EndAt.After(current.EndAt) {
-					current.EndAt = o.EndAt
-				}
-				current.OccurrenceCount++
-				current.Conflicted = current.Conflicted || conflicted[o.ID]
-				current.ExclusiveResources = mergeProjectionResources(current.ExclusiveResources, resources)
-				continue
-			}
-		}
 		segments = append(segments, ProjectionSegment{
 			ID:                 o.ID,
 			ScheduleID:         o.ScheduleID,
@@ -232,22 +220,6 @@ func projectionSegments(windows []projectionWindow, conflicted map[string]bool) 
 		})
 	}
 	return segments
-}
-
-func mergeProjectionResources(left, right []ProjectionResource) []ProjectionResource {
-	result := append([]ProjectionResource(nil), left...)
-	seen := make(map[string]bool, len(result))
-	for _, resource := range result {
-		seen[resource.ID] = true
-	}
-	for _, resource := range right {
-		if !seen[resource.ID] {
-			result = append(result, resource)
-			seen[resource.ID] = true
-		}
-	}
-	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
-	return result
 }
 
 func projectionConflicts(byResource map[string][]ProjectionOccurrence, names map[string]string) []ProjectionConflict {
