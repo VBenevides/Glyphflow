@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { resourceKindLabel, resourceState } from './resource-pages'
+import { compactIdentifier } from './components'
+import { resourceKindLabel, resourceNameLabel, resourceState } from './resource-pages'
 
 describe('resource pages', () => {
   it('distinguishes available, leased, and disabled resources', () => {
@@ -11,5 +12,12 @@ describe('resource pages', () => {
   it('labels non-blocking resources', () => {
     expect(resourceKindLabel('non-blocking')).toBe('Non-blocking')
     expect(resourceKindLabel('exclusive')).toBe('Exclusive')
+  })
+
+  it('keeps resource names and ids readable', () => {
+    expect(resourceNameLabel('a'.repeat(30))).toBe('a'.repeat(30))
+    expect(resourceNameLabel('a'.repeat(31))).toBe(`${'a'.repeat(29)}…`)
+    expect(compactIdentifier('abcdefghij1234567890')).toBe('abcde…67890')
+    expect(compactIdentifier('short-id')).toBe('short-id')
   })
 })

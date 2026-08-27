@@ -29,6 +29,10 @@ export function matchingFilterOptions(options: readonly string[], value: string)
   return [...new Set(options)].filter((option) => option && (!needle || option.toLowerCase().includes(needle)))
 }
 
+export function compactIdentifier(id: string) {
+  return id.length > 10 ? `${id.slice(0, 5)}…${id.slice(-5)}` : id
+}
+
 export function FilterInput({ label, options = [], value, onChange, id, ...props }: { label: string; options?: readonly string[]; value: string; onChange: (value: string) => void; id?: string } & Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'>) {
   const generatedID = useId()
   const inputID = id ?? generatedID
@@ -43,7 +47,7 @@ export function InfoTooltip({ text }: { text: string }) {
 
 export function Identifier({ id, name, href, className, linkClassName, copyLabel = 'Copy identifier' }: { id?: string; name?: string; href?: string; className?: string; linkClassName?: string; copyLabel?: string }) {
   if (!id) return <span>—</span>
-  const compact = id.length > 5 ? `…${id.slice(-5)}` : id
+  const compact = compactIdentifier(id)
   const label = name ? `${name} · ${compact}` : compact
   const content = href ? <Link className={linkClassName} to={href} title={id}>{label}</Link> : <span title={id}>{label}</span>
   return <span className={`gf-identifier${className ? ` ${className}` : ''}`}>{content}<Button variant="ghost" className="gf-identifier-copy" aria-label={copyLabel} onClick={() => { void navigator.clipboard?.writeText(id).catch(() => undefined) }}><Copy size={15} aria-hidden="true" /></Button></span>
