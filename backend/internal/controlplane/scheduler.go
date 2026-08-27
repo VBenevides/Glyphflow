@@ -73,7 +73,7 @@ func nextCronMinute(now time.Time, expression string) (time.Time, error) {
 	domAny := cronFieldIsAny(dom, 1, 31)
 	dowAny := cronFieldIsAny(dow, 0, 6)
 	if dowAny && !cronHasCalendarDate(dom, month) {
-		return time.Time{}, errors.New("cron has no calendar occurrence")
+		return time.Time{}, errors.New("cron has no occurrence in search window")
 	}
 	for i := 1; i <= 24*60*366*8; i++ {
 		candidate := now.Truncate(time.Minute).Add(time.Duration(i) * time.Minute)
