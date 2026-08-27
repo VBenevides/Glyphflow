@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { CalendarClock, CircleOff } from 'lucide-react'
 import { useAuth } from './auth'
 import { api, type GlobalVariable, type Page, type Schedule } from './api'
@@ -12,6 +12,7 @@ import { useUnsavedChanges } from './unsaved'
 import { TaskPicker } from './task-picker'
 import { GlobalVariableInput } from './global-variable-input'
 import { formatDateTime } from './format'
+import { ScheduleGanttPage } from './schedule-gantt'
 
 export type ScheduleDraft = { taskId: string; name: string; expression: string; timezone: string; misfirePolicy: string; catchupLimit: string; deadlineSeconds: string; concurrencyPolicy: string; maxConcurrentRuns: string }
 export const emptyScheduleDraft: ScheduleDraft = { taskId: '', name: '', expression: '0 * * * *', timezone: '0', misfirePolicy: 'SKIP_ALL', catchupLimit: '0', deadlineSeconds: '0', concurrencyPolicy: 'QUEUE', maxConcurrentRuns: '0' }
@@ -64,12 +65,22 @@ export function previewPayload(draft: ScheduleDraft) {
   return { task_id: draft.taskId.trim(), expression: draft.expression.trim(), timezone: timezoneFromUTCOffset(draft.timezone), starts_at: undefined, ends_at: undefined }
 }
 
-export function ScheduleInventoryPage() {
+function ScheduleListPage() {
   const { permissions } = useAuth(); const [page, setPage] = useState(1); const [limit, setLimit] = useState(10); const [task, setTask] = useState(''); const [editor, setEditor] = useState<{ id?: string } | null>(null)
   const query = useQuery({ queryKey: ['schedules', page, limit, task], queryFn: ({ signal }) => api.get<Page<Schedule>>('/api/v1/schedules', { page, limit, task: task || undefined }, signal), refetchInterval: 5_000 })
   const summaryQuery = useQuery({ queryKey: ['schedule-summary'], queryFn: async ({ signal }) => { const [all, disabled] = await Promise.all([api.get<Page<Schedule>>('/api/v1/schedules', { page: 1, limit: 1 }, signal), api.get<Page<Schedule>>('/api/v1/schedules', { page: 1, limit: 1, enabled: false }, signal)]); return { total: all.total ?? 0, disabled: disabled.total ?? 0 } }, refetchInterval: 5_000 })
   const refresh = async () => { await Promise.all([query.refetch(), summaryQuery.refetch()]) }
   return <main className="gf-content"><PageHeader title="Schedules" description="Versioned triggers with explicit UTC offset and misfire policy." refresh={<QueryRefresh query={query} />} /><div className="gf-metric-grid"><MetricCard label="Total schedules" value={summaryQuery.data?.total ?? '—'} detail="All configured schedules" icon={CalendarClock} tone="info" /><MetricCard label="Disabled schedules" value={summaryQuery.data?.disabled ?? '—'} detail="Schedules not currently firing" icon={CircleOff} tone="warning" /></div><div className="gf-filter-bar"><TaskPicker value={task} onChange={(value) => { setTask(value); setPage(1) }} label="Task" /></div>{permissions.includes('tasks.manage') && <div className="gf-table-toolbar"><Button onClick={() => setEditor({})}>Create schedule</Button></div>}<QueryState query={query} empty="Create a schedule to trigger a task.">{(data) => data.items.length ? <><DataTable caption="Schedules" rows={data.items} columns={[{ key: 'name', label: 'Schedule', render: (schedule) => <Identifier id={schedule.id} name={schedule.name} href={`/schedules/${schedule.id}/edit`} copyLabel="Copy schedule ID" /> }, { key: 'taskId', label: 'Task', render: (schedule) => <Identifier id={schedule.taskId} copyLabel="Copy task ID" /> }, { key: 'timezone', label: 'UTC offset', render: (schedule) => utcOffsetFromTimezone(schedule.timezone ?? 'UTC') }, { key: 'nextFireAt', label: 'Next fire', render: (schedule) => formatDateTime(schedule.nextFireAt) }, { key: 'enabled', label: 'State', render: (schedule) => <StatusPill status={schedule.enabled === false ? 'disabled' : 'enabled'} /> }, { key: 'actions', label: 'Actions', render: (schedule) => permissions.includes('tasks.manage') && <TableActions label={`Actions for ${schedule.name}`}><DangerousAction label="Delete" warning="Permanently deletes this schedule and its versions. Existing execution history may block deletion." onConfirm={() => api.delete(`/api/v1/schedules/${encodeURIComponent(schedule.id)}`).then(refresh)} renderTrigger={(open) => <DropdownMenuItem onSelect={(event) => { event.preventDefault(); open() }}>Delete</DropdownMenuItem>} /></TableActions> }]} /><Pagination page={data.page} pages={data.pages ?? 1} limit={limit} onChange={setPage} onLimitChange={(next) => { setLimit(next); setPage(1) }} /></> : <EmptyState title="No schedules">Create a schedule to trigger a task.</EmptyState>}</QueryState>{editor && <ScheduleEditorPage editScheduleId={editor.id} inDialog onClose={() => setEditor(null)} onSaved={async () => { setEditor(null); await refresh() }} />}</main>
+}
+
+function ScheduleNavigation({ gantt }: { gantt: boolean }) {
+  return <nav className="gf-schedule-navigation" role="tablist" aria-label="Schedule sections"><Link role="tab" aria-selected={!gantt} className={!gantt ? 'is-active' : ''} to="/schedules">Schedules</Link><Link role="tab" aria-selected={gantt} className={gantt ? 'is-active' : ''} to="/schedules?tab=gantt">Scheduling Gantt</Link></nav>
+}
+
+export function ScheduleInventoryPage() {
+  const [params] = useSearchParams()
+  const gantt = params.get('tab') === 'gantt'
+  return <><ScheduleNavigation gantt={gantt} />{gantt ? <ScheduleGanttPage /> : <ScheduleListPage />}</>
 }
 
 type ScheduleEditorProps = { editScheduleId?: string; inDialog?: boolean; onClose?: () => void; onSaved?: () => void | Promise<void> }
