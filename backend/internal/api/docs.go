@@ -104,7 +104,6 @@ const swaggerHTML = `<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Glyphflow API Docs</title>
-  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.18.2/swagger-ui.css">
 </head>
 <body>
   <main>
@@ -117,14 +116,21 @@ const swaggerHTML = `<!doctype html>
         <span id="login-status" role="status"></span>
       </form>
     </section>
-    <div id="swagger-ui"></div>
+    <section>
+      <h1>Offline OpenAPI specification</h1>
+      <p><a href="/openapi.json">OpenAPI JSON</a></p>
+      <pre id="openapi-spec">Loading…</pre>
+    </section>
   </main>
-  <script src="https://unpkg.com/swagger-ui-dist@5.18.2/swagger-ui-bundle.js"></script>
   <script>
-    let ui;
-    window.onload = function () {
-      ui = SwaggerUIBundle({url: '/openapi.json', dom_id: '#swagger-ui', presets: [SwaggerUIBundle.presets.apis], layout: 'BaseLayout'});
-    };
+    fetch('/openapi.json').then(function (response) {
+      if (!response.ok) throw new Error('OpenAPI document unavailable');
+      return response.json();
+    }).then(function (spec) {
+      document.getElementById('openapi-spec').textContent = JSON.stringify(spec, null, 2);
+    }).catch(function (error) {
+      document.getElementById('openapi-spec').textContent = error.message;
+    });
     document.getElementById('login-form').addEventListener('submit', async function (event) {
       event.preventDefault();
       const status = document.getElementById('login-status');
