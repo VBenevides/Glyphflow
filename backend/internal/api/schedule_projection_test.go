@@ -53,7 +53,7 @@ func TestScheduleProjectionEndpointReadsOnlyTheLatestSnapshot(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &available); err != nil {
 		t.Fatal(err)
 	}
-	if !available.Available || len(available.Segments) == 0 || strings.Contains(response.Body.String(), "command") || strings.Contains(response.Body.String(), "secret") {
+	if !available.Available || len(available.Segments) == 0 || !strings.Contains(response.Body.String(), `"calculatedAt"`) || strings.Contains(response.Body.String(), "command") || strings.Contains(response.Body.String(), "secret") {
 		t.Fatalf("projection response = %s", response.Body.String())
 	}
 	post := httptest.NewRecorder()

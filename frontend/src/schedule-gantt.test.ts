@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { ganttLanes, projectionIsStale, projectionSegmentPercent } from './schedule-gantt'
 import type { ScheduleProjection, ScheduleProjectionSegment } from './api'
 
-const segment = (id: string, lane_id: string, lane_label: string, start_at: string, end_at: string): ScheduleProjectionSegment => ({
-  id, schedule_id: 'schedule-1', schedule_name: 'Nightly', schedule_version_id: 'schedule-1-v1', task_id: 'task-1', task_name: 'Backup', task_version_id: 'task-1-v1', timezone: 'UTC', lane_id, lane_label, start_at, end_at, occurrence_count: 1, conflicted: false, exclusive_resources: [],
+const segment = (id: string, laneId: string, laneLabel: string, startAt: string, endAt: string): ScheduleProjectionSegment => ({
+  id, scheduleId: 'schedule-1', scheduleName: 'Nightly', scheduleVersionId: 'schedule-1-v1', taskId: 'task-1', taskName: 'Backup', taskVersionId: 'task-1-v1', timezone: 'UTC', laneId, laneLabel, startAt, endAt, occurrenceCount: 1, conflicted: false, exclusiveResources: [],
 })
 
 describe('schedule gantt helpers', () => {
@@ -17,7 +17,7 @@ describe('schedule gantt helpers', () => {
   })
 
   it('positions segments within the seven-day window and detects stale snapshots', () => {
-    const report: ScheduleProjection = { available: true, window_start: '2026-08-26T00:00:00Z', window_end: '2026-09-02T00:00:00Z' }
+    const report: ScheduleProjection = { available: true, windowStart: '2026-08-26T00:00:00Z', windowEnd: '2026-09-02T00:00:00Z' }
     const position = projectionSegmentPercent(segment('a', 'pool-1', 'Pool', '2026-08-27T00:00:00Z', '2026-08-27T12:00:00Z'), report)
     expect(position.left).toBeCloseTo(14.2857, 3)
     expect(position.width).toBeCloseTo(7.1428, 3)

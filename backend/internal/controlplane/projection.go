@@ -19,52 +19,52 @@ type ProjectionResource struct {
 
 type ProjectionOccurrence struct {
 	ID                string    `json:"id"`
-	ScheduleID        string    `json:"schedule_id"`
-	ScheduleName      string    `json:"schedule_name"`
-	ScheduleVersionID string    `json:"schedule_version_id"`
-	TaskID            string    `json:"task_id"`
-	TaskName          string    `json:"task_name"`
-	TaskVersionID     string    `json:"task_version_id"`
+	ScheduleID        string    `json:"scheduleId"`
+	ScheduleName      string    `json:"scheduleName"`
+	ScheduleVersionID string    `json:"scheduleVersionId"`
+	TaskID            string    `json:"taskId"`
+	TaskName          string    `json:"taskName"`
+	TaskVersionID     string    `json:"taskVersionId"`
 	Timezone          string    `json:"timezone"`
-	LaneID            string    `json:"lane_id"`
-	LaneLabel         string    `json:"lane_label"`
-	StartAt           time.Time `json:"start_at"`
-	EndAt             time.Time `json:"end_at"`
+	LaneID            string    `json:"laneId"`
+	LaneLabel         string    `json:"laneLabel"`
+	StartAt           time.Time `json:"startAt"`
+	EndAt             time.Time `json:"endAt"`
 }
 
 type ProjectionSegment struct {
 	ID                 string               `json:"id"`
-	ScheduleID         string               `json:"schedule_id"`
-	ScheduleName       string               `json:"schedule_name"`
-	ScheduleVersionID  string               `json:"schedule_version_id"`
-	TaskID             string               `json:"task_id"`
-	TaskName           string               `json:"task_name"`
-	TaskVersionID      string               `json:"task_version_id"`
+	ScheduleID         string               `json:"scheduleId"`
+	ScheduleName       string               `json:"scheduleName"`
+	ScheduleVersionID  string               `json:"scheduleVersionId"`
+	TaskID             string               `json:"taskId"`
+	TaskName           string               `json:"taskName"`
+	TaskVersionID      string               `json:"taskVersionId"`
 	Timezone           string               `json:"timezone"`
-	LaneID             string               `json:"lane_id"`
-	LaneLabel          string               `json:"lane_label"`
-	StartAt            time.Time            `json:"start_at"`
-	EndAt              time.Time            `json:"end_at"`
-	OccurrenceCount    int                  `json:"occurrence_count"`
+	LaneID             string               `json:"laneId"`
+	LaneLabel          string               `json:"laneLabel"`
+	StartAt            time.Time            `json:"startAt"`
+	EndAt              time.Time            `json:"endAt"`
+	OccurrenceCount    int                  `json:"occurrenceCount"`
 	Conflicted         bool                 `json:"conflicted"`
-	ExclusiveResources []ProjectionResource `json:"exclusive_resources"`
+	ExclusiveResources []ProjectionResource `json:"exclusiveResources"`
 }
 
 type ProjectionConflict struct {
 	ID           string                 `json:"id"`
-	ResourceID   string                 `json:"resource_id"`
-	ResourceName string                 `json:"resource_name"`
-	StartAt      time.Time              `json:"start_at"`
-	EndAt        time.Time              `json:"end_at"`
+	ResourceID   string                 `json:"resourceId"`
+	ResourceName string                 `json:"resourceName"`
+	StartAt      time.Time              `json:"startAt"`
+	EndAt        time.Time              `json:"endAt"`
 	Occurrences  []ProjectionOccurrence `json:"occurrences"`
 }
 
 type ProjectionReport struct {
 	Available      bool                 `json:"available"`
-	CalculatedAt   time.Time            `json:"calculated_at"`
-	WindowStart    time.Time            `json:"window_start"`
-	WindowEnd      time.Time            `json:"window_end"`
-	DurationSource string               `json:"duration_source"`
+	CalculatedAt   time.Time            `json:"calculatedAt"`
+	WindowStart    time.Time            `json:"windowStart"`
+	WindowEnd      time.Time            `json:"windowEnd"`
+	DurationSource string               `json:"durationSource"`
 	Segments       []ProjectionSegment  `json:"segments"`
 	Conflicts      []ProjectionConflict `json:"conflicts"`
 }
