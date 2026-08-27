@@ -26,7 +26,13 @@ govulncheck_bin=${GOVULNCHECK_BIN:-govulncheck}
 command -v "$govulncheck_bin" >/dev/null 2>&1 || { echo "release check: govulncheck is required" >&2; exit 1; }
 [ -s LICENSE ] || { echo "release check: LICENSE is missing" >&2; exit 1; }
 [ -s THIRD-PARTY-NOTICES ] || { echo "release check: THIRD-PARTY-NOTICES is missing" >&2; exit 1; }
-(cd backend && GOCACHE="${GOCACHE:-/tmp/glyphflow-go-cache}" "$govulncheck_bin" ./...)
+for tags in default workerui workerui_tui; do
+  if [ "$tags" = default ]; then
+    (cd backend && GOCACHE="${GOCACHE:-/tmp/glyphflow-go-cache}" "$govulncheck_bin" ./...)
+  else
+    (cd backend && GOCACHE="${GOCACHE:-/tmp/glyphflow-go-cache}" "$govulncheck_bin" -tags "$tags" ./...)
+  fi
+done
 (cd frontend && npm audit --omit=dev --audit-level=low)
 
 if [ -z "$release_database_url" ]; then
@@ -81,6 +87,11 @@ release_version=$(tr -d '[:space:]' < VERSION)
 release_ldflags="-s -w -X github.com/VBenevides/Glyphflow/backend.Version=$release_version"
 (cd backend && GOCACHE="${GOCACHE:-/tmp/glyphflow-go-cache}" go build -trimpath -ldflags="$release_ldflags" -o "$release_tmp/controlplane" ./cmd/controlplane)
 (cd backend && GOCACHE="${GOCACHE:-/tmp/glyphflow-go-cache}" go build -trimpath -ldflags="$release_ldflags" -o "$release_tmp/worker" ./cmd/worker)
+runner_binary_dir="$release_tmp/runner-binaries"
+RUNNER_BINARIES_DIR="$runner_binary_dir" GOCACHE="${GOCACHE:-/tmp/glyphflow-go-cache}" ./backend/build_runner_binaries.sh
+for runner_binary in "$runner_binary_dir"/*; do
+  "$govulncheck_bin" -mode=binary "$runner_binary"
+done
 test -s "$release_tmp/SBOM.spdx.json"
 ! rg -n '"packages"[[:space:]]*:[[:space:]]*\[\]' "$release_tmp/SBOM.spdx.json"
 test -s "$release_tmp/controlplane"
