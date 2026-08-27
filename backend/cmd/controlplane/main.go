@@ -212,7 +212,7 @@ func run() error {
 			return err
 		}
 		return nil
-	}, RequireDurableRepositories: true}
+	}, ScheduleProjection: projectionService, RequireDurableRepositories: true}
 	if err := application.ValidateDurableRepositories(); err != nil {
 		return err
 	}

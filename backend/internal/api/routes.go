@@ -66,6 +66,7 @@ var routeDefinitions = []RouteDefinition{
 	{Pattern: "/api/v1/me/sessions/revoke", Access: RouteAuthenticated},
 	{Pattern: "/api/v1/tasks", Access: RoutePermission, Permission: "tasks.read|tasks.manage"},
 	{Pattern: "/api/v1/schedules", Access: RoutePermission, Permission: "tasks.read|tasks.manage"},
+	{Pattern: "/api/v1/schedule-projection", Access: RoutePermission, Permission: "tasks.read"},
 	{Pattern: "/api/v1/schedules/preview", Access: RoutePermission, Permission: "tasks.manage"},
 	{Pattern: "/api/v1/global-variables/options", Access: RoutePermission, Permission: "tasks.read"},
 	{Pattern: "/api/v1/global-variables", Access: RoutePermission, Permission: "users.manage"},
