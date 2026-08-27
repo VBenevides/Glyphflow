@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import type { ReactNode } from 'react'
 import { api, type ScheduleProjection, type ScheduleProjectionSegment } from './api'
 import { EmptyState, PageHeader } from './components'
 import { QueryRefresh, QueryState } from './query'
@@ -67,7 +68,7 @@ export function SchedulingGantt({ report }: { report: ScheduleProjection }) {
   </section>
 }
 
-export function ScheduleGanttPage() {
+export function ScheduleGanttPage({ navigation }: { navigation?: ReactNode } = {}) {
   const query = useQuery({ queryKey: ['schedule-projection'], queryFn: ({ signal }) => api.get<ScheduleProjection>('/api/v1/schedule-projection', undefined, signal), refetchInterval: 30_000 })
-  return <main className="gf-content"><PageHeader title="Scheduling Gantt" description="Seven-day cron projection by runner placement and exclusive resource." refresh={<QueryRefresh query={query} />} /><QueryState query={query} empty="The schedule projection is not available yet.">{(report) => <SchedulingGantt report={report} />}</QueryState></main>
+  return <main className="gf-content"><PageHeader title="Scheduling Gantt" description="Seven-day cron projection by runner placement and exclusive resource." refresh={<QueryRefresh query={query} />} />{navigation}<QueryState query={query} empty="The schedule projection is not available yet.">{(report) => <SchedulingGantt report={report} />}</QueryState></main>
 }
