@@ -2,7 +2,6 @@ package platform
 
 import (
 	"errors"
-	"os"
 )
 
 type BootstrapInput struct {
@@ -20,9 +19,4 @@ func BootstrapAdministrator(input BootstrapInput) (RoleAssignment, error) {
 		return RoleAssignment{}, errors.New("bootstrap user has no login method")
 	}
 	return RoleAssignment{UserID: NormalizeIdentityKey(input.Username), RoleID: input.Role, SourceType: "system", SourceKey: "bootstrap"}, nil
-}
-
-func BootstrapUsername() string {
-	email, _ := NormalizeEmail(os.Getenv("GLYPHFLOW_BOOTSTRAP_EMAIL"))
-	return email
 }

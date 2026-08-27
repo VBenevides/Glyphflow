@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"os"
-	"path/filepath"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -254,5 +253,3 @@ func (t *AlertTracker) Emit(logger *Logger, current []OperationalAlert) error {
 	t.states = next
 	return nil
 }
-
-func EnsureAuditDir(path string) error { return os.MkdirAll(filepath.Dir(path), 0700) }

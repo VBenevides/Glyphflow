@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Eye, EyeOff, LogIn, ShieldCheck } from 'lucide-react'
+import { Eye, EyeOff, LogIn } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from './auth'
 import { api, ApiError, type OidcProvider } from './api'
@@ -95,8 +95,4 @@ export function OidcCallbackPage() {
   }, [location.search, navigate, restore])
   if (error) return <AuthFrame title="Single sign-on failed"><ErrorState message={error} onRetry={() => navigate('/login', { replace: true })} /></AuthFrame>
   return <AuthFrame title="Completing sign-in"><LoadingState label="Verifying provider response" /></AuthFrame>
-}
-
-export function AccountHint() {
-  return <p className="gf-auth-hint"><ShieldCheck size={16} aria-hidden="true" /> Sessions use secure server cookies.</p>
 }

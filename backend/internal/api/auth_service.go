@@ -956,13 +956,6 @@ func (s *AuthService) issueTokens(userID string) (AuthTokens, error) {
 	}
 	return AuthTokens{AccessToken: accessToken, RefreshToken: refreshToken, SessionID: sessionID}, nil
 }
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 func (s *AuthService) Refresh(sessionID, refreshToken string) (AuthTokens, error) {
 	s.mu.RLock()
 	repository := s.sessionRepository

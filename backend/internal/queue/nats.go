@@ -45,22 +45,6 @@ func ConnectJetStream(url string) (*JetStream, error) {
 	return connectJetStream(context.Background(), url, false)
 }
 
-func ConnectJetStreamWithContext(ctx context.Context, url string) (*JetStream, error) {
-	parsed, err := urlpkg.Parse(url)
-	if err != nil || parsed.Scheme != "tls" {
-		return nil, errors.New("NATS mutual TLS is required")
-	}
-	return connectJetStream(ctx, url, true)
-}
-
-func ConnectJetStreamPlain(url string) (*JetStream, error) {
-	parsed, err := urlpkg.Parse(url)
-	if err != nil || parsed.Scheme != "nats" {
-		return nil, errors.New("plain NATS requires a nats:// URL")
-	}
-	return connectJetStream(context.Background(), url, false)
-}
-
 func ConnectJetStreamPlainWithContext(ctx context.Context, url string) (*JetStream, error) {
 	parsed, err := urlpkg.Parse(url)
 	if err != nil || parsed.Scheme != "nats" {
