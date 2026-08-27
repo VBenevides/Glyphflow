@@ -14,9 +14,27 @@ export const GANTT_DAY_MS = 24 * 60 * 60 * 1000
 export const GANTT_HOUR_MS = 60 * 60 * 1000
 export const DAILY_MIN_OFFSET = 0
 export const DAILY_MAX_OFFSET = 7
+export const GANTT_LABEL_MAX_CHARS = 42
+export const GANTT_DAILY_LABEL_MAX_CHARS = 34
 
 function runnerLabel(segment: ScheduleProjectionSegment) {
   return (segment.laneLabel.replace(/^Runner:\s*/, '').replace(/^Any runner in\s*/, '') || segment.laneId)
+}
+
+export function truncateGanttLabel(label: string, maxLength = GANTT_LABEL_MAX_CHARS) {
+  return label.length > maxLength ? `${label.slice(0, maxLength).trimEnd()}…` : label
+}
+
+export function ganttSegmentMatchesFilters(segment: Pick<ScheduleProjectionSegment, 'laneId' | 'taskId'> & { conflicted?: boolean }, runnerFilter = '', taskFilter = '', conflictsOnly = false) {
+  return (!runnerFilter || segment.laneId === runnerFilter) && (!taskFilter || segment.taskId === taskFilter) && (!conflictsOnly || segment.conflicted === true)
+}
+
+function ganttLaneRunnerLabel(lane: GanttLane) {
+  return lane.segments[0] ? runnerLabel(lane.segments[0]) : ''
+}
+
+export function ganttRunnerDividerAt(lanes: GanttLane[], grouping: GanttGrouping, index: number) {
+  return grouping === 'task' && index > 0 && ganttLaneRunnerLabel(lanes[index]) !== ganttLaneRunnerLabel(lanes[index - 1])
 }
 
 export function ganttLanes(segments: ScheduleProjectionSegment[], grouping: GanttGrouping = 'runner'): GanttLane[] {
@@ -30,7 +48,11 @@ export function ganttLanes(segments: ScheduleProjectionSegment[], grouping: Gant
   }
   return [...lanes.values()]
     .map((lane) => ({ ...lane, segments: [...lane.segments].sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt) || a.id.localeCompare(b.id)) }))
-    .sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id))
+    .sort((a, b) => {
+      const aRunner = grouping === 'runner' ? a.label : ganttLaneRunnerLabel(a)
+      const bRunner = grouping === 'runner' ? b.label : ganttLaneRunnerLabel(b)
+      return (aRunner ?? '').localeCompare(bRunner ?? '') || (grouping === 'task' ? a.label.localeCompare(b.label) : 0) || a.id.localeCompare(b.id)
+    })
 }
 
 function startOfUtcDay(value: Date | number = new Date()) {
@@ -98,6 +120,12 @@ export function ganttConflictsInRange(conflicts: ScheduleProjectionConflict[], r
   })
 }
 
+export function ganttConflictNumberMap(conflicts: ScheduleProjectionConflict[]) {
+  const numbers = new Map<string, number[]>()
+  conflicts.forEach((conflict, index) => conflict.occurrences.forEach((occurrence) => numbers.set(occurrence.id, [...(numbers.get(occurrence.id) ?? []), index + 1])))
+  return numbers
+}
+
 export function ganttDayDivisions(range: GanttRange) {
   const start = Date.parse(range.startAt)
   const end = Date.parse(range.endAt)
@@ -141,16 +169,23 @@ export function SchedulingGantt({ report }: { report: ScheduleProjection }) {
   const [view, setView] = useState<GanttView>('week')
   const [grouping, setGrouping] = useState<GanttGrouping>('runner')
   const [dayOffset, setDayOffset] = useState(0)
+  const [runnerFilter, setRunnerFilter] = useState('')
+  const [taskFilter, setTaskFilter] = useState('')
+  const [showOnlyConflicts, setShowOnlyConflicts] = useState(false)
   if (!report.available) return <EmptyState title="Scheduling projection unavailable">The background calculation has not completed yet.</EmptyState>
   const allSegments = report.segments ?? []
   if (!allSegments.length) return <EmptyState title="No projected schedules">Enable a schedule with an active task to populate the seven-day view.</EmptyState>
+  const runnerOptions = [...new Map(allSegments.map((segment) => [segment.laneId, runnerLabel(segment)]))].sort((a, b) => a[1].localeCompare(b[1]) || a[0].localeCompare(b[0]))
+  const taskOptions = [...new Map(allSegments.map((segment) => [segment.taskId, segment.taskName || segment.taskId]))].sort((a, b) => a[1].localeCompare(b[1]) || a[0].localeCompare(b[0]))
   const range = ganttRange(view, report, dayOffset)
-  const segments = ganttSegmentsInRange(allSegments, range)
-  const conflicts = ganttConflictsInRange(report.conflicts ?? [], range)
+  const segments = ganttSegmentsInRange(allSegments, range).filter((segment) => ganttSegmentMatchesFilters(segment, runnerFilter, taskFilter, showOnlyConflicts))
+  const conflicts = ganttConflictsInRange(report.conflicts ?? [], range).map((conflict) => ({ ...conflict, occurrences: conflict.occurrences.filter((occurrence) => ganttSegmentMatchesFilters(occurrence, runnerFilter, taskFilter)) })).filter((conflict) => conflict.occurrences.length)
+  const conflictNumberMap = ganttConflictNumberMap(conflicts)
   const lanes = ganttLanes(segments, grouping)
   const width = 1200
-  const timelineLeft = 270
-  const timelineWidth = 900
+  const timelineLeft = view === 'daily' ? 200 : 270
+  const timelineWidth = view === 'daily' ? 970 : 900
+  const labelMaxChars = view === 'daily' ? GANTT_DAILY_LABEL_MAX_CHARS : GANTT_LABEL_MAX_CHARS
   const rowHeight = 58
   const chartTop = 56
   const height = chartTop + Math.max(1, lanes.length) * rowHeight + 12
@@ -180,6 +215,11 @@ export function SchedulingGantt({ report }: { report: ScheduleProjection }) {
         <Button variant="secondary" disabled={nextDisabled} onClick={() => setDayOffset((offset) => Math.min(DAILY_MAX_OFFSET, offset + 1))}>Next day</Button>
       </div>}
     </div>
+    <div className="gf-filter-bar gf-gantt-filters" aria-label="Gantt filters">
+      <label>Runner<select className="gf-input" value={runnerFilter} onChange={(event) => setRunnerFilter(event.target.value)}><option value="">All runners</option>{runnerOptions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
+      <label>Task<select className="gf-input" value={taskFilter} onChange={(event) => setTaskFilter(event.target.value)}><option value="">All tasks</option>{taskOptions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
+      <label className="gf-gantt-conflict-filter"><input type="checkbox" checked={showOnlyConflicts} onChange={(event) => setShowOnlyConflicts(event.target.checked)} /> Show Only Conflicts</label>
+    </div>
     {stale && <p className="gf-stale-warning" role="status">This projection is older than one hour. The last successful snapshot is shown.</p>}
     {!segments.length && <p className="gf-gantt-empty gf-muted">No projected executions in this range.</p>}
     <div className="gf-gantt-scroll">
@@ -191,16 +231,22 @@ export function SchedulingGantt({ report }: { report: ScheduleProjection }) {
           const position = projectionSegmentPercent({ startAt: division.at, endAt: division.at, id: division.at } as ScheduleProjectionSegment, report, range)
           const x = timelineLeft + (position.left / 100) * timelineWidth
           const atEnd = x >= timelineLeft + timelineWidth - 1
-          return <g key={division.at}><line x1={x} y1={chartTop - 8} x2={x} y2={height - 6} className="gf-gantt-day-line" /><text x={atEnd ? x - 4 : x + 4} y={chartTop - 12} textAnchor={atEnd ? 'end' : undefined} className="gf-gantt-day-label">{division.label}</text></g>
+          const labelX = view === 'daily' ? x : (atEnd ? x - 4 : x + 4)
+          const textAnchor = view === 'daily' ? 'middle' : (atEnd ? 'end' : undefined)
+          return <g key={division.at}><line x1={x} y1={chartTop - 8} x2={x} y2={height - 6} className="gf-gantt-day-line" /><text x={labelX} y={chartTop - 12} textAnchor={textAnchor} className="gf-gantt-day-label">{division.label}</text></g>
         })}
         {lanes.map((lane, laneIndex) => {
           const y = chartTop + laneIndex * rowHeight
-          return <g key={lane.id}><text x="8" y={y + 17} className="gf-gantt-lane-label">{lane.label}</text><line x1={timelineLeft} y1={y + 12} x2={width - 10} y2={y + 12} className="gf-gantt-lane-line" />{lane.segments.map((segment) => {
+          const runnerNames = [...new Set(lane.segments.map(runnerLabel))].join(', ')
+          const runnerChanged = ganttRunnerDividerAt(lanes, grouping, laneIndex)
+          return <g key={lane.id}><title>{lane.label}{grouping === 'task' ? ' · ' + runnerNames : ''}</title>{runnerChanged && <line x1="0" y1={y - 10} x2={width} y2={y - 10} className="gf-gantt-runner-divider" />}<text x="8" y={y + 17} className="gf-gantt-lane-label"><title>{lane.label}</title>{truncateGanttLabel(lane.label, labelMaxChars)}</text>{grouping === 'task' && <text x="8" y={y + 30} className="gf-gantt-lane-runner"><title>{runnerNames}</title>{truncateGanttLabel(runnerNames, labelMaxChars)}</text>}<line x1={timelineLeft} y1={y + 12} x2={width - 10} y2={y + 12} className="gf-gantt-lane-line" />{lane.segments.map((segment) => {
             const position = projectionSegmentPercent(segment, report, range)
             const x = timelineLeft + (position.left / 100) * timelineWidth
             const segmentWidth = Math.max(2, (position.width / 100) * timelineWidth)
-            const details = segmentDetails(segment)
-            return <g key={segment.id}><title>{details}</title><rect x={x} y={y} width={segmentWidth} height="24" rx="4" className={segment.conflicted ? 'gf-gantt-segment is-conflicted' : 'gf-gantt-segment'} tabIndex={0} aria-label={details} strokeDasharray={segment.conflicted ? '4 2' : undefined} /><text x={x + 4} y={y + 17} className="gf-gantt-segment-mark" aria-hidden="true">{segment.conflicted ? '!' : ''}</text></g>
+            const conflictNumbers = conflictNumberMap.get(segment.id) ?? []
+            const conflictLabel = conflictNumbers.length ? conflictNumbers.join(', ') : '!'
+            const details = segmentDetails(segment) + (conflictNumbers.length ? ' · Conflicts ' + conflictLabel : '')
+            return <g key={segment.id}><title>{details}</title><rect x={x} y={y} width={segmentWidth} height="24" rx="4" className={segment.conflicted ? 'gf-gantt-segment is-conflicted' : 'gf-gantt-segment'} tabIndex={0} aria-label={details} strokeDasharray={segment.conflicted ? '4 2' : undefined} /><text x={x + segmentWidth / 2} y={y + 17} textAnchor="middle" className="gf-gantt-segment-mark" aria-hidden="true">{segment.conflicted ? conflictLabel : ''}</text></g>
           })}</g>
         })}
       </svg>
