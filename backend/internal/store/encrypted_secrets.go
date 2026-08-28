@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -16,6 +17,11 @@ const (
 	SecretIntegrityFailed           = "INTEGRITY_FAILED"
 	SecretIntegrityKeyUnavailable   = "KEY_UNAVAILABLE"
 	SecretIntegrityDecryptionFailed = "DECRYPTION_FAILED"
+)
+
+var (
+	ErrEncryptedSecretNotFound = errors.New("encrypted secret not found")
+	ErrEncryptedSecretInUse    = errors.New("encrypted secret is in use")
 )
 
 type EncryptedSecretRecord struct {
@@ -35,6 +41,13 @@ type EncryptedSecretStatusRecord struct {
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 	LastValidatedAt *time.Time
+	Tasks           []SecretTaskUsageRecord
+	CanDelete       bool
+}
+
+type SecretTaskUsageRecord struct {
+	ID   string
+	Name string
 }
 
 type EncryptedSecretRepository interface {
@@ -42,6 +55,7 @@ type EncryptedSecretRepository interface {
 	Find(context.Context, string) (EncryptedSecretRecord, bool, error)
 	SetIntegrityStatus(context.Context, string, string, time.Time) error
 	ListStatuses(context.Context) ([]EncryptedSecretStatusRecord, error)
+	Delete(context.Context, string) error
 }
 
 type EncryptedSecretStore struct{ pool *pgxpool.Pool }
@@ -82,8 +96,60 @@ func (s *EncryptedSecretStore) SetIntegrityStatus(ctx context.Context, id, statu
 	return err
 }
 
+func (s *EncryptedSecretStore) Delete(ctx context.Context, id string) error {
+	var deleted string
+	err := s.pool.QueryRow(ctx, `
+		DELETE FROM encrypted_secrets AS secret
+		WHERE secret.id = $1
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM tasks AS task
+			JOIN task_versions AS version ON version.id = task.current_version_id AND version.task_id = task.id
+			CROSS JOIN LATERAL jsonb_each_text(version.secret_references) AS reference(name, value)
+			WHERE NOT task.is_deleted AND reference.value = secret.id
+		  )
+		  AND NOT EXISTS (
+			SELECT 1 FROM sso_providers AS provider
+			WHERE 'oidc-provider:' || provider.id = secret.id
+		  )
+		RETURNING secret.id`, id).Scan(&deleted)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	var exists bool
+	if err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM encrypted_secrets WHERE id = $1)`, id).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return ErrEncryptedSecretNotFound
+	}
+	return ErrEncryptedSecretInUse
+}
+
 func (s *EncryptedSecretStore) ListStatuses(ctx context.Context) ([]EncryptedSecretStatusRecord, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id, name, integrity_status, created_at, updated_at, last_validated_at FROM encrypted_secrets ORDER BY lower(name), id`)
+	rows, err := s.pool.Query(ctx, `
+		SELECT secret.id, secret.name, secret.integrity_status, secret.created_at, secret.updated_at, secret.last_validated_at,
+			COALESCE(task_usage.tasks, '[]'::jsonb),
+			COALESCE(task_usage.task_count, 0) = 0 AND NOT EXISTS (
+				SELECT 1 FROM sso_providers AS provider
+				WHERE 'oidc-provider:' || provider.id = secret.id
+			) AS can_delete
+		FROM encrypted_secrets AS secret
+		LEFT JOIN LATERAL (
+			SELECT jsonb_agg(jsonb_build_object('id', usage.id, 'name', usage.name) ORDER BY lower(usage.name), usage.id) AS tasks,
+				COUNT(*) AS task_count
+			FROM (
+				SELECT DISTINCT task.id, task.name
+				FROM tasks AS task
+				JOIN task_versions AS version ON version.id = task.current_version_id AND version.task_id = task.id
+				CROSS JOIN LATERAL jsonb_each_text(version.secret_references) AS reference(name, value)
+				WHERE NOT task.is_deleted AND reference.value = secret.id
+			) AS usage
+		) AS task_usage ON TRUE
+		ORDER BY lower(secret.name), secret.id`)
 	if err != nil {
 		return nil, err
 	}
@@ -91,8 +157,15 @@ func (s *EncryptedSecretStore) ListStatuses(ctx context.Context) ([]EncryptedSec
 	statuses := []EncryptedSecretStatusRecord{}
 	for rows.Next() {
 		var status EncryptedSecretStatusRecord
-		if err := rows.Scan(&status.ID, &status.Name, &status.IntegrityStatus, &status.CreatedAt, &status.UpdatedAt, &status.LastValidatedAt); err != nil {
+		var tasks []byte
+		if err := rows.Scan(&status.ID, &status.Name, &status.IntegrityStatus, &status.CreatedAt, &status.UpdatedAt, &status.LastValidatedAt, &tasks, &status.CanDelete); err != nil {
 			return nil, err
+		}
+		if err := json.Unmarshal(tasks, &status.Tasks); err != nil {
+			return nil, err
+		}
+		if status.Tasks == nil {
+			status.Tasks = []SecretTaskUsageRecord{}
 		}
 		statuses = append(statuses, status)
 	}

@@ -18,8 +18,9 @@ import (
 )
 
 type memoryEncryptedSecretRepository struct {
-	mu      sync.Mutex
-	records map[string]store.EncryptedSecretRecord
+	mu         sync.Mutex
+	records    map[string]store.EncryptedSecretRecord
+	taskUsages map[string][]store.SecretTaskUsageRecord
 }
 
 func (r *memoryEncryptedSecretRepository) Upsert(_ context.Context, secret store.EncryptedSecretRecord) error {
@@ -61,9 +62,23 @@ func (r *memoryEncryptedSecretRepository) ListStatuses(_ context.Context) ([]sto
 	defer r.mu.Unlock()
 	statuses := make([]store.EncryptedSecretStatusRecord, 0, len(r.records))
 	for _, secret := range r.records {
-		statuses = append(statuses, store.EncryptedSecretStatusRecord{ID: secret.ID, Name: secret.Name, IntegrityStatus: secret.IntegrityStatus, CreatedAt: secret.CreatedAt, UpdatedAt: secret.UpdatedAt, LastValidatedAt: secret.LastValidatedAt})
+		tasks := append([]store.SecretTaskUsageRecord(nil), r.taskUsages[secret.ID]...)
+		statuses = append(statuses, store.EncryptedSecretStatusRecord{ID: secret.ID, Name: secret.Name, IntegrityStatus: secret.IntegrityStatus, CreatedAt: secret.CreatedAt, UpdatedAt: secret.UpdatedAt, LastValidatedAt: secret.LastValidatedAt, Tasks: tasks, CanDelete: len(tasks) == 0})
 	}
 	return statuses, nil
+}
+
+func (r *memoryEncryptedSecretRepository) Delete(_ context.Context, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.records[id]; !ok {
+		return store.ErrEncryptedSecretNotFound
+	}
+	if len(r.taskUsages[id]) > 0 {
+		return store.ErrEncryptedSecretInUse
+	}
+	delete(r.records, id)
+	return nil
 }
 
 func TestOIDCClientSecretValidatesAuthenticatedEncryption(t *testing.T) {
@@ -74,7 +89,7 @@ func TestOIDCClientSecretValidatesAuthenticatedEncryption(t *testing.T) {
 		t.Fatal(err)
 	}
 	record := repository.records[oidcSecretID("corp")]
-	if record.IntegrityStatus != store.SecretIntegrityUnknown || len(record.EncryptedValue) == 0 || strings.Contains(string(record.EncryptedValue), "client-secret") {
+	if record.IntegrityStatus != store.SecretIntegrityValid || record.LastValidatedAt == nil || len(record.EncryptedValue) == 0 || strings.Contains(string(record.EncryptedValue), "client-secret") {
 		t.Fatalf("stored secret = %#v", record)
 	}
 	if secret, configured, err := service.clientSecret("corp"); err != nil || !configured || secret != "client-secret" {
@@ -100,6 +115,9 @@ func TestOIDCSecretAttentionOmitsSecretMaterial(t *testing.T) {
 	if err := service.AddProvider(OIDCProvider{Key: "corp", Name: "Microsoft SSO", Issuer: "https://issuer.example", ClientSecret: "client-secret", Callback: "https://app.example/callback", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
+	if err := repository.SetIntegrityStatus(context.Background(), oidcSecretID("corp"), store.SecretIntegrityUnknown, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
 	attention, err := service.SecretAttention()
 	if err != nil || len(attention) != 1 || attention[0].Name != "Microsoft SSO" || attention[0].Status != store.SecretIntegrityUnknown {
 		t.Fatalf("attention = %#v, err = %v", attention, err)
@@ -115,6 +133,9 @@ func TestSecretAttentionEndpointRequiresSecretsReadAndReturnsStatusOnly(t *testi
 	service := NewOIDCService()
 	service.SetSecretRepository(repository, []byte("01234567890123456789012345678901"))
 	if err := service.AddProvider(OIDCProvider{Key: "corp", Name: "Microsoft SSO", Issuer: "https://issuer.example", ClientSecret: "client-secret", Callback: "https://app.example/callback", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.SetIntegrityStatus(context.Background(), oidcSecretID("corp"), store.SecretIntegrityUnknown, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	server := Server{OIDC: service, Auth: func(*http.Request) (Claims, bool) {
@@ -145,21 +166,40 @@ func TestSecretAdminAPIStoresAndListsNamedMetadata(t *testing.T) {
 		t.Fatalf("created secret = %s, err = %v", create.Body.String(), err)
 	}
 	record := repository.records[created.ID]
+	if record.IntegrityStatus != store.SecretIntegrityValid || record.LastValidatedAt == nil {
+		t.Fatalf("created secret was not validated: %#v", record)
+	}
 	if strings.Contains(string(record.EncryptedValue), "runtime-secret") {
 		t.Fatal("repository stored plaintext secret")
 	}
 	if value, err := platform.DecryptSecret(key, record.EncryptedValue); err != nil || value != "runtime-secret" {
 		t.Fatalf("stored secret = %q, err = %v", value, err)
 	}
+	repository.mu.Lock()
+	repository.taskUsages = map[string][]store.SecretTaskUsageRecord{created.ID: {{ID: "task-1", Name: "Nightly"}}}
+	repository.mu.Unlock()
 	list := httptest.NewRecorder()
 	server.Handler().ServeHTTP(list, httptest.NewRequest(http.MethodGet, "/api/v1/admin/secrets", nil))
-	if list.Code != http.StatusOK || !strings.Contains(list.Body.String(), "GitHub Integration") || strings.Contains(list.Body.String(), "runtime-secret") || strings.Contains(list.Body.String(), "encryptedValue") {
+	if list.Code != http.StatusOK || !strings.Contains(list.Body.String(), "GitHub Integration") || !strings.Contains(list.Body.String(), `"tasks":[{"id":"task-1","name":"Nightly"}]`) || strings.Contains(list.Body.String(), "runtime-secret") || strings.Contains(list.Body.String(), "encryptedValue") {
 		t.Fatalf("secret list response = %d %s", list.Code, list.Body.String())
 	}
 	attention := httptest.NewRecorder()
 	server.Handler().ServeHTTP(attention, httptest.NewRequest(http.MethodGet, "/api/v1/admin/secrets/attention", nil))
-	if attention.Code != http.StatusOK || !strings.Contains(attention.Body.String(), "GitHub Integration") {
+	if attention.Code != http.StatusOK || strings.Contains(attention.Body.String(), "GitHub Integration") {
 		t.Fatalf("secret attention response = %d %s", attention.Code, attention.Body.String())
+	}
+	blocked := httptest.NewRecorder()
+	server.Handler().ServeHTTP(blocked, httptest.NewRequest(http.MethodDelete, "/api/v1/admin/secrets/"+created.ID, nil))
+	if blocked.Code != http.StatusConflict {
+		t.Fatalf("used secret deletion response = %d %s", blocked.Code, blocked.Body.String())
+	}
+	repository.mu.Lock()
+	delete(repository.taskUsages, created.ID)
+	repository.mu.Unlock()
+	removed := httptest.NewRecorder()
+	server.Handler().ServeHTTP(removed, httptest.NewRequest(http.MethodDelete, "/api/v1/admin/secrets/"+created.ID, nil))
+	if removed.Code != http.StatusNoContent {
+		t.Fatalf("unused secret deletion response = %d %s", removed.Code, removed.Body.String())
 	}
 }
 

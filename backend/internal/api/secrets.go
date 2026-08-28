@@ -14,12 +14,19 @@ import (
 )
 
 type SecretMetadata struct {
-	ID              string     `json:"id"`
-	Name            string     `json:"name"`
-	Status          string     `json:"status"`
-	CreatedAt       time.Time  `json:"createdAt"`
-	UpdatedAt       time.Time  `json:"updatedAt"`
-	LastValidatedAt *time.Time `json:"lastValidatedAt,omitempty"`
+	ID              string            `json:"id"`
+	Name            string            `json:"name"`
+	Status          string            `json:"status"`
+	CreatedAt       time.Time         `json:"createdAt"`
+	UpdatedAt       time.Time         `json:"updatedAt"`
+	LastValidatedAt *time.Time        `json:"lastValidatedAt,omitempty"`
+	Tasks           []SecretTaskUsage `json:"tasks"`
+	CanDelete       bool              `json:"canDelete"`
+}
+
+type SecretTaskUsage struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 type SecretAdminService struct {
@@ -29,6 +36,25 @@ type SecretAdminService struct {
 
 func NewSecretAdminService(repository store.EncryptedSecretRepository, key []byte) *SecretAdminService {
 	return &SecretAdminService{repository: repository, key: append([]byte(nil), key...)}
+}
+
+func validateStoredSecret(ctx context.Context, repository store.EncryptedSecretRepository, key []byte, id string) error {
+	record, found, err := repository.Find(ctx, id)
+	if err != nil || !found {
+		return errors.New("secret validation failed")
+	}
+	if _, err := platform.DecryptSecret(key, record.EncryptedValue); err != nil {
+		status := store.SecretIntegrityFailed
+		if errors.Is(err, platform.ErrSecretDecryption) {
+			status = store.SecretIntegrityDecryptionFailed
+		}
+		_ = repository.SetIntegrityStatus(ctx, id, status, time.Now().UTC())
+		return errors.New("secret validation failed")
+	}
+	if err := repository.SetIntegrityStatus(ctx, id, store.SecretIntegrityValid, time.Now().UTC()); err != nil {
+		return errors.New("secret validation failed")
+	}
+	return nil
 }
 
 func (s *SecretAdminService) hasDurableRepository() bool { return s != nil && s.repository != nil }
@@ -47,9 +73,15 @@ func (s *SecretAdminService) List(ctx context.Context) ([]SecretMetadata, error)
 		if name == "" {
 			name = status.ID
 		}
-		items = append(items, SecretMetadata{ID: status.ID, Name: name, Status: status.IntegrityStatus, CreatedAt: status.CreatedAt, UpdatedAt: status.UpdatedAt, LastValidatedAt: status.LastValidatedAt})
+		tasks := make([]SecretTaskUsage, len(status.Tasks))
+		for index, task := range status.Tasks {
+			tasks[index] = SecretTaskUsage{ID: task.ID, Name: task.Name}
+		}
+		items = append(items, SecretMetadata{ID: status.ID, Name: name, Status: status.IntegrityStatus, CreatedAt: status.CreatedAt, UpdatedAt: status.UpdatedAt, LastValidatedAt: status.LastValidatedAt, Tasks: tasks, CanDelete: status.CanDelete})
 	}
-	sort.Slice(items, func(i, j int) bool { return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name) })
+	sort.Slice(items, func(i, j int) bool {
+		return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name) || strings.ToLower(items[i].Name) == strings.ToLower(items[j].Name) && items[i].ID < items[j].ID
+	})
 	return items, nil
 }
 
@@ -65,7 +97,20 @@ func (s *SecretAdminService) Upsert(ctx context.Context, id, name, value string)
 	if err != nil {
 		return err
 	}
-	return s.repository.Upsert(ctx, store.EncryptedSecretRecord{ID: id, Name: name, EncryptedValue: encrypted})
+	if err := s.repository.Upsert(ctx, store.EncryptedSecretRecord{ID: id, Name: name, EncryptedValue: encrypted}); err != nil {
+		return err
+	}
+	return validateStoredSecret(ctx, s.repository, s.key, id)
+}
+
+func (s *SecretAdminService) Delete(ctx context.Context, id string) error {
+	if s == nil || s.repository == nil {
+		return errors.New("secret storage is unavailable")
+	}
+	if id == "" {
+		return errors.New("secret id is required")
+	}
+	return s.repository.Delete(ctx, id)
 }
 
 type secretInput struct {
@@ -118,7 +163,26 @@ func (s Server) secretCollection(w http.ResponseWriter, r *http.Request) {
 
 func (s Server) secretPath(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, "/api/v1/admin/secrets/")
-	if id == "" || strings.Contains(id, "/") || r.Method != http.MethodPut {
+	if id == "" || strings.Contains(id, "/") {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "secret not found"})
+		return
+	}
+	if r.Method == http.MethodDelete {
+		if err := s.Secrets.Delete(r.Context(), id); err != nil {
+			switch {
+			case errors.Is(err, store.ErrEncryptedSecretInUse):
+				writeJSON(w, http.StatusConflict, map[string]string{"error": "secret is still in use"})
+			case errors.Is(err, store.ErrEncryptedSecretNotFound):
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "secret not found"})
+			default:
+				writeError(w, http.StatusServiceUnavailable, "secret deletion unavailable", err)
+			}
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method != http.MethodPut {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "secret not found"})
 		return
 	}

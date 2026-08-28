@@ -92,4 +92,11 @@ describe('secret editor contract', () => {
     expect(source).toContain("aria-label={valueVisible ? 'Hide secret' : 'Show secret'}")
     expect(source).toContain('aria-pressed={valueVisible}')
   })
+
+  it('shows task usage and only offers deletion for unused secrets', () => {
+    expect(source).toContain("label: 'Used by tasks'")
+    expect(source).toContain('secret.tasks.length')
+    expect(source).toContain('secret.canDelete')
+    expect(source).toContain('api.delete(`/api/v1/admin/secrets/${encodeURIComponent(secret.id)}`)')
+  })
 })

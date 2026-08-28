@@ -106,7 +106,9 @@ provider listing. Keep the local encryption key with the database backup.
 4. Replace a value from the Secrets tab when it must be rotated. Existing task
    references continue to use the same secret ID.
 
-The table shows encryption/integrity status only. **Valid** means the
+The table shows the tasks using each secret and its encryption/integrity status.
+Delete is available only when no active task uses the secret; SSO provider
+secrets remain protected. **Valid** means the
 application authenticated and decrypted the stored value; it does not prove
 that the external credential is still accepted. **Integrity failed** means the
 stored ciphertext could not be authenticated/decrypted, commonly because the

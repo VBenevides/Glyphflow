@@ -43,6 +43,13 @@ func (r *secretDeliveryTestRepository) ListStatuses(_ context.Context) ([]store.
 	return []store.EncryptedSecretStatusRecord{{ID: r.record.ID, Name: r.record.Name, IntegrityStatus: r.status}}, nil
 }
 
+func (r *secretDeliveryTestRepository) Delete(_ context.Context, id string) error {
+	if id != r.record.ID {
+		return store.ErrEncryptedSecretNotFound
+	}
+	return nil
+}
+
 func (r *secretDeliveryTestRepository) AuthorizeSecretRequest(_ context.Context, input store.SecretRequestInput) error {
 	r.input = input
 	if !r.authorized {

@@ -207,6 +207,9 @@ func (s *OIDCService) AddProvider(provider OIDCProvider) error {
 		if err := secretRepository.Upsert(context.Background(), store.EncryptedSecretRecord{ID: oidcSecretID(provider.Key), Name: secretName, EncryptedValue: encrypted}); err != nil {
 			return errors.New("OIDC client secret storage is unavailable")
 		}
+		if err := validateStoredSecret(context.Background(), secretRepository, secretKey, oidcSecretID(provider.Key)); err != nil {
+			return errors.New("OIDC client secret validation failed")
+		}
 	}
 	provider.ClientSecret = ""
 	if repository != nil {
