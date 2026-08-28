@@ -263,7 +263,9 @@ The deployment contract supports one isolated production stack per client. Use
 a unique `COMPOSE_PROJECT_NAME` for each client so its PostgreSQL data, NATS
 authority, network, secrets, backups, and administrator scope stay separate.
 Shared tenancy and scaling any service beyond one replica are unsupported in
-this release.
+this release. The HA trigger is an approved client RTO or uptime target that
+the measured singleton restart recovery cannot meet. Until that trigger is
+recorded, do not run control-plane replicas.
 
 Production configuration requires, at minimum:
 

@@ -24,7 +24,7 @@ operating targets, not a service guarantee:
 
 | Item | Baseline | Owner |
 | --- | --- | --- |
-| Control-plane availability | Restart downtime is expected; no HA target | Deployment operator |
+| Control-plane availability | Singleton; trigger HA only when measured restart recovery misses the client's approved RTO or uptime target | Deployment operator |
 | RPO | The interval between verified PostgreSQL backups | Deployment operator |
 | RTO | Restart or restore time measured in the client environment | Deployment operator |
 | Audit retention | 12 calendar months by default (`AUDIT_MONTHS_KEEP`); hourly cleanup applies unless a legal hold protects the record | Deployment operator |
@@ -33,6 +33,13 @@ operating targets, not a service guarantee:
 
 Do not advertise an RPO, RTO, or uptime value until it is measured against
 the client's backup, restore, network, and restart procedures.
+
+The HA trigger is objective: record the client's approved RTO or uptime target,
+measure recovery after a control-plane restart, and open an HA design only when
+the singleton misses that target. Before running a second replica, classify
+every background loop as leader-only or safely concurrent, then run database,
+broker, and process-failure tests that prove duplicate ownership is safe.
+Until those checks pass, keep one control-plane process.
 
 ## Normal restart
 
