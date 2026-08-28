@@ -22,7 +22,6 @@ import (
 	"github.com/VBenevides/Glyphflow/backend/internal/platform"
 	"github.com/VBenevides/Glyphflow/backend/internal/queue"
 	"github.com/VBenevides/Glyphflow/backend/internal/store"
-	"github.com/shirou/gopsutil/v4/disk"
 )
 
 func main() {
@@ -161,14 +160,7 @@ func run() error {
 	operations.SetTaskRepository(taskRepository)
 	scheduleRepository := store.NewScheduleRepository(db)
 	retentionRepository := store.NewRetentionRepository(db)
-	storageMonitor := new(platform.StoragePressureMonitor)
-	storagePressure := func(context.Context) (platform.StoragePressure, error) {
-		usage, err := disk.Usage(cfg.DataDir)
-		if err != nil || usage.Total == 0 {
-			return platform.StoragePressure{State: platform.StorageUnavailable, Code: "storage_unavailable"}, nil
-		}
-		return storageMonitor.Observe(float64(usage.Free) * 100 / float64(usage.Total)), nil
-	}
+	storagePressure := store.NewPostgreSQLStoragePressureProvider(db, cfg.DatabaseStorageCapacityBytes)
 	operations.SetScheduleRepository(scheduleRepository)
 	globalVariables := api.NewGlobalVariableService()
 	globalVariables.SetRepository(store.NewGlobalVariableRepository(db))
@@ -283,17 +275,26 @@ func run() error {
 				logger.Event("retention.cleanup_failed", map[string]string{"error": err.Error()})
 				return
 			}
-			pressure, _ := storagePressure(ctx)
+			pressure, err := storagePressure(ctx)
+			if err != nil {
+				logger.Event("retention.cleanup_failed", map[string]string{"error": err.Error()})
+				return
+			}
 			if pressure.State != platform.StorageCritical && pressure.State != platform.StorageEmergency {
 				return
 			}
-			_, _ = retentionRepository.PurgeCriticalRuns(ctx, time.Now().UTC(), func() (float64, error) {
-				usage, err := disk.Usage(cfg.DataDir)
-				if err != nil || usage.Total == 0 {
-					return 0, fmt.Errorf("storage usage unavailable")
+			if _, err := retentionRepository.PurgeCriticalRuns(ctx, time.Now().UTC(), func() (float64, error) {
+				current, err := storagePressure(ctx)
+				if err != nil {
+					return 0, err
 				}
-				return float64(usage.Free) * 100 / float64(usage.Total), nil
-			}, 100)
+				if current.State == platform.StorageUnavailable {
+					return 0, fmt.Errorf("database storage capacity unavailable")
+				}
+				return current.FreePercent, nil
+			}, 100); err != nil && ctx.Err() == nil {
+				logger.Event("retention.cleanup_failed", map[string]string{"error": err.Error()})
+			}
 		}
 		cleanup()
 		ticker := time.NewTicker(time.Hour)
@@ -370,7 +371,7 @@ func run() error {
 		return health.Ready()
 	}
 	systemMetrics := api.NewSystemMetricsService(metrics, application.Ready, logger)
-	systemMetrics.DataPath = cfg.DataDir
+	systemMetrics.Storage = storagePressure
 	systemMetrics.Signals = deadLetterSignals
 	application.SystemMetrics = systemMetrics
 	go func() {

@@ -115,6 +115,7 @@ func TestFromEnvParsesSystemAdminEmails(t *testing.T) {
 	t.Setenv("REQUIRE_USER_APPROVAL", "")
 	t.Setenv("LOG_MONTHS_KEEP", "3")
 	t.Setenv("AUDIT_MONTHS_KEEP", "12")
+	t.Setenv("DATABASE_STORAGE_CAPACITY_BYTES", "1073741824")
 
 	config, err := FromEnv(ControlPlane)
 	if err != nil {
@@ -134,6 +135,9 @@ func TestFromEnvParsesSystemAdminEmails(t *testing.T) {
 	}
 	if config.LogMonthsKeep != 3 || config.AuditMonthsKeep != 12 || config.RunnerMetricsMonthsKeep != 3 {
 		t.Fatalf("retention months = %d/%d/%d", config.LogMonthsKeep, config.AuditMonthsKeep, config.RunnerMetricsMonthsKeep)
+	}
+	if config.DatabaseStorageCapacityBytes != 1073741824 {
+		t.Fatalf("database storage capacity = %d", config.DatabaseStorageCapacityBytes)
 	}
 	t.Setenv("RUNNER_METRICS_MONTHS_KEEP", "7")
 	configured, err := FromEnv(ControlPlane)
@@ -178,6 +182,7 @@ func TestValidateControlPlaneRequiresPostgresTLS(t *testing.T) {
 		LogMonthsKeep:                 3,
 		AuditMonthsKeep:               12,
 		RunnerMetricsMonthsKeep:       3,
+		DatabaseStorageCapacityBytes:  1 << 30,
 		MaxMessageBytes:               1 << 20,
 		Environment:                   "staging",
 	}
@@ -245,6 +250,7 @@ func TestFromEnvLoadsInstallationKeyOnceAndKeepsDevelopmentFallback(t *testing.T
 	t.Setenv("MAX_MESSAGE_BYTES", "1024")
 	t.Setenv("ENVIRONMENT", "production")
 	t.Setenv("ALLOW_INSECURE_TRANSPORT", "false")
+	t.Setenv("DATABASE_STORAGE_CAPACITY_BYTES", "1073741824")
 	key := bytes.Repeat([]byte{0x7f}, installationEncryptionKeySize)
 	path := filepath.Join(t.TempDir(), "encryption.key")
 	if err := os.WriteFile(path, []byte(base64.StdEncoding.EncodeToString(key)), 0o600); err != nil {

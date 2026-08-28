@@ -75,3 +75,10 @@ func TestEvaluateOperationalAlertsUsesCriticalBeforeWarning(t *testing.T) {
 		t.Fatalf("unexpected alert severities: %#v", alerts)
 	}
 }
+
+func TestEvaluateOperationalAlertsReportsUnavailableStorage(t *testing.T) {
+	alerts := EvaluateOperationalAlerts(OperationalSignals{Disk: DiskSignals{State: StorageUnavailable}}, DefaultAlertThresholds())
+	if len(alerts) != 1 || alerts[0].Code != "storage_unavailable" || alerts[0].Severity != "critical" {
+		t.Fatalf("unavailable storage alerts = %#v", alerts)
+	}
+}

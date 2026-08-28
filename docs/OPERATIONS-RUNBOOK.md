@@ -94,5 +94,8 @@ as a new identity, not as a recoverable session.
   resource leases, and the placement blocker shown on the run.
 - Events are delayed: inspect NATS health and the worker's local pending
   event outbox; do not delete pending rows.
+- Database storage is unavailable or critical: verify PostgreSQL volume
+  capacity and `DATABASE_STORAGE_CAPACITY_BYTES`; the control plane rejects
+  new runs when the database budget is unavailable or exhausted.
 - A host is untrusted: revoke or archive the runner, then rotate any secrets
   it could read.

@@ -18,6 +18,7 @@ const (
 type StoragePressure struct {
 	State       StorageState `json:"state"`
 	Code        string       `json:"code,omitempty"`
+	FreeBytes   uint64       `json:"freeBytes"`
 	FreePercent float64      `json:"freePercent"`
 }
 

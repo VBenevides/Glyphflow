@@ -5,6 +5,7 @@ services:
     command: ["/usr/local/bin/glyphflow-controlplane"]
     environment:
       DATABASE_URL: postgres://glyphflow:glyphflow@postgres:5432/glyphflow?sslmode=disable
+      DATABASE_STORAGE_CAPACITY_BYTES: ${DATABASE_STORAGE_CAPACITY_BYTES:-10737418240}
       NATS_URL: ${NATS_URL:-nats://nats:4222}
       RUNNER_NATS_URL: ${RUNNER_NATS_URL:-nats://nats:4222}
       RUNNER_CONTROL_PLANE_URL: ${RUNNER_CONTROL_PLANE_URL:-}

@@ -57,6 +57,7 @@ type Config struct {
 	RunnerID                      string
 	MaxMessageBytes               int
 	MaxOutputBytes                int
+	DatabaseStorageCapacityBytes  int64
 }
 
 func FromEnv(role Role) (Config, error) {
@@ -131,6 +132,9 @@ func FromEnv(role Role) (Config, error) {
 		if config.RunnerMetricsMonthsKeep, err = envIntDefault("RUNNER_METRICS_MONTHS_KEEP", 3); err != nil {
 			return Config{}, err
 		}
+		if config.DatabaseStorageCapacityBytes, err = envInt64Default("DATABASE_STORAGE_CAPACITY_BYTES", 0); err != nil {
+			return Config{}, err
+		}
 	}
 	if err := config.Validate(); err != nil {
 		return Config{}, err
@@ -175,6 +179,9 @@ func (c Config) Validate() error {
 	if c.Role == ControlPlane && (c.LogMonthsKeep <= 0 || c.AuditMonthsKeep <= 0 || c.RunnerMetricsMonthsKeep <= 0) {
 		return errors.New("LOG_MONTHS_KEEP, AUDIT_MONTHS_KEEP, and RUNNER_METRICS_MONTHS_KEEP must be greater than zero")
 	}
+	if c.Role == ControlPlane && c.DatabaseStorageCapacityBytes < 0 {
+		return errors.New("DATABASE_STORAGE_CAPACITY_BYTES must not be negative")
+	}
 	if c.Role == ControlPlane {
 		if len([]byte(c.AccessTokenSecret)) < 32 {
 			return errors.New("ACCESS_TOKEN_SECRET must contain at least 32 bytes")
@@ -198,6 +205,9 @@ func (c Config) Validate() error {
 		}
 		if c.Environment != "development" && strings.TrimSpace(c.SecretEncryptionKeyFile) == "" {
 			return errors.New("SECRET_ENCRYPTION_KEY_FILE is required outside development")
+		}
+		if c.Environment != "development" && c.DatabaseStorageCapacityBytes <= 0 {
+			return errors.New("DATABASE_STORAGE_CAPACITY_BYTES must be greater than zero outside development")
 		}
 		if c.ControlPlaneSigningPrivateKey != "" {
 			raw, err := base64.RawStdEncoding.DecodeString(c.ControlPlaneSigningPrivateKey)
@@ -298,6 +308,18 @@ func envIntDefault(name string, fallback int) (int, error) {
 		return fallback, nil
 	}
 	return envInt(name)
+}
+
+func envInt64Default(name string, fallback int64) (int64, error) {
+	value, ok := os.LookupEnv(name)
+	if !ok || strings.TrimSpace(value) == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be an integer", name)
+	}
+	return parsed, nil
 }
 
 func envBool(name string, fallback bool) (bool, error) {

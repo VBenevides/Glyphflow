@@ -332,6 +332,7 @@ with `_FILE` or `_SOURCE`.
 | Variable | Purpose |
 | --- | --- |
 | `DATABASE_URL` / `DATABASE_URL_FILE` | PostgreSQL connection URL; production Compose reads the protected file |
+| `DATABASE_STORAGE_CAPACITY_BYTES` | Positive application-database storage budget used with PostgreSQL `pg_database_size`; required outside development |
 | `NATS_URL` / `NATS_URL_FILE` | Control-plane NATS endpoint; use `tls://` outside development; production Compose reads the protected file |
 | `NATS_CERT_FILE`, `NATS_KEY_FILE`, `NATS_CA_FILE` | NATS client TLS material |
 | `ACCESS_TOKEN_SECRET` / `ACCESS_TOKEN_SECRET_FILE` | Session and access-token signing secret; minimum 32 bytes |

@@ -122,8 +122,10 @@ func (m *Metrics) Snapshot() map[string]uint64 {
 }
 
 type DiskSignals struct {
-	FreeBytes   uint64  `json:"freeBytes"`
-	FreePercent float64 `json:"freePercent"`
+	FreeBytes   uint64       `json:"freeBytes"`
+	FreePercent float64      `json:"freePercent"`
+	State       StorageState `json:"state,omitempty"`
+	Code        string       `json:"code,omitempty"`
 }
 
 type DeadLetterSignals struct {
@@ -201,7 +203,11 @@ func EvaluateOperationalAlerts(signals OperationalSignals, thresholds AlertThres
 	appendHighAlert("queue_lag", float64(signals.QueueLagSeconds), float64(thresholds.QueueLagWarningSeconds), float64(thresholds.QueueLagCriticalSeconds))
 	appendHighAlert("dead_letters_open", float64(signals.DeadLetters.Open), float64(thresholds.DeadLettersWarning), float64(thresholds.DeadLettersCritical))
 	appendHighAlert("dead_letters_oldest_age", float64(signals.DeadLetters.OldestAgeSeconds), float64(thresholds.DeadLetterAgeWarningSeconds), float64(thresholds.DeadLetterAgeCriticalSeconds))
-	appendLowAlert("disk_free_percent", signals.Disk.FreePercent, thresholds.DiskFreeWarningPercent, thresholds.DiskFreeCriticalPercent)
+	if signals.Disk.State == StorageUnavailable {
+		alerts = append(alerts, OperationalAlert{Code: "storage_unavailable", Severity: "critical", Status: "firing"})
+	} else {
+		appendLowAlert("disk_free_percent", signals.Disk.FreePercent, thresholds.DiskFreeWarningPercent, thresholds.DiskFreeCriticalPercent)
+	}
 	appendHighAlert("stuck_runs", float64(signals.StuckRuns), float64(thresholds.StuckRunsWarning), float64(thresholds.StuckRunsCritical))
 	return alerts
 }

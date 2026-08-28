@@ -6,14 +6,13 @@ import (
 	"time"
 
 	"github.com/VBenevides/Glyphflow/backend/internal/platform"
-	"github.com/shirou/gopsutil/v4/disk"
 )
 
 type SystemMetricsService struct {
 	Metrics    *platform.Metrics
 	Ready      func(context.Context) error
 	Signals    func(context.Context) (platform.OperationalSignals, error)
-	DataPath   string
+	Storage    func(context.Context) (platform.StoragePressure, error)
 	Thresholds platform.AlertThresholds
 	Tracker    *platform.AlertTracker
 	Logger     *platform.Logger
@@ -23,7 +22,6 @@ func NewSystemMetricsService(metrics *platform.Metrics, ready func(context.Conte
 	return &SystemMetricsService{
 		Metrics:    metrics,
 		Ready:      ready,
-		DataPath:   ".",
 		Thresholds: platform.DefaultAlertThresholds(),
 		Tracker:    platform.NewAlertTracker(),
 		Logger:     logger,
@@ -47,13 +45,15 @@ func (s *SystemMetricsService) snapshot(ctx context.Context) (platform.SystemMet
 			return platform.SystemMetricsResponse{}, err
 		}
 	}
-	if s.DataPath != "" {
-		if usage, err := disk.Usage(s.DataPath); err == nil {
-			signals.Disk.FreeBytes = usage.Free
-			if usage.Total > 0 {
-				signals.Disk.FreePercent = float64(usage.Free) * 100 / float64(usage.Total)
-			}
+	if s.Storage != nil {
+		storage, err := s.Storage(ctx)
+		if err != nil {
+			return platform.SystemMetricsResponse{}, err
 		}
+		signals.Disk.FreeBytes = storage.FreeBytes
+		signals.Disk.FreePercent = storage.FreePercent
+		signals.Disk.State = storage.State
+		signals.Disk.Code = storage.Code
 	}
 	alerts := platform.EvaluateOperationalAlerts(signals, s.Thresholds)
 	if s.Tracker != nil && s.Logger != nil {

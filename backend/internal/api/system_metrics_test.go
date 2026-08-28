@@ -96,3 +96,18 @@ func TestSystemMetricsEvaluatesAlertsWithoutHTTP(t *testing.T) {
 		t.Fatalf("periodic evaluation emitted no alert: %s", log.String())
 	}
 }
+
+func TestSystemMetricsUsesDatabaseStorageSignal(t *testing.T) {
+	service := &SystemMetricsService{
+		Storage: func(context.Context) (platform.StoragePressure, error) {
+			return platform.StoragePressure{State: platform.StorageWarning, Code: "database_storage_warning", FreeBytes: 42, FreePercent: 15}, nil
+		},
+	}
+	response, err := service.snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Signals.Disk.State != platform.StorageWarning || response.Signals.Disk.Code != "database_storage_warning" || response.Signals.Disk.FreeBytes != 42 || response.Signals.Disk.FreePercent != 15 {
+		t.Fatalf("database storage signal = %#v", response.Signals.Disk)
+	}
+}
