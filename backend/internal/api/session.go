@@ -159,6 +159,28 @@ func (m *SessionManager) List(userID string) ([]SessionInfo, error) {
 	return out, nil
 }
 
+func (m *SessionManager) AdminPage(email string, limit, offset int) ([]AdminSession, int, bool, error) {
+	m.mu.RLock()
+	repository := m.repository
+	m.mu.RUnlock()
+	paged, ok := repository.(interface {
+		ListAdminPage(context.Context, string, int, int) ([]store.AdminSessionRecord, int, error)
+	})
+	if !ok {
+		return nil, 0, false, nil
+	}
+	records, total, err := paged.ListAdminPage(context.Background(), email, limit, offset)
+	if err != nil {
+		return nil, 0, true, err
+	}
+	sessions := make([]AdminSession, 0, len(records))
+	for _, record := range records {
+		lastSeenAt := record.LastSeenAt
+		sessions = append(sessions, AdminSession{ID: record.ID, UserID: record.UserID, UserEmail: record.UserEmail, ExpiresAt: record.ExpiresAt, LastSeenAt: &lastSeenAt, UserAgent: record.UserAgent, IPAddress: record.IPAddress})
+	}
+	return sessions, total, true, nil
+}
+
 func (m *SessionManager) Revoke(sessionID string) error {
 	if m.repository != nil {
 		return m.repository.Revoke(context.Background(), sessionID)

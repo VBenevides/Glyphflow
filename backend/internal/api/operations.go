@@ -842,7 +842,7 @@ func (o *OperationsService) deleteSchedule(id string) bool {
 
 const maxCollectionPageLimit = 100
 
-func writePage[T any](w http.ResponseWriter, r *http.Request, items []T) {
+func collectionPage(r *http.Request) (int, int) {
 	all := strings.EqualFold(r.URL.Query().Get("all"), "true")
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	if page < 1 {
@@ -855,24 +855,37 @@ func writePage[T any](w http.ResponseWriter, r *http.Request, items []T) {
 	} else if limit < 1 || limit > maxCollectionPageLimit {
 		limit = 50
 	}
-	start := 0
-	if page > 1 {
-		if page-1 > len(items)/limit {
-			start = len(items)
-		} else {
-			start = (page - 1) * limit
-		}
+	return page, limit
+}
+
+func pageStart(page, limit, total int) int {
+	if page <= 1 {
+		return 0
 	}
+	if page-1 > total/limit {
+		return total
+	}
+	return (page - 1) * limit
+}
+
+func pageOffset(page, limit int) int {
+	return pageStart(page, limit, int(^uint(0)>>1))
+}
+
+func writePage[T any](w http.ResponseWriter, r *http.Request, items []T) {
+	page, limit := collectionPage(r)
+	start := pageStart(page, limit, len(items))
 	end := len(items)
 	if limit <= len(items)-start {
 		end = start + limit
 	}
-	pages := len(items) / limit
-	if len(items)%limit != 0 {
+	writePageResult(w, page, limit, len(items), items[start:end])
+}
+
+func writePageResult[T any](w http.ResponseWriter, page, limit, total int, items []T) {
+	pages := total / limit
+	if total%limit != 0 || pages == 0 {
 		pages++
 	}
-	if pages == 0 {
-		pages = 1
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items[start:end], "page": page, "limit": limit, "total": len(items), "pages": pages})
+	writeJSON(w, http.StatusOK, map[string]any{"items": items, "page": page, "limit": limit, "total": total, "pages": pages})
 }

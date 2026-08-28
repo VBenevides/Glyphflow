@@ -158,12 +158,21 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 			return
 		}
+		email := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("email")))
+		page, limit := collectionPage(r)
+		if sessions, total, handled, err := s.AuthAdmin.Auth.AdminSessionsPage(email, limit, pageOffset(page, limit)); handled {
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "session list failed", err)
+				return
+			}
+			writePageResult(w, page, limit, total, sessions)
+			return
+		}
 		sessions, err := s.AuthAdmin.Auth.AdminSessions()
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "session list failed", err)
 			return
 		}
-		email := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("email")))
 		if email != "" {
 			filtered := sessions[:0]
 			for _, session := range sessions {
@@ -306,12 +315,22 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid user status"})
 				return
 			}
+			email := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("email")))
+			roles := uniqueStrings(strings.Split(strings.ToLower(r.URL.Query().Get("roles")), ","))
+			page, limit := collectionPage(r)
+			if users, total, handled, err := s.AuthAdmin.Auth.UsersPage(status, email, roles, limit, pageOffset(page, limit)); handled {
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, "user list failed", err)
+					return
+				}
+				writePageResult(w, page, limit, total, users)
+				return
+			}
 			users, err := s.AuthAdmin.Auth.Users(status)
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, "user list failed", err)
 				return
 			}
-			email := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("email")))
 			if email != "" {
 				filtered := users[:0]
 				for _, user := range users {
@@ -322,7 +341,6 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 				}
 				users = filtered
 			}
-			roles := uniqueStrings(strings.Split(strings.ToLower(r.URL.Query().Get("roles")), ","))
 			if len(roles) > 0 {
 				filtered := users[:0]
 				for _, user := range users {

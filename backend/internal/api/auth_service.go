@@ -862,6 +862,25 @@ func (s *AuthService) Users(statusFilter ...string) ([]map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	return s.authUsers(records)
+}
+
+func (s *AuthService) UsersPage(status, email string, roles []string, limit, offset int) ([]map[string]any, int, bool, error) {
+	repository, ok := s.users.(interface {
+		ListPage(context.Context, string, string, []string, int, int) ([]store.UserRecord, int, error)
+	})
+	if !ok {
+		return nil, 0, false, nil
+	}
+	records, total, err := repository.ListPage(context.Background(), status, email, roles, limit, offset)
+	if err != nil {
+		return nil, 0, true, err
+	}
+	users, err := s.authUsers(records)
+	return users, total, true, err
+}
+
+func (s *AuthService) authUsers(records []store.UserRecord) ([]map[string]any, error) {
 	users := make([]map[string]any, 0, len(records))
 	for _, record := range records {
 		user := toAuthUser(record)
@@ -891,6 +910,11 @@ func (s *AuthService) Users(statusFilter ...string) ([]map[string]any, error) {
 	}
 	sort.Slice(users, func(i, j int) bool { return users[i]["username"].(string) < users[j]["username"].(string) })
 	return users, nil
+}
+
+func (s *AuthService) AdminSessionsPage(email string, limit, offset int) ([]AdminSession, int, bool, error) {
+	sessions, total, handled, err := s.sessions.AdminPage(email, limit, offset)
+	return sessions, total, handled, err
 }
 
 func (s *AuthService) AdminSessions() ([]AdminSession, error) {
