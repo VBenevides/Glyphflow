@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState, type FormEvent, type ReactNode } from 'react'
-import { Monitor, MoreHorizontal, UserPlus, Users } from 'lucide-react'
+import { Eye, EyeOff, Monitor, MoreHorizontal, UserPlus, Users } from 'lucide-react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api, type AdminSession, type ExitCode, type OidcProvider, type Page, type QueryValue, type RoleDefinition, type SecretMetadata, type UserRecord } from './api'
 import { DangerousAction } from './actions'
@@ -232,6 +232,7 @@ function secretStatusLabel(status: string) {
 function SecretEditor({ secret, onDone }: { secret?: SecretMetadata; onDone: () => Promise<void> }) {
   const [name, setName] = useState(secret?.name ?? '')
   const [value, setValue] = useState('')
+  const [valueVisible, setValueVisible] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const submit = async (event: FormEvent) => {
@@ -243,7 +244,7 @@ function SecretEditor({ secret, onDone }: { secret?: SecretMetadata; onDone: () 
       await onDone()
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Secret update failed') } finally { setBusy(false) }
   }
-  return <form className="gf-editor-form" onSubmit={submit}><label htmlFor="secret-name">Name<Input id="secret-name" value={name} onChange={(event) => setName(event.target.value)} required /></label><label htmlFor="secret-value">Secret value<Input id="secret-value" type="password" autoComplete="new-password" value={value} onChange={(event) => setValue(event.target.value)} required /><small>Stored encrypted and never shown again.</small></label>{error && <p className="gf-form-error" role="alert">{error}</p>}<div className="gf-dialog-actions"><Button type="submit" busy={busy}>{secret ? 'Replace secret' : 'Create secret'}</Button><Button type="button" variant="ghost" onClick={() => void onDone()}>Cancel</Button></div></form>
+  return <form className="gf-editor-form" onSubmit={submit}><label htmlFor="secret-name">Name<Input id="secret-name" value={name} onChange={(event) => setName(event.target.value)} required /></label><label htmlFor="secret-value">Secret value<div className="gf-password-field"><Input id="secret-value" type={valueVisible ? 'text' : 'password'} className="gf-password-input" autoComplete="new-password" value={value} onChange={(event) => setValue(event.target.value)} required /><button type="button" className="gf-password-toggle" aria-label={valueVisible ? 'Hide secret' : 'Show secret'} aria-pressed={valueVisible} onClick={() => setValueVisible((visible) => !visible)}>{valueVisible ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}</button></div><small>Stored encrypted and never shown again.</small></label>{error && <p className="gf-form-error" role="alert">{error}</p>}<div className="gf-dialog-actions"><Button type="submit" busy={busy}>{secret ? 'Replace secret' : 'Create secret'}</Button><Button type="button" variant="ghost" onClick={() => void onDone()}>Cancel</Button></div></form>
 }
 
 export function SecretsPage() {

@@ -83,3 +83,13 @@ describe('SSO provider contract', () => {
     expect(source).not.toContain('Claim mapping')
   })
 })
+
+describe('secret editor contract', () => {
+  const source = readFileSync(resolve(process.cwd(), 'src/admin-pages.tsx'), 'utf8')
+
+  it('supports showing and hiding the secret value', () => {
+    expect(source).toContain("type={valueVisible ? 'text' : 'password'}")
+    expect(source).toContain("aria-label={valueVisible ? 'Hide secret' : 'Show secret'}")
+    expect(source).toContain('aria-pressed={valueVisible}')
+  })
+})
