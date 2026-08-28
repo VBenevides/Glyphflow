@@ -23,13 +23,13 @@ services:
       NATS_KEY_FILE: /run/secrets/nats-key
       NATS_CA_FILE: /run/secrets/nats-ca
       PGSSLROOTCERT: /run/secrets/postgres-ca
-      SECRET_ENCRYPTION_KEY_FILE: /run/secrets/secret-encryption-key
       WEB_ORIGIN: ${WEB_ORIGIN:?WEB_ORIGIN must be set to an https origin}
       CORS_ORIGIN: ${CORS_ORIGIN:?CORS_ORIGIN must be an explicit allowlist}
       CSRF_ORIGINS: ${CSRF_ORIGINS:?CSRF_ORIGINS must be set}
       ENVIRONMENT: production
       ALLOW_INSECURE_TRANSPORT: "false"
       DATA_DIR: /data
+      SECRET_ENCRYPTION_KEY_FILE: ${SECRET_ENCRYPTION_KEY_FILE:-/data/secret-encryption.key}
       DATABASE_STORAGE_CAPACITY_BYTES: ${DATABASE_STORAGE_CAPACITY_BYTES:?DATABASE_STORAGE_CAPACITY_BYTES must be set}
       MAX_MESSAGE_BYTES: ${MAX_MESSAGE_BYTES:-1048576}
       GLYPHFLOW_BOOTSTRAP_EMAIL: ${GLYPHFLOW_BOOTSTRAP_EMAIL:?GLYPHFLOW_BOOTSTRAP_EMAIL must be set}
@@ -57,7 +57,7 @@ services:
       - type: volume
         source: glyphflow-data
         target: /data
-        read_only: true
+        read_only: false
     secrets:
       - source: database-url
         target: /run/secrets/database-url
@@ -81,11 +81,6 @@ services:
         mode: 0400
       - source: password-pepper
         target: /run/secrets/password-pepper
-        uid: "65532"
-        gid: "65532"
-        mode: 0400
-      - source: secret-encryption-key
-        target: /run/secrets/secret-encryption-key
         uid: "65532"
         gid: "65532"
         mode: 0400
@@ -254,8 +249,6 @@ secrets:
     file: ${CONTROL_PLANE_SIGNING_PRIVATE_KEY_FILE:?CONTROL_PLANE_SIGNING_PRIVATE_KEY_FILE must point to a protected key}
   password-pepper:
     file: ${PASSWORD_PEPPER_FILE:?PASSWORD_PEPPER_FILE must point to a protected secret}
-  secret-encryption-key:
-    file: ${SECRET_ENCRYPTION_KEY_FILE:?SECRET_ENCRYPTION_KEY_FILE must point to a protected key}
   bootstrap-password:
     file: ${GLYPHFLOW_BOOTSTRAP_PASSWORD_FILE:?GLYPHFLOW_BOOTSTRAP_PASSWORD_FILE must point to a protected secret}
   postgres-password:

@@ -64,8 +64,9 @@ database:
 pg_dump --format=custom --file=glyphflow-$(date -u +%Y%m%dT%H%M%SZ).dump "$DATABASE_URL"
 ```
 
-Include the PostgreSQL dump, deployment secrets, TLS material, and the
-control-plane signing key in the protected backup scope. Do not back up
+Include the PostgreSQL dump, deployment secrets, TLS material, the
+control-plane signing key, and `DATA_DIR/secret-encryption.key` in the
+protected backup scope. Do not back up
 worker private keys to a shared location unless the client's security policy
 requires it; preserve each worker's `DATA_DIR` on its host.
 

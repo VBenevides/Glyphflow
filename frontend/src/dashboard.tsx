@@ -9,12 +9,13 @@ import { hasPermission } from './permissions'
 import { QueryRefresh } from './query'
 import { projectionIsStale } from './schedule-gantt'
 
-type Widget = { key: string; label: string; permission: string; path: string; kind: 'metric' | 'list'; tone?: 'default' | 'success' | 'warning' | 'danger' | 'info'; icon?: ComponentType<{ className?: string; size?: string | number }> }
+type Widget = { key: string; label: string; permission: string; path: string; kind: 'metric' | 'list'; description?: string; tone?: 'default' | 'success' | 'warning' | 'danger' | 'info'; icon?: ComponentType<{ className?: string; size?: string | number }> }
 export const DASHBOARD_WIDGETS: Widget[] = [
   { key: 'runs', label: 'Active runs', permission: 'runs.read', path: '/api/v1/runs?state=active', kind: 'metric', tone: 'info', icon: Activity },
   { key: 'schedules', label: 'Due schedules', permission: 'tasks.read', path: '/api/v1/schedules?due=true', kind: 'metric', tone: 'warning', icon: CalendarClock },
   { key: 'runners', label: 'Offline runners', permission: 'runners.read', path: '/api/v1/runners?state=offline', kind: 'metric', tone: 'danger', icon: ServerOff },
   { key: 'audit', label: 'Recent audit events', permission: 'audit.read', path: '/api/v1/audit?recent=true', kind: 'list' },
+  { key: 'secrets', label: 'Secrets requiring attention', permission: 'sso.read', path: '/api/v1/admin/secrets/attention', kind: 'list', description: 'Integrity failure means the stored value could not be authenticated or decrypted. It does not necessarily mean the external credential has expired or been revoked.' },
 ]
 
 export function permittedWidgets(permissions: string[]) {
@@ -31,7 +32,7 @@ function WidgetState({ widget, result }: { widget: Widget; result: UseQueryResul
   const value = result.data as Page<Run | Schedule | Runner> | undefined
   const items = Array.isArray(value) ? value : value?.items ?? []
   if (widget.kind === 'metric') return <MetricCard label={widget.label} value={value?.total ?? items.length} icon={widget.icon ?? Activity} tone={widget.tone} detail={result.isFetching ? 'Refreshing…' : undefined} />
-  return <section className="gf-dashboard-widget"><h2>{widget.label}</h2>{items.length ? <ul className="gf-dashboard-list">{items.slice(0, 5).map((item, index) => { const record = item as { id?: string; name?: string; action?: string; description?: string; state?: string; result?: string }; return <li key={String(record.id ?? index)}><span><strong>{record.action ?? record.name ?? record.id ?? 'Record'}</strong>{record.description && <><br /><small>{record.description}</small></>}</span>{(record.state ?? record.result) && <StatusPill status={String(record.state ?? record.result)} />}</li> })}</ul> : <EmptyState title="None" />}</section>
+  return <section className="gf-dashboard-widget"><h2>{widget.label}</h2>{widget.description && <p className="gf-muted">{widget.description}</p>}{items.length ? <ul className="gf-dashboard-list">{items.slice(0, 5).map((item, index) => { const record = item as { id?: string; name?: string; action?: string; description?: string; status?: string; state?: string; result?: string }; return <li key={String(record.id ?? index)}><span><strong>{record.action ?? record.name ?? record.id ?? 'Record'}</strong>{record.description && <><br /><small>{record.description}</small></>}</span>{(record.status ?? record.state ?? record.result) && <StatusPill status={String(record.status ?? record.state ?? record.result)} />}</li> })}</ul> : <EmptyState title="None" />}</section>
 }
 
 export function DashboardPage() {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"encoding/base64"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -100,6 +101,7 @@ func TestValidateControlPlaneRequiresPasswordPepper(t *testing.T) {
 }
 
 func TestFromEnvParsesSystemAdminEmails(t *testing.T) {
+	dataDir := t.TempDir()
 	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
 	t.Setenv("NATS_URL", "nats://localhost:4222")
 	t.Setenv("ACCESS_TOKEN_SECRET", "01234567890123456789012345678901")
@@ -107,7 +109,7 @@ func TestFromEnvParsesSystemAdminEmails(t *testing.T) {
 	t.Setenv("WEB_ORIGIN", "https://console.example")
 	t.Setenv("CORS_ORIGIN", "address1,address2, address3")
 	t.Setenv("CSRF_ORIGINS", "https://console.example, http://localhost:5173")
-	t.Setenv("DATA_DIR", "/var/lib/glyphflow")
+	t.Setenv("DATA_DIR", dataDir)
 	t.Setenv("MAX_MESSAGE_BYTES", "1024")
 	t.Setenv("ENVIRONMENT", "development")
 	t.Setenv("ALLOW_INSECURE_TRANSPORT", "true")
@@ -201,7 +203,7 @@ func TestLoadInstallationEncryptionKey(t *testing.T) {
 	if err := os.WriteFile(path, []byte(base64.StdEncoding.EncodeToString(key)+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := loadInstallationEncryptionKey("production", path, "fallback")
+	loaded, err := loadInstallationEncryptionKey(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,12 +211,43 @@ func TestLoadInstallationEncryptionKey(t *testing.T) {
 		t.Fatalf("loaded key = %x, want %x", loaded, key)
 	}
 
+	missingPath := filepath.Join(t.TempDir(), "encryption.key")
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousStderr := os.Stderr
+	os.Stderr = writer
+	generated, err := loadInstallationEncryptionKey(missingPath)
+	_ = writer.Close()
+	os.Stderr = previousStderr
+	warning, _ := io.ReadAll(reader)
+	_ = reader.Close()
+	if err != nil || len(generated) != installationEncryptionKeySize {
+		t.Fatalf("generated key length = %d, err = %v", len(generated), err)
+	}
+	for _, phrase := range []string{"not found", "new random", "required to decrypt", "deleted, lost, or replaced", "may no longer be decryptable"} {
+		if !strings.Contains(string(warning), phrase) {
+			t.Fatalf("key warning missing %q: %s", phrase, warning)
+		}
+	}
+	info, err := os.Stat(missingPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm()&0o077 != 0 {
+		t.Fatalf("generated key file permissions = %v", info.Mode().Perm())
+	}
+	loaded, err = loadInstallationEncryptionKey(missingPath)
+	if err != nil || !bytes.Equal(loaded, generated) {
+		t.Fatalf("generated key was not stable: %x/%x, err = %v", loaded, generated, err)
+	}
+
 	cases := []struct {
 		name string
 		data string
 		mode os.FileMode
 	}{
-		{name: "missing", mode: 0o600},
 		{name: "unreadable", data: base64.StdEncoding.EncodeToString(key), mode: 0o000},
 		{name: "broad permissions", data: base64.StdEncoding.EncodeToString(key), mode: 0o644},
 		{name: "malformed", data: "not-base64", mode: 0o600},
@@ -223,19 +256,17 @@ func TestLoadInstallationEncryptionKey(t *testing.T) {
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
 			casePath := filepath.Join(t.TempDir(), "encryption.key")
-			if test.name != "missing" {
-				if err := os.WriteFile(casePath, []byte(test.data), test.mode); err != nil {
-					t.Fatal(err)
-				}
+			if err := os.WriteFile(casePath, []byte(test.data), test.mode); err != nil {
+				t.Fatal(err)
 			}
-			if _, err := loadInstallationEncryptionKey("production", casePath, "fallback"); err == nil {
+			if _, err := loadInstallationEncryptionKey(casePath); err == nil {
 				t.Fatal("invalid installation key file was accepted")
 			}
 		})
 	}
 }
 
-func TestFromEnvLoadsInstallationKeyOnceAndKeepsDevelopmentFallback(t *testing.T) {
+func TestFromEnvLoadsAndGeneratesInstallationKey(t *testing.T) {
 	fallback := "01234567890123456789012345678901"
 	t.Setenv("DATABASE_URL", "postgres://user:pass@db/glyphflow?sslmode=verify-full")
 	t.Setenv("NATS_URL", "tls://nats:4222")
@@ -270,17 +301,22 @@ func TestFromEnvLoadsInstallationKeyOnceAndKeepsDevelopmentFallback(t *testing.T
 	if !bytes.Equal(config.InstallationEncryptionKey, key) {
 		t.Fatal("loaded installation key changed after file deletion")
 	}
-	if _, err := FromEnv(ControlPlane); err == nil {
-		t.Fatal("restart accepted a deleted installation key file")
+	restarted, err := FromEnv(ControlPlane)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(restarted.InstallationEncryptionKey, key) {
+		t.Fatal("restart reused a deleted installation key")
 	}
 
 	t.Setenv("ENVIRONMENT", "development")
 	t.Setenv("SECRET_ENCRYPTION_KEY_FILE", "")
+	t.Setenv("DATA_DIR", t.TempDir())
 	development, err := FromEnv(ControlPlane)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(development.InstallationEncryptionKey, []byte(fallback)) {
-		t.Fatalf("development fallback = %q, want access-token secret", development.InstallationEncryptionKey)
+	if len(development.InstallationEncryptionKey) != installationEncryptionKeySize || bytes.Equal(development.InstallationEncryptionKey, []byte(fallback)) {
+		t.Fatalf("development generated key = %x", development.InstallationEncryptionKey)
 	}
 }

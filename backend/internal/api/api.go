@@ -248,6 +248,7 @@ func (s Server) Handler() http.Handler {
 	mux.Handle("/api/v1/runs", s.require("run.read", http.HandlerFunc(s.Runs.collection)))
 	mux.Handle("/api/v1/audit", s.require("audit.read", http.HandlerFunc(s.AuditQuery.query)))
 	mux.Handle("/api/v1/admin/system/metrics", s.require("system.metrics.read", http.HandlerFunc(s.SystemMetrics.metrics)))
+	mux.Handle("/api/v1/admin/secrets/attention", s.require("sso.read", http.HandlerFunc(s.secretAttention)))
 	mux.Handle("/api/v1/admin/dead-letters", s.requireMethodRole(func(r *http.Request) string {
 		if r.Method == http.MethodGet {
 			return "system.deadletter.read"

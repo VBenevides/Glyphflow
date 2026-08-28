@@ -14,7 +14,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -24,18 +23,18 @@ import (
 )
 
 type OIDCProvider struct {
-	Key             string            `json:"key"`
-	Name            string            `json:"name,omitempty"`
-	Issuer          string            `json:"issuer"`
-	ClientID        string            `json:"clientId,omitempty"`
-	Callback        string            `json:"callback"`
-	AuthURL         string            `json:"authUrl,omitempty"`
-	Audience        string            `json:"audience,omitempty"`
-	SecretReference string            `json:"secretReference,omitempty"`
-	Enabled         bool              `json:"enabled"`
-	AutoProvision   bool              `json:"autoProvision,omitempty"`
-	Callbacks       []string          `json:"callbacks,omitempty"`
-	GroupMapping    map[string]string `json:"groupMapping,omitempty"`
+	Key           string            `json:"key"`
+	Name          string            `json:"name,omitempty"`
+	Issuer        string            `json:"issuer"`
+	ClientID      string            `json:"clientId,omitempty"`
+	Callback      string            `json:"callback"`
+	AuthURL       string            `json:"authUrl,omitempty"`
+	Audience      string            `json:"audience,omitempty"`
+	ClientSecret  string            `json:"clientSecret,omitempty"`
+	Enabled       bool              `json:"enabled"`
+	AutoProvision bool              `json:"autoProvision,omitempty"`
+	Callbacks     []string          `json:"callbacks,omitempty"`
+	GroupMapping  map[string]string `json:"groupMapping,omitempty"`
 }
 
 // OIDCProviderPublic is the provider projection used by the public login page.
@@ -45,16 +44,17 @@ type OIDCProviderPublic struct {
 	Icon string `json:"icon,omitempty"`
 }
 type OIDCService struct {
-	mu              sync.RWMutex
-	providers       map[string]OIDCProvider
-	repository      store.OIDCProviderRepository
-	states          *platform.AuthorizationStateStore
-	stateRepo       store.OIDCAuthorizationStateRepository
-	stateKey        []byte
-	defaultCallback string
-	httpClient      *http.Client
-	secretResolver  func(string) (string, error)
-	linkTargets     map[string]string
+	mu               sync.RWMutex
+	providers        map[string]OIDCProvider
+	repository       store.OIDCProviderRepository
+	states           *platform.AuthorizationStateStore
+	stateRepo        store.OIDCAuthorizationStateRepository
+	stateKey         []byte
+	defaultCallback  string
+	httpClient       *http.Client
+	secretRepository store.EncryptedSecretRepository
+	secretKey        []byte
+	linkTargets      map[string]string
 }
 
 const maxOIDCResponseBytes = 1 << 20
@@ -72,9 +72,13 @@ func (s *OIDCService) SetHTTPClient(client *http.Client) {
 	s.mu.Unlock()
 }
 
-func (s *OIDCService) SetSecretResolver(resolve func(string) (string, error)) {
+func (s *OIDCService) SetSecretRepository(repository store.EncryptedSecretRepository, key []byte) {
+	if repository == nil {
+		return
+	}
 	s.mu.Lock()
-	s.secretResolver = resolve
+	s.secretRepository = repository
+	s.secretKey = append([]byte(nil), key...)
 	s.mu.Unlock()
 }
 
@@ -183,7 +187,7 @@ func providerRecord(provider OIDCProvider) store.OIDCProviderRecord {
 	if len(callbacks) == 0 {
 		callbacks = []string{provider.Callback}
 	}
-	return store.OIDCProviderRecord{ID: provider.Key, Name: provider.Name, Issuer: provider.Issuer, ClientID: provider.ClientID, SecretReference: provider.SecretReference, CallbackURLs: callbacks, AuthEndpointOverride: provider.AuthURL, Audience: provider.Audience, Enabled: provider.Enabled, AutoProvision: provider.AutoProvision}
+	return store.OIDCProviderRecord{ID: provider.Key, Name: provider.Name, Issuer: provider.Issuer, ClientID: provider.ClientID, CallbackURLs: callbacks, AuthEndpointOverride: provider.AuthURL, Audience: provider.Audience, Enabled: provider.Enabled, AutoProvision: provider.AutoProvision}
 }
 
 func providerFromRecord(record store.OIDCProviderRecord) OIDCProvider {
@@ -192,7 +196,7 @@ func providerFromRecord(record store.OIDCProviderRecord) OIDCProvider {
 	if len(callbacks) > 0 {
 		callback = callbacks[0]
 	}
-	return OIDCProvider{Key: record.ID, Name: record.Name, Issuer: record.Issuer, ClientID: record.ClientID, SecretReference: record.SecretReference, Callback: callback, AuthURL: record.AuthEndpointOverride, Audience: record.Audience, Enabled: record.Enabled, AutoProvision: record.AutoProvision, Callbacks: callbacks}
+	return OIDCProvider{Key: record.ID, Name: record.Name, Issuer: record.Issuer, ClientID: record.ClientID, Callback: callback, AuthURL: record.AuthEndpointOverride, Audience: record.Audience, Enabled: record.Enabled, AutoProvision: record.AutoProvision, Callbacks: callbacks}
 }
 
 func (s *OIDCService) AddProvider(provider OIDCProvider) error {
@@ -210,17 +214,6 @@ func (s *OIDCService) AddProvider(provider OIDCProvider) error {
 	if _, err := secureURL(provider.Issuer); err != nil {
 		return err
 	}
-	if provider.SecretReference != "" && !strings.HasPrefix(provider.SecretReference, "env://") {
-		s.mu.RLock()
-		resolverConfigured := s.secretResolver != nil
-		s.mu.RUnlock()
-		if !resolverConfigured {
-			return errors.New("OIDC secret reference requires a configured resolver")
-		}
-	}
-	if strings.HasPrefix(provider.SecretReference, "env://") && strings.TrimPrefix(provider.SecretReference, "env://") == "" {
-		return errors.New("OIDC environment secret reference is incomplete")
-	}
 	callbacks := provider.Callbacks
 	if len(callbacks) == 0 {
 		callbacks = []string{provider.Callback}
@@ -231,8 +224,21 @@ func (s *OIDCService) AddProvider(provider OIDCProvider) error {
 		}
 	}
 	s.mu.RLock()
-	repository := s.repository
+	repository, secretRepository, secretKey := s.repository, s.secretRepository, append([]byte(nil), s.secretKey...)
 	s.mu.RUnlock()
+	if provider.ClientSecret != "" {
+		if secretRepository == nil || len(secretKey) != 32 {
+			return errors.New("OIDC secret storage is unavailable")
+		}
+		encrypted, err := encryptAuthorizationValue(secretKey, provider.ClientSecret)
+		if err != nil {
+			return errors.New("OIDC client secret encryption failed")
+		}
+		if err := secretRepository.Upsert(context.Background(), store.EncryptedSecretRecord{ID: oidcSecretID(provider.Key), EncryptedValue: encrypted}); err != nil {
+			return errors.New("OIDC client secret storage is unavailable")
+		}
+	}
+	provider.ClientSecret = ""
 	if repository != nil {
 		if err := repository.Upsert(context.Background(), providerRecord(provider)); err != nil {
 			return err
@@ -253,6 +259,86 @@ func (s *OIDCService) AddProvider(provider OIDCProvider) error {
 	s.providers[provider.Key] = provider
 	s.mu.Unlock()
 	return nil
+}
+
+func oidcSecretID(providerKey string) string { return "oidc-provider:" + providerKey }
+
+type SecretStatusView struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Status string `json:"status"`
+}
+
+func (s *OIDCService) SecretAttention() ([]SecretStatusView, error) {
+	s.mu.RLock()
+	repository, secretRepository, secretKey := s.repository, s.secretRepository, append([]byte(nil), s.secretKey...)
+	s.mu.RUnlock()
+	if secretRepository == nil {
+		return []SecretStatusView{}, nil
+	}
+	statuses, err := secretRepository.ListStatuses(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[string]string, len(statuses))
+	for _, status := range statuses {
+		byID[status.ID] = status.IntegrityStatus
+	}
+	providers := []OIDCProvider{}
+	if repository != nil {
+		records, err := repository.List(context.Background())
+		if err != nil {
+			return nil, err
+		}
+		for _, record := range records {
+			providers = append(providers, providerFromRecord(record))
+		}
+	} else {
+		providers = s.ConfiguredProviders()
+	}
+	attention := []SecretStatusView{}
+	for _, provider := range providers {
+		status, ok := byID[oidcSecretID(provider.Key)]
+		if !ok {
+			continue
+		}
+		if len(secretKey) != 32 {
+			status = store.SecretIntegrityKeyUnavailable
+		}
+		if status == store.SecretIntegrityValid {
+			continue
+		}
+		attention = append(attention, SecretStatusView{ID: provider.Key, Name: provider.Name, Status: status})
+	}
+	return attention, nil
+}
+
+func (s *OIDCService) clientSecret(providerKey string) (string, bool, error) {
+	s.mu.RLock()
+	repository, key := s.secretRepository, append([]byte(nil), s.secretKey...)
+	s.mu.RUnlock()
+	if repository == nil {
+		return "", false, nil
+	}
+	record, found, err := repository.Find(context.Background(), oidcSecretID(providerKey))
+	if err != nil || !found {
+		if err != nil {
+			return "", false, errors.New("OIDC client secret is unavailable")
+		}
+		return "", false, nil
+	}
+	now := time.Now().UTC()
+	if len(key) != 32 {
+		_ = repository.SetIntegrityStatus(context.Background(), record.ID, store.SecretIntegrityKeyUnavailable, now)
+		return "", true, errors.New("OIDC client secret is unavailable")
+	}
+	secret, err := decryptAuthorizationValue(key, record.EncryptedValue)
+	if err != nil {
+		_ = repository.SetIntegrityStatus(context.Background(), record.ID, store.SecretIntegrityFailed, now)
+		return "", true, errors.New("OIDC client secret integrity validation failed")
+	}
+	_ = repository.SetIntegrityStatus(context.Background(), record.ID, store.SecretIntegrityValid, now)
+	return secret, true, nil
 }
 func (s *OIDCService) ConfiguredProviders() []OIDCProvider {
 	s.mu.RLock()
@@ -558,26 +644,11 @@ func (s *OIDCService) discovery(provider OIDCProvider) (oidcMetadata, error) {
 
 func (s *OIDCService) exchangeCode(provider OIDCProvider, endpoint, code, callback, verifier string) (string, error) {
 	form := url.Values{"grant_type": {"authorization_code"}, "code": {code}, "redirect_uri": {callback}, "client_id": {provider.ClientID}, "code_verifier": {verifier}}
-	if provider.SecretReference != "" {
-		s.mu.RLock()
-		resolver := s.secretResolver
-		s.mu.RUnlock()
-		if resolver == nil {
-			resolver = func(reference string) (string, error) {
-				if !strings.HasPrefix(reference, "env://") {
-					return "", errors.New("OIDC client secret resolver is not configured")
-				}
-				value, ok := os.LookupEnv(strings.TrimPrefix(reference, "env://"))
-				if !ok || value == "" {
-					return "", errors.New("OIDC client secret is unavailable")
-				}
-				return value, nil
-			}
-		}
-		secret, err := resolver(provider.SecretReference)
-		if err != nil || secret == "" {
-			return "", errors.New("OIDC client secret is unavailable")
-		}
+	secret, configured, err := s.clientSecret(provider.Key)
+	if err != nil {
+		return "", err
+	}
+	if configured {
 		form.Set("client_secret", secret)
 	}
 	body, err := s.fetch(endpoint, strings.NewReader(form.Encode()))

@@ -74,7 +74,6 @@ CREATE TABLE sso_providers (
     name text NOT NULL,
     issuer text NOT NULL,
     client_id text NOT NULL,
-    secret_reference text NOT NULL DEFAULT '',
     callback_urls jsonb NOT NULL DEFAULT '[]'::jsonb,
     auth_endpoint_override text NOT NULL DEFAULT '',
     audience text NOT NULL DEFAULT '',
@@ -84,6 +83,14 @@ CREATE TABLE sso_providers (
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX sso_providers_name_ci_idx ON sso_providers (lower(name));
+CREATE TABLE encrypted_secrets (
+    id text PRIMARY KEY,
+    encrypted_value bytea NOT NULL CHECK (octet_length(encrypted_value) > 0),
+    integrity_status text NOT NULL DEFAULT 'UNKNOWN' CHECK (integrity_status IN ('UNKNOWN', 'VALID', 'INTEGRITY_FAILED', 'KEY_UNAVAILABLE', 'DECRYPTION_FAILED')),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    last_validated_at timestamptz
+);
 CREATE TABLE sso_group_role_mappings (
     provider_id text NOT NULL REFERENCES sso_providers(id) ON DELETE CASCADE,
     group_name text NOT NULL,

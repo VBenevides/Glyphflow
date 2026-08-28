@@ -76,7 +76,8 @@ describe('SSO provider contract', () => {
 
   it('uses canonical provider fields and does not advertise unsupported claim mappings', () => {
     expect(source).toContain('clientId: draft.clientId.trim()')
-    expect(source).toContain('secretReference: draft.secretReference.trim()')
+    expect(source).toContain('clientSecret: draft.clientSecret')
+    expect(source).toContain('Stored encrypted locally and never shown again.')
     expect(source).toContain('groupMapping: roleMappingsValue(groupMappings)')
     expect(source).not.toContain('claim_mapping')
     expect(source).not.toContain('Claim mapping')

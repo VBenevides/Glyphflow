@@ -74,7 +74,10 @@ func TestOIDCProviderChallengeIsSingleUse(t *testing.T) {
 
 func TestOIDCProviderPublicProjectionExposesNoConfiguration(t *testing.T) {
 	s := NewOIDCService()
-	if err := s.AddProvider(OIDCProvider{Key: "corp", Issuer: "https://id.example", ClientID: "client", SecretReference: "env://OIDC_CLIENT_SECRET", Callback: "https://app.example/callback", Enabled: true}); err != nil {
+	if err := s.AddProvider(OIDCProvider{Key: "corp", Issuer: "https://id.example", ClientID: "client", ClientSecret: "client-secret", Callback: "https://app.example/callback", Enabled: true}); err == nil {
+		t.Fatal("client secret was accepted without encrypted secret storage")
+	}
+	if err := s.AddProvider(OIDCProvider{Key: "corp", Issuer: "https://id.example", ClientID: "client", Callback: "https://app.example/callback", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
 	providers := s.Providers()
@@ -82,17 +85,19 @@ func TestOIDCProviderPublicProjectionExposesNoConfiguration(t *testing.T) {
 		t.Fatalf("provider response = %#v", providers)
 	}
 	encoded, _ := json.Marshal(providers[0])
-	for _, forbidden := range []string{"issuer", "clientId", "secretReference", "callback"} {
+	for _, forbidden := range []string{"issuer", "clientId", "clientSecret", "secretReference", "callback"} {
 		if strings.Contains(string(encoded), forbidden) {
 			t.Fatalf("provider response exposed %s: %s", forbidden, encoded)
 		}
 	}
 }
 
-func TestOIDCRejectsUnsupportedSecretReferenceWithoutResolver(t *testing.T) {
-	s := NewOIDCService()
-	if err := s.AddProvider(OIDCProvider{Key: "corp", Issuer: "https://id.example", ClientID: "client", SecretReference: "secret://oidc/client", Callback: "https://app.example/callback"}); err == nil {
-		t.Fatal("unsupported OIDC secret reference was accepted")
+func TestOIDCRejectsLegacySecretReference(t *testing.T) {
+	var provider OIDCProvider
+	decoder := json.NewDecoder(strings.NewReader(`{"key":"corp","issuer":"https://id.example","clientId":"client","secretReference":"secret://oidc/client","callback":"https://app.example/callback"}`))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&provider); err == nil {
+		t.Fatal("legacy OIDC secret reference was accepted")
 	}
 }
 

@@ -308,8 +308,8 @@ production boundary requires:
   certificate/key/CA files;
 - an HTTPS `WEB_ORIGIN` and explicit `CORS_ORIGIN` and `CSRF_ORIGINS` values;
 - protected `ACCESS_TOKEN_SECRET_FILE`, `CONTROL_PLANE_SIGNING_PRIVATE_KEY_FILE`,
-  `SECRET_ENCRYPTION_KEY_FILE`, and, when password login is enabled,
-  `PASSWORD_PEPPER_FILE` values;
+  and, when password login is enabled, `PASSWORD_PEPPER_FILE` values, plus
+  a persistent `DATA_DIR/secret-encryption.key` file for SSO secrets;
 - bootstrap email and system-administrator settings plus a protected
   `GLYPHFLOW_BOOTSTRAP_PASSWORD_FILE`; and
 - a private PostgreSQL and NATS network.

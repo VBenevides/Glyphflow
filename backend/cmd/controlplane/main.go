@@ -127,7 +127,8 @@ func run() error {
 	authService.SetLockdownScheduler(cfg.LockdownScheduler)
 	sessionRepository := store.NewSessionRepository(db)
 	authService.SetSessionRepository(sessionRepository)
-	authService.SetSSORepository(store.NewOIDCProviderRepository(db))
+	ssoRepository := store.NewOIDCProviderRepository(db)
+	authService.SetSSORepository(ssoRepository)
 	if err := authService.AddRole("admin", platform.PermissionCatalog...); err != nil {
 		return err
 	}
@@ -142,7 +143,8 @@ func run() error {
 	}
 	oidcService := api.NewOIDCService()
 	oidcService.SetDefaultCallback(strings.TrimRight(cfg.WebOrigin, "/") + "/api/v1/auth/oidc/callback")
-	oidcService.SetRepository(store.NewOIDCProviderRepository(db))
+	oidcService.SetRepository(ssoRepository)
+	oidcService.SetSecretRepository(store.NewEncryptedSecretRepository(db), cfg.InstallationEncryptionKey)
 	oidcService.SetStateRepository(store.NewOIDCAuthorizationStateRepository(db), cfg.InstallationEncryptionKey)
 	roles := api.NewRoleAdminService()
 	roles.SetRepository(roleRepository)

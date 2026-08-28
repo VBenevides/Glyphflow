@@ -24,12 +24,12 @@ func TestOIDCProviderRepositoryRoundTrip(t *testing.T) {
 	suffix := time.Now().UTC().Format("20060102150405.000000000")
 	id := "sso-test-" + suffix
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM sso_providers WHERE id = $1`, id) })
-	provider := OIDCProviderRecord{ID: id, Name: "Corp-" + suffix, Issuer: "https://issuer.example", ClientID: "client", SecretReference: "secret://oidc/client", CallbackURLs: []string{"https://app.example/callback"}, AuthEndpointOverride: "https://issuer.example/authorize", Audience: "audience", Enabled: true, AutoProvision: true}
+	provider := OIDCProviderRecord{ID: id, Name: "Corp-" + suffix, Issuer: "https://issuer.example", ClientID: "client", CallbackURLs: []string{"https://app.example/callback"}, AuthEndpointOverride: "https://issuer.example/authorize", Audience: "audience", Enabled: true, AutoProvision: true}
 	if err := repository.Upsert(ctx, provider); err != nil {
 		t.Fatal(err)
 	}
 	got, found, err := repository.Find(ctx, id)
-	if err != nil || !found || got.SecretReference != provider.SecretReference || len(got.CallbackURLs) != 1 || got.CallbackURLs[0] != provider.CallbackURLs[0] {
+	if err != nil || !found || len(got.CallbackURLs) != 1 || got.CallbackURLs[0] != provider.CallbackURLs[0] {
 		t.Fatalf("provider = %#v, found = %t, err = %v", got, found, err)
 	}
 	if err := repository.Upsert(ctx, provider); err != nil {

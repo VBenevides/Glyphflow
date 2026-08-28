@@ -2,6 +2,7 @@ package config
 
 import (
 	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -140,7 +141,10 @@ func FromEnv(role Role) (Config, error) {
 		return Config{}, err
 	}
 	if role == ControlPlane {
-		config.InstallationEncryptionKey, err = loadInstallationEncryptionKey(config.Environment, config.SecretEncryptionKeyFile, config.AccessTokenSecret)
+		if config.SecretEncryptionKeyFile == "" {
+			config.SecretEncryptionKeyFile = filepath.Join(config.DataDir, "secret-encryption.key")
+		}
+		config.InstallationEncryptionKey, err = loadInstallationEncryptionKey(config.SecretEncryptionKeyFile)
 		if err != nil {
 			return Config{}, err
 		}
@@ -203,9 +207,6 @@ func (c Config) Validate() error {
 		if c.Environment != "development" && c.ControlPlaneSigningPrivateKey == "" {
 			return errors.New("CONTROL_PLANE_SIGNING_PRIVATE_KEY is required outside development")
 		}
-		if c.Environment != "development" && strings.TrimSpace(c.SecretEncryptionKeyFile) == "" {
-			return errors.New("SECRET_ENCRYPTION_KEY_FILE is required outside development")
-		}
 		if c.Environment != "development" && c.DatabaseStorageCapacityBytes <= 0 {
 			return errors.New("DATABASE_STORAGE_CAPACITY_BYTES must be greater than zero outside development")
 		}
@@ -248,18 +249,57 @@ func (c Config) Validate() error {
 
 const installationEncryptionKeySize = 32
 
-func loadInstallationEncryptionKey(environment, path, fallbackSecret string) ([]byte, error) {
-	if environment == "development" && path == "" {
-		return []byte(fallbackSecret), nil
-	}
+const installationEncryptionKeyWarning = `WARNING: The encryption key file was not found and a new random encryption key is being generated.
+This file is required to decrypt secrets stored by the application.
+If the file is deleted, lost, or replaced, secrets encrypted with the previous key cannot be recovered.
+Affected secrets must be replaced or re-entered and encrypted using the new key.
+Existing encrypted secrets may no longer be decryptable.`
+
+func loadInstallationEncryptionKey(path string) ([]byte, error) {
 	if path == "" {
-		return nil, errors.New("SECRET_ENCRYPTION_KEY_FILE is required outside development")
+		return nil, errors.New("SECRET_ENCRYPTION_KEY_FILE path is required")
 	}
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, fmt.Errorf("SECRET_ENCRYPTION_KEY_FILE: %w", err)
+		if !os.IsNotExist(err) {
+			return nil, fmt.Errorf("SECRET_ENCRYPTION_KEY_FILE: %w", err)
+		}
+		key := make([]byte, installationEncryptionKeySize)
+		if _, err := rand.Read(key); err != nil {
+			return nil, fmt.Errorf("generate SECRET_ENCRYPTION_KEY_FILE: %w", err)
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			return nil, fmt.Errorf("create SECRET_ENCRYPTION_KEY_FILE directory: %w", err)
+		}
+		file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if errors.Is(err, os.ErrExist) {
+			file, err = os.Open(path)
+			if err != nil {
+				return nil, fmt.Errorf("SECRET_ENCRYPTION_KEY_FILE: %w", err)
+			}
+			defer file.Close()
+			return readInstallationEncryptionKey(file)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("create SECRET_ENCRYPTION_KEY_FILE: %w", err)
+		}
+		if _, err := file.WriteString(base64.StdEncoding.EncodeToString(key) + "\n"); err != nil {
+			_ = file.Close()
+			_ = os.Remove(path)
+			return nil, fmt.Errorf("write SECRET_ENCRYPTION_KEY_FILE: %w", err)
+		}
+		if err := file.Close(); err != nil {
+			_ = os.Remove(path)
+			return nil, fmt.Errorf("close SECRET_ENCRYPTION_KEY_FILE: %w", err)
+		}
+		fmt.Fprintln(os.Stderr, installationEncryptionKeyWarning)
+		return key, nil
 	}
 	defer file.Close()
+	return readInstallationEncryptionKey(file)
+}
+
+func readInstallationEncryptionKey(file *os.File) ([]byte, error) {
 	info, err := file.Stat()
 	if err != nil {
 		return nil, fmt.Errorf("SECRET_ENCRYPTION_KEY_FILE: %w", err)

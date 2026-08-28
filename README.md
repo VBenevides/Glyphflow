@@ -274,7 +274,7 @@ Production configuration requires, at minimum:
 | Database | Protected `DATABASE_URL_FILE` containing a URL with `sslmode=verify-full`; PostgreSQL CA, certificate, key, and password files |
 | Messaging | Protected `NATS_URL_FILE` containing a `tls://` URL plus client certificate, key, and CA files |
 | Web security | An HTTPS `WEB_ORIGIN`, explicit `CORS_ORIGIN`, and `CSRF_ORIGINS` |
-| Application secrets | Protected `ACCESS_TOKEN_SECRET_FILE`, `PASSWORD_PEPPER_FILE`, `CONTROL_PLANE_SIGNING_PRIVATE_KEY_FILE`, `SECRET_ENCRYPTION_KEY_FILE`, and `GLYPHFLOW_BOOTSTRAP_PASSWORD_FILE` |
+| Application secrets | Protected `ACCESS_TOKEN_SECRET_FILE`, `PASSWORD_PEPPER_FILE`, `CONTROL_PLANE_SIGNING_PRIVATE_KEY_FILE`, and `GLYPHFLOW_BOOTSTRAP_PASSWORD_FILE`; the SSO encryption key is generated and persisted in `DATA_DIR` |
 | Bootstrap | `GLYPHFLOW_BOOTSTRAP_EMAIL`, protected `GLYPHFLOW_BOOTSTRAP_PASSWORD_FILE`, and `GLYPHFLOW_SYSTEM_ADMINS` |
 | Network | `GLYPHFLOW_PORT` for the web listener; keep PostgreSQL and NATS private |
 
@@ -340,7 +340,6 @@ with `_FILE` or `_SOURCE`.
 | `ACCESS_TOKEN_SECRET` / `ACCESS_TOKEN_SECRET_FILE` | Session and access-token signing secret; minimum 32 bytes |
 | `CONTROL_PLANE_SIGNING_PRIVATE_KEY` / `CONTROL_PLANE_SIGNING_PRIVATE_KEY_FILE` | Persistent base64 raw Ed25519 private key outside development |
 | `PASSWORD_PEPPER` / `PASSWORD_PEPPER_FILE` | Password hashing pepper; minimum 16 bytes when password login is enabled |
-| `SECRET_ENCRYPTION_KEY_FILE` | Protected base64 key file used to encrypt installation secrets outside development |
 | `WEB_ORIGIN` | Canonical browser origin, HTTPS outside development |
 | `CORS_ORIGIN` | Comma-separated CORS allowlist |
 | `CSRF_ORIGINS` | Comma-separated CSRF origin allowlist |
@@ -351,11 +350,33 @@ with `_FILE` or `_SOURCE`.
 | `ENABLE_PASSWORD_LOGIN` | Enable password sign-in; production defaults to disabled in the overlay |
 | `ENABLE_PASSWORD_REGISTRATION` | Enable self-service password registration; production defaults to disabled |
 | `DEFAULT_ROLE_ID` | Role assigned to newly created users |
-| `DATA_DIR` | Persistent control-plane data, including the development signing key |
+| `DATA_DIR` | Persistent control-plane data, including `secret-encryption.key` and the development signing key |
+| `SECRET_ENCRYPTION_KEY_FILE` | Optional path to an existing base64-encoded 32-byte key file; defaults to `DATA_DIR/secret-encryption.key` |
 | `GLYPHFLOW_DISABLE_NGINX` | Set to `true` when private ingress targets the control-plane listener directly on port `8080`; defaults to `false` and starts Nginx on port `80` |
 
-For private container ingress such as ACA, set `GLYPHFLOW_DISABLE_NGINX=true`
-and route ingress to port `8080`.
+For private container ingress such as ACA, set `GLYPHFLOW_DISABLE_NGINX=true` and
+route ingress to port `8080`.
+
+The control plane stores the AES-256-GCM encryption key in
+`DATA_DIR/secret-encryption.key`. Back up this file with the database. If it is
+deleted, lost, or replaced, encrypted SSO secrets cannot be recovered and must
+be re-entered; startup warns when a new key is generated.
+
+To deploy with an existing key, copy the unchanged file to the persistent
+`DATA_DIR/secret-encryption.key` location before the first start, or set
+`SECRET_ENCRYPTION_KEY_FILE` to a mounted local file path. The file must contain
+one base64-encoded 32-byte key and be readable only by its owner (`0600` or
+`0400`). A new key can be created with:
+
+```bash
+umask 077
+openssl rand -base64 32 > secret-encryption.key
+chmod 600 secret-encryption.key
+```
+
+The application loads an existing valid file and does not generate a replacement.
+Copy the same file when migrating the database; changing it makes existing
+encrypted secrets undecryptable.
 
 `GLYPHFLOW_BOOTSTRAP_EMAIL` and either `GLYPHFLOW_BOOTSTRAP_PASSWORD` (local
 development) or the protected `GLYPHFLOW_BOOTSTRAP_PASSWORD_FILE` (production
