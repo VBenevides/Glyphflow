@@ -374,7 +374,7 @@ func runnerIDFromSubject(subject string) string {
 		return ""
 	}
 	switch parts[1] {
-	case "orders", "events", "heartbeats", "control":
+	case "orders", "events", "heartbeats", "control", "secrets":
 		return strings.Join(parts[2:], ".")
 	default:
 		return ""
@@ -385,6 +385,8 @@ func Subject(kind, runnerID string) string { return fmt.Sprintf("glyphflow.%s.%s
 
 func StartClaimSubject(runnerID string) string { return "glyphflow.start." + runnerID }
 
+func SecretDeliverySubject(runnerID string) string { return "glyphflow.secrets." + runnerID }
+
 type SubjectPermissions struct{ Allow []string }
 
 type WorkerPermissionsConfig struct {
@@ -394,11 +396,11 @@ type WorkerPermissionsConfig struct {
 
 func WorkerPermissions(runnerID string) WorkerPermissionsConfig {
 	return WorkerPermissionsConfig{
-		Publish:   SubjectPermissions{Allow: []string{Subject("events", runnerID), Subject("heartbeats", runnerID), StartClaimSubject(runnerID)}},
+		Publish:   SubjectPermissions{Allow: []string{Subject("events", runnerID), Subject("heartbeats", runnerID), StartClaimSubject(runnerID), SecretDeliverySubject(runnerID)}},
 		Subscribe: SubjectPermissions{Allow: []string{Subject("orders", runnerID), Subject("control", runnerID)}},
 	}
 }
 
 func AllowedWorkerSubject(subject, runnerID string) bool {
-	return subject == Subject("orders", runnerID) || subject == Subject("events", runnerID) || subject == Subject("heartbeats", runnerID) || subject == Subject("control", runnerID) || subject == StartClaimSubject(runnerID)
+	return subject == Subject("orders", runnerID) || subject == Subject("events", runnerID) || subject == Subject("heartbeats", runnerID) || subject == Subject("control", runnerID) || subject == StartClaimSubject(runnerID) || subject == SecretDeliverySubject(runnerID)
 }

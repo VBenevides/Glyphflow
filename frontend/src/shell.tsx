@@ -15,7 +15,7 @@ export const NAVIGATION_GROUPS: Group[] = [
   { name: 'Operations', icon: LayoutDashboard, paths: ['/', '/tasks', '/schedules', '/runs'] },
   { name: 'Infrastructure', icon: Server, paths: ['/runners', '/resources', '/admin/execution-status'] },
   { name: 'Security', icon: Shield, paths: ['/audit'] },
-  { name: 'Administration', icon: Users, paths: ['/admin/users', '/admin/roles', '/admin/auth', '/global-variables', '/admin/system'] },
+  { name: 'Administration', icon: Users, paths: ['/admin/users', '/admin/roles', '/admin/auth', '/admin/secrets', '/global-variables', '/admin/system'] },
 ]
 
 export function groupedRoutes(routes: RouteRule[]): Array<{ group: Group; routes: RouteRule[] }> {
@@ -36,6 +36,7 @@ const navigationLabels: Record<string, string> = {
   '/runners': 'Runners & Pools',
   '/admin/users': 'Users & SSO',
   '/admin/sso': 'Single sign-on',
+  '/admin/secrets': 'Secrets',
   '/admin/auth': 'General Settings',
 }
 
@@ -46,7 +47,7 @@ export function navigationLabel(route: RouteRule): string {
 function routeIcon(path: string) {
   if (path === '/') return LayoutDashboard
   if (path === '/runs') return Activity
-  if (path === '/audit' || path === '/admin/sso') return Shield
+  if (path === '/audit' || path === '/admin/sso' || path === '/admin/secrets') return Shield
   if (path === '/global-variables') return Variable
   if (path === '/admin/auth') return Settings
   if (path === '/resources' || path === '/admin/roles') return KeyRound

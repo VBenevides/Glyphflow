@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -19,6 +20,7 @@ const (
 
 type EncryptedSecretRecord struct {
 	ID              string
+	Name            string
 	EncryptedValue  []byte
 	IntegrityStatus string
 	CreatedAt       time.Time
@@ -28,7 +30,10 @@ type EncryptedSecretRecord struct {
 
 type EncryptedSecretStatusRecord struct {
 	ID              string
+	Name            string
 	IntegrityStatus string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 	LastValidatedAt *time.Time
 }
 
@@ -46,21 +51,26 @@ func NewEncryptedSecretRepository(pool *pgxpool.Pool) *EncryptedSecretStore {
 }
 
 func (s *EncryptedSecretStore) Upsert(ctx context.Context, secret EncryptedSecretRecord) error {
+	secret.Name = strings.TrimSpace(secret.Name)
+	if secret.Name == "" {
+		secret.Name = secret.ID
+	}
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO encrypted_secrets (id, encrypted_value, integrity_status)
-		VALUES ($1, $2, 'UNKNOWN')
+		INSERT INTO encrypted_secrets (id, name, encrypted_value, integrity_status)
+		VALUES ($1, $2, $3, 'UNKNOWN')
 		ON CONFLICT (id) DO UPDATE SET
+			name = EXCLUDED.name,
 			encrypted_value = EXCLUDED.encrypted_value,
 			integrity_status = 'UNKNOWN',
 			updated_at = now(),
-			last_validated_at = NULL`, secret.ID, secret.EncryptedValue)
+			last_validated_at = NULL`, secret.ID, secret.Name, secret.EncryptedValue)
 	return err
 }
 
 func (s *EncryptedSecretStore) Find(ctx context.Context, id string) (EncryptedSecretRecord, bool, error) {
 	var secret EncryptedSecretRecord
-	err := s.pool.QueryRow(ctx, `SELECT id, encrypted_value, integrity_status, created_at, updated_at, last_validated_at FROM encrypted_secrets WHERE id = $1`, id).
-		Scan(&secret.ID, &secret.EncryptedValue, &secret.IntegrityStatus, &secret.CreatedAt, &secret.UpdatedAt, &secret.LastValidatedAt)
+	err := s.pool.QueryRow(ctx, `SELECT id, name, encrypted_value, integrity_status, created_at, updated_at, last_validated_at FROM encrypted_secrets WHERE id = $1`, id).
+		Scan(&secret.ID, &secret.Name, &secret.EncryptedValue, &secret.IntegrityStatus, &secret.CreatedAt, &secret.UpdatedAt, &secret.LastValidatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return EncryptedSecretRecord{}, false, nil
 	}
@@ -73,7 +83,7 @@ func (s *EncryptedSecretStore) SetIntegrityStatus(ctx context.Context, id, statu
 }
 
 func (s *EncryptedSecretStore) ListStatuses(ctx context.Context) ([]EncryptedSecretStatusRecord, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id, integrity_status, last_validated_at FROM encrypted_secrets ORDER BY id`)
+	rows, err := s.pool.Query(ctx, `SELECT id, name, integrity_status, created_at, updated_at, last_validated_at FROM encrypted_secrets ORDER BY lower(name), id`)
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +91,7 @@ func (s *EncryptedSecretStore) ListStatuses(ctx context.Context) ([]EncryptedSec
 	statuses := []EncryptedSecretStatusRecord{}
 	for rows.Next() {
 		var status EncryptedSecretStatusRecord
-		if err := rows.Scan(&status.ID, &status.IntegrityStatus, &status.LastValidatedAt); err != nil {
+		if err := rows.Scan(&status.ID, &status.Name, &status.IntegrityStatus, &status.CreatedAt, &status.UpdatedAt, &status.LastValidatedAt); err != nil {
 			return nil, err
 		}
 		statuses = append(statuses, status)

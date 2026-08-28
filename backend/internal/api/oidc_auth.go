@@ -2,8 +2,6 @@ package api
 
 import (
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -113,38 +111,6 @@ func authorizationValueHash(value string) string {
 	return hex.EncodeToString(digest[:])
 }
 
-func encryptAuthorizationValue(key []byte, value string) ([]byte, error) {
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
-		return nil, err
-	}
-	return gcm.Seal(nonce, nonce, []byte(value), nil), nil
-}
-
-func decryptAuthorizationValue(key, encrypted []byte) (string, error) {
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return "", err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil || len(encrypted) < gcm.NonceSize() {
-		return "", errors.New("invalid verifier ciphertext")
-	}
-	plain, err := gcm.Open(nil, encrypted[:gcm.NonceSize()], encrypted[gcm.NonceSize():], nil)
-	if err != nil {
-		return "", err
-	}
-	return string(plain), nil
-}
-
 func (s *OIDCService) createPersistentChallenge(provider, purpose, callback, verifier, userID string, now time.Time, lifetime time.Duration) (string, string, error) {
 	stateBytes, nonceBytes := make([]byte, 24), make([]byte, 16)
 	if _, err := rand.Read(stateBytes); err != nil {
@@ -157,7 +123,7 @@ func (s *OIDCService) createPersistentChallenge(provider, purpose, callback, ver
 	s.mu.RLock()
 	repository, key := s.stateRepo, append([]byte(nil), s.stateKey...)
 	s.mu.RUnlock()
-	encrypted, err := encryptAuthorizationValue(key, verifier)
+	encrypted, err := platform.EncryptSecret(key, verifier)
 	if err != nil {
 		return "", "", err
 	}
@@ -230,11 +196,15 @@ func (s *OIDCService) AddProvider(provider OIDCProvider) error {
 		if secretRepository == nil || len(secretKey) != 32 {
 			return errors.New("OIDC secret storage is unavailable")
 		}
-		encrypted, err := encryptAuthorizationValue(secretKey, provider.ClientSecret)
+		encrypted, err := platform.EncryptSecret(secretKey, provider.ClientSecret)
 		if err != nil {
 			return errors.New("OIDC client secret encryption failed")
 		}
-		if err := secretRepository.Upsert(context.Background(), store.EncryptedSecretRecord{ID: oidcSecretID(provider.Key), EncryptedValue: encrypted}); err != nil {
+		secretName := strings.TrimSpace(provider.Name)
+		if secretName == "" {
+			secretName = provider.Key
+		}
+		if err := secretRepository.Upsert(context.Background(), store.EncryptedSecretRecord{ID: oidcSecretID(provider.Key), Name: secretName, EncryptedValue: encrypted}); err != nil {
 			return errors.New("OIDC client secret storage is unavailable")
 		}
 	}
@@ -332,7 +302,7 @@ func (s *OIDCService) clientSecret(providerKey string) (string, bool, error) {
 		_ = repository.SetIntegrityStatus(context.Background(), record.ID, store.SecretIntegrityKeyUnavailable, now)
 		return "", true, errors.New("OIDC client secret is unavailable")
 	}
-	secret, err := decryptAuthorizationValue(key, record.EncryptedValue)
+	secret, err := platform.DecryptSecret(key, record.EncryptedValue)
 	if err != nil {
 		_ = repository.SetIntegrityStatus(context.Background(), record.ID, store.SecretIntegrityFailed, now)
 		return "", true, errors.New("OIDC client secret integrity validation failed")
@@ -527,7 +497,7 @@ func (s *OIDCService) CompleteChallenge(key, state, nonce, callback, verifier st
 		if err != nil {
 			return err
 		}
-		plain, err := decryptAuthorizationValue(stateKey, stateRecord.EncryptedPKCEVerifier)
+		plain, err := platform.DecryptSecret(stateKey, stateRecord.EncryptedPKCEVerifier)
 		if err != nil || plain != verifier {
 			return errors.New("PKCE verifier is invalid")
 		}
@@ -562,7 +532,7 @@ func (s *OIDCService) CompleteAuthorizationCodeDetails(state, nonce, code string
 			return OIDCProvider{}, platform.OIDCClaims{}, "", "", err
 		}
 		key, callback, purpose, userID = stateRecord.ProviderID, stateRecord.Callback, stateRecord.Purpose, stateRecord.UserID
-		verifier, err = decryptAuthorizationValue(stateKey, stateRecord.EncryptedPKCEVerifier)
+		verifier, err = platform.DecryptSecret(stateKey, stateRecord.EncryptedPKCEVerifier)
 		if err != nil {
 			return OIDCProvider{}, platform.OIDCClaims{}, "", "", errors.New("PKCE verifier is invalid")
 		}

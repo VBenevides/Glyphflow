@@ -16,7 +16,7 @@ describe('frontend permissions', () => {
 
   it('classifies elevated permissions and sorts the catalog', () => {
     expect(PERMISSIONS.filter(({ privilegeLevel }) => privilegeLevel === 'elevated').map(({ name }) => name)).toEqual([
-      'users.read', 'users.manage', 'roles.read', 'roles.manage', 'sso.read', 'sso.manage',
+      'users.read', 'users.manage', 'roles.read', 'roles.manage', 'sso.read', 'sso.manage', 'secrets.read', 'secrets.manage',
       'auth.settings.manage', 'runs.cancel', 'runs.retry', 'logs.read', 'audit.read',
     ])
     expect(permissionPrivilegeLevel('tasks.read')).toBe('standard')

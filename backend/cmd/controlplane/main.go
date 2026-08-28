@@ -128,6 +128,7 @@ func run() error {
 	sessionRepository := store.NewSessionRepository(db)
 	authService.SetSessionRepository(sessionRepository)
 	ssoRepository := store.NewOIDCProviderRepository(db)
+	encryptedSecretRepository := store.NewEncryptedSecretRepository(db)
 	authService.SetSSORepository(ssoRepository)
 	if err := authService.AddRole("admin", platform.PermissionCatalog...); err != nil {
 		return err
@@ -144,7 +145,7 @@ func run() error {
 	oidcService := api.NewOIDCService()
 	oidcService.SetDefaultCallback(strings.TrimRight(cfg.WebOrigin, "/") + "/api/v1/auth/oidc/callback")
 	oidcService.SetRepository(ssoRepository)
-	oidcService.SetSecretRepository(store.NewEncryptedSecretRepository(db), cfg.InstallationEncryptionKey)
+	oidcService.SetSecretRepository(encryptedSecretRepository, cfg.InstallationEncryptionKey)
 	oidcService.SetStateRepository(store.NewOIDCAuthorizationStateRepository(db), cfg.InstallationEncryptionKey)
 	roles := api.NewRoleAdminService()
 	roles.SetRepository(roleRepository)
@@ -160,6 +161,7 @@ func run() error {
 	operations := api.NewOperationsService()
 	taskRepository := store.NewTaskRepository(db)
 	operations.SetTaskRepository(taskRepository)
+	operations.SetSecretRepository(encryptedSecretRepository)
 	scheduleRepository := store.NewScheduleRepository(db)
 	retentionRepository := store.NewRetentionRepository(db)
 	storagePressure := store.NewPostgreSQLStoragePressureProvider(db, cfg.DatabaseStorageCapacityBytes)
@@ -203,9 +205,9 @@ func run() error {
 		metrics.AuditAppendErrors.Add(1)
 		_ = logger.Event("audit.append_failed", map[string]string{"id": event.ID, "actor": event.Actor, "error": err.Error(), "count": strconv.FormatUint(metrics.AuditAppendErrors.Load(), 10)})
 	})
-	health := controlplane.NewHealth("session-cleanup", "heartbeat", "dispatcher", "start-claim", "scheduler")
+	health := controlplane.NewHealth("session-cleanup", "heartbeat", "dispatcher", "start-claim", "secret-delivery", "scheduler")
 	deadLetterRepository := store.NewDeadLetterRepository(db, cfg.InstallationEncryptionKey)
-	application := api.Server{AuthService: authService, AuthAdmin: &api.AuthAdminService{Auth: authService, OIDC: oidcService, Sessions: authService.SessionManager()}, Sessions: authService.SessionManager(), OIDC: oidcService, Roles: roles, Auth: authService.Authenticator(), Permissions: authService.Permissions, Metrics: metrics, Logger: logger, CSRFOrigin: cfg.WebOrigin, CSRFOrigins: cfg.CSRFOrigins, CORSOrigins: cfg.CORSOrigins, Operations: operations, Runs: runs, Infrastructure: infrastructure, AuditQuery: audit, ExitCodes: store.NewExitCodeRepository(db), GlobalVariables: globalVariables, DeadLetters: api.NewDeadLetterService(deadLetterRepository, nil), Ready: func(ctx context.Context) error {
+	application := api.Server{AuthService: authService, AuthAdmin: &api.AuthAdminService{Auth: authService, OIDC: oidcService, Sessions: authService.SessionManager()}, Sessions: authService.SessionManager(), OIDC: oidcService, Roles: roles, Auth: authService.Authenticator(), Permissions: authService.Permissions, Metrics: metrics, Logger: logger, CSRFOrigin: cfg.WebOrigin, CSRFOrigins: cfg.CSRFOrigins, CORSOrigins: cfg.CORSOrigins, Operations: operations, Runs: runs, Infrastructure: infrastructure, AuditQuery: audit, ExitCodes: store.NewExitCodeRepository(db), GlobalVariables: globalVariables, Secrets: api.NewSecretAdminService(encryptedSecretRepository, cfg.InstallationEncryptionKey), DeadLetters: api.NewDeadLetterService(deadLetterRepository, nil), Ready: func(ctx context.Context) error {
 		if err := db.Ping(ctx); err != nil {
 			return err
 		}
@@ -340,6 +342,20 @@ func run() error {
 			if err := controlplane.RunStartClaimServer(ctx, jetstream, runRepository, runnerRepository, signingKey); err != nil && ctx.Err() == nil {
 				health.MarkFailed("start-claim", err)
 				fmt.Fprintln(os.Stderr, "start claim server:", err)
+				select {
+				case <-time.After(time.Second):
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+	}()
+	go func() {
+		for ctx.Err() == nil {
+			health.MarkHealthy("secret-delivery")
+			if err := controlplane.RunSecretDeliveryServer(ctx, jetstream, runRepository, encryptedSecretRepository, runnerRepository, signingKey, cfg.InstallationEncryptionKey); err != nil && ctx.Err() == nil {
+				health.MarkFailed("secret-delivery", err)
+				fmt.Fprintln(os.Stderr, "secret delivery server:", err)
 				select {
 				case <-time.After(time.Second):
 				case <-ctx.Done():

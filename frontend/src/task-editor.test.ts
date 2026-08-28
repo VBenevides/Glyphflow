@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { commandArgumentLabels, commandArguments, emptyTaskDraft, environmentObject, environmentRows, finalCommand, keyValueObject, keyValueRows, resolveGlobalVariableReferences, taskDraftFromRecord, validateTaskDraft } from './task-editor'
+import { commandArgumentLabels, commandArguments, emptyTaskDraft, environmentObject, environmentRows, finalCommand, keyValueObject, keyValueRows, resolveGlobalVariableReferences, secretObject, secretRows, taskDraftFromRecord, validateTaskDraft } from './task-editor'
 
 describe('task version editor', () => {
   it('keeps command arguments separate from shell parsing', () => {
@@ -39,5 +39,10 @@ describe('task version editor', () => {
 	it('maps selector and secret rows without raw JSON fields', () => {
 		expect(keyValueRows({ os: 'linux', labels: { gpu: true } })).toEqual([{ name: 'labels', value: '{"gpu":true}' }, { name: 'os', value: 'linux' }])
 		expect(keyValueObject([{ name: ' os ', value: 'linux' }, { name: 'count', value: '2' }], true)).toEqual({ os: 'linux', count: 2 })
+		expect(secretRows({ TOKEN: 'secret-1' })).toEqual([{ name: 'TOKEN', secretId: 'secret-1' }])
+		expect(secretObject([{ name: ' TOKEN ', secretId: ' secret-1 ' }])).toEqual({ TOKEN: 'secret-1' })
+		const errors = validateTaskDraft({ ...emptyTaskDraft, name: 'Nightly', command: 'echo', pool: 'default', secrets: [{ name: 'TOKEN', secretId: '' }, { name: 'TOKEN', secretId: 'secret-1' }] })
+		expect(errors['secrets.0.secretId']).toContain('Select')
+		expect(errors['secrets.1.name']).toContain('unique')
 	})
 })

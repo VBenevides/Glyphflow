@@ -24,6 +24,7 @@ type OrderRuntime struct {
 	Store            *LocalStore
 	Publisher        queue.Publisher
 	StartClaimer     StartClaimer
+	SecretFetcher    SecretFetcher
 	RunnerID         string
 	ExecutorBootID   string
 	ProcessID        int64
@@ -128,6 +129,17 @@ func (r OrderRuntime) Handle(ctx context.Context, message queue.Message) error {
 	if payload.Type != protocol.OrderExecute {
 		return errors.New("unsupported worker order type")
 	}
+	var secretValues map[string]string
+	if len(payload.SecretRefs) > 0 {
+		if r.SecretFetcher == nil {
+			return ErrSecretDeliveryUnavailable
+		}
+		secretValues, err = r.SecretFetcher.Fetch(ctx, protocol.SecretDeliveryRequest{Version: protocol.ProtocolVersion, RequestID: payload.OrderID, OrderID: payload.OrderID, RunID: payload.RunID, Attempt: payload.Attempt, LeaseToken: payload.LeaseToken, RunnerID: payload.RunnerID, RunnerSessionID: payload.RunnerSessionID, FencingToken: payload.FencingToken, ExecutionSpecDigest: payload.ExecutionSpecDigest, SecretRefs: payload.SecretRefs, IssuedAt: time.Now().UTC()})
+		if err != nil {
+			return ErrSecretDeliveryUnavailable
+		}
+		defer func() { clear(secretValues) }()
+	}
 	if err := r.StartClaimer.ClaimStart(ctx, protocol.StartClaimPayload{Version: protocol.ProtocolVersion, RequestID: payload.OrderID, RunID: payload.RunID, RunnerID: payload.RunnerID, RunnerSessionID: payload.RunnerSessionID, LeaseToken: payload.LeaseToken, Attempt: payload.Attempt, FencingToken: payload.FencingToken, ExecutionSpecDigest: payload.ExecutionSpecDigest, IssuedAt: time.Now().UTC()}); err != nil {
 		if errors.Is(err, ErrStartRejected) {
 			return nil
@@ -165,7 +177,15 @@ func (r OrderRuntime) Handle(ctx context.Context, message queue.Message) error {
 	logSequences := map[string]uint64{"stdout": 0, "stderr": 0}
 	streamed := false
 	executor := r.Executor
-	if payload.Environment != nil {
+	if secretValues != nil {
+		executor.Environment = make(map[string]string, len(payload.Environment)+len(secretValues))
+		for name, value := range payload.Environment {
+			executor.Environment[name] = value
+		}
+		for name, value := range secretValues {
+			executor.Environment[name] = value
+		}
+	} else if payload.Environment != nil {
 		executor.Environment = payload.Environment
 	}
 	memory := &MemoryStats{}
@@ -189,6 +209,9 @@ func (r OrderRuntime) Handle(ctx context.Context, message queue.Message) error {
 		}
 		return nil
 	})
+	if secretValues != nil {
+		clear(executor.Environment)
+	}
 	if exitCode != nil && *exitCode != 0 && runErr == nil {
 		runErr = fmt.Errorf("process exited with code %d", *exitCode)
 	}

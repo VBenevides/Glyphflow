@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -77,6 +78,7 @@ type OperationsService struct {
 	repository                 store.TaskRepository
 	scheduleRepository         store.ScheduleRepository
 	resourceRepository         store.ResourceRepository
+	secretRepository           store.EncryptedSecretRepository
 	scheduleProjection         *controlplane.ProjectionService
 }
 
@@ -108,6 +110,14 @@ func (o *OperationsService) SetResourceRepository(repository store.ResourceRepos
 	}
 }
 
+func (o *OperationsService) SetSecretRepository(repository store.EncryptedSecretRepository) {
+	if repository != nil {
+		o.mu.Lock()
+		o.secretRepository = repository
+		o.mu.Unlock()
+	}
+}
+
 func (o *OperationsService) SetScheduleProjection(projection *controlplane.ProjectionService) {
 	o.mu.Lock()
 	o.scheduleProjection = projection
@@ -117,7 +127,7 @@ func (o *OperationsService) SetScheduleProjection(projection *controlplane.Proje
 func (o *OperationsService) hasDurableRepositories() bool {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
-	return o.repository != nil && o.scheduleRepository != nil
+	return o.repository != nil && o.scheduleRepository != nil && o.secretRepository != nil
 }
 
 func taskRecordFromStore(task store.TaskRecord) TaskRecord {
@@ -158,8 +168,43 @@ func taskDefinition(id string, input taskInput) store.TaskDefinition {
 }
 
 func validateTaskSecrets(input taskInput) error {
-	if len(input.SecretReferences) > 0 {
-		return errors.New("task secret references are not supported")
+	for rawName, value := range input.SecretReferences {
+		name := strings.TrimSpace(rawName)
+		if rawName != name || !taskSecretEnvironmentNamePattern.MatchString(name) {
+			return errors.New("task secret environment name is invalid")
+		}
+		id, ok := value.(string)
+		if !ok || id != strings.TrimSpace(id) || !taskSecretIDPattern.MatchString(id) || strings.Contains(id, "..") {
+			return errors.New("task secret reference is invalid")
+		}
+		if _, exists := input.Environment[name]; exists {
+			return errors.New("task secret environment name duplicates an environment variable")
+		}
+	}
+	return nil
+}
+
+var taskSecretEnvironmentNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+var taskSecretIDPattern = regexp.MustCompile(`^[A-Za-z0-9._:/-]+$`)
+
+func (o *OperationsService) validateTaskSecretIDs(ctx context.Context, input taskInput) error {
+	if len(input.SecretReferences) == 0 {
+		return nil
+	}
+	o.mu.RLock()
+	repository, taskRepository := o.secretRepository, o.repository
+	o.mu.RUnlock()
+	if repository == nil {
+		if taskRepository != nil {
+			return errors.New("secret storage is unavailable")
+		}
+		return nil
+	}
+	for _, value := range input.SecretReferences {
+		id := value.(string)
+		if _, found, err := repository.Find(ctx, strings.TrimSpace(id)); err != nil || !found {
+			return errors.New("task secret reference is unavailable")
+		}
 	}
 	return nil
 }
@@ -296,6 +341,10 @@ func (o *OperationsService) taskCollection(w http.ResponseWriter, r *http.Reques
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	if err := o.validateTaskSecretIDs(r.Context(), input); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
 	o.mu.RLock()
 	repository := o.repository
 	o.mu.RUnlock()
@@ -315,6 +364,10 @@ func (o *OperationsService) taskCollection(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	task := o.createTask(input.Name, input.Command, input.RunnerPool, input.PinnedRunner, input.DurationSeconds, input.Resources)
+	task.Environment, task.SecretReferences = input.Environment, input.SecretReferences
+	o.mu.Lock()
+	o.tasks[task.ID] = task
+	o.mu.Unlock()
 	o.refreshScheduleProjection(r.Context())
 	writeJSON(w, http.StatusCreated, task)
 }
@@ -406,6 +459,10 @@ func (o *OperationsService) taskPath(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := validateTaskSecrets(input); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		if err := o.validateTaskSecretIDs(r.Context(), input); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
@@ -745,6 +802,12 @@ func (o *OperationsService) addTaskVersion(id string, input taskInput) (TaskReco
 	}
 	task.PinnedRunner = input.PinnedRunner
 	task.Command = append([]string(nil), input.Command...)
+	if input.Environment != nil {
+		task.Environment = input.Environment
+	}
+	if input.SecretReferences != nil {
+		task.SecretReferences = input.SecretReferences
+	}
 	if input.Resources != nil {
 		task.Resources = append([]string(nil), input.Resources...)
 	}

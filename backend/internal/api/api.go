@@ -94,6 +94,7 @@ type Server struct {
 	AuditQuery                 *AuditQueryService
 	ExitCodes                  store.ExitCodeRepository
 	GlobalVariables            *GlobalVariableService
+	Secrets                    *SecretAdminService
 	SystemMetrics              *SystemMetricsService
 	DeadLetters                *DeadLetterService
 	ScheduleProjection         *controlplane.ProjectionService
@@ -115,6 +116,9 @@ func (s Server) ValidateDurableRepositories() error {
 	}
 	if s.GlobalVariables == nil || !s.GlobalVariables.hasDurableRepository() {
 		return errors.New("global variable repository is required")
+	}
+	if s.Secrets == nil || !s.Secrets.hasDurableRepository() {
+		return errors.New("secret repository is required")
 	}
 	if s.AuditQuery == nil || !s.AuditQuery.hasDurableRepository() {
 		return errors.New("audit repository is required")
@@ -153,6 +157,9 @@ func (s Server) Handler() http.Handler {
 	if s.GlobalVariables == nil {
 		s.GlobalVariables = NewGlobalVariableService()
 	}
+	if s.Secrets == nil {
+		s.Secrets = &SecretAdminService{}
+	}
 	if s.SystemMetrics == nil {
 		s.SystemMetrics = NewSystemMetricsService(s.Metrics, s.Ready, s.Logger)
 	}
@@ -174,6 +181,7 @@ func (s Server) Handler() http.Handler {
 	s.passwordRoutes(mux)
 	s.oidcRoutes(mux)
 	s.authAdminRoutes(mux)
+	s.secretRoutes(mux)
 	s.executionStatusRoutes(mux)
 	s.roleRoutes(mux)
 	s.currentUserRoutes(mux)
@@ -248,7 +256,7 @@ func (s Server) Handler() http.Handler {
 	mux.Handle("/api/v1/runs", s.require("run.read", http.HandlerFunc(s.Runs.collection)))
 	mux.Handle("/api/v1/audit", s.require("audit.read", http.HandlerFunc(s.AuditQuery.query)))
 	mux.Handle("/api/v1/admin/system/metrics", s.require("system.metrics.read", http.HandlerFunc(s.SystemMetrics.metrics)))
-	mux.Handle("/api/v1/admin/secrets/attention", s.require("sso.read", http.HandlerFunc(s.secretAttention)))
+	mux.Handle("/api/v1/admin/secrets/attention", s.require("secrets.read|secrets.manage", http.HandlerFunc(s.secretAttention)))
 	mux.Handle("/api/v1/admin/dead-letters", s.requireMethodRole(func(r *http.Request) string {
 		if r.Method == http.MethodGet {
 			return "system.deadletter.read"

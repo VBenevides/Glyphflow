@@ -15,7 +15,7 @@ export const DASHBOARD_WIDGETS: Widget[] = [
   { key: 'schedules', label: 'Due schedules', permission: 'tasks.read', path: '/api/v1/schedules?due=true', kind: 'metric', tone: 'warning', icon: CalendarClock },
   { key: 'runners', label: 'Offline runners', permission: 'runners.read', path: '/api/v1/runners?state=offline', kind: 'metric', tone: 'danger', icon: ServerOff },
   { key: 'audit', label: 'Recent audit events', permission: 'audit.read', path: '/api/v1/audit?recent=true', kind: 'list' },
-  { key: 'secrets', label: 'Secrets requiring attention', permission: 'sso.read', path: '/api/v1/admin/secrets/attention', kind: 'list', description: 'Integrity failure means the stored value could not be authenticated or decrypted. It does not necessarily mean the external credential has expired or been revoked.' },
+  { key: 'secrets', label: 'Secrets requiring attention', permission: 'secrets.read|secrets.manage', path: '/api/v1/admin/secrets/attention', kind: 'list', description: 'Integrity failure means the stored value could not be authenticated or decrypted. It does not necessarily mean the external credential has expired or been revoked.' },
 ]
 
 export function permittedWidgets(permissions: string[]) {

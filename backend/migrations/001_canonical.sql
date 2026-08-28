@@ -85,12 +85,14 @@ CREATE TABLE sso_providers (
 CREATE UNIQUE INDEX sso_providers_name_ci_idx ON sso_providers (lower(name));
 CREATE TABLE encrypted_secrets (
     id text PRIMARY KEY,
+    name text NOT NULL,
     encrypted_value bytea NOT NULL CHECK (octet_length(encrypted_value) > 0),
     integrity_status text NOT NULL DEFAULT 'UNKNOWN' CHECK (integrity_status IN ('UNKNOWN', 'VALID', 'INTEGRITY_FAILED', 'KEY_UNAVAILABLE', 'DECRYPTION_FAILED')),
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     last_validated_at timestamptz
 );
+CREATE UNIQUE INDEX encrypted_secrets_name_ci_idx ON encrypted_secrets (lower(name));
 CREATE TABLE sso_group_role_mappings (
     provider_id text NOT NULL REFERENCES sso_providers(id) ON DELETE CASCADE,
     group_name text NOT NULL,

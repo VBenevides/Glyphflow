@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { Monitor, MoreHorizontal, UserPlus, Users } from 'lucide-react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { api, type AdminSession, type ExitCode, type OidcProvider, type Page, type QueryValue, type RoleDefinition, type UserRecord } from './api'
+import { api, type AdminSession, type ExitCode, type OidcProvider, type Page, type QueryValue, type RoleDefinition, type SecretMetadata, type UserRecord } from './api'
 import { DangerousAction } from './actions'
 import { Button, DataTable, Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuSeparator, DropdownMenuTrigger, EmptyState, FilterInput, Identifier, Input, MetricCard, PageHeader, Pagination, StatusPill, TableActions, Tabs, TabsList, TabsTrigger } from './components'
 import { QueryRefresh, QueryState } from './query'
@@ -54,11 +54,11 @@ function UserActionsMenu({ user, manage, onAccess, onDisable, onApprove }: { use
   return <DropdownMenu><DropdownMenuTrigger asChild><Button type="button" variant="ghost" aria-label={`Actions for ${userLabel}`}><MoreHorizontal size={18} /></Button></DropdownMenuTrigger><DropdownMenuPortal><DropdownMenuContent align="end">{manage && <DropdownMenuItem onSelect={onAccess}>Manage access</DropdownMenuItem>}{manage && !user.systemAdmin && <><DropdownMenuSeparator /><DangerousAction label={statusAction} title={`${statusAction} user`} onConfirm={statusChange} renderTrigger={(open) => <DropdownMenuItem onSelect={(event) => { event.preventDefault(); open() }}>{statusAction}</DropdownMenuItem>} /></>}<DropdownMenuSeparator /><DropdownMenuItem asChild><Link to={`/admin/users/${encodeURIComponent(user.id)}`}>Details</Link></DropdownMenuItem></DropdownMenuContent></DropdownMenuPortal></DropdownMenu>
 }
 
-type IdentityView = 'users' | 'sessions' | 'sso'
+type IdentityView = 'users' | 'sessions' | 'sso' | 'secrets'
 
 function IdentityAdminLayout({ view, title, description, refresh, children }: { view: IdentityView; title: string; description: string; refresh?: ReactNode; children: ReactNode }) {
   const navigate = useNavigate()
-  return <main className="gf-content"><PageHeader title={title} description={description} refresh={refresh} /><Tabs value={view} onValueChange={(next) => navigate(next === 'sso' ? '/admin/sso' : next === 'sessions' ? '/admin/users/sessions' : '/admin/users')}><TabsList aria-label="Identity administration"><TabsTrigger value="users">Users</TabsTrigger><TabsTrigger value="sessions">Sessions</TabsTrigger><TabsTrigger value="sso">SSO</TabsTrigger></TabsList></Tabs>{children}</main>
+  return <main className="gf-content"><PageHeader title={title} description={description} refresh={refresh} /><Tabs value={view} onValueChange={(next) => navigate(next === 'sso' ? '/admin/sso' : next === 'secrets' ? '/admin/secrets' : next === 'sessions' ? '/admin/users/sessions' : '/admin/users')}><TabsList aria-label="Identity administration"><TabsTrigger value="users">Users</TabsTrigger><TabsTrigger value="sessions">Sessions</TabsTrigger><TabsTrigger value="sso">SSO</TabsTrigger><TabsTrigger value="secrets">Secrets</TabsTrigger></TabsList></Tabs>{children}</main>
 }
 
 export function UserCreationForm({ onCreated }: { onCreated: (userID: string) => Promise<void> }) {
@@ -222,6 +222,40 @@ export function SsoSettingsPage() {
     {manage && <div className="gf-table-toolbar"><Button onClick={() => setCreating(true)}>Add provider</Button></div>}
     {manage && <Dialog open={creating} title="Add provider" onClose={closeProvider}><form className="gf-editor-form" onSubmit={addProvider}><div className="gf-form-grid"><label htmlFor="sso-key">Key<Input id="sso-key" value={draft.key} onChange={(event) => setDraft({ ...draft, key: event.target.value })} required /></label><label htmlFor="sso-name">Name<Input id="sso-name" value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} required /></label><label htmlFor="sso-issuer">Issuer URL<Input id="sso-issuer" type="url" value={draft.issuer} onChange={(event) => setDraft({ ...draft, issuer: event.target.value })} required /></label><label htmlFor="sso-client">Client ID<Input id="sso-client" value={draft.clientId} onChange={(event) => setDraft({ ...draft, clientId: event.target.value })} /></label><label htmlFor="sso-secret">Client secret<Input id="sso-secret" type="password" autoComplete="new-password" value={draft.clientSecret} onChange={(event) => setDraft({ ...draft, clientSecret: event.target.value })} required /><small>Stored encrypted locally and never shown again.</small></label></div><fieldset><legend>Group roles</legend>{groupMappings.map((mapping, index) => <div className="gf-form-grid" key={index}><label htmlFor={`sso-group-${index}`}>Group name<Input id={`sso-group-${index}`} value={mapping.group} onChange={(event) => setGroupMappings((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, group: event.target.value } : item))} /></label><label htmlFor={`sso-group-role-${index}`}>Role<RoleSelect id={`sso-group-role-${index}`} value={mapping.role} roles={rolesQuery.data} disabled={rolesQuery.isPending || rolesQuery.isError} onChange={(role) => setGroupMappings((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, role } : item))} /></label></div>)}<Button type="button" variant="secondary" onClick={() => setGroupMappings((current) => [...current, { group: '', role: '' }])}>Add group</Button>{rolesQuery.isError && <small className="gf-form-error">Roles could not be loaded.</small>}</fieldset>{error && <p className="gf-form-error" role="alert">{error}</p>}<div className="gf-dialog-actions"><Button type="button" variant="secondary" onClick={closeProvider}>Cancel</Button><Button type="submit" busy={busy}>Add provider</Button></div></form></Dialog>}
     <QueryState query={query} empty="No SSO providers are configured.">{(providers) => providers.length ? <><DataTable caption="SSO providers" rows={providers.slice((page - 1) * limit, page * limit)} columns={[{ key: 'key', label: 'Provider', render: (provider) => <strong>{provider.name ?? provider.key}</strong> }, { key: 'issuer', label: 'Issuer', render: (provider) => <span>{provider.issuer}</span> }, { key: 'enabled', label: 'State', render: (provider) => <StatusPill status={provider.enabled === false ? 'disabled' : 'enabled'} /> }, { key: 'secret', label: 'Secret', render: () => <span className="gf-secret-reference">Stored encrypted locally</span> }, { key: 'actions', label: 'Actions', render: (provider) => manage && <TableActions label={`Actions for ${provider.name ?? provider.key}`}><DangerousAction label={provider.enabled === false ? 'Enable' : 'Disable'} warning="Disabling a provider can remove a login method. Confirm another administrator login method is available." onConfirm={() => toggle(provider)} renderTrigger={(open) => <DropdownMenuItem onSelect={(event) => { event.preventDefault(); open() }}>{provider.enabled === false ? 'Enable' : 'Disable'}</DropdownMenuItem>} /></TableActions> }]} /><Pagination page={page} pages={Math.max(1, Math.ceil(providers.length / limit))} limit={limit} onChange={setPage} onLimitChange={(next) => { setLimit(next); setPage(1) }} /></> : <EmptyState title="No providers">Add an OIDC provider to enable single sign-on.</EmptyState>}</QueryState>
+  </IdentityAdminLayout>
+}
+
+function secretStatusLabel(status: string) {
+  return { UNKNOWN: 'Unknown', VALID: 'Valid', INTEGRITY_FAILED: 'Integrity failed', KEY_UNAVAILABLE: 'Key unavailable', DECRYPTION_FAILED: 'Decryption failed' }[status] ?? status
+}
+
+function SecretEditor({ secret, onDone }: { secret?: SecretMetadata; onDone: () => Promise<void> }) {
+  const [name, setName] = useState(secret?.name ?? '')
+  const [value, setValue] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const submit = async (event: FormEvent) => {
+    event.preventDefault(); setBusy(true); setError('')
+    try {
+      const body = { name: name.trim(), secret_value: value }
+      if (secret) await api.put(`/api/v1/admin/secrets/${encodeURIComponent(secret.id)}`, body)
+      else await api.post('/api/v1/admin/secrets', body)
+      await onDone()
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Secret update failed') } finally { setBusy(false) }
+  }
+  return <form className="gf-editor-form" onSubmit={submit}><label htmlFor="secret-name">Name<Input id="secret-name" value={name} onChange={(event) => setName(event.target.value)} required /></label><label htmlFor="secret-value">Secret value<Input id="secret-value" type="password" autoComplete="new-password" value={value} onChange={(event) => setValue(event.target.value)} required /><small>Stored encrypted and never shown again.</small></label>{error && <p className="gf-form-error" role="alert">{error}</p>}<div className="gf-dialog-actions"><Button type="submit" busy={busy}>{secret ? 'Replace secret' : 'Create secret'}</Button><Button type="button" variant="ghost" onClick={() => void onDone()}>Cancel</Button></div></form>
+}
+
+export function SecretsPage() {
+  const { permissions } = useAuth()
+  const manage = hasPermission(permissions, 'secrets.manage')
+  const query = useQuery({ queryKey: ['admin-secrets'], queryFn: ({ signal }) => api.get<SecretMetadata[]>('/api/v1/admin/secrets', undefined, signal) })
+  const [editing, setEditing] = useState<SecretMetadata | null | undefined>(undefined)
+  const done = async () => { setEditing(undefined); await query.refetch() }
+  return <IdentityAdminLayout view="secrets" title="Secrets" description="Manage named encrypted values. Integrity status is separate from whether an external credential is still accepted." refresh={<QueryRefresh query={query} />}>
+    {manage && editing === undefined && <div className="gf-table-toolbar"><Button onClick={() => setEditing(null)}>Create secret</Button></div>}
+    {editing !== undefined && <Dialog open title={editing ? `Replace ${editing.name}` : 'Create secret'} onClose={() => setEditing(undefined)}><SecretEditor secret={editing ?? undefined} onDone={done} /></Dialog>}
+    <QueryState query={query} empty="No named secrets are configured.">{(secrets) => secrets.length ? <DataTable caption="Named secrets" rows={secrets} columns={[{ key: 'name', label: 'Secret', render: (secret) => <strong>{secret.name}</strong> }, { key: 'status', label: 'Encryption status', render: (secret) => <StatusPill status={secretStatusLabel(secret.status)} /> }, { key: 'lastValidatedAt', label: 'Last validated', render: (secret) => secret.lastValidatedAt ? <time dateTime={secret.lastValidatedAt}>{formatDateTime(secret.lastValidatedAt)}</time> : 'Not yet validated' }, { key: 'actions', label: 'Actions', render: (secret) => manage && <TableActions label={`Actions for ${secret.name}`}><DropdownMenuItem onSelect={() => setEditing(secret)}>Replace value</DropdownMenuItem></TableActions> }]} /> : <EmptyState title="No named secrets">Create a named secret for use by a task.</EmptyState>}</QueryState>
   </IdentityAdminLayout>
 }
 

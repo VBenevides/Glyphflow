@@ -14,7 +14,7 @@ import { RunnerDetailPage, RunnerInventoryPage } from './runner-pages'
 import { EnrollmentPage } from './enrollment-page'
 import { ResourceDetailPage, ResourceInventoryPage } from './resource-pages'
 import { AuditPage } from './audit-page'
-import { AuthenticationSettingsPage, ExecutionStatusPage, RoleManagementPage, SessionManagementPage, SsoSettingsPage, UserManagementPage } from './admin-pages'
+import { AuthenticationSettingsPage, ExecutionStatusPage, RoleManagementPage, SecretsPage, SessionManagementPage, SsoSettingsPage, UserManagementPage } from './admin-pages'
 import { AccountPage } from './account-pages'
 import { UserDetailsPage } from './user-details-page'
 import { GlobalVariablesPage } from './global-variables-page'
@@ -26,7 +26,7 @@ function Placeholder({ title }: { title: string }) {
 
 const IMPLEMENTED_ROUTE_PATHS = new Set([
   '/', '/tasks', '/schedules', '/runs', '/runners', '/runners/pools', '/resources', '/audit',
-  '/global-variables', '/admin/users', '/admin/roles', '/admin/sso', '/admin/auth', '/admin/execution-status',
+  '/global-variables', '/admin/users', '/admin/roles', '/admin/sso', '/admin/secrets', '/admin/auth', '/admin/execution-status',
   '/admin/system',
 ])
 
@@ -73,6 +73,7 @@ export function AppRoutes() {
     <Route path="/admin/users/:userId" element={<UserDetailsRoute />} />
     <Route path="/admin/roles" element={<PermissionRoute permission="roles.read|roles.manage"><RoleManagementPage /></PermissionRoute>} />
     <Route path="/admin/sso" element={<PermissionRoute permission="sso.read|sso.manage"><SsoSettingsPage /></PermissionRoute>} />
+    <Route path="/admin/secrets" element={<PermissionRoute permission="secrets.read|secrets.manage"><SecretsPage /></PermissionRoute>} />
     <Route path="/admin/auth" element={<PermissionRoute permission="auth.settings.manage"><AuthenticationSettingsPage /></PermissionRoute>} />
     <Route path="/admin/execution-status" element={<PermissionRoute permission="auth.settings.manage"><ExecutionStatusPage /></PermissionRoute>} />
     <Route path="/admin/system" element={<PermissionRoute permission="system.metrics.read"><SystemMetricsPage /></PermissionRoute>} />

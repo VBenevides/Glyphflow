@@ -105,5 +105,9 @@ as a new identity, not as a recoverable session.
 - Database storage is unavailable or critical: verify PostgreSQL volume
   capacity and `DATABASE_STORAGE_CAPACITY_BYTES`; the control plane rejects
   new runs when the database budget is unavailable or exhausted.
+- A secret shows `INTEGRITY_FAILED`, `KEY_UNAVAILABLE`, or `DECRYPTION_FAILED`:
+  verify the unchanged `SECRET_ENCRYPTION_KEY_FILE`, then replace the affected
+  value in **Administration → Secrets**. This status concerns ciphertext
+  authentication/decryption, not external credential expiry or revocation.
 - A host is untrusted: revoke or archive the runner, then rotate any secrets
   it could read.

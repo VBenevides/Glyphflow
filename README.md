@@ -62,7 +62,8 @@ include:
 - an argument-array command, with no shell parsing;
 - a working directory and environment variables;
 - global-variable references such as `$ENV:BACKUP_ROOT`;
-- secret references kept separate from command text;
+- named secret references kept separate from command text; values are injected as
+  environment variables only when a runner starts the task;
 - a runner pool or a specific runner;
 - capability selectors such as `platform=linux` and `architecture=amd64`;
 - execution timeout and maximum attempts;
@@ -274,7 +275,7 @@ Production configuration requires, at minimum:
 | Database | Protected `DATABASE_URL_FILE` containing a URL with `sslmode=verify-full`; PostgreSQL CA, certificate, key, and password files |
 | Messaging | Protected `NATS_URL_FILE` containing a `tls://` URL plus client certificate, key, and CA files |
 | Web security | An HTTPS `WEB_ORIGIN`, explicit `CORS_ORIGIN`, and `CSRF_ORIGINS` |
-| Application secrets | Protected `ACCESS_TOKEN_SECRET_FILE`, `PASSWORD_PEPPER_FILE`, `CONTROL_PLANE_SIGNING_PRIVATE_KEY_FILE`, and `GLYPHFLOW_BOOTSTRAP_PASSWORD_FILE`; the SSO encryption key is generated and persisted in `DATA_DIR` |
+| Application secrets | Protected `ACCESS_TOKEN_SECRET_FILE`, `PASSWORD_PEPPER_FILE`, `CONTROL_PLANE_SIGNING_PRIVATE_KEY_FILE`, and `GLYPHFLOW_BOOTSTRAP_PASSWORD_FILE`; the 32-byte secret encryption key is loaded from or generated in `DATA_DIR` |
 | Bootstrap | `GLYPHFLOW_BOOTSTRAP_EMAIL`, protected `GLYPHFLOW_BOOTSTRAP_PASSWORD_FILE`, and `GLYPHFLOW_SYSTEM_ADMINS` |
 | Network | `GLYPHFLOW_PORT` for the web listener; keep PostgreSQL and NATS private |
 
@@ -359,8 +360,13 @@ route ingress to port `8080`.
 
 The control plane stores the AES-256-GCM encryption key in
 `DATA_DIR/secret-encryption.key`. Back up this file with the database. If it is
-deleted, lost, or replaced, encrypted SSO secrets cannot be recovered and must
-be re-entered; startup warns when a new key is generated.
+deleted, lost, or replaced, encrypted secrets cannot be recovered and must be
+re-entered; startup warns when a new key is generated.
+
+Manage named secrets in **Administration → Secrets**. Task versions map an
+environment variable name to a named secret. The control plane decrypts the
+selected values only for the assigned runner immediately before execution;
+secret values are not stored in task orders, logs, or API responses.
 
 To deploy with an existing key, copy the unchanged file to the persistent
 `DATA_DIR/secret-encryption.key` location before the first start, or set

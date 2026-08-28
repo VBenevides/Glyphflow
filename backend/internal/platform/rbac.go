@@ -7,7 +7,7 @@ import (
 )
 
 var PermissionCatalog = []string{
-	"users.read", "users.manage", "roles.read", "roles.manage", "sso.read", "sso.manage",
+	"users.read", "users.manage", "roles.read", "roles.manage", "sso.read", "sso.manage", "secrets.read", "secrets.manage",
 	"auth.settings.manage", "tasks.read", "tasks.manage", "runs.read", "runs.execute", "runs.cancel",
 	"runs.retry", "logs.read", "resources.read", "resources.manage", "runners.read", "runners.manage", "audit.read", "system.metrics.read", "system.deadletter.read", "system.deadletter.manage",
 }

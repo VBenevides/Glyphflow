@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/VBenevides/Glyphflow/backend/internal/platform"
 	"github.com/VBenevides/Glyphflow/backend/internal/store"
 )
 
@@ -59,7 +61,7 @@ func (r *memoryEncryptedSecretRepository) ListStatuses(_ context.Context) ([]sto
 	defer r.mu.Unlock()
 	statuses := make([]store.EncryptedSecretStatusRecord, 0, len(r.records))
 	for _, secret := range r.records {
-		statuses = append(statuses, store.EncryptedSecretStatusRecord{ID: secret.ID, IntegrityStatus: secret.IntegrityStatus, LastValidatedAt: secret.LastValidatedAt})
+		statuses = append(statuses, store.EncryptedSecretStatusRecord{ID: secret.ID, Name: secret.Name, IntegrityStatus: secret.IntegrityStatus, CreatedAt: secret.CreatedAt, UpdatedAt: secret.UpdatedAt, LastValidatedAt: secret.LastValidatedAt})
 	}
 	return statuses, nil
 }
@@ -108,7 +110,7 @@ func TestOIDCSecretAttentionOmitsSecretMaterial(t *testing.T) {
 	}
 }
 
-func TestSecretAttentionEndpointRequiresSSOReadAndReturnsStatusOnly(t *testing.T) {
+func TestSecretAttentionEndpointRequiresSecretsReadAndReturnsStatusOnly(t *testing.T) {
 	repository := &memoryEncryptedSecretRepository{}
 	service := NewOIDCService()
 	service.SetSecretRepository(repository, []byte("01234567890123456789012345678901"))
@@ -116,12 +118,48 @@ func TestSecretAttentionEndpointRequiresSSOReadAndReturnsStatusOnly(t *testing.T
 		t.Fatal(err)
 	}
 	server := Server{OIDC: service, Auth: func(*http.Request) (Claims, bool) {
-		return Claims{Roles: map[string]bool{"sso.read": true}}, true
+		return Claims{Roles: map[string]bool{"secrets.read": true}}, true
 	}}
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/admin/secrets/attention", nil))
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "Microsoft SSO") || strings.Contains(response.Body.String(), "client-secret") {
 		t.Fatalf("secret attention response = %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestSecretAdminAPIStoresAndListsNamedMetadata(t *testing.T) {
+	repository := &memoryEncryptedSecretRepository{}
+	key := []byte("01234567890123456789012345678901")
+	server := Server{Secrets: NewSecretAdminService(repository, key), Auth: func(*http.Request) (Claims, bool) {
+		return Claims{Roles: map[string]bool{"secrets.read": true, "secrets.manage": true}}, true
+	}}
+	create := httptest.NewRecorder()
+	server.Handler().ServeHTTP(create, httptest.NewRequest(http.MethodPost, "/api/v1/admin/secrets", bytes.NewBufferString(`{"name":"GitHub Integration","secret_value":"runtime-secret"}`)))
+	if create.Code != http.StatusCreated || strings.Contains(create.Body.String(), "runtime-secret") {
+		t.Fatalf("secret create response = %d %s", create.Code, create.Body.String())
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(create.Body.Bytes(), &created); err != nil || created.ID == "" {
+		t.Fatalf("created secret = %s, err = %v", create.Body.String(), err)
+	}
+	record := repository.records[created.ID]
+	if strings.Contains(string(record.EncryptedValue), "runtime-secret") {
+		t.Fatal("repository stored plaintext secret")
+	}
+	if value, err := platform.DecryptSecret(key, record.EncryptedValue); err != nil || value != "runtime-secret" {
+		t.Fatalf("stored secret = %q, err = %v", value, err)
+	}
+	list := httptest.NewRecorder()
+	server.Handler().ServeHTTP(list, httptest.NewRequest(http.MethodGet, "/api/v1/admin/secrets", nil))
+	if list.Code != http.StatusOK || !strings.Contains(list.Body.String(), "GitHub Integration") || strings.Contains(list.Body.String(), "runtime-secret") || strings.Contains(list.Body.String(), "encryptedValue") {
+		t.Fatalf("secret list response = %d %s", list.Code, list.Body.String())
+	}
+	attention := httptest.NewRecorder()
+	server.Handler().ServeHTTP(attention, httptest.NewRequest(http.MethodGet, "/api/v1/admin/secrets/attention", nil))
+	if attention.Code != http.StatusOK || !strings.Contains(attention.Body.String(), "GitHub Integration") {
+		t.Fatalf("secret attention response = %d %s", attention.Code, attention.Body.String())
 	}
 }
 
