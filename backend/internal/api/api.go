@@ -469,7 +469,12 @@ func (s Server) require(role string, next http.Handler) http.Handler {
 					output["error"] = auditDetails.Error
 					traceback = auditDetails.Error + "\n" + auditDetails.Traceback
 				}
-				s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: result, CorrelationID: r.Header.Get("X-Correlation-ID"), Input: auditDetails.Input, Output: output, Before: auditDetails.Before, After: auditDetails.After, Traceback: traceback})
+				event := AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: result, CorrelationID: r.Header.Get("X-Correlation-ID"), Input: auditDetails.Input, Output: output, Before: auditDetails.Before, After: auditDetails.After, Traceback: traceback}
+				if isLiveLogRequest(r) && result == "success" {
+					_ = s.AuditQuery.AddLiveLog(liveLogAuditKey(claims, r), event)
+				} else {
+					_ = s.AuditQuery.Add(event)
+				}
 			}
 		}
 	})
@@ -644,6 +649,18 @@ func (s Server) auditBefore(r *http.Request) map[string]any {
 
 func isMutatingMethod(method string) bool {
 	return method == http.MethodPost || method == http.MethodPut || method == http.MethodPatch || method == http.MethodDelete
+}
+
+func isLiveLogRequest(r *http.Request) bool {
+	return r.Method == http.MethodGet && strings.HasSuffix(strings.TrimSuffix(r.URL.Path, "/"), "/logs")
+}
+
+func liveLogAuditKey(claims Claims, r *http.Request) string {
+	actor := claims.UserID
+	if actor == "" {
+		actor = claims.Subject
+	}
+	return actor + "\x00" + r.URL.Path + "\x00" + r.URL.Query().Get("stream")
 }
 
 func captureAuditInput(r *http.Request) map[string]any {

@@ -201,9 +201,11 @@ type AuditQueryService struct {
 	events               []AuditEvent
 	repository           store.AuditRepository
 	appendFailureHandler func(AuditEvent, error)
+	liveLogAudits        map[string]time.Time
 }
 
 const auditAllLimit = 1000
+const liveLogAuditWindow = 5 * time.Minute
 
 func auditCounts(events []AuditEvent) store.AuditCounts {
 	counts := store.AuditCounts{Total: len(events)}
@@ -218,7 +220,9 @@ func auditCounts(events []AuditEvent) store.AuditCounts {
 	return counts
 }
 
-func NewAuditQueryService() *AuditQueryService { return &AuditQueryService{} }
+func NewAuditQueryService() *AuditQueryService {
+	return &AuditQueryService{liveLogAudits: map[string]time.Time{}}
+}
 
 func (s *AuditQueryService) SetRepository(repository store.AuditRepository) {
 	if repository != nil {
@@ -304,6 +308,32 @@ func (s *AuditQueryService) Add(event AuditEvent) error {
 	s.mu.Lock()
 	s.events = append(s.events, event)
 	s.mu.Unlock()
+	return nil
+}
+
+func (s *AuditQueryService) AddLiveLog(key string, event AuditEvent) error {
+	s.mu.Lock()
+	now := time.Now().UTC()
+	if s.liveLogAudits == nil {
+		s.liveLogAudits = map[string]time.Time{}
+	}
+	for existing, at := range s.liveLogAudits {
+		if now.Sub(at) >= liveLogAuditWindow {
+			delete(s.liveLogAudits, existing)
+		}
+	}
+	if at, ok := s.liveLogAudits[key]; ok && now.Sub(at) < liveLogAuditWindow {
+		s.mu.Unlock()
+		return nil
+	}
+	s.liveLogAudits[key] = now
+	s.mu.Unlock()
+	if err := s.Add(event); err != nil {
+		s.mu.Lock()
+		delete(s.liveLogAudits, key)
+		s.mu.Unlock()
+		return err
+	}
 	return nil
 }
 
