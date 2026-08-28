@@ -287,6 +287,7 @@ CREATE TABLE schedules (
     updated_at timestamptz NOT NULL DEFAULT now(),
     UNIQUE (id, current_version_id)
 );
+CREATE INDEX schedules_due_idx ON schedules ((next_fire_at IS NULL), next_fire_at, id) WHERE enabled;
 CREATE UNIQUE INDEX schedules_name_ci_idx ON schedules (lower(name));
 CREATE TABLE schedule_versions (
     id text PRIMARY KEY,
@@ -338,6 +339,7 @@ CREATE TABLE runs (
     FOREIGN KEY (schedule_version_id, task_id) REFERENCES schedule_versions(id, task_id)
 );
 CREATE UNIQUE INDEX runs_schedule_occurrence_idx ON runs(schedule_version_id, scheduled_for) WHERE schedule_version_id IS NOT NULL;
+CREATE INDEX runs_dispatch_queue_idx ON runs(scheduled_for, created_at, id) WHERE state IN ('WAITING', 'RETRY_WAIT');
 
 CREATE TABLE execution_attempts (
     id text PRIMARY KEY,
