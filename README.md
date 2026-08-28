@@ -367,6 +367,8 @@ Manage named secrets in **Administration → Secrets**. Task versions map an
 environment variable name to a named secret. The control plane decrypts the
 selected values only for the assigned runner immediately before execution;
 secret values are not stored in task orders, logs, or API responses.
+The Secrets page shows which current tasks use each secret and only allows
+deletion when no task uses it; SSO provider secrets remain protected.
 
 To deploy with an existing key, copy the unchanged file to the persistent
 `DATA_DIR/secret-encryption.key` location before the first start, or set
