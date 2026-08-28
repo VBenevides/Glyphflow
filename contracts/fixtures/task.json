@@ -1,0 +1,25 @@
+{
+  "id": "task-1",
+  "name": "Nightly backup",
+  "enabled": true,
+  "isDeleted": false,
+  "activeVersion": 2,
+  "pool": "default",
+  "pinnedRunner": "runner-1",
+  "command": ["/bin/echo", "hello"],
+  "workingDirectory": "/tmp",
+  "placementSelectors": {
+    "os": "linux"
+  },
+  "environment": {
+    "MODE": "test"
+  },
+  "secretReferences": {
+    "token": "env://TOKEN"
+  },
+  "durationSeconds": 30,
+  "maxOutputBytes": 1048576,
+  "maxAttempts": 3,
+  "ambiguityPolicy": "RETRY",
+  "resources": ["resource-1"]
+}

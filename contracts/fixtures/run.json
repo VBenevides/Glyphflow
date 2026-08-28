@@ -1,0 +1,17 @@
+{
+  "id": "run-1",
+  "taskId": "task-1",
+  "taskVersionId": "task-1-v2",
+  "scheduleId": "schedule-1",
+  "scheduleVersionId": "schedule-1-v1",
+  "taskName": "Nightly backup",
+  "state": "SUCCEEDED",
+  "attempt": 2,
+  "exitCode": 0,
+  "exitCodeMeaning": "Success",
+  "runner": "runner-1",
+  "trigger": "SCHEDULE",
+  "scheduledFor": "2026-08-27T00:00:00Z",
+  "maxMemoryUsedBytes": 123456,
+  "averageMemoryUsedBytes": 65432
+}
