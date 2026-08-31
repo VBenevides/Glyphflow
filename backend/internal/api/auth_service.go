@@ -779,7 +779,10 @@ func (s *AuthService) ChangePassword(userID, currentPassword, newPassword string
 	if err != nil {
 		return err
 	}
-	return s.users.SetPasswordHash(context.Background(), userID, updated)
+	if err := s.users.SetPasswordHash(context.Background(), userID, updated); err != nil {
+		return err
+	}
+	return s.LogoutAll(userID)
 }
 
 func (s *AuthService) Identities(userID string) []map[string]any {
@@ -850,15 +853,34 @@ func (s *AuthService) identityProviderNames(userID string) []string {
 	return providers
 }
 
-func (s *AuthService) Users(statusFilter ...string) []map[string]any {
+func (s *AuthService) Users(statusFilter ...string) ([]map[string]any, error) {
 	status := ""
 	if len(statusFilter) > 0 {
 		status = statusFilter[0]
 	}
 	records, err := s.users.List(context.Background(), status)
 	if err != nil {
-		return []map[string]any{}
+		return nil, err
 	}
+	return s.authUsers(records)
+}
+
+func (s *AuthService) UsersPage(status, email string, roles []string, limit, offset int) ([]map[string]any, int, bool, error) {
+	repository, ok := s.users.(interface {
+		ListPage(context.Context, string, string, []string, int, int) ([]store.UserRecord, int, error)
+	})
+	if !ok {
+		return nil, 0, false, nil
+	}
+	records, total, err := repository.ListPage(context.Background(), status, email, roles, limit, offset)
+	if err != nil {
+		return nil, 0, true, err
+	}
+	users, err := s.authUsers(records)
+	return users, total, true, err
+}
+
+func (s *AuthService) authUsers(records []store.UserRecord) ([]map[string]any, error) {
 	users := make([]map[string]any, 0, len(records))
 	for _, record := range records {
 		user := toAuthUser(record)
@@ -880,16 +902,25 @@ func (s *AuthService) Users(statusFilter ...string) []map[string]any {
 		systemAdmin := s.systemAdminEmails[user.Email] || hasSystemAdminAssignment(userRoles, assignments)
 		s.mu.RUnlock()
 		sort.Strings(methods)
-		users = append(users, map[string]any{"id": user.ID, "username": user.Username, "email": user.Email, "displayName": user.DisplayName, "enabled": user.Enabled, "systemAdmin": systemAdmin, "status": user.Status, "roles": roles, "loginMethods": methods, "sessions": s.sessions.List(user.ID)})
+		sessions, err := s.sessions.List(user.ID)
+		if err != nil {
+			return nil, err
+		}
+		users = append(users, map[string]any{"id": user.ID, "username": user.Username, "email": user.Email, "displayName": user.DisplayName, "enabled": user.Enabled, "systemAdmin": systemAdmin, "status": user.Status, "roles": roles, "loginMethods": methods, "sessions": sessions})
 	}
 	sort.Slice(users, func(i, j int) bool { return users[i]["username"].(string) < users[j]["username"].(string) })
-	return users
+	return users, nil
 }
 
-func (s *AuthService) AdminSessions() []AdminSession {
+func (s *AuthService) AdminSessionsPage(email string, limit, offset int) ([]AdminSession, int, bool, error) {
+	sessions, total, handled, err := s.sessions.AdminPage(email, limit, offset)
+	return sessions, total, handled, err
+}
+
+func (s *AuthService) AdminSessions() ([]AdminSession, error) {
 	records, err := s.users.List(context.Background(), "")
 	if err != nil {
-		return []AdminSession{}
+		return nil, err
 	}
 	users := make(map[string]string, len(records))
 	for _, record := range records {
@@ -897,14 +928,18 @@ func (s *AuthService) AdminSessions() []AdminSession {
 	}
 	sessions := []AdminSession{}
 	for userID, email := range users {
-		for _, session := range s.sessions.List(userID) {
+		userSessions, err := s.sessions.List(userID)
+		if err != nil {
+			return nil, err
+		}
+		for _, session := range userSessions {
 			sessions = append(sessions, AdminSession{ID: session.ID, UserID: userID, UserEmail: email, ExpiresAt: session.ExpiresAt, LastSeenAt: session.LastSeenAt, UserAgent: session.UserAgent, IPAddress: session.IPAddress})
 		}
 	}
 	sort.Slice(sessions, func(i, j int) bool {
 		return sessions[i].UserEmail < sessions[j].UserEmail || sessions[i].UserEmail == sessions[j].UserEmail && sessions[i].ID < sessions[j].ID
 	})
-	return sessions
+	return sessions, nil
 }
 
 func (s *AuthService) issueTokens(userID string) (AuthTokens, error) {
@@ -945,13 +980,6 @@ func (s *AuthService) issueTokens(userID string) (AuthTokens, error) {
 	}
 	return AuthTokens{AccessToken: accessToken, RefreshToken: refreshToken, SessionID: sessionID}, nil
 }
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 func (s *AuthService) Refresh(sessionID, refreshToken string) (AuthTokens, error) {
 	s.mu.RLock()
 	repository := s.sessionRepository
@@ -1000,17 +1028,19 @@ func (s *AuthService) Refresh(sessionID, refreshToken string) (AuthTokens, error
 	if err != nil {
 		return AuthTokens{}, err
 	}
-	s.sessions.Revoke(sessionID)
+	if err := s.sessions.Revoke(sessionID); err != nil {
+		return AuthTokens{}, err
+	}
 	return AuthTokens{AccessToken: access, RefreshToken: newToken, SessionID: newID}, nil
 }
 
-func (s *AuthService) Logout(sessionID string) {
+func (s *AuthService) Logout(sessionID string) error {
 	s.refresh.Revoke(sessionID)
-	s.sessions.Revoke(sessionID)
+	return s.sessions.Revoke(sessionID)
 }
-func (s *AuthService) LogoutAll(userID string) {
+func (s *AuthService) LogoutAll(userID string) error {
 	s.refresh.RevokeUser(userID)
-	s.sessions.RevokeUser(userID)
+	return s.sessions.RevokeUser(userID)
 }
 func (s *AuthService) DisableUser(userID string) error {
 	user, ok, err := s.userByID(userID)
@@ -1041,8 +1071,7 @@ func (s *AuthService) DisableUser(userID string) error {
 		if err := s.users.SetEnabled(context.Background(), userID, false); err != nil {
 			return err
 		}
-		s.LogoutAll(userID)
-		return nil
+		return s.LogoutAll(userID)
 	}
 	if isAdmin {
 		return s.adminGuard.Remove(userID, disable)
@@ -1077,8 +1106,7 @@ func (s *AuthService) ApproveUser(userID string) error {
 			break
 		}
 	}
-	s.LogoutAll(userID)
-	return nil
+	return s.LogoutAll(userID)
 }
 
 func (s *AuthService) Revoke(userID, role string) error {
@@ -1158,7 +1186,7 @@ func (s *AuthService) User(userID string) (AuthUser, bool) {
 	return user, ok
 }
 
-func (s *AuthService) Profile(claims Claims) map[string]any {
+func (s *AuthService) Profile(claims Claims) (map[string]any, error) {
 	user, _, _ := s.userByID(claims.UserID)
 	rolesForUser, assignments, _ := s.roles.UserRoles(context.Background(), claims.UserID)
 	assignmentSource := map[string]string{}
@@ -1194,7 +1222,10 @@ func (s *AuthService) Profile(claims Claims) map[string]any {
 		permissionKeys = append(permissionKeys, permission)
 	}
 	sort.Strings(permissionKeys)
-	sessions := s.sessions.List(claims.UserID)
+	sessions, err := s.sessions.List(claims.UserID)
+	if err != nil {
+		return nil, err
+	}
 	for index := range sessions {
 		sessions[index].Current = sessions[index].ID == claims.SessionID
 	}
@@ -1204,15 +1235,16 @@ func (s *AuthService) Profile(claims Claims) map[string]any {
 	}
 	methods = append(methods, s.identityProviderNames(claims.UserID)...)
 	sort.Strings(methods)
-	return map[string]any{"id": user.ID, "username": user.Username, "email": user.Email, "displayName": user.DisplayName, "enabled": user.Enabled, "systemAdmin": systemAdmin, "status": user.Status, "roles": roles, "roleSources": roleSources, "permissions": permissionKeys, "loginMethods": methods, "sessions": sessions, "identities": s.Identities(claims.UserID)}
+	return map[string]any{"id": user.ID, "username": user.Username, "email": user.Email, "displayName": user.DisplayName, "enabled": user.Enabled, "systemAdmin": systemAdmin, "status": user.Status, "roles": roles, "roleSources": roleSources, "permissions": permissionKeys, "loginMethods": methods, "sessions": sessions, "identities": s.Identities(claims.UserID)}, nil
 }
 
-func (s *AuthService) UserProfile(userID string) (map[string]any, bool) {
+func (s *AuthService) UserProfile(userID string) (map[string]any, bool, error) {
 	_, ok, _ := s.userByID(userID)
 	if !ok {
-		return nil, false
+		return nil, false, nil
 	}
-	return s.Profile(Claims{UserID: userID}), true
+	profile, err := s.Profile(Claims{UserID: userID})
+	return profile, true, err
 }
 
 func randomID() (string, error) {

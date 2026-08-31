@@ -76,9 +76,27 @@ describe('SSO provider contract', () => {
 
   it('uses canonical provider fields and does not advertise unsupported claim mappings', () => {
     expect(source).toContain('clientId: draft.clientId.trim()')
-    expect(source).toContain('secretReference: draft.secretReference.trim()')
+    expect(source).toContain('clientSecret: draft.clientSecret')
+    expect(source).toContain('Stored encrypted locally and never shown again.')
     expect(source).toContain('groupMapping: roleMappingsValue(groupMappings)')
     expect(source).not.toContain('claim_mapping')
     expect(source).not.toContain('Claim mapping')
+  })
+})
+
+describe('secret editor contract', () => {
+  const source = readFileSync(resolve(process.cwd(), 'src/admin-pages.tsx'), 'utf8')
+
+  it('supports showing and hiding the secret value', () => {
+    expect(source).toContain("type={valueVisible ? 'text' : 'password'}")
+    expect(source).toContain("aria-label={valueVisible ? 'Hide secret' : 'Show secret'}")
+    expect(source).toContain('aria-pressed={valueVisible}')
+  })
+
+  it('shows task usage and only offers deletion for unused secrets', () => {
+    expect(source).toContain("label: 'Used by tasks'")
+    expect(source).toContain('secret.tasks.length')
+    expect(source).toContain('secret.canDelete')
+    expect(source).toContain('api.delete(`/api/v1/admin/secrets/${encodeURIComponent(secret.id)}`)')
   })
 })

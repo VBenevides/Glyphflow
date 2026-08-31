@@ -9,7 +9,8 @@ import (
 
 const MaxEventErrorBytes = 4096
 
-var secretRefPattern = regexp.MustCompile(`^[A-Za-z0-9._/-]+$`)
+var secretRefPattern = regexp.MustCompile(`^[A-Za-z0-9._:/-]+$`)
+var secretEnvironmentNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 func (p OrderPayload) ValidateExecution() error {
 	if p.OrderID == "" || p.RunID == "" || p.RunnerID == "" || p.RunnerSessionID == "" || p.LeaseToken == "" || p.WorkingDir == "" || p.DurationSeconds == 0 || len(p.Command) == 0 {
@@ -20,8 +21,8 @@ func (p OrderPayload) ValidateExecution() error {
 			return errors.New("order command contains an empty argument")
 		}
 	}
-	for _, ref := range p.SecretRefs {
-		if !secretRefPattern.MatchString(ref) || strings.Contains(ref, "..") {
+	for name, ref := range p.SecretRefs {
+		if !secretEnvironmentNamePattern.MatchString(name) || !secretRefPattern.MatchString(ref) || strings.Contains(ref, "..") {
 			return errors.New("order secret reference is invalid")
 		}
 	}

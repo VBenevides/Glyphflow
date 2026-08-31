@@ -94,6 +94,7 @@ type Server struct {
 	AuditQuery                 *AuditQueryService
 	ExitCodes                  store.ExitCodeRepository
 	GlobalVariables            *GlobalVariableService
+	Secrets                    *SecretAdminService
 	SystemMetrics              *SystemMetricsService
 	DeadLetters                *DeadLetterService
 	ScheduleProjection         *controlplane.ProjectionService
@@ -115,6 +116,9 @@ func (s Server) ValidateDurableRepositories() error {
 	}
 	if s.GlobalVariables == nil || !s.GlobalVariables.hasDurableRepository() {
 		return errors.New("global variable repository is required")
+	}
+	if s.Secrets == nil || !s.Secrets.hasDurableRepository() {
+		return errors.New("secret repository is required")
 	}
 	if s.AuditQuery == nil || !s.AuditQuery.hasDurableRepository() {
 		return errors.New("audit repository is required")
@@ -153,6 +157,9 @@ func (s Server) Handler() http.Handler {
 	if s.GlobalVariables == nil {
 		s.GlobalVariables = NewGlobalVariableService()
 	}
+	if s.Secrets == nil {
+		s.Secrets = &SecretAdminService{}
+	}
 	if s.SystemMetrics == nil {
 		s.SystemMetrics = NewSystemMetricsService(s.Metrics, s.Ready, s.Logger)
 	}
@@ -174,6 +181,7 @@ func (s Server) Handler() http.Handler {
 	s.passwordRoutes(mux)
 	s.oidcRoutes(mux)
 	s.authAdminRoutes(mux)
+	s.secretRoutes(mux)
 	s.executionStatusRoutes(mux)
 	s.roleRoutes(mux)
 	s.currentUserRoutes(mux)
@@ -248,6 +256,7 @@ func (s Server) Handler() http.Handler {
 	mux.Handle("/api/v1/runs", s.require("run.read", http.HandlerFunc(s.Runs.collection)))
 	mux.Handle("/api/v1/audit", s.require("audit.read", http.HandlerFunc(s.AuditQuery.query)))
 	mux.Handle("/api/v1/admin/system/metrics", s.require("system.metrics.read", http.HandlerFunc(s.SystemMetrics.metrics)))
+	mux.Handle("/api/v1/admin/secrets/attention", s.require("secrets.read|secrets.manage", http.HandlerFunc(s.secretAttention)))
 	mux.Handle("/api/v1/admin/dead-letters", s.requireMethodRole(func(r *http.Request) string {
 		if r.Method == http.MethodGet {
 			return "system.deadletter.read"
@@ -469,7 +478,12 @@ func (s Server) require(role string, next http.Handler) http.Handler {
 					output["error"] = auditDetails.Error
 					traceback = auditDetails.Error + "\n" + auditDetails.Traceback
 				}
-				s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: result, CorrelationID: r.Header.Get("X-Correlation-ID"), Input: auditDetails.Input, Output: output, Before: auditDetails.Before, After: auditDetails.After, Traceback: traceback})
+				event := AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: result, CorrelationID: r.Header.Get("X-Correlation-ID"), Input: auditDetails.Input, Output: output, Before: auditDetails.Before, After: auditDetails.After, Traceback: traceback}
+				if isLiveLogRequest(r) && result == "success" {
+					_ = s.AuditQuery.AddLiveLog(liveLogAuditKey(claims, r), event)
+				} else {
+					_ = s.AuditQuery.Add(event)
+				}
 			}
 		}
 	})
@@ -631,7 +645,7 @@ func (s Server) auditBefore(r *http.Request) map[string]any {
 			return auditSnapshot(map[string]any{"id": role.ID, "name": role.Name, "description": role.Description, "system": role.System, "permissions": role.Permissions, "assignedUsers": role.AssignedUsers})
 		}
 		if len(parts) >= 6 && parts[3] == "auth" && parts[4] == "users" && s.AuthAdmin != nil && s.AuthAdmin.Auth != nil {
-			user, ok := s.AuthAdmin.Auth.UserProfile(parts[5])
+			user, ok, _ := s.AuthAdmin.Auth.UserProfile(parts[5])
 			return find(user, ok)
 		}
 		if len(parts) >= 5 && parts[3] == "dead-letters" && s.DeadLetters != nil && s.DeadLetters.repository != nil {
@@ -644,6 +658,18 @@ func (s Server) auditBefore(r *http.Request) map[string]any {
 
 func isMutatingMethod(method string) bool {
 	return method == http.MethodPost || method == http.MethodPut || method == http.MethodPatch || method == http.MethodDelete
+}
+
+func isLiveLogRequest(r *http.Request) bool {
+	return r.Method == http.MethodGet && strings.HasSuffix(strings.TrimSuffix(r.URL.Path, "/"), "/logs")
+}
+
+func liveLogAuditKey(claims Claims, r *http.Request) string {
+	actor := claims.UserID
+	if actor == "" {
+		actor = claims.Subject
+	}
+	return actor + "\x00" + r.URL.Path + "\x00" + r.URL.Query().Get("stream")
 }
 
 func captureAuditInput(r *http.Request) map[string]any {
@@ -778,9 +804,7 @@ func (s Server) withCorrelation(next http.Handler) http.Handler {
 }
 func (s Server) noStore(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Path, "enrollment") || strings.HasSuffix(r.URL.Path, "/enroll") {
-			w.Header().Set("Cache-Control", "no-store")
-		}
+		w.Header().Set("Cache-Control", "no-store")
 		next.ServeHTTP(w, r)
 	})
 }

@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"io"
 	"sync"
 	"time"
 )
@@ -24,12 +25,13 @@ type authorizationState struct {
 	Callback string
 	Verifier []byte
 	Expires  time.Time
-	Used     bool
 }
 
 func NewAuthorizationStateStore() *AuthorizationStateStore {
 	key := make([]byte, 32)
-	_, _ = rand.Read(key)
+	if _, err := io.ReadFull(rand.Reader, key); err != nil {
+		panic("authorization state key entropy unavailable")
+	}
 	return &AuthorizationStateStore{states: make(map[string]authorizationState), key: key}
 }
 
@@ -44,6 +46,7 @@ func (s *AuthorizationStateStore) Create(provider, purpose string, now time.Time
 	state := hex.EncodeToString(value)
 	nonce := hex.EncodeToString(value[:16])
 	s.mu.Lock()
+	s.deleteExpiredLocked(now)
 	s.states[hashString(state)] = authorizationState{Provider: provider, Purpose: purpose, Nonce: hashString(nonce), Expires: now.Add(lifetime)}
 	s.mu.Unlock()
 	return state, nonce, nil
@@ -72,39 +75,40 @@ func (s *AuthorizationStateStore) CreateChallenge(provider, purpose, callback, v
 func (s *AuthorizationStateStore) Consume(state, nonce, provider, purpose string, now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.deleteExpiredLocked(now)
 	key := hashString(state)
 	entry, ok := s.states[key]
-	if !ok || entry.Used || entry.Provider != provider || entry.Purpose != purpose || !now.Before(entry.Expires) || entry.Nonce != hashString(nonce) {
+	if !ok || entry.Provider != provider || entry.Purpose != purpose || !now.Before(entry.Expires) || entry.Nonce != hashString(nonce) {
 		return errors.New("authorization state is invalid")
 	}
-	entry.Used = true
-	s.states[key] = entry
+	delete(s.states, key)
 	return nil
 }
 
 func (s *AuthorizationStateStore) ConsumeChallenge(state, nonce, provider, purpose, callback, verifier string, now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.deleteExpiredLocked(now)
 	key := hashString(state)
 	entry, ok := s.states[key]
-	if !ok || entry.Used || entry.Provider != provider || entry.Purpose != purpose || entry.Callback != callback || !now.Before(entry.Expires) || entry.Nonce != hashString(nonce) {
+	if !ok || entry.Provider != provider || entry.Purpose != purpose || entry.Callback != callback || !now.Before(entry.Expires) || entry.Nonce != hashString(nonce) {
 		return errors.New("authorization state is invalid")
 	}
 	plain, err := s.decrypt(entry.Verifier)
 	if err != nil || string(plain) != verifier {
 		return errors.New("PKCE verifier is invalid")
 	}
-	entry.Used = true
-	s.states[key] = entry
+	delete(s.states, key)
 	return nil
 }
 
 func (s *AuthorizationStateStore) ReadChallenge(state, nonce, purpose string, now time.Time) (provider, callback, verifier string, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.deleteExpiredLocked(now)
 	key := hashString(state)
 	entry, ok := s.states[key]
-	if !ok || entry.Used || entry.Purpose != purpose || !now.Before(entry.Expires) || entry.Nonce != hashString(nonce) {
+	if !ok || entry.Purpose != purpose || !now.Before(entry.Expires) || entry.Nonce != hashString(nonce) {
 		return "", "", "", errors.New("authorization state is invalid")
 	}
 	plain, err := s.decrypt(entry.Verifier)
@@ -112,6 +116,14 @@ func (s *AuthorizationStateStore) ReadChallenge(state, nonce, purpose string, no
 		return "", "", "", errors.New("PKCE verifier is invalid")
 	}
 	return entry.Provider, entry.Callback, string(plain), nil
+}
+
+func (s *AuthorizationStateStore) deleteExpiredLocked(now time.Time) {
+	for key, entry := range s.states {
+		if !now.Before(entry.Expires) {
+			delete(s.states, key)
+		}
+	}
 }
 
 func (s *AuthorizationStateStore) encrypt(plain []byte) ([]byte, error) {

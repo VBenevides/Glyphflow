@@ -52,4 +52,5 @@ COPY --from=backend-build /src/backend/migrations ./migrations
 COPY --from=backend-build /src/backend/runner-binaries ./runner-binaries
 COPY build/nginx.conf /etc/nginx/nginx.conf
 COPY LICENSE THIRD-PARTY-NOTICES /usr/share/doc/glyphflow/
+RUN mkdir /data && chown 65532:65532 /data
 CMD ["sh", "-c", "if [ \"${GLYPHFLOW_DISABLE_NGINX:-false}\" = \"true\" ]; then exec /usr/local/bin/glyphflow-controlplane; else exec nginx -g 'daemon off;'; fi"]

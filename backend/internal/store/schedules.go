@@ -10,7 +10,6 @@ import (
 
 	"github.com/VBenevides/Glyphflow/backend/internal/platform"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type ScheduleDefinition struct {
@@ -66,11 +65,14 @@ type DueScheduleRecord struct {
 }
 
 type ScheduleStore struct {
-	pool            *pgxpool.Pool
+	pool            database
 	storagePressure func(context.Context) (platform.StoragePressure, error)
 }
 
-func NewScheduleRepository(pool *pgxpool.Pool) *ScheduleStore { return &ScheduleStore{pool: pool} }
+func NewScheduleRepository(pool any) *ScheduleStore {
+	db, _ := databaseFrom(pool)
+	return &ScheduleStore{pool: db}
+}
 
 func (s *ScheduleStore) SetStoragePressureProvider(provider func(context.Context) (platform.StoragePressure, error)) {
 	s.storagePressure = provider
@@ -279,7 +281,7 @@ func (s *ScheduleStore) CreateDueRun(ctx context.Context, now time.Time, next fu
 	defer tx.Rollback(ctx)
 	var due DueScheduleRecord
 	var storedNext *time.Time
-	err = tx.QueryRow(ctx, `SELECT s.id, s.task_id, sv.task_version_id, s.current_version_id, sv.expression, sv.timezone, sv.misfire_policy, sv.catchup_limit, sv.start_deadline_seconds, sv.concurrency_policy, sv.max_concurrent_runs, COALESCE((SELECT count(*) FROM runs active WHERE active.schedule_version_id = s.current_version_id AND active.state IN ('WAITING','RUNNING','RETRY_WAIT','CANCELLING')), 0), s.next_fire_at FROM schedules s JOIN schedule_versions sv ON sv.id = s.current_version_id WHERE s.enabled AND (s.next_fire_at IS NULL OR s.next_fire_at <= $1) AND NOT ((sv.concurrency_policy = 'ALLOW' AND sv.max_concurrent_runs > 0 AND COALESCE((SELECT count(*) FROM runs active WHERE active.schedule_version_id = s.current_version_id AND active.state IN ('WAITING','RUNNING','RETRY_WAIT','CANCELLING')), 0) >= sv.max_concurrent_runs) OR (sv.concurrency_policy = 'QUEUE' AND COALESCE((SELECT count(*) FROM runs active WHERE active.schedule_version_id = s.current_version_id AND active.state IN ('WAITING','RUNNING','RETRY_WAIT','CANCELLING')), 0) > 0)) ORDER BY COALESCE(s.next_fire_at, $1), s.id FOR UPDATE OF s SKIP LOCKED LIMIT 1`, now).Scan(&due.ID, &due.TaskID, &due.TaskVersionID, &due.ScheduleVersionID, &due.Expression, &due.Timezone, &due.MisfirePolicy, &due.CatchupLimit, &due.DeadlineSeconds, &due.ConcurrencyPolicy, &due.MaxConcurrentRuns, &due.ActiveRuns, &storedNext)
+	err = tx.QueryRow(ctx, `SELECT s.id, s.task_id, sv.task_version_id, s.current_version_id, sv.expression, sv.timezone, sv.misfire_policy, sv.catchup_limit, sv.start_deadline_seconds, sv.concurrency_policy, sv.max_concurrent_runs, COALESCE((SELECT count(*) FROM runs active WHERE active.schedule_version_id = s.current_version_id AND active.state IN ('WAITING','RUNNING','RETRY_WAIT','CANCELLING')), 0), s.next_fire_at FROM schedules s JOIN schedule_versions sv ON sv.id = s.current_version_id WHERE s.enabled AND (s.next_fire_at IS NULL OR s.next_fire_at <= $1) AND NOT ((sv.concurrency_policy = 'ALLOW' AND sv.max_concurrent_runs > 0 AND COALESCE((SELECT count(*) FROM runs active WHERE active.schedule_version_id = s.current_version_id AND active.state IN ('WAITING','RUNNING','RETRY_WAIT','CANCELLING')), 0) >= sv.max_concurrent_runs) OR (sv.concurrency_policy = 'QUEUE' AND COALESCE((SELECT count(*) FROM runs active WHERE active.schedule_version_id = s.current_version_id AND active.state IN ('WAITING','RUNNING','RETRY_WAIT','CANCELLING')), 0) > 0)) ORDER BY (s.next_fire_at IS NULL), s.next_fire_at, s.id FOR UPDATE OF s SKIP LOCKED LIMIT 1`, now).Scan(&due.ID, &due.TaskID, &due.TaskVersionID, &due.ScheduleVersionID, &due.Expression, &due.Timezone, &due.MisfirePolicy, &due.CatchupLimit, &due.DeadlineSeconds, &due.ConcurrencyPolicy, &due.MaxConcurrentRuns, &due.ActiveRuns, &storedNext)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", false, nil
 	}
@@ -441,7 +443,7 @@ func validateScheduleDefinition(definition ScheduleDefinition) error {
 	return nil
 }
 
-func insertScheduleVersion(ctx context.Context, tx pgx.Tx, scheduleID, taskID string, version int, taskVersionID string, definition ScheduleDefinition) error {
+func insertScheduleVersion(ctx context.Context, tx databaseTx, scheduleID, taskID string, version int, taskVersionID string, definition ScheduleDefinition) error {
 	_, err := tx.Exec(ctx, `INSERT INTO schedule_versions (id, schedule_id, task_id, version, task_version_id, expression, timezone, misfire_policy, catchup_limit, start_deadline_seconds, concurrency_policy, max_concurrent_runs) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`, scheduleID+"-v"+strconv.Itoa(version), scheduleID, taskID, version, taskVersionID, definition.Expression, definition.Timezone, definition.MisfirePolicy, definition.CatchupLimit, definition.DeadlineSeconds, definition.ConcurrencyPolicy, definition.MaxConcurrentRuns)
 	return err
 }

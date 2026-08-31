@@ -40,7 +40,7 @@ export function SystemMetricsView({ data }: { data: SystemMetrics }) {
       <MetricCard label="Readiness" value={<StatusPill status={data.ready ? 'Ready' : 'Not ready'} />} detail={data.ready ? 'All required components are healthy' : 'One or more required components are unhealthy'} icon={Server} tone={data.ready ? 'success' : 'danger'} />
       <MetricCard label="Queue lag" value={`${data.signals.queueLagSeconds}s`} detail="Oldest pending operational message" icon={Timer} tone={signalTone(data, 'queue_lag')} />
       <MetricCard label="Open dead letters" value={data.signals.deadLetters.open} detail={`Oldest age: ${data.signals.deadLetters.oldestAgeSeconds}s`} icon={Inbox} tone={signalTone(data, 'dead_letters_open')} />
-      <MetricCard label="Disk free" value={`${data.signals.disk.freePercent.toFixed(1)}%`} detail={formatBytes(data.signals.disk.freeBytes)} icon={HardDrive} tone={signalTone(data, 'disk_free_percent')} />
+      <MetricCard label="Database free" value={data.signals.disk.state === 'UNAVAILABLE' ? 'Unavailable' : `${data.signals.disk.freePercent.toFixed(1)}%`} detail={data.signals.disk.state === 'UNAVAILABLE' ? (data.signals.disk.code ?? 'Capacity signal unavailable') : formatBytes(data.signals.disk.freeBytes)} icon={HardDrive} tone={signalTone(data, data.signals.disk.state === 'UNAVAILABLE' ? 'storage_unavailable' : 'disk_free_percent')} />
       <MetricCard label="Stuck runs" value={data.signals.stuckRuns} detail="Runs beyond the operational threshold" icon={Activity} tone={signalTone(data, 'stuck_runs')} />
     </div>
     <section className="gf-card-panel">

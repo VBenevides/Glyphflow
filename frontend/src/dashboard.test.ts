@@ -15,6 +15,8 @@ describe('dashboard permissions', () => {
   it('keeps the overview metrics separate from recent activity', () => {
     expect(DASHBOARD_WIDGETS.filter((widget) => widget.kind === 'metric').map((widget) => widget.key)).toEqual(['runs', 'schedules', 'runners'])
     expect(DASHBOARD_WIDGETS.find((widget) => widget.key === 'audit')?.kind).toBe('list')
+    expect(DASHBOARD_WIDGETS.find((widget) => widget.key === 'secrets')?.label).toBe('Secrets requiring attention')
+    expect(DASHBOARD_WIDGETS.find((widget) => widget.key === 'secrets')?.permission).toBe('secrets.read|secrets.manage')
   })
 
   it('keys conflict dismissals by the projection calculation timestamp', () => {

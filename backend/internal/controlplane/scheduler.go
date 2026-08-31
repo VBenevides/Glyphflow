@@ -72,6 +72,9 @@ func nextCronMinute(now time.Time, expression string) (time.Time, error) {
 	}
 	domAny := cronFieldIsAny(dom, 1, 31)
 	dowAny := cronFieldIsAny(dow, 0, 6)
+	if dowAny && !cronHasCalendarDate(dom, month) {
+		return time.Time{}, errors.New("cron has no occurrence in search window")
+	}
 	for i := 1; i <= 24*60*366*8; i++ {
 		candidate := now.Truncate(time.Minute).Add(time.Duration(i) * time.Minute)
 		dayMatch := dom[candidate.Day()] || dow[int(candidate.Weekday())]
@@ -92,6 +95,24 @@ func nextCronMinute(now time.Time, expression string) (time.Time, error) {
 
 func cronFieldIsAny(values map[int]bool, min, max int) bool {
 	return len(values) == max-min+1
+}
+
+func cronHasCalendarDate(dom, months map[int]bool) bool {
+	for month := range months {
+		maxDay := 31
+		switch month {
+		case 2:
+			maxDay = 29
+		case 4, 6, 9, 11:
+			maxDay = 30
+		}
+		for day := range dom {
+			if day <= maxDay {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func splitFields(value string) []string {

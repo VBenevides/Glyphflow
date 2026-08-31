@@ -2,6 +2,7 @@ package config
 
 import (
 	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -25,7 +26,9 @@ const (
 
 type Config struct {
 	Role                          Role
+	DatabaseMode                  string
 	DatabaseURL                   string
+	NATSMode                      string
 	NATSURL                       string
 	NATSCertFile                  string
 	NATSKeyFile                   string
@@ -57,6 +60,7 @@ type Config struct {
 	RunnerID                      string
 	MaxMessageBytes               int
 	MaxOutputBytes                int
+	DatabaseStorageCapacityBytes  int64
 }
 
 func FromEnv(role Role) (Config, error) {
@@ -80,10 +84,23 @@ func FromEnv(role Role) (Config, error) {
 	if len(csrfOrigins) == 0 {
 		csrfOrigins = parseOrigins(os.Getenv("WEB_ORIGIN"))
 	}
+	databaseURL := strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	databaseMode := normalizeDatabaseMode(os.Getenv("GLYPHFLOW_DATABASE"), databaseURL)
+	natsURL := strings.TrimSpace(os.Getenv("NATS_URL"))
+	natsMode := normalizeNATSMode(os.Getenv("GLYPHFLOW_NATS"), natsURL)
+	dataDir := strings.TrimSpace(os.Getenv("DATA_DIR"))
+	if dataDir == "" && databaseMode == "sqlite" {
+		dataDir, _ = filepath.Abs(".dev-data")
+	}
+	if databaseMode == "sqlite" && databaseURL == "" {
+		databaseURL = filepath.Join(dataDir, "controlplane.sqlite")
+	}
 	config := Config{
 		Role:                          role,
-		DatabaseURL:                   os.Getenv("DATABASE_URL"),
-		NATSURL:                       os.Getenv("NATS_URL"),
+		DatabaseMode:                  databaseMode,
+		DatabaseURL:                   databaseURL,
+		NATSMode:                      natsMode,
+		NATSURL:                       natsURL,
 		NATSCertFile:                  os.Getenv("NATS_CERT_FILE"),
 		NATSKeyFile:                   os.Getenv("NATS_KEY_FILE"),
 		NATSCAFile:                    os.Getenv("NATS_CA_FILE"),
@@ -104,7 +121,7 @@ func FromEnv(role Role) (Config, error) {
 		BootstrapOIDCSubject:          strings.TrimSpace(os.Getenv("GLYPHFLOW_BOOTSTRAP_OIDC_SUBJECT")),
 		SystemAdminEmails:             systemAdminEmails,
 		Environment:                   strings.ToLower(strings.TrimSpace(os.Getenv("ENVIRONMENT"))),
-		DataDir:                       os.Getenv("DATA_DIR"),
+		DataDir:                       dataDir,
 		LogMonthsKeep:                 3,
 		AuditMonthsKeep:               12,
 		RunnerMetricsMonthsKeep:       3,
@@ -131,12 +148,18 @@ func FromEnv(role Role) (Config, error) {
 		if config.RunnerMetricsMonthsKeep, err = envIntDefault("RUNNER_METRICS_MONTHS_KEEP", 3); err != nil {
 			return Config{}, err
 		}
+		if config.DatabaseStorageCapacityBytes, err = envInt64Default("DATABASE_STORAGE_CAPACITY_BYTES", 0); err != nil {
+			return Config{}, err
+		}
 	}
 	if err := config.Validate(); err != nil {
 		return Config{}, err
 	}
 	if role == ControlPlane {
-		config.InstallationEncryptionKey, err = loadInstallationEncryptionKey(config.Environment, config.SecretEncryptionKeyFile, config.AccessTokenSecret)
+		if config.SecretEncryptionKeyFile == "" {
+			config.SecretEncryptionKeyFile = filepath.Join(config.DataDir, "secret-encryption.key")
+		}
+		config.InstallationEncryptionKey, err = loadInstallationEncryptionKey(config.SecretEncryptionKeyFile)
 		if err != nil {
 			return Config{}, err
 		}
@@ -163,8 +186,21 @@ func (c Config) Validate() error {
 			return fmt.Errorf("system admin email: %w", err)
 		}
 	}
-	if err := requireURL("NATS_URL", c.NATSURL, "nats", "tls"); err != nil {
-		return err
+	databaseMode := normalizeDatabaseMode(c.DatabaseMode, c.DatabaseURL)
+	if databaseMode == "" {
+		return errors.New("GLYPHFLOW_DATABASE must be sqlite, psql, or postgresql")
+	}
+	natsMode := normalizeNATSMode(c.NATSMode, c.NATSURL)
+	if natsMode == "" {
+		return errors.New("GLYPHFLOW_NATS must be embed or remote")
+	}
+	if natsMode == "remote" || c.Role == Worker {
+		if err := requireURL("NATS_URL", c.NATSURL, "nats", "tls"); err != nil {
+			return err
+		}
+	}
+	if c.Role == Worker && natsMode == "embedded" && c.Environment != "development" {
+		return errors.New("GLYPHFLOW_NATS=embed for workers is supported only in development")
 	}
 	if !filepath.IsAbs(c.DataDir) {
 		return errors.New("DATA_DIR must be an absolute path")
@@ -175,7 +211,16 @@ func (c Config) Validate() error {
 	if c.Role == ControlPlane && (c.LogMonthsKeep <= 0 || c.AuditMonthsKeep <= 0 || c.RunnerMetricsMonthsKeep <= 0) {
 		return errors.New("LOG_MONTHS_KEEP, AUDIT_MONTHS_KEEP, and RUNNER_METRICS_MONTHS_KEEP must be greater than zero")
 	}
+	if c.Role == ControlPlane && c.DatabaseStorageCapacityBytes < 0 {
+		return errors.New("DATABASE_STORAGE_CAPACITY_BYTES must not be negative")
+	}
 	if c.Role == ControlPlane {
+		if c.Environment != "development" && databaseMode == "sqlite" {
+			return errors.New("GLYPHFLOW_DATABASE=sqlite is supported only in development")
+		}
+		if c.Environment == "production" && natsMode == "embedded" {
+			return errors.New("GLYPHFLOW_NATS=embed is not supported in production")
+		}
 		if len([]byte(c.AccessTokenSecret)) < 32 {
 			return errors.New("ACCESS_TOKEN_SECRET must contain at least 32 bytes")
 		}
@@ -189,15 +234,15 @@ func (c Config) Validate() error {
 			if err := requireURL("WEB_ORIGIN", c.WebOrigin, "https"); err != nil {
 				return err
 			}
-			if !strings.HasPrefix(c.NATSURL, "tls://") {
+			if natsMode != "remote" || !strings.HasPrefix(c.NATSURL, "tls://") {
 				return errors.New("NATS_URL must use TLS outside development")
 			}
 		}
 		if c.Environment != "development" && c.ControlPlaneSigningPrivateKey == "" {
 			return errors.New("CONTROL_PLANE_SIGNING_PRIVATE_KEY is required outside development")
 		}
-		if c.Environment != "development" && strings.TrimSpace(c.SecretEncryptionKeyFile) == "" {
-			return errors.New("SECRET_ENCRYPTION_KEY_FILE is required outside development")
+		if c.Environment != "development" && c.DatabaseStorageCapacityBytes <= 0 {
+			return errors.New("DATABASE_STORAGE_CAPACITY_BYTES must be greater than zero outside development")
 		}
 		if c.ControlPlaneSigningPrivateKey != "" {
 			raw, err := base64.RawStdEncoding.DecodeString(c.ControlPlaneSigningPrivateKey)
@@ -208,11 +253,21 @@ func (c Config) Validate() error {
 		if c.Environment == "production" && (c.NATSCertFile == "" || c.NATSKeyFile == "" || c.NATSCAFile == "") {
 			return errors.New("production requires NATS client certificate, key, and CA files")
 		}
-		if err := requireURL("DATABASE_URL", c.DatabaseURL, "postgres", "postgresql"); err != nil {
-			return err
-		}
-		if c.Environment != "development" && databaseSSLMode(c.DatabaseURL) != "verify-full" {
-			return errors.New("DATABASE_URL must use sslmode=verify-full outside development")
+		if databaseMode == "postgresql" {
+			if err := requireURL("DATABASE_URL", c.DatabaseURL, "postgres", "postgresql"); err != nil {
+				return err
+			}
+			if c.Environment != "development" && databaseSSLMode(c.DatabaseURL) != "verify-full" {
+				return errors.New("DATABASE_URL must use sslmode=verify-full outside development")
+			}
+		} else {
+			path := strings.TrimSpace(c.DatabaseURL)
+			if path == "" {
+				return errors.New("DATABASE_URL must contain the SQLite database path")
+			}
+			if strings.Contains(path, "://") && !strings.HasPrefix(strings.ToLower(path), "file://") {
+				return errors.New("DATABASE_URL must contain a SQLite database path")
+			}
 		}
 		return nil
 	}
@@ -236,20 +291,93 @@ func (c Config) Validate() error {
 	return nil
 }
 
+func normalizeDatabaseMode(value, databaseURL string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(databaseURL)), "postgres") {
+			return "postgresql"
+		}
+		return "sqlite"
+	}
+	if value == "psql" {
+		return "postgresql"
+	}
+	if value == "sqlite" || value == "postgresql" {
+		return value
+	}
+	return ""
+}
+
+func normalizeNATSMode(value, natsURL string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		if strings.TrimSpace(natsURL) != "" {
+			return "remote"
+		}
+		return "embedded"
+	}
+	if value == "embed" || value == "embedded" {
+		return "embedded"
+	}
+	if value == "remote" {
+		return value
+	}
+	return ""
+}
+
 const installationEncryptionKeySize = 32
 
-func loadInstallationEncryptionKey(environment, path, fallbackSecret string) ([]byte, error) {
-	if environment == "development" && path == "" {
-		return []byte(fallbackSecret), nil
-	}
+const installationEncryptionKeyWarning = `WARNING: The encryption key file was not found and a new random encryption key is being generated.
+This file is required to decrypt secrets stored by the application.
+If the file is deleted, lost, or replaced, secrets encrypted with the previous key cannot be recovered.
+Affected secrets must be replaced or re-entered and encrypted using the new key.
+Existing encrypted secrets may no longer be decryptable.`
+
+func loadInstallationEncryptionKey(path string) ([]byte, error) {
 	if path == "" {
-		return nil, errors.New("SECRET_ENCRYPTION_KEY_FILE is required outside development")
+		return nil, errors.New("SECRET_ENCRYPTION_KEY_FILE path is required")
 	}
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, fmt.Errorf("SECRET_ENCRYPTION_KEY_FILE: %w", err)
+		if !os.IsNotExist(err) {
+			return nil, fmt.Errorf("SECRET_ENCRYPTION_KEY_FILE: %w", err)
+		}
+		key := make([]byte, installationEncryptionKeySize)
+		if _, err := rand.Read(key); err != nil {
+			return nil, fmt.Errorf("generate SECRET_ENCRYPTION_KEY_FILE: %w", err)
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			return nil, fmt.Errorf("create SECRET_ENCRYPTION_KEY_FILE directory: %w", err)
+		}
+		file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if errors.Is(err, os.ErrExist) {
+			file, err = os.Open(path)
+			if err != nil {
+				return nil, fmt.Errorf("SECRET_ENCRYPTION_KEY_FILE: %w", err)
+			}
+			defer file.Close()
+			return readInstallationEncryptionKey(file)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("create SECRET_ENCRYPTION_KEY_FILE: %w", err)
+		}
+		if _, err := file.WriteString(base64.StdEncoding.EncodeToString(key) + "\n"); err != nil {
+			_ = file.Close()
+			_ = os.Remove(path)
+			return nil, fmt.Errorf("write SECRET_ENCRYPTION_KEY_FILE: %w", err)
+		}
+		if err := file.Close(); err != nil {
+			_ = os.Remove(path)
+			return nil, fmt.Errorf("close SECRET_ENCRYPTION_KEY_FILE: %w", err)
+		}
+		fmt.Fprintln(os.Stderr, installationEncryptionKeyWarning)
+		return key, nil
 	}
 	defer file.Close()
+	return readInstallationEncryptionKey(file)
+}
+
+func readInstallationEncryptionKey(file *os.File) ([]byte, error) {
 	info, err := file.Stat()
 	if err != nil {
 		return nil, fmt.Errorf("SECRET_ENCRYPTION_KEY_FILE: %w", err)
@@ -298,6 +426,18 @@ func envIntDefault(name string, fallback int) (int, error) {
 		return fallback, nil
 	}
 	return envInt(name)
+}
+
+func envInt64Default(name string, fallback int64) (int64, error) {
+	value, ok := os.LookupEnv(name)
+	if !ok || strings.TrimSpace(value) == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be an integer", name)
+	}
+	return parsed, nil
 }
 
 func envBool(name string, fallback bool) (bool, error) {

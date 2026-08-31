@@ -25,10 +25,6 @@ export function SecretReference({ value }: { value: string }) {
   return <span className="gf-secret-reference" title="The secret value is never displayed">Secret reference: {value}</span>
 }
 
-export function EnvironmentValue({ name, value, secret = false }: { name: string; value: string; secret?: boolean }) {
-  return <div className="gf-environment-field"><strong>{name}</strong>{secret ? <SecretReference value={value} /> : <SafeText value={value} />}</div>
-}
-
 export function redactAuditValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(redactAuditValue)
   if (!value || typeof value !== 'object') return value

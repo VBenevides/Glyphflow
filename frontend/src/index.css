@@ -354,7 +354,7 @@ body { background-image: var(--gf-page-glow); }
 .gf-input { min-height: 2.25rem; max-width: 32rem; box-sizing: border-box; border-radius: 0.5rem; background: color-mix(in oklab, var(--gf-card), var(--gf-surface) 16%); box-shadow: 0 1px 2px rgb(0 0 0 / 4%); }
 .gf-textarea { max-width: 48rem; box-sizing: border-box; }
 .gf-input:focus { border-color: var(--gf-action); box-shadow: 0 0 0 3px color-mix(in oklab, var(--gf-action), transparent 82%); outline: 0; }
-.gf-password-field { position: relative; }
+.gf-password-field { position: relative; width: 100%; max-width: 32rem; }
 .gf-password-input { padding-right: 2.75rem; }
 .gf-password-toggle { position: absolute; top: 50%; right: 0.35rem; display: grid; place-items: center; width: 2rem; height: 2rem; padding: 0; color: var(--gf-muted); background: transparent; border: 0; border-radius: 0.35rem; transform: translateY(-50%); cursor: pointer; }
 .gf-password-toggle:hover, .gf-password-toggle:focus-visible { color: var(--gf-action); background: var(--gf-surface); }

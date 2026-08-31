@@ -3,10 +3,10 @@ package store
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var (
@@ -21,6 +21,12 @@ type SessionRecord struct {
 	RevokedAt                                     *time.Time
 }
 
+type AdminSessionRecord struct {
+	ID, UserID, UserEmail string
+	ExpiresAt, LastSeenAt time.Time
+	UserAgent, IPAddress  string
+}
+
 type SessionRepository interface {
 	Create(context.Context, SessionRecord) error
 	Get(context.Context, string) (SessionRecord, bool, error)
@@ -33,9 +39,12 @@ type SessionRepository interface {
 	DeleteOlderThan(context.Context, time.Time) error
 }
 
-type SessionStore struct{ pool *pgxpool.Pool }
+type SessionStore struct{ pool database }
 
-func NewSessionRepository(pool *pgxpool.Pool) *SessionStore { return &SessionStore{pool: pool} }
+func NewSessionRepository(pool any) *SessionStore {
+	db, _ := databaseFrom(pool)
+	return &SessionStore{pool: db}
+}
 
 func (s *SessionStore) Create(ctx context.Context, session SessionRecord) error {
 	_, err := s.pool.Exec(ctx, `INSERT INTO auth_sessions (id, user_id, refresh_token_hash, access_expires_at, refresh_expires_at, session_family_id, user_agent, ip_address, last_seen_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`, session.ID, session.UserID, session.RefreshTokenHash, session.AccessExpiresAt, session.RefreshExpiresAt, session.SessionFamilyID, session.UserAgent, session.IPAddress, session.LastSeenAt)
@@ -131,6 +140,36 @@ func (s *SessionStore) List(ctx context.Context, userID string) ([]SessionRecord
 		result = append(result, session)
 	}
 	return result, rows.Err()
+}
+
+func (s *SessionStore) ListAdminPage(ctx context.Context, email string, limit, offset int) ([]AdminSessionRecord, int, error) {
+	if limit < 1 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT a.id, a.user_id, u.email, a.access_expires_at, a.last_seen_at, a.user_agent, a.ip_address, count(*) OVER()
+		FROM auth_sessions a
+		JOIN users u ON u.id = a.user_id
+		WHERE a.revoked_at IS NULL AND ($1 = '' OR lower(u.email) LIKE '%' || lower($1) || '%')
+		ORDER BY u.email, a.id
+		LIMIT $2 OFFSET $3`, strings.TrimSpace(email), limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	sessions := []AdminSessionRecord{}
+	total := 0
+	for rows.Next() {
+		var session AdminSessionRecord
+		if err := rows.Scan(&session.ID, &session.UserID, &session.UserEmail, &session.ExpiresAt, &session.LastSeenAt, &session.UserAgent, &session.IPAddress, &total); err != nil {
+			return nil, 0, err
+		}
+		sessions = append(sessions, session)
+	}
+	return sessions, total, rows.Err()
 }
 
 func (s *SessionStore) DeleteOlderThan(ctx context.Context, cutoff time.Time) error {

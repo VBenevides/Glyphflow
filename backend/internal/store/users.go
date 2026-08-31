@@ -8,7 +8,6 @@ import (
 	"unicode"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type UserRecord struct {
@@ -81,9 +80,12 @@ type UserRepository interface {
 	SetStatus(context.Context, string, string) error
 }
 
-type UserStore struct{ pool *pgxpool.Pool }
+type UserStore struct{ pool database }
 
-func NewUserRepository(pool *pgxpool.Pool) *UserStore { return &UserStore{pool: pool} }
+func NewUserRepository(pool any) *UserStore {
+	db, _ := databaseFrom(pool)
+	return &UserStore{pool: db}
+}
 
 func (s *UserStore) Create(ctx context.Context, user UserRecord, passwordHash string) error {
 	user.DisplayName = NormalizeDisplayName(user.Email, user.DisplayName)
@@ -170,7 +172,7 @@ func (s *UserStore) List(ctx context.Context, status string) ([]UserRecord, erro
 		query += ` WHERE status = $1`
 	}
 	query += ` ORDER BY lower(username), id`
-	var rows pgx.Rows
+	var rows databaseRows
 	var err error
 	if status == "" {
 		rows, err = s.pool.Query(ctx, query)
@@ -193,6 +195,63 @@ func (s *UserStore) List(ctx context.Context, status string) ([]UserRecord, erro
 		users = append(users, user)
 	}
 	return users, rows.Err()
+}
+
+func (s *UserStore) ListPage(ctx context.Context, status, email string, roles []string, limit, offset int) ([]UserRecord, int, error) {
+	status = strings.ToLower(strings.TrimSpace(status))
+	if status != "" && !ValidUserStatus(status) {
+		return nil, 0, fmt.Errorf("invalid user status %q", status)
+	}
+	if limit < 1 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	conditions := []string{"1 = 1"}
+	args := []any{}
+	if status != "" {
+		args = append(args, status)
+		conditions = append(conditions, fmt.Sprintf("u.status = $%d", len(args)))
+	}
+	if email = strings.TrimSpace(email); email != "" {
+		args = append(args, email)
+		conditions = append(conditions, fmt.Sprintf("lower(u.email) LIKE '%%' || lower($%d) || '%%'", len(args)))
+	}
+	for _, role := range roles {
+		role = strings.ToLower(strings.TrimSpace(role))
+		if role == "" {
+			continue
+		}
+		args = append(args, role)
+		conditions = append(conditions, fmt.Sprintf(`EXISTS (SELECT 1 FROM role_assignments a JOIN roles r ON r.id = a.role_id WHERE a.user_id = u.id AND lower(r.name) = $%d)`, len(args)))
+	}
+	limitArg := len(args) + 1
+	offsetArg := len(args) + 2
+	args = append(args, limit, offset)
+	rows, err := s.pool.Query(ctx, fmt.Sprintf(`
+		SELECT u.id, u.username, u.email, u.display_name, u.status, count(*) OVER()
+		FROM users u
+		WHERE %s
+		ORDER BY lower(u.username), u.id
+		LIMIT $%d OFFSET $%d`, strings.Join(conditions, " AND "), limitArg, offsetArg), args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	users := []UserRecord{}
+	total := 0
+	for rows.Next() {
+		var user UserRecord
+		var userStatus string
+		if err := rows.Scan(&user.ID, &user.Username, &user.Email, &user.DisplayName, &userStatus, &total); err != nil {
+			return nil, 0, err
+		}
+		user.Status = userStatus
+		user.Enabled = userStatus == StatusActive
+		users = append(users, user)
+	}
+	return users, total, rows.Err()
 }
 
 func (s *UserStore) PasswordHash(ctx context.Context, userID string) (string, bool, error) {

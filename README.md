@@ -35,8 +35,9 @@ one place to inspect what happened.
 
 Workers run on the machines that own the work. They connect outbound to the
 control plane's message bus, execute commands locally, and report signed
-lifecycle events and logs back to the console. PostgreSQL stays with the
-control plane; workers do not need database credentials or a PostgreSQL client.
+lifecycle events and logs back to the console. The control plane uses SQLite
+locally and PostgreSQL in production; workers keep a separate local
+`runner.sqlite` and never need database credentials.
 
 ## Main features
 
@@ -50,7 +51,7 @@ but less ceremony than a full container-orchestration platform.
 - **Useful history:** inspect attempts, state transitions, streamed stdout/stderr, exit codes, and audit events.
 - **Deliberate placement:** send work to a pool, pin it to a runner, or match runner capability tags.
 - **Recoverable delivery:** durable state, leases, fencing, local worker recovery, and signed messages handle restarts and redelivery.
-- **Self-hosted by design:** the required runtime is PostgreSQL, NATS JetStream, the Glyphflow control plane, and your workers.
+- **Self-hosted by design:** local development uses SQLite and embedded NATS JetStream; production uses PostgreSQL, a separate NATS JetStream process, the Glyphflow control plane, and your workers.
 
 ## What you can do
 
@@ -62,7 +63,8 @@ include:
 - an argument-array command, with no shell parsing;
 - a working directory and environment variables;
 - global-variable references such as `$ENV:BACKUP_ROOT`;
-- secret references kept separate from command text;
+- named secret references kept separate from command text; values are injected as
+  environment variables only when a runner starts the task;
 - a runner pool or a specific runner;
 - capability selectors such as `platform=linux` and `architecture=amd64`;
 - execution timeout and maximum attempts;
@@ -145,20 +147,20 @@ meanings, and public API documentation. Once the control plane is running:
 Browser
   │ task, schedule, and operator actions
   ▼
-Control plane ───── PostgreSQL
+Control plane ───── SQLite (local) / PostgreSQL (production)
   │                  durable state, versions, leases, audit history
   │
-  └─────────────── NATS JetStream
+  └─────────────── embedded NATS (local) / remote NATS (production)
                        signed orders and lifecycle events
                            │
                            ▼
                      Outbound-only worker
-                       local SQLite + child process
+                       separate runner.sqlite + child process
 ```
 
 For a scheduled run, the control plane:
 
-1. creates the run and dispatch outbox record in PostgreSQL;
+1. creates the run and dispatch outbox record in the configured control-plane database;
 2. selects a healthy worker with capacity, matching capabilities, and available resources;
 3. signs and publishes the execution order through NATS JetStream;
 4. lets the worker verify, persist, and execute the order locally; and
@@ -174,7 +176,6 @@ truth.
 
 ### Requirements
 
-- Docker Compose
 - Go 1.25 or newer
 - Node.js 22.22.2 or newer
 - npm
@@ -187,8 +188,11 @@ cd Glyphflow
 ./dev_run.sh
 ```
 
-`dev_run.sh` starts PostgreSQL and NATS with Docker Compose, builds local
-runner binaries, and starts the Go control plane and React development server.
+`dev_run.sh` starts the Go control plane with local SQLite and embedded NATS
+JetStream, builds local runner binaries, and starts the React development
+server. Docker is not required for this path. See
+[`backend/.env.example`](backend/.env.example) and
+[`frontend/.env.example`](frontend/.env.example) for configurable variables.
 The provisional, non-guaranteed development targets are in
 [`docs/DEV-PROFILE.md`](docs/DEV-PROFILE.md).
 
@@ -196,13 +200,14 @@ Open <http://localhost:5173> and sign in with the development bootstrap
 account:
 
 ```text
-email:    admin@example_domain.com
-password: admin-password-123
+email:    admin@domain.com
+password: password
 ```
 
 This account and these credentials are for local development only. Press
-`Ctrl-C` to stop the processes. Development Docker volumes are retained so a
-later run can reuse local PostgreSQL and NATS data.
+`Ctrl-C` to stop the processes. Control-plane data is stored in
+`.dev-data/controlplane.sqlite` and `.dev-data/nats`; each worker separately
+stores recovery state in its own `DATA_DIR/runner.sqlite`.
 
 ### Make your first run
 
@@ -248,8 +253,8 @@ The current release is clean-install-only. On first start, the image applies
 its single canonical PostgreSQL schema to a new database; it does not upgrade
 databases from earlier releases.
 
-The base [`compose.yaml`](compose.yaml) is intentionally convenient for local
-use. It exposes PostgreSQL and NATS and contains development credentials. Do
+The base [`compose.yaml`](compose.yaml) remains available as a containerized
+PostgreSQL/NATS development stack. It contains development credentials; do
 not use those defaults for a public deployment.
 
 For production, provide the required values and secret files described in
@@ -263,7 +268,9 @@ The deployment contract supports one isolated production stack per client. Use
 a unique `COMPOSE_PROJECT_NAME` for each client so its PostgreSQL data, NATS
 authority, network, secrets, backups, and administrator scope stay separate.
 Shared tenancy and scaling any service beyond one replica are unsupported in
-this release.
+this release. The HA trigger is an approved client RTO or uptime target that
+the measured singleton restart recovery cannot meet. Until that trigger is
+recorded, do not run control-plane replicas.
 
 Production configuration requires, at minimum:
 
@@ -272,7 +279,7 @@ Production configuration requires, at minimum:
 | Database | Protected `DATABASE_URL_FILE` containing a URL with `sslmode=verify-full`; PostgreSQL CA, certificate, key, and password files |
 | Messaging | Protected `NATS_URL_FILE` containing a `tls://` URL plus client certificate, key, and CA files |
 | Web security | An HTTPS `WEB_ORIGIN`, explicit `CORS_ORIGIN`, and `CSRF_ORIGINS` |
-| Application secrets | Protected `ACCESS_TOKEN_SECRET_FILE`, `PASSWORD_PEPPER_FILE`, `CONTROL_PLANE_SIGNING_PRIVATE_KEY_FILE`, `SECRET_ENCRYPTION_KEY_FILE`, and `GLYPHFLOW_BOOTSTRAP_PASSWORD_FILE` |
+| Application secrets | Protected `ACCESS_TOKEN_SECRET_FILE`, `PASSWORD_PEPPER_FILE`, `CONTROL_PLANE_SIGNING_PRIVATE_KEY_FILE`, and `GLYPHFLOW_BOOTSTRAP_PASSWORD_FILE`; the 32-byte secret encryption key is loaded from or generated in `DATA_DIR` |
 | Bootstrap | `GLYPHFLOW_BOOTSTRAP_EMAIL`, protected `GLYPHFLOW_BOOTSTRAP_PASSWORD_FILE`, and `GLYPHFLOW_SYSTEM_ADMINS` |
 | Network | `GLYPHFLOW_PORT` for the web listener; keep PostgreSQL and NATS private |
 
@@ -296,11 +303,14 @@ The recommended worker workflow is enrollment from the console:
 4. run it as a service or supervised process.
 
 The binary contains a short-lived bootstrap credential and the control-plane
-public key. On first start it enrolls over HTTP(S), receives its NATS
-connection, generates and persists its own signing key, and stores local state
-under its data directory. Set `GLYPHFLOW_CONTROL_PLANE_URL` or
-`GLYPHFLOW_NATS_ENDPOINT` on the target machine when the embedded endpoints
-are not reachable from that network.
+public key and the control plane's development transport policy. On first start
+it enrolls over HTTP(S), receives its NATS connection, generates and persists
+its own signing key, and stores local state under its data directory. A
+development worker can use the control plane's
+embedded NATS server when it runs on the same machine; set
+`GLYPHFLOW_NATS=embed` and use the endpoint from the enrollment artifact. Set
+`GLYPHFLOW_CONTROL_PLANE_URL` or `GLYPHFLOW_NATS_ENDPOINT` when those local
+endpoints are not reachable from the worker.
 
 For maintainers building a worker from source:
 
@@ -331,13 +341,15 @@ with `_FILE` or `_SOURCE`.
 
 | Variable | Purpose |
 | --- | --- |
-| `DATABASE_URL` / `DATABASE_URL_FILE` | PostgreSQL connection URL; production Compose reads the protected file |
-| `NATS_URL` / `NATS_URL_FILE` | Control-plane NATS endpoint; use `tls://` outside development; production Compose reads the protected file |
+| `GLYPHFLOW_DATABASE` | `sqlite` for local development; `psql` or `postgresql` for production |
+| `DATABASE_URL` / `DATABASE_URL_FILE` | SQLite path in local development, or PostgreSQL connection URL; production Compose reads the protected file |
+| `DATABASE_STORAGE_CAPACITY_BYTES` | Application-database storage budget; SQLite uses the database file size and PostgreSQL uses `pg_database_size` |
+| `GLYPHFLOW_NATS` | `embed`/`embedded` for local development; `remote` for a separate NATS JetStream process |
+| `NATS_URL` / `NATS_URL_FILE` | Remote control-plane NATS endpoint; use `tls://` outside development; production Compose reads the protected file |
 | `NATS_CERT_FILE`, `NATS_KEY_FILE`, `NATS_CA_FILE` | NATS client TLS material |
 | `ACCESS_TOKEN_SECRET` / `ACCESS_TOKEN_SECRET_FILE` | Session and access-token signing secret; minimum 32 bytes |
 | `CONTROL_PLANE_SIGNING_PRIVATE_KEY` / `CONTROL_PLANE_SIGNING_PRIVATE_KEY_FILE` | Persistent base64 raw Ed25519 private key outside development |
 | `PASSWORD_PEPPER` / `PASSWORD_PEPPER_FILE` | Password hashing pepper; minimum 16 bytes when password login is enabled |
-| `SECRET_ENCRYPTION_KEY_FILE` | Protected base64 key file used to encrypt installation secrets outside development |
 | `WEB_ORIGIN` | Canonical browser origin, HTTPS outside development |
 | `CORS_ORIGIN` | Comma-separated CORS allowlist |
 | `CSRF_ORIGINS` | Comma-separated CSRF origin allowlist |
@@ -348,11 +360,40 @@ with `_FILE` or `_SOURCE`.
 | `ENABLE_PASSWORD_LOGIN` | Enable password sign-in; production defaults to disabled in the overlay |
 | `ENABLE_PASSWORD_REGISTRATION` | Enable self-service password registration; production defaults to disabled |
 | `DEFAULT_ROLE_ID` | Role assigned to newly created users |
-| `DATA_DIR` | Persistent control-plane data, including the development signing key |
+| `DATA_DIR` | Persistent control-plane data, including `secret-encryption.key` and the development signing key |
+| `SECRET_ENCRYPTION_KEY_FILE` | Optional path to an existing base64-encoded 32-byte key file; defaults to `DATA_DIR/secret-encryption.key` |
 | `GLYPHFLOW_DISABLE_NGINX` | Set to `true` when private ingress targets the control-plane listener directly on port `8080`; defaults to `false` and starts Nginx on port `80` |
 
-For private container ingress such as ACA, set `GLYPHFLOW_DISABLE_NGINX=true`
-and route ingress to port `8080`.
+For private container ingress such as ACA, set `GLYPHFLOW_DISABLE_NGINX=true` and
+route ingress to port `8080`.
+
+The control plane stores the AES-256-GCM encryption key in
+`DATA_DIR/secret-encryption.key`. Back up this file with the database. If it is
+deleted, lost, or replaced, encrypted secrets cannot be recovered and must be
+re-entered; startup warns when a new key is generated.
+
+Manage named secrets in **Administration → Secrets**. Task versions map an
+environment variable name to a named secret. The control plane decrypts the
+selected values only for the assigned runner immediately before execution;
+secret values are not stored in task orders, logs, or API responses.
+The Secrets page shows which current tasks use each secret and only allows
+deletion when no task uses it; SSO provider secrets remain protected.
+
+To deploy with an existing key, copy the unchanged file to the persistent
+`DATA_DIR/secret-encryption.key` location before the first start, or set
+`SECRET_ENCRYPTION_KEY_FILE` to a mounted local file path. The file must contain
+one base64-encoded 32-byte key and be readable only by its owner (`0600` or
+`0400`). A new key can be created with:
+
+```bash
+umask 077
+openssl rand -base64 32 > secret-encryption.key
+chmod 600 secret-encryption.key
+```
+
+The application loads an existing valid file and does not generate a replacement.
+Copy the same file when migrating the database; changing it makes existing
+encrypted secrets undecryptable.
 
 `GLYPHFLOW_BOOTSTRAP_EMAIL` and either `GLYPHFLOW_BOOTSTRAP_PASSWORD` (local
 development) or the protected `GLYPHFLOW_BOOTSTRAP_PASSWORD_FILE` (production
@@ -368,7 +409,8 @@ started without an embedded bootstrap, configure:
 | Variable | Purpose |
 | --- | --- |
 | `RUNNER_ID` | Stable runner identifier |
-| `NATS_URL` | Worker NATS endpoint |
+| `GLYPHFLOW_NATS` | `embed` for a development worker using the control plane's embedded NATS; `remote` for a separate NATS process |
+| `NATS_URL` | Worker NATS endpoint; enrollment artifacts set this automatically |
 | `DATA_DIR` | Persistent worker directory containing `runner.sqlite` and signing keys |
 | `MAX_MESSAGE_BYTES` | Maximum accepted protocol message size |
 | `MAX_OUTPUT_BYTES` | Maximum captured process output; cannot exceed `MAX_MESSAGE_BYTES` |

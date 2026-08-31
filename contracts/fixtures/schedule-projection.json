@@ -1,0 +1,32 @@
+{
+  "available": true,
+  "calculatedAt": "2026-08-27T00:00:00Z",
+  "windowStart": "2026-08-27T00:00:00Z",
+  "windowEnd": "2026-09-03T00:00:00Z",
+  "durationSource": "task_duration",
+  "segments": [
+    {
+      "id": "schedule-1:2026-08-27T00:00:00Z",
+      "scheduleId": "schedule-1",
+      "scheduleName": "Nightly backup schedule",
+      "scheduleVersionId": "schedule-1-v1",
+      "taskId": "task-1",
+      "taskName": "Nightly backup",
+      "taskVersionId": "task-1-v2",
+      "timezone": "UTC",
+      "laneId": "pool:default",
+      "laneLabel": "default",
+      "startAt": "2026-08-27T00:00:00Z",
+      "endAt": "2026-08-27T00:00:30Z",
+      "occurrenceCount": 1,
+      "conflicted": false,
+      "exclusiveResources": [
+        {
+          "id": "resource-1",
+          "name": "Production database"
+        }
+      ]
+    }
+  ],
+  "conflicts": []
+}

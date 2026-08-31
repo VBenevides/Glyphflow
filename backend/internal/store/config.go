@@ -7,12 +7,9 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type ConfigStore struct {
-	pool *pgxpool.Pool
-}
+type ConfigStore struct{ pool database }
 
 var allowedConfigNames = map[string]struct{}{
 	"ENABLE_PASSWORD_LOGIN":        {},
@@ -33,8 +30,9 @@ func validateConfigName(name string) error {
 	return nil
 }
 
-func NewConfigStore(pool *pgxpool.Pool) *ConfigStore {
-	return &ConfigStore{pool: pool}
+func NewConfigStore(pool any) *ConfigStore {
+	db, _ := databaseFrom(pool)
+	return &ConfigStore{pool: db}
 }
 
 func (s *ConfigStore) Get(ctx context.Context, name string, target any) (bool, error) {

@@ -53,7 +53,7 @@ func TestCanonicalSchemaContainsFinalTables(t *testing.T) {
 	sql := canonicalMigrationSQL(t)
 	for _, table := range []string{
 		"config", "users", "user_passwords", "auth_sessions", "roles", "permissions", "role_permissions", "role_assignments",
-		"sso_providers", "sso_group_role_mappings", "user_sso_identities", "sso_authorization_states", "audit_events", "exit_code",
+		"sso_providers", "encrypted_secrets", "sso_group_role_mappings", "user_sso_identities", "sso_authorization_states", "audit_events", "exit_code",
 		"global_variables", "global_variable_references", "runner_pools", "runners", "runner_sessions", "runner_metrics", "runner_keys", "runner_enrollments",
 		"tasks", "task_versions", "schedules", "schedule_versions", "runs", "execution_attempts", "run_events", "execution_log_chunks",
 		"resources", "task_resource_requirements", "resource_leases", "dispatch_outbox", "event_inbox", "dead_letters", "retention_legal_holds",
@@ -87,6 +87,9 @@ func TestCanonicalSchemaContainsFinalShape(t *testing.T) {
 	}
 	if strings.Contains(sql, "schedule_type") || strings.Contains(sql, "\n    deleted boolean") {
 		t.Fatal("canonical schema contains removed compatibility columns")
+	}
+	if strings.Contains(sql, "secret_hash") {
+		t.Fatal("canonical schema contains plaintext secret hashing")
 	}
 }
 

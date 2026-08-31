@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -22,7 +24,7 @@ import (
 	"github.com/VBenevides/Glyphflow/backend/internal/platform"
 	"github.com/VBenevides/Glyphflow/backend/internal/queue"
 	"github.com/VBenevides/Glyphflow/backend/internal/store"
-	"github.com/shirou/gopsutil/v4/disk"
+	natsserver "github.com/nats-io/nats-server/v2/server"
 )
 
 func main() {
@@ -44,18 +46,53 @@ func run() error {
 		fmt.Fprintln(os.Stderr, `WARNING: CORS set to "*", this is NOT RECOMMENDED for production environments`)
 		break
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, stop := notifyContext()
 	defer stop()
-	db, err := pgxpool.New(ctx, cfg.DatabaseURL)
-	if err != nil {
-		return err
+	var db any
+	var pingDatabase func(context.Context) error
+	var closeDatabase func()
+	if cfg.DatabaseMode == "sqlite" {
+		sqliteDB, err := store.OpenSQLite(cfg.DatabaseURL)
+		if err != nil {
+			return err
+		}
+		db = sqliteDB
+		pingDatabase = sqliteDB.PingContext
+		closeDatabase = func() { _ = sqliteDB.Close() }
+		if err := store.ApplySQLiteMigrations(ctx, sqliteDB, "migrations"); err != nil {
+			closeDatabase()
+			return err
+		}
+	} else {
+		postgresDB, err := pgxpool.New(ctx, cfg.DatabaseURL)
+		if err != nil {
+			return err
+		}
+		db = postgresDB
+		pingDatabase = postgresDB.Ping
+		closeDatabase = func() { closeControlPlaneDB(postgresDB) }
+		if err := waitForDatabase(ctx, postgresDB.Ping, time.Second); err != nil {
+			closeDatabase()
+			return err
+		}
+		if err := store.ApplyMigrations(ctx, postgresDB, "migrations"); err != nil {
+			closeDatabase()
+			return err
+		}
 	}
-	defer db.Close()
-	if err := waitForDatabase(ctx, db.Ping, time.Second); err != nil {
-		return err
+	defer closeDatabase()
+	if cfg.DatabaseMode == "sqlite" {
+		if err := waitForDatabase(ctx, pingDatabase, time.Second); err != nil {
+			return err
+		}
 	}
-	if err := store.ApplyMigrations(ctx, db, "migrations"); err != nil {
-		return err
+	if cfg.NATSMode == "embedded" {
+		server, err := startEmbeddedNATS(cfg.DataDir)
+		if err != nil {
+			return err
+		}
+		defer server.Shutdown()
+		cfg.NATSURL = server.ClientURL()
 	}
 	configStore := store.NewConfigStore(db)
 	for name, value := range map[string]any{
@@ -128,7 +165,9 @@ func run() error {
 	authService.SetLockdownScheduler(cfg.LockdownScheduler)
 	sessionRepository := store.NewSessionRepository(db)
 	authService.SetSessionRepository(sessionRepository)
-	authService.SetSSORepository(store.NewOIDCProviderRepository(db))
+	ssoRepository := store.NewOIDCProviderRepository(db)
+	encryptedSecretRepository := store.NewEncryptedSecretRepository(db)
+	authService.SetSSORepository(ssoRepository)
 	if err := authService.AddRole("admin", platform.PermissionCatalog...); err != nil {
 		return err
 	}
@@ -143,7 +182,8 @@ func run() error {
 	}
 	oidcService := api.NewOIDCService()
 	oidcService.SetDefaultCallback(strings.TrimRight(cfg.WebOrigin, "/") + "/api/v1/auth/oidc/callback")
-	oidcService.SetRepository(store.NewOIDCProviderRepository(db))
+	oidcService.SetRepository(ssoRepository)
+	oidcService.SetSecretRepository(encryptedSecretRepository, cfg.InstallationEncryptionKey)
 	oidcService.SetStateRepository(store.NewOIDCAuthorizationStateRepository(db), cfg.InstallationEncryptionKey)
 	roles := api.NewRoleAdminService()
 	roles.SetRepository(roleRepository)
@@ -159,15 +199,14 @@ func run() error {
 	operations := api.NewOperationsService()
 	taskRepository := store.NewTaskRepository(db)
 	operations.SetTaskRepository(taskRepository)
+	operations.SetSecretRepository(encryptedSecretRepository)
 	scheduleRepository := store.NewScheduleRepository(db)
 	retentionRepository := store.NewRetentionRepository(db)
-	storageMonitor := new(platform.StoragePressureMonitor)
-	storagePressure := func(context.Context) (platform.StoragePressure, error) {
-		usage, err := disk.Usage(cfg.DataDir)
-		if err != nil || usage.Total == 0 {
-			return platform.StoragePressure{State: platform.StorageUnavailable, Code: "storage_unavailable"}, nil
-		}
-		return storageMonitor.Observe(float64(usage.Free) * 100 / float64(usage.Total)), nil
+	var storagePressure func(context.Context) (platform.StoragePressure, error)
+	if cfg.DatabaseMode == "sqlite" {
+		storagePressure = store.NewSQLiteStoragePressureProvider(db.(*sql.DB), cfg.DatabaseStorageCapacityBytes)
+	} else {
+		storagePressure = store.NewPostgreSQLStoragePressureProvider(db.(*pgxpool.Pool), cfg.DatabaseStorageCapacityBytes)
 	}
 	operations.SetScheduleRepository(scheduleRepository)
 	globalVariables := api.NewGlobalVariableService()
@@ -209,10 +248,10 @@ func run() error {
 		metrics.AuditAppendErrors.Add(1)
 		_ = logger.Event("audit.append_failed", map[string]string{"id": event.ID, "actor": event.Actor, "error": err.Error(), "count": strconv.FormatUint(metrics.AuditAppendErrors.Load(), 10)})
 	})
-	health := controlplane.NewHealth("session-cleanup", "heartbeat", "dispatcher", "start-claim", "scheduler")
+	health := controlplane.NewHealth("session-cleanup", "heartbeat", "dispatcher", "start-claim", "secret-delivery", "scheduler")
 	deadLetterRepository := store.NewDeadLetterRepository(db, cfg.InstallationEncryptionKey)
-	application := api.Server{AuthService: authService, AuthAdmin: &api.AuthAdminService{Auth: authService, OIDC: oidcService, Sessions: authService.SessionManager()}, Sessions: authService.SessionManager(), OIDC: oidcService, Roles: roles, Auth: authService.Authenticator(), Permissions: authService.Permissions, Metrics: metrics, Logger: logger, CSRFOrigin: cfg.WebOrigin, CSRFOrigins: cfg.CSRFOrigins, CORSOrigins: cfg.CORSOrigins, Operations: operations, Runs: runs, Infrastructure: infrastructure, AuditQuery: audit, ExitCodes: store.NewExitCodeRepository(db), GlobalVariables: globalVariables, DeadLetters: api.NewDeadLetterService(deadLetterRepository, nil), Ready: func(ctx context.Context) error {
-		if err := db.Ping(ctx); err != nil {
+	application := api.Server{AuthService: authService, AuthAdmin: &api.AuthAdminService{Auth: authService, OIDC: oidcService, Sessions: authService.SessionManager()}, Sessions: authService.SessionManager(), OIDC: oidcService, Roles: roles, Auth: authService.Authenticator(), Permissions: authService.Permissions, Metrics: metrics, Logger: logger, CSRFOrigin: cfg.WebOrigin, CSRFOrigins: cfg.CSRFOrigins, CORSOrigins: cfg.CORSOrigins, Operations: operations, Runs: runs, Infrastructure: infrastructure, AuditQuery: audit, ExitCodes: store.NewExitCodeRepository(db), GlobalVariables: globalVariables, Secrets: api.NewSecretAdminService(encryptedSecretRepository, cfg.InstallationEncryptionKey), DeadLetters: api.NewDeadLetterService(deadLetterRepository, nil), Ready: func(ctx context.Context) error {
+		if err := pingDatabase(ctx); err != nil {
 			return err
 		}
 		return nil
@@ -283,17 +322,26 @@ func run() error {
 				logger.Event("retention.cleanup_failed", map[string]string{"error": err.Error()})
 				return
 			}
-			pressure, _ := storagePressure(ctx)
+			pressure, err := storagePressure(ctx)
+			if err != nil {
+				logger.Event("retention.cleanup_failed", map[string]string{"error": err.Error()})
+				return
+			}
 			if pressure.State != platform.StorageCritical && pressure.State != platform.StorageEmergency {
 				return
 			}
-			_, _ = retentionRepository.PurgeCriticalRuns(ctx, time.Now().UTC(), func() (float64, error) {
-				usage, err := disk.Usage(cfg.DataDir)
-				if err != nil || usage.Total == 0 {
-					return 0, fmt.Errorf("storage usage unavailable")
+			if _, err := retentionRepository.PurgeCriticalRuns(ctx, time.Now().UTC(), func() (float64, error) {
+				current, err := storagePressure(ctx)
+				if err != nil {
+					return 0, err
 				}
-				return float64(usage.Free) * 100 / float64(usage.Total), nil
-			}, 100)
+				if current.State == platform.StorageUnavailable {
+					return 0, fmt.Errorf("database storage capacity unavailable")
+				}
+				return current.FreePercent, nil
+			}, 100); err != nil && ctx.Err() == nil {
+				logger.Event("retention.cleanup_failed", map[string]string{"error": err.Error()})
+			}
 		}
 		cleanup()
 		ticker := time.NewTicker(time.Hour)
@@ -347,6 +395,20 @@ func run() error {
 	}()
 	go func() {
 		for ctx.Err() == nil {
+			health.MarkHealthy("secret-delivery")
+			if err := controlplane.RunSecretDeliveryServer(ctx, jetstream, runRepository, encryptedSecretRepository, runnerRepository, signingKey, cfg.InstallationEncryptionKey); err != nil && ctx.Err() == nil {
+				health.MarkFailed("secret-delivery", err)
+				fmt.Fprintln(os.Stderr, "secret delivery server:", err)
+				select {
+				case <-time.After(time.Second):
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+	}()
+	go func() {
+		for ctx.Err() == nil {
 			health.MarkHealthy("scheduler")
 			if err := controlplane.RunScheduler(ctx, scheduleRepository, 500*time.Millisecond); err != nil && ctx.Err() == nil {
 				health.MarkFailed("scheduler", err)
@@ -360,23 +422,40 @@ func run() error {
 		}
 	}()
 	go projectionService.Run(ctx, 30*time.Minute)
-	server := &http.Server{
-		Addr: ":8080",
-		Handler: func() http.Handler {
-			application.Ready = func(ctx context.Context) error {
-				if err := db.Ping(ctx); err != nil {
-					return err
-				}
-				if jetstream == nil {
-					return fmt.Errorf("NATS is not connected")
-				}
-				return health.Ready()
+	application.Ready = func(ctx context.Context) error {
+		if err := pingDatabase(ctx); err != nil {
+			return err
+		}
+		if jetstream == nil {
+			return fmt.Errorf("NATS is not connected")
+		}
+		return health.Ready()
+	}
+	systemMetrics := api.NewSystemMetricsService(metrics, application.Ready, logger)
+	systemMetrics.Storage = storagePressure
+	systemMetrics.Signals = deadLetterSignals
+	application.SystemMetrics = systemMetrics
+	go func() {
+		evaluate := func() {
+			if err := systemMetrics.Evaluate(ctx); err != nil && ctx.Err() == nil {
+				_ = logger.Event("system.alert_evaluation_failed", map[string]string{"error": err.Error()})
 			}
-			application.SystemMetrics = api.NewSystemMetricsService(metrics, application.Ready, logger)
-			application.SystemMetrics.DataPath = cfg.DataDir
-			application.SystemMetrics.Signals = deadLetterSignals
-			return application.Handler()
-		}(),
+		}
+		evaluate()
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				evaluate()
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	server := &http.Server{
+		Addr:              ":8080",
+		Handler:           application.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -393,6 +472,33 @@ func run() error {
 		return err
 	}
 	return nil
+}
+
+var notifyContext = func() (context.Context, context.CancelFunc) {
+	return signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+}
+
+var closeControlPlaneDB = func(db *pgxpool.Pool) { db.Close() }
+
+func startEmbeddedNATS(dataDir string) (*natsserver.Server, error) {
+	server, err := natsserver.NewServer(&natsserver.Options{
+		Host:                   "127.0.0.1",
+		Port:                   -1,
+		JetStream:              true,
+		StoreDir:               filepath.Join(dataDir, "nats"),
+		NoLog:                  true,
+		NoSigs:                 true,
+		DisableJetStreamBanner: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+	server.Start()
+	if !server.ReadyForConnections(10 * time.Second) {
+		server.Shutdown()
+		return nil, errors.New("embedded NATS did not become ready")
+	}
+	return server, nil
 }
 
 func waitForDatabase(ctx context.Context, ping func(context.Context) error, retryInterval time.Duration) error {

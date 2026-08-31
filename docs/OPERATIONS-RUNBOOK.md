@@ -5,7 +5,7 @@ profile](DEV-PROFILE.md). Its values are not production guarantees.
 
 ## Supported topology
 
-Glyphflow 0.2.4 supports one isolated stack per client: one control-plane
+Glyphflow 0.3.0 supports one isolated stack per client: one control-plane
 process connected to one PostgreSQL database and one NATS JetStream deployment.
 Workers are separate processes or hosts and connect outbound. Shared tenancy
 and service replicas are unsupported in this release; it does not claim
@@ -24,15 +24,22 @@ operating targets, not a service guarantee:
 
 | Item | Baseline | Owner |
 | --- | --- | --- |
-| Control-plane availability | Restart downtime is expected; no HA target | Deployment operator |
+| Control-plane availability | Singleton; trigger HA only when measured restart recovery misses the client's approved RTO or uptime target | Deployment operator |
 | RPO | The interval between verified PostgreSQL backups | Deployment operator |
 | RTO | Restart or restore time measured in the client environment | Deployment operator |
-| Audit retention | Append-only until the client's approved retention policy is implemented | Deployment operator |
+| Audit retention | 12 calendar months by default (`AUDIT_MONTHS_KEEP`); hourly cleanup applies unless a legal hold protects the record | Deployment operator |
 | Worker published-event retention | 24 hours after successful publish; pending events are retained | Glyphflow worker |
-| Run/log retention | No automatic PostgreSQL deletion in this release | Deployment operator |
+| Run/log retention | 3 calendar months by default (`LOG_MONTHS_KEEP`); hourly cleanup removes eligible terminal runs and their logs | Deployment operator |
 
 Do not advertise an RPO, RTO, or uptime value until it is measured against
 the client's backup, restore, network, and restart procedures.
+
+The HA trigger is objective: record the client's approved RTO or uptime target,
+measure recovery after a control-plane restart, and open an HA design only when
+the singleton misses that target. Before running a second replica, classify
+every background loop as leader-only or safely concurrent, then run database,
+broker, and process-failure tests that prove duplicate ownership is safe.
+Until those checks pass, keep one control-plane process.
 
 ## Normal restart
 
@@ -57,8 +64,9 @@ database:
 pg_dump --format=custom --file=glyphflow-$(date -u +%Y%m%dT%H%M%SZ).dump "$DATABASE_URL"
 ```
 
-Include the PostgreSQL dump, deployment secrets, TLS material, and the
-control-plane signing key in the protected backup scope. Do not back up
+Include the PostgreSQL dump, deployment secrets, TLS material, the
+control-plane signing key, and `DATA_DIR/secret-encryption.key` in the
+protected backup scope. Do not back up
 worker private keys to a shared location unless the client's security policy
 requires it; preserve each worker's `DATA_DIR` on its host.
 
@@ -94,5 +102,12 @@ as a new identity, not as a recoverable session.
   resource leases, and the placement blocker shown on the run.
 - Events are delayed: inspect NATS health and the worker's local pending
   event outbox; do not delete pending rows.
+- Database storage is unavailable or critical: verify PostgreSQL volume
+  capacity and `DATABASE_STORAGE_CAPACITY_BYTES`; the control plane rejects
+  new runs when the database budget is unavailable or exhausted.
+- A secret shows `INTEGRITY_FAILED`, `KEY_UNAVAILABLE`, or `DECRYPTION_FAILED`:
+  verify the unchanged `SECRET_ENCRYPTION_KEY_FILE`, then replace the affected
+  value in **Administration → Secrets**. This status concerns ciphertext
+  authentication/decryption, not external credential expiry or revocation.
 - A host is untrusted: revoke or archive the runner, then rotate any secrets
   it could read.

@@ -22,7 +22,7 @@ func TestOrderPayloadContainsExecutionData(t *testing.T) {
 		ExpiresAt:       time.Unix(200, 0).UTC(),
 		Command:         []string{"echo", "hello"},
 		WorkingDir:      "/srv/tasks",
-		SecretRefs:      []string{"db-password"},
+		SecretRefs:      map[string]string{"DB_PASSWORD": "db-password"},
 		DurationSeconds: 30,
 		Limits:          ResourceLimits{MaxOutputBytes: 1024, MaxMemoryBytes: 2048, MaxProcesses: 2},
 		Resources:       map[string]string{"pool": "default"},

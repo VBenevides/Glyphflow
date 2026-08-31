@@ -1,8 +1,13 @@
 package main
 
 import (
+	"context"
+	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -90,6 +95,29 @@ func TestResolveControlPlaneEndpointPriority(t *testing.T) {
 	t.Setenv("RUNNER_CONTROL_PLANE_URL", "")
 	if got := resolveControlPlaneEndpoint(bootstrap); got != "http://embedded:8080" {
 		t.Fatalf("embedded endpoint = %q", got)
+	}
+}
+
+func TestApplyBootstrapTransportDefaults(t *testing.T) {
+	t.Setenv("ENVIRONMENT", "")
+	t.Setenv("ALLOW_INSECURE_TRANSPORT", "")
+	if err := applyBootstrapTransportDefaults(&worker.Bootstrap{AllowInsecureTransport: true}); err != nil {
+		t.Fatal(err)
+	}
+	if os.Getenv("ENVIRONMENT") != "development" || os.Getenv("ALLOW_INSECURE_TRANSPORT") != "true" {
+		t.Fatalf("transport defaults = %q/%q", os.Getenv("ENVIRONMENT"), os.Getenv("ALLOW_INSECURE_TRANSPORT"))
+	}
+	if err := validateWorkerControlPlaneEndpoint("http://control.example"); err != nil {
+		t.Fatalf("development HTTP endpoint rejected: %v", err)
+	}
+
+	t.Setenv("ENVIRONMENT", "production")
+	t.Setenv("ALLOW_INSECURE_TRANSPORT", "false")
+	if err := applyBootstrapTransportDefaults(&worker.Bootstrap{AllowInsecureTransport: true}); err != nil {
+		t.Fatal(err)
+	}
+	if os.Getenv("ENVIRONMENT") != "production" || os.Getenv("ALLOW_INSECURE_TRANSPORT") != "false" {
+		t.Fatalf("explicit transport settings changed = %q/%q", os.Getenv("ENVIRONMENT"), os.Getenv("ALLOW_INSECURE_TRANSPORT"))
 	}
 }
 
@@ -184,5 +212,49 @@ func TestSetWorkerEnvReportsFailure(t *testing.T) {
 
 	if err := setWorkerEnv("NATS_URL", "nats://example:4222"); err == nil || !strings.Contains(err.Error(), "set worker environment NATS_URL") {
 		t.Fatalf("setWorkerEnv() error = %v", err)
+	}
+}
+
+func TestRunWorkerReturnsOnStartupCancellationAndClosesStore(t *testing.T) {
+	dataDir := t.TempDir()
+	controlKey, err := protocol.GenerateSigningKey("control-plane", time.Now().UTC(), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	localStore, err := worker.OpenStore(dataDir + "/runner.sqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := localStore.SaveConnection(worker.RunnerConnection{
+		RunnerID:         "runner-1",
+		NATSURL:          "nats://127.0.0.1:1",
+		MaxMessageBytes:  1 << 20,
+		ControlPublicKey: base64.RawStdEncoding.EncodeToString(ed25519.PublicKey(controlKey.Public.PublicKey)),
+	}); err != nil {
+		localStore.Close()
+		t.Fatal(err)
+	}
+	if err := localStore.Close(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DATA_DIR", dataDir)
+	t.Setenv("ENVIRONMENT", "development")
+	t.Setenv("ALLOW_INSECURE_TRANSPORT", "true")
+
+	closed := false
+	previousClose := closeWorkerStore
+	closeWorkerStore = func(store *worker.LocalStore) {
+		previousClose(store)
+		closed = true
+	}
+	t.Cleanup(func() { closeWorkerStore = previousClose })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := runWorker(ctx, io.Discard, io.Discard, nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("runWorker cancellation = %v", err)
+	}
+	if !closed {
+		t.Fatal("runWorker did not close the local store")
 	}
 }

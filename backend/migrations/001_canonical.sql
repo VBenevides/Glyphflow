@@ -74,7 +74,6 @@ CREATE TABLE sso_providers (
     name text NOT NULL,
     issuer text NOT NULL,
     client_id text NOT NULL,
-    secret_reference text NOT NULL DEFAULT '',
     callback_urls jsonb NOT NULL DEFAULT '[]'::jsonb,
     auth_endpoint_override text NOT NULL DEFAULT '',
     audience text NOT NULL DEFAULT '',
@@ -84,6 +83,16 @@ CREATE TABLE sso_providers (
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX sso_providers_name_ci_idx ON sso_providers (lower(name));
+CREATE TABLE encrypted_secrets (
+    id text PRIMARY KEY,
+    name text NOT NULL,
+    encrypted_value bytea NOT NULL CHECK (octet_length(encrypted_value) > 0),
+    integrity_status text NOT NULL DEFAULT 'UNKNOWN' CHECK (integrity_status IN ('UNKNOWN', 'VALID', 'INTEGRITY_FAILED', 'KEY_UNAVAILABLE', 'DECRYPTION_FAILED')),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    last_validated_at timestamptz
+);
+CREATE UNIQUE INDEX encrypted_secrets_name_ci_idx ON encrypted_secrets (lower(name));
 CREATE TABLE sso_group_role_mappings (
     provider_id text NOT NULL REFERENCES sso_providers(id) ON DELETE CASCADE,
     group_name text NOT NULL,
@@ -287,6 +296,7 @@ CREATE TABLE schedules (
     updated_at timestamptz NOT NULL DEFAULT now(),
     UNIQUE (id, current_version_id)
 );
+CREATE INDEX schedules_due_idx ON schedules ((next_fire_at IS NULL), next_fire_at, id) WHERE enabled;
 CREATE UNIQUE INDEX schedules_name_ci_idx ON schedules (lower(name));
 CREATE TABLE schedule_versions (
     id text PRIMARY KEY,
@@ -338,6 +348,7 @@ CREATE TABLE runs (
     FOREIGN KEY (schedule_version_id, task_id) REFERENCES schedule_versions(id, task_id)
 );
 CREATE UNIQUE INDEX runs_schedule_occurrence_idx ON runs(schedule_version_id, scheduled_for) WHERE schedule_version_id IS NOT NULL;
+CREATE INDEX runs_dispatch_queue_idx ON runs(scheduled_for, created_at, id) WHERE state IN ('WAITING', 'RETRY_WAIT');
 
 CREATE TABLE execution_attempts (
     id text PRIMARY KEY,

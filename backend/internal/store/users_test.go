@@ -38,13 +38,25 @@ func TestUserRepositoryRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	roleID := "role-" + id
+	if _, err := pool.Exec(ctx, `INSERT INTO roles (id, name) VALUES ($1, $2)`, roleID, roleID); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM roles WHERE id = $1`, roleID) })
 	want := UserRecord{ID: id, Username: email, Email: email, DisplayName: "Test User", Status: StatusActive, Enabled: true}
 	if err := repository.Create(ctx, want, hash); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO role_assignments (user_id, role_id, source_type, source_key) VALUES ($1, $2, 'test', $1)`, id, roleID); err != nil {
 		t.Fatal(err)
 	}
 	got, ok, err := repository.FindByEmail(ctx, email)
 	if err != nil || !ok || got != want {
 		t.Fatalf("FindByEmail = %#v, %v, %v", got, ok, err)
+	}
+	page, total, err := repository.ListPage(ctx, StatusActive, email, []string{roleID}, 1, 0)
+	if err != nil || total != 1 || len(page) != 1 || page[0].ID != id {
+		t.Fatalf("ListPage = %#v, total %d, error %v", page, total, err)
 	}
 	gotHash, ok, err := repository.PasswordHash(ctx, id)
 	if err != nil || !ok || gotHash != hash {

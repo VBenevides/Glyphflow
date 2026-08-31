@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type GlobalVariableRecord struct {
@@ -26,10 +25,11 @@ type GlobalVariableRepository interface {
 	Delete(context.Context, string) error
 }
 
-type GlobalVariableStore struct{ pool *pgxpool.Pool }
+type GlobalVariableStore struct{ pool database }
 
-func NewGlobalVariableRepository(pool *pgxpool.Pool) *GlobalVariableStore {
-	return &GlobalVariableStore{pool: pool}
+func NewGlobalVariableRepository(pool any) *GlobalVariableStore {
+	db, _ := databaseFrom(pool)
+	return &GlobalVariableStore{pool: db}
 }
 
 const globalVariableQuery = `SELECT g.id, g.name, g.value, g.updated_at, (SELECT count(*) FROM global_variable_references r WHERE r.variable_id = g.id) FROM global_variables g`

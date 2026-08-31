@@ -75,6 +75,17 @@ func TestCORSDoesNotBypassCSRFForUntrustedOrigin(t *testing.T) {
 	}
 }
 
+func TestServerResponsesAreNotCacheable(t *testing.T) {
+	h := (Server{Auth: func(*http.Request) (Claims, bool) { return Claims{}, false }}).Handler()
+	for _, path := range []string{"/api/v1/healthz", "/api/v1/tasks", "/api/v1/auth/login"} {
+		response := httptest.NewRecorder()
+		h.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		if got := response.Header().Get("Cache-Control"); got != "no-store" {
+			t.Fatalf("GET %s Cache-Control = %q, want no-store", path, got)
+		}
+	}
+}
+
 func TestRequestBodiesAreBoundBeforePublicAndAuthenticatedHandlers(t *testing.T) {
 	large := strings.NewReader(strings.Repeat("x", maxRequestBodyBytes+1))
 	response := httptest.NewRecorder()

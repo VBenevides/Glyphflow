@@ -80,13 +80,12 @@ create_production_fixtures() {
   head -c 64 /dev/urandom | base64 -w0 | tr -d '=' > "$production_dir/control-plane-signing-key"
   printf '\n' >> "$production_dir/control-plane-signing-key"
   printf '%s\n' 'deployment-check-password-pepper' > "$production_dir/password-pepper"
-  openssl rand -base64 32 > "$production_dir/secret-encryption-key"
   printf '%s\n' 'deployment-check-bootstrap-password' > "$production_dir/bootstrap-password"
 
   docker run --rm -v "$production_dir:/fixtures" "$nats_image" sh -ec '
-    chown 65532:65532 /fixtures/database-url /fixtures/nats-url /fixtures/access-token-secret /fixtures/control-plane-signing-key /fixtures/password-pepper /fixtures/secret-encryption-key /fixtures/bootstrap-password
+    chown 65532:65532 /fixtures/database-url /fixtures/nats-url /fixtures/access-token-secret /fixtures/control-plane-signing-key /fixtures/password-pepper /fixtures/bootstrap-password
     chown 70:70 /fixtures/postgres-password /fixtures/postgres.key
-    chmod 0400 /fixtures/database-url /fixtures/nats-url /fixtures/access-token-secret /fixtures/control-plane-signing-key /fixtures/password-pepper /fixtures/secret-encryption-key /fixtures/bootstrap-password /fixtures/postgres-password /fixtures/postgres.key
+    chmod 0400 /fixtures/database-url /fixtures/nats-url /fixtures/access-token-secret /fixtures/control-plane-signing-key /fixtures/password-pepper /fixtures/bootstrap-password /fixtures/postgres-password /fixtures/postgres.key
     chmod 0444 /fixtures/ca.crt /fixtures/nats.crt /fixtures/nats.key /fixtures/postgres.crt
   '
   docker volume create "${production_project}_nats-data" >/dev/null
@@ -97,7 +96,6 @@ create_production_fixtures() {
   export ACCESS_TOKEN_SECRET_FILE="$production_dir/access-token-secret"
   export CONTROL_PLANE_SIGNING_PRIVATE_KEY_FILE="$production_dir/control-plane-signing-key"
   export PASSWORD_PEPPER_FILE="$production_dir/password-pepper"
-  export SECRET_ENCRYPTION_KEY_FILE="$production_dir/secret-encryption-key"
   export GLYPHFLOW_BOOTSTRAP_PASSWORD_FILE="$production_dir/bootstrap-password"
   export POSTGRES_PASSWORD_FILE="$production_dir/postgres-password"
   export POSTGRES_CERT_SOURCE="$production_dir/postgres.crt"
@@ -214,7 +212,6 @@ export NATS_URL_FILE=/dev/null
 export ACCESS_TOKEN_SECRET_FILE=/dev/null
 export CONTROL_PLANE_SIGNING_PRIVATE_KEY_FILE=/dev/null
 export PASSWORD_PEPPER_FILE=/dev/null
-export SECRET_ENCRYPTION_KEY_FILE=/dev/null
 export GLYPHFLOW_BOOTSTRAP_PASSWORD_FILE=/dev/null
 export POSTGRES_PASSWORD_FILE=/dev/null
 export POSTGRES_CERT_SOURCE=/dev/null

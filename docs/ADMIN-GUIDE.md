@@ -21,6 +21,7 @@ also enforce the permission listed below.
 | Users and sessions | `/admin/users` | `users.read` or `users.manage` |
 | Roles | `/admin/roles` | `roles.read` or `roles.manage` |
 | Single sign-on | `/admin/sso` | `sso.read` or `sso.manage` |
+| Secrets | `/admin/secrets` | `secrets.read` or `secrets.manage` |
 | Authentication settings | `/admin/auth` | `auth.settings.manage` |
 | Execution status | `/admin/execution-status` | `auth.settings.manage` |
 | Runner pools and runners | `/runners` | `runners.read` or `runners.manage` |
@@ -86,17 +87,33 @@ expiry.
 
 1. Open **Users and sessions → SSO**.
 2. Select **Add provider**.
-3. Enter a provider key, display name, issuer URL, client ID, and the
-   deployment's secret reference.
+3. Enter a provider key, display name, issuer URL, client ID, and the actual
+   client secret. The server encrypts the value locally and never displays it
+   again.
 4. Add claim mappings and optional group-to-role mappings.
 5. Confirm that another administrator login method works before disabling a
    provider.
 
-The console stores and displays the secret reference, not the resolved secret
-value. The OIDC client secret must be available to the server-side resolver
-used by the deployment. This repository does not provide a general secret
-vault UI. Provider configuration is audited, and resolved secrets are not
-returned by the provider listing.
+Provider configuration is audited, and resolved secrets are not returned by the
+provider listing. Keep the local encryption key with the database backup.
+
+### Manage named secrets
+
+1. Open **Administration → Secrets**.
+2. Select **Create secret**, enter a name and value, and save it.
+3. In a task version, add a row in **Secrets**, choose an environment variable
+   name, and select the named secret.
+4. Replace a value from the Secrets tab when it must be rotated. Existing task
+   references continue to use the same secret ID.
+
+The table shows the tasks using each secret and its encryption/integrity status.
+Delete is available only when no active task uses the secret; SSO provider
+secrets remain protected. **Valid** means the
+application authenticated and decrypted the stored value; it does not prove
+that the external credential is still accepted. **Integrity failed** means the
+stored ciphertext could not be authenticated/decrypted, commonly because the
+encryption key changed or the value was damaged. Re-enter the value after
+confirming the encryption key file.
 
 Users can link an OIDC identity from **Account → Identities**. Keep another
 working login method before unlinking an identity.
@@ -117,6 +134,7 @@ The permission catalog is:
 users.read              users.manage
 roles.read              roles.manage
 sso.read                sso.manage
+secrets.read            secrets.manage
 auth.settings.manage
 tasks.read              tasks.manage
 runs.read               runs.execute       runs.cancel       runs.retry
@@ -217,17 +235,21 @@ references remain.
 
 ## Secrets and secret references
 
-Glyphflow separates a reference from a secret value. Task versions can carry
-secret references, and dispatch sends the reference names to the worker rather
-than embedding the secret values in the execution payload. OIDC providers use
-the same pattern for their client secret reference.
+Glyphflow stores named secret values as AES-256-GCM ciphertext in the local
+database. The encryption key stays in the local `SECRET_ENCRYPTION_KEY_FILE`
+and is never stored in PostgreSQL. Back up the key file with the database and
+copy the same file when migrating an installation.
 
-The current console has no general secret creation, rotation, or vault
-integration screen. Configure the resolver or secret manager used by the
-deployment outside the task editor, and put only a reference in Glyphflow.
+Task versions map an environment variable name to a named secret. Dispatch
+keeps the mapping, and the assigned runner requests the authenticated value
+immediately before execution. The value is exposed to the command as an
+environment variable for that process only; it is not embedded in the task
+order, logs, or API responses.
+
 Never place a secret in a command argument, global variable, screenshot,
-commit, or log. Rotate a secret in its owning secret system and update the
-reference or provider configuration as required by that system.
+commit, or log. A worker host authorized to execute a task can observe values
+provided to its process, so protect worker hosts and rotate secrets after a
+runner is no longer trusted.
 
 This boundary does not make a compromised worker safe: a worker host that is
 authorized to execute work may still observe data made available to its
@@ -308,8 +330,8 @@ production boundary requires:
   certificate/key/CA files;
 - an HTTPS `WEB_ORIGIN` and explicit `CORS_ORIGIN` and `CSRF_ORIGINS` values;
 - protected `ACCESS_TOKEN_SECRET_FILE`, `CONTROL_PLANE_SIGNING_PRIVATE_KEY_FILE`,
-  `SECRET_ENCRYPTION_KEY_FILE`, and, when password login is enabled,
-  `PASSWORD_PEPPER_FILE` values;
+  and, when password login is enabled, `PASSWORD_PEPPER_FILE` values, plus a
+  persistent 32-byte `SECRET_ENCRYPTION_KEY_FILE` for encrypted secrets;
 - bootstrap email and system-administrator settings plus a protected
   `GLYPHFLOW_BOOTSTRAP_PASSWORD_FILE`; and
 - a private PostgreSQL and NATS network.

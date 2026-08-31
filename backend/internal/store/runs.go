@@ -7,14 +7,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/VBenevides/Glyphflow/backend/internal/platform"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type RunDefinition struct {
@@ -76,7 +74,7 @@ type DispatchCandidate struct {
 	Command                                 []string
 	WorkingDirectory, ExecutionSpecDigest   string
 	Environment                             map[string]string
-	SecretRefs                              []string
+	SecretRefs                              map[string]string
 	PlacementSelectors                      map[string]any
 	Resources                               map[string]string
 	AttemptNumber                           int
@@ -163,8 +161,19 @@ type StartClaimRepository interface {
 	ClaimStart(context.Context, StartClaimInput) (time.Time, bool, error)
 }
 
+type SecretRequestInput struct {
+	OrderID, RunID, RunnerID, RunnerSessionID, LeaseToken, ExecutionSpecDigest string
+	Attempt                                                                    int
+	FencingToken                                                               int64
+	SecretRefs                                                                 map[string]string
+}
+
+type SecretRequestRepository interface {
+	AuthorizeSecretRequest(context.Context, SecretRequestInput) error
+}
+
 type RunStore struct {
-	pool            *pgxpool.Pool
+	pool            database
 	storagePressure func(context.Context) (platform.StoragePressure, error)
 }
 
@@ -176,7 +185,10 @@ const (
 	insertDispatchOutboxSQL = "INSERT INTO dispatch_outbox (order_bytes)"
 )
 
-func NewRunRepository(pool *pgxpool.Pool) *RunStore { return &RunStore{pool: pool} }
+func NewRunRepository(pool any) *RunStore {
+	db, _ := databaseFrom(pool)
+	return &RunStore{pool: db}
+}
 
 func (s *RunStore) SetStoragePressureProvider(provider func(context.Context) (platform.StoragePressure, error)) {
 	s.storagePressure = provider
@@ -199,7 +211,7 @@ func (s *RunStore) ensureStorageAvailable(ctx context.Context) error {
 	return nil
 }
 
-const runQuery = `SELECT r.id, r.task_id, r.task_version_id, COALESCE(sv.schedule_id, ''), COALESCE(r.schedule_version_id, ''), t.name, r.state, r.trigger_type, r.scheduled_for, COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = r.id), 1), COALESCE(latest.runner_id, ''), latest.exit_code, COALESCE(ec.meaning, ''), COALESCE(latest.termination_reason, ''), COALESCE(latest.max_memory_used_bytes, 0), COALESCE(latest.average_memory_used_bytes, 0) FROM runs r JOIN tasks t ON t.id = r.task_id LEFT JOIN schedule_versions sv ON sv.id = r.schedule_version_id LEFT JOIN LATERAL (SELECT runner_id, exit_code, termination_reason, max_memory_used_bytes, average_memory_used_bytes FROM execution_attempts WHERE run_id = r.id ORDER BY attempt_number DESC LIMIT 1) latest ON true LEFT JOIN exit_code ec ON ec.code = latest.exit_code`
+const runQuery = `WITH latest_attempt AS (SELECT ea.run_id, ea.runner_id, ea.exit_code, ea.termination_reason, ea.max_memory_used_bytes, ea.average_memory_used_bytes, ROW_NUMBER() OVER (PARTITION BY ea.run_id ORDER BY ea.attempt_number DESC) AS row_number FROM execution_attempts ea) SELECT r.id, r.task_id, r.task_version_id, COALESCE(sv.schedule_id, ''), COALESCE(r.schedule_version_id, ''), t.name, r.state, r.trigger_type, r.scheduled_for, COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = r.id), 1), COALESCE(latest_attempt.runner_id, ''), latest_attempt.exit_code, COALESCE(ec.meaning, ''), COALESCE(latest_attempt.termination_reason, ''), COALESCE(latest_attempt.max_memory_used_bytes, 0), COALESCE(latest_attempt.average_memory_used_bytes, 0) FROM runs r JOIN tasks t ON t.id = r.task_id LEFT JOIN schedule_versions sv ON sv.id = r.schedule_version_id LEFT JOIN latest_attempt ON latest_attempt.run_id = r.id AND latest_attempt.row_number = 1 LEFT JOIN exit_code ec ON ec.code = latest_attempt.exit_code`
 
 func (s *RunStore) List(ctx context.Context) ([]RunRecord, error) {
 	rows, err := s.pool.Query(ctx, runQuery+` ORDER BY r.created_at DESC, r.id`)
@@ -356,6 +368,25 @@ func (s *RunStore) ClaimStart(ctx context.Context, input StartClaimInput) (time.
 		return time.Time{}, false, err
 	}
 	return now.UTC(), true, nil
+}
+
+func (s *RunStore) AuthorizeSecretRequest(ctx context.Context, input SecretRequestInput) error {
+	if input.OrderID == "" || input.RunID == "" || input.RunnerID == "" || input.RunnerSessionID == "" || input.LeaseToken == "" || input.ExecutionSpecDigest == "" || input.Attempt <= 0 || input.FencingToken <= 0 || len(input.SecretRefs) == 0 {
+		return errors.New("secret request is incomplete")
+	}
+	var stored []byte
+	err := s.pool.QueryRow(ctx, `SELECT tv.secret_references FROM execution_attempts a JOIN runs r ON r.id = a.run_id JOIN task_versions tv ON tv.id = r.task_version_id WHERE a.id = $1 AND r.id = $2 AND a.attempt_number = $3 AND a.runner_id = $4 AND a.runner_session_id = $5 AND a.lease_token = $6 AND a.fencing_token = $7 AND a.execution_spec_digest = $8 AND ((r.state = 'DISPATCHED' AND a.state IN ('DISPATCHED', 'ACCEPTED')) OR (r.state = 'RUNNING' AND a.state = 'RUNNING'))`, input.OrderID, input.RunID, input.Attempt, input.RunnerID, input.RunnerSessionID, input.LeaseToken, input.FencingToken, input.ExecutionSpecDigest).Scan(&stored)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return errors.New("secret request is not authorized")
+	}
+	if err != nil {
+		return err
+	}
+	expected, err := decodeSecretReferences(stored)
+	if err != nil || !sameSecretReferences(expected, input.SecretRefs) {
+		return errors.New("secret request is not authorized")
+	}
+	return nil
 }
 
 func (s *RunStore) placementBlocker(ctx context.Context, runID string) string {
@@ -556,17 +587,8 @@ func (s *RunStore) ClaimWaiting(ctx context.Context, build func(DispatchCandidat
 	if err != nil {
 		return DispatchCandidate{}, false, err
 	}
-	if err := json.Unmarshal(secrets, &candidate.SecretRefs); err != nil {
-		// Secret references are historically stored as a JSON object. Keep the
-		// values opaque and send only reference names to the worker.
-		var secretMap map[string]any
-		if json.Unmarshal(secrets, &secretMap) != nil {
-			return DispatchCandidate{}, false, err
-		}
-		for key := range secretMap {
-			candidate.SecretRefs = append(candidate.SecretRefs, key)
-		}
-		sort.Strings(candidate.SecretRefs)
+	if candidate.SecretRefs, err = decodeSecretReferences(secrets); err != nil {
+		return DispatchCandidate{}, false, err
 	}
 	if err := json.Unmarshal(selectors, &candidate.PlacementSelectors); err != nil {
 		return DispatchCandidate{}, false, err
@@ -735,12 +757,35 @@ func decodeEnvironment(raw []byte) (map[string]string, error) {
 	return environment, nil
 }
 
+func decodeSecretReferences(raw []byte) (map[string]string, error) {
+	var values map[string]string
+	if err := json.Unmarshal(raw, &values); err != nil {
+		return nil, err
+	}
+	if values == nil {
+		values = map[string]string{}
+	}
+	return values, nil
+}
+
+func sameSecretReferences(left, right map[string]string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for name, id := range left {
+		if right[name] != id {
+			return false
+		}
+	}
+	return true
+}
+
 func resolvedExecutionDigest(candidate DispatchCandidate) (string, error) {
 	canonical, err := json.Marshal(struct {
 		TaskVersion, WorkingDirectory string
 		Command                       []string
 		Environment                   map[string]string
-		SecretRefs                    []string
+		SecretRefs                    map[string]string
 		PlacementSelectors            map[string]any
 		Resources                     map[string]string
 		DurationSeconds, MaxOutput    int
@@ -751,7 +796,7 @@ func resolvedExecutionDigest(candidate DispatchCandidate) (string, error) {
 	return sha256Hex(canonical), nil
 }
 
-func loadGlobalVariables(ctx context.Context, tx pgx.Tx) (map[string]string, error) {
+func loadGlobalVariables(ctx context.Context, tx databaseTx) (map[string]string, error) {
 	rows, err := tx.Query(ctx, `SELECT name, value FROM global_variables`)
 	if err != nil {
 		return nil, err

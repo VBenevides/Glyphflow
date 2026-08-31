@@ -69,6 +69,8 @@ func TestAuthenticationAdministrationManagesSSOAndUsers(t *testing.T) {
 
 func TestAuthenticationAdministrationRejectsUnknownProviderFields(t *testing.T) {
 	oidc := NewOIDCService()
+	secretRepository := &memoryEncryptedSecretRepository{}
+	oidc.SetSecretRepository(secretRepository, bytes.Repeat([]byte{0x42}, 32))
 	server := Server{AuthAdmin: &AuthAdminService{OIDC: oidc}, Auth: func(*http.Request) (Claims, bool) {
 		return Claims{Roles: map[string]bool{"sso.manage": true}}, true
 	}}
@@ -79,15 +81,18 @@ func TestAuthenticationAdministrationRejectsUnknownProviderFields(t *testing.T) 
 		t.Fatalf("unknown provider field returned %d", recorder.Code)
 	}
 
-	request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/auth/providers", bytes.NewBufferString(`{"key":"corp","issuer":"https://issuer.example","callback":"https://app.example/callback","clientId":"client","secretReference":"env://OIDC_SECRET","groupMapping":{"ops":"operator"},"enabled":true}`))
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/auth/providers", bytes.NewBufferString(`{"key":"corp","issuer":"https://issuer.example","callback":"https://app.example/callback","clientId":"client","clientSecret":"oidc-secret","groupMapping":{"ops":"operator"},"enabled":true}`))
 	recorder = httptest.NewRecorder()
 	server.Handler().ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusCreated {
 		t.Fatalf("canonical provider fields returned %d: %s", recorder.Code, recorder.Body.String())
 	}
 	provider, ok := oidc.Provider("corp")
-	if !ok || provider.ClientID != "client" || provider.SecretReference != "env://OIDC_SECRET" || provider.GroupMapping["ops"] != "operator" {
+	if !ok || provider.ClientID != "client" || provider.ClientSecret != "" || provider.GroupMapping["ops"] != "operator" {
 		t.Fatalf("provider fields were not persisted: %#v", provider)
+	}
+	if record := secretRepository.records[oidcSecretID("corp")]; len(record.EncryptedValue) == 0 || bytes.Contains(record.EncryptedValue, []byte("oidc-secret")) {
+		t.Fatalf("client secret was not encrypted: %#v", record)
 	}
 }
 
@@ -124,7 +129,10 @@ func TestAuthenticationAdministrationCreatesPromotesAndRevokesRoles(t *testing.T
 	if response := request(http.MethodPost, "/api/v1/admin/auth/users/"+user.ID+"/roles", `{"role":"admin"}`); response.Code != http.StatusNoContent {
 		t.Fatalf("promote admin: %d %s", response.Code, response.Body.String())
 	}
-	profile, ok := auth.UserProfile(user.ID)
+	profile, ok, err := auth.UserProfile(user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !ok || !containsString(profile["roles"].([]string), "admin") || !containsString(profile["roles"].([]string), "operator") {
 		t.Fatalf("assigned roles missing: %#v", profile)
 	}
@@ -229,7 +237,10 @@ func TestAuthenticationAdministrationReportsImmutableSystemAdmin(t *testing.T) {
 	if body["error"] == "user not found" || body["error"] == "" {
 		t.Fatalf("unexpected immutable admin error: %q", body["error"])
 	}
-	users := auth.Users()
+	users, err := auth.Users()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(users) != 1 || users[0]["systemAdmin"] != true {
 		t.Fatalf("system admin flag missing: %#v", users)
 	}

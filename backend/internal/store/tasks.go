@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type TaskDefinition struct {
@@ -68,9 +67,12 @@ type TaskRepository interface {
 	Delete(context.Context, string) (bool, error)
 }
 
-type TaskStore struct{ pool *pgxpool.Pool }
+type TaskStore struct{ pool database }
 
-func NewTaskRepository(pool *pgxpool.Pool) *TaskStore { return &TaskStore{pool: pool} }
+func NewTaskRepository(pool any) *TaskStore {
+	db, _ := databaseFrom(pool)
+	return &TaskStore{pool: db}
+}
 
 func (s *TaskStore) List(ctx context.Context, archived bool) ([]TaskRecord, error) {
 	filter := `NOT t.is_deleted`
@@ -125,7 +127,7 @@ func (s *TaskStore) ListVersions(ctx context.Context, taskID string) ([]TaskVers
 	return items, rows.Err()
 }
 
-const taskQuery = `SELECT t.id, COALESCE(t.current_version_id, ''), t.name, t.enabled, COALESCE(v.version, 0), COALESCE(v.runner_pool_id, ''), COALESCE(v.pinned_runner_id, ''), COALESCE(v.command, '[]'::jsonb), COALESCE(v.working_directory, '.'), COALESCE(v.placement_selectors, '{}'::jsonb), COALESCE(v.environment, '{}'::jsonb), COALESCE(v.secret_references, '{}'::jsonb), COALESCE(v.duration_seconds, 0), COALESCE(v.max_output_bytes, 0), COALESCE(v.max_attempts, 1), COALESCE(v.ambiguity_policy, ''), COALESCE(v.execution_spec_digest, ''), COALESCE((SELECT jsonb_agg(req.resource_id ORDER BY req.resource_id) FROM task_resource_requirements req WHERE req.task_version_id = v.id), '[]'::jsonb), COALESCE(latest_run.id, ''), COALESCE(latest_run.task_id, ''), COALESCE(latest_run.task_name, ''), COALESCE(latest_run.state, ''), COALESCE(latest_run.attempt, 0), latest_run.exit_code, COALESCE(latest_run.exit_code_meaning, ''), COALESCE(latest_run.runner, ''), COALESCE(latest_run.trigger_type, ''), COALESCE(latest_run.scheduled_for, 'epoch'::timestamptz), t.is_deleted FROM tasks t LEFT JOIN task_versions v ON v.id = t.current_version_id LEFT JOIN LATERAL (SELECT r.id, r.task_id, t_run.name AS task_name, r.state, r.trigger_type, r.scheduled_for, COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = r.id), 1) AS attempt, latest_attempt.runner_id AS runner, latest_attempt.exit_code, COALESCE(ec.meaning, '') AS exit_code_meaning FROM runs r JOIN tasks t_run ON t_run.id = r.task_id LEFT JOIN LATERAL (SELECT runner_id, exit_code FROM execution_attempts WHERE run_id = r.id ORDER BY attempt_number DESC LIMIT 1) latest_attempt ON true LEFT JOIN exit_code ec ON ec.code = latest_attempt.exit_code WHERE r.task_id = t.id ORDER BY r.created_at DESC, r.id DESC LIMIT 1) latest_run ON true`
+const taskQuery = `WITH latest_attempt AS (SELECT ea.run_id, ea.runner_id, ea.exit_code, ROW_NUMBER() OVER (PARTITION BY ea.run_id ORDER BY ea.attempt_number DESC) AS row_number FROM execution_attempts ea), latest_runs AS (SELECT r.id, r.task_id, t_run.name AS task_name, r.state, r.trigger_type, r.scheduled_for, COALESCE((SELECT MAX(attempt_number) FROM execution_attempts WHERE run_id = r.id), 1) AS attempt, latest_attempt.runner_id AS runner, latest_attempt.exit_code, COALESCE(ec.meaning, '') AS exit_code_meaning, ROW_NUMBER() OVER (PARTITION BY r.task_id ORDER BY r.created_at DESC, r.id DESC) AS row_number FROM runs r JOIN tasks t_run ON t_run.id = r.task_id LEFT JOIN latest_attempt ON latest_attempt.run_id = r.id AND latest_attempt.row_number = 1 LEFT JOIN exit_code ec ON ec.code = latest_attempt.exit_code) SELECT t.id, COALESCE(t.current_version_id, ''), t.name, t.enabled, COALESCE(v.version, 0), COALESCE(v.runner_pool_id, ''), COALESCE(v.pinned_runner_id, ''), COALESCE(v.command, '[]'::jsonb), COALESCE(v.working_directory, '.'), COALESCE(v.placement_selectors, '{}'::jsonb), COALESCE(v.environment, '{}'::jsonb), COALESCE(v.secret_references, '{}'::jsonb), COALESCE(v.duration_seconds, 0), COALESCE(v.max_output_bytes, 0), COALESCE(v.max_attempts, 1), COALESCE(v.ambiguity_policy, ''), COALESCE(v.execution_spec_digest, ''), COALESCE((SELECT jsonb_agg(req.resource_id ORDER BY req.resource_id) FROM task_resource_requirements req WHERE req.task_version_id = v.id), '[]'::jsonb), COALESCE(latest_run.id, ''), COALESCE(latest_run.task_id, ''), COALESCE(latest_run.task_name, ''), COALESCE(latest_run.state, ''), COALESCE(latest_run.attempt, 0), latest_run.exit_code, COALESCE(latest_run.exit_code_meaning, ''), COALESCE(latest_run.runner, ''), COALESCE(latest_run.trigger_type, ''), COALESCE(latest_run.scheduled_for, 'epoch'::timestamptz), t.is_deleted FROM tasks t LEFT JOIN task_versions v ON v.id = t.current_version_id LEFT JOIN latest_runs latest_run ON latest_run.task_id = t.id AND latest_run.row_number = 1`
 
 type rowScanner interface{ Scan(...any) error }
 
@@ -390,7 +392,7 @@ func normalizeTaskDefinition(definition TaskDefinition) TaskDefinition {
 	return definition
 }
 
-func insertTaskVersion(ctx context.Context, tx pgx.Tx, taskID string, version int, definition TaskDefinition) error {
+func insertTaskVersion(ctx context.Context, tx databaseTx, taskID string, version int, definition TaskDefinition) error {
 	var poolExists bool
 	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM runner_pools WHERE id = $1 AND NOT is_deleted)`, definition.RunnerPoolID).Scan(&poolExists); err != nil {
 		return err
@@ -436,7 +438,7 @@ func insertTaskVersion(ctx context.Context, tx pgx.Tx, taskID string, version in
 
 var globalVariableReferencePattern = regexp.MustCompile(`\$ENV:([A-Z_][A-Z0-9_]*)`)
 
-func recordGlobalVariableReferences(ctx context.Context, tx pgx.Tx, ownerType, ownerID string, values ...any) error {
+func recordGlobalVariableReferences(ctx context.Context, tx databaseTx, ownerType, ownerID string, values ...any) error {
 	seen := map[string]bool{}
 	for _, value := range values {
 		raw, err := json.Marshal(value)

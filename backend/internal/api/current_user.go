@@ -7,7 +7,7 @@ import (
 )
 
 type CurrentUserService struct {
-	Profile  func(Claims) map[string]any
+	Profile  func(Claims) (map[string]any, error)
 	Sessions *SessionManager
 }
 
@@ -22,7 +22,12 @@ func (s Server) currentUserRoutes(mux routeRegistrar) {
 				writeJSON(w, 200, claims)
 				return
 			}
-			writeJSON(w, 200, s.CurrentUser.Profile(claims))
+			profile, err := s.CurrentUser.Profile(claims)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "profile unavailable", err)
+				return
+			}
+			writeJSON(w, 200, profile)
 			return
 		}
 		if r.Method == http.MethodPut && s.AuthService != nil {
@@ -37,7 +42,12 @@ func (s Server) currentUserRoutes(mux routeRegistrar) {
 				writeError(w, http.StatusBadRequest, "profile update failed", err)
 				return
 			}
-			writeJSON(w, http.StatusOK, s.AuthService.Profile(claims))
+			profile, err := s.AuthService.Profile(claims)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "profile unavailable", err)
+				return
+			}
+			writeJSON(w, http.StatusOK, profile)
 			return
 		}
 		writeJSON(w, 405, map[string]string{"error": "method not allowed"})
@@ -90,7 +100,10 @@ func (s Server) currentUserRoutes(mux routeRegistrar) {
 			return
 		}
 		if s.CurrentUser.Sessions != nil {
-			s.CurrentUser.Sessions.Revoke(sessionID)
+			if err := s.CurrentUser.Sessions.Revoke(sessionID); err != nil {
+				writeError(w, http.StatusInternalServerError, "session revoke failed", err)
+				return
+			}
 		}
 		writeJSON(w, 204, nil)
 	})))

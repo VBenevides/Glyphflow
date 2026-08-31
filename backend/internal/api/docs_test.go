@@ -25,6 +25,9 @@ func TestDocsAndPasswordAuthorization(t *testing.T) {
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "Authorize with email and password") {
 		t.Fatalf("docs response: %d", response.Code)
 	}
+	if strings.Contains(response.Body.String(), "unpkg.com") || !strings.Contains(response.Body.String(), "/openapi.json") {
+		t.Fatalf("docs page is not offline-capable: %s", response.Body.String())
+	}
 
 	response = httptest.NewRecorder()
 	h.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/openapi.json", nil))

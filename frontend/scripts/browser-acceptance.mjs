@@ -2,8 +2,8 @@
 
 const baseURL = (process.env.GLYPHFLOW_URL ?? 'http://localhost:5173').replace(/\/$/, '')
 const cdpURL = process.env.GLYPHFLOW_CDP_URL ?? 'http://127.0.0.1:9222'
-const email = process.env.GLYPHFLOW_ADMIN_EMAIL ?? 'admin@example_domain.com'
-const password = process.env.GLYPHFLOW_ADMIN_PASSWORD ?? 'admin-password-123'
+const email = process.env.GLYPHFLOW_ADMIN_EMAIL ?? 'admin@domain.com'
+const password = process.env.GLYPHFLOW_ADMIN_PASSWORD ?? 'password'
 
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))
 
@@ -20,7 +20,7 @@ class CDPPage {
     this.pending = new Map()
   }
 
-  async connect() {
+  async connect({ disableCache = false } = {}) {
     this.socket = new WebSocket(this.target.webSocketDebuggerUrl)
     this.socket.addEventListener('message', (event) => {
       const message = JSON.parse(event.data)
@@ -37,14 +37,23 @@ class CDPPage {
     await this.command('Runtime.enable')
     await this.command('Page.enable')
     await this.command('Accessibility.enable')
+    if (disableCache) {
+      await this.command('Network.enable')
+      await this.command('Network.setCacheDisabled', { cacheDisabled: true })
+    }
   }
 
   command(method, params = {}) {
     const id = this.nextID++
     this.socket.send(JSON.stringify({ id, method, params }))
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject })
-      setTimeout(() => {
+      let timeout
+      const settle = (callback) => (value) => {
+        clearTimeout(timeout)
+        callback(value)
+      }
+      this.pending.set(id, { resolve: settle(resolve), reject: settle(reject) })
+      timeout = setTimeout(() => {
         if (!this.pending.has(id)) return
         this.pending.delete(id)
         reject(new Error(`CDP command timed out: ${method}`))
@@ -123,7 +132,7 @@ class CDPPage {
   }
 }
 
-async function createPage() {
+async function createPage(options = {}) {
   let targets
   try {
     targets = await json(`${cdpURL}/json`)
@@ -133,7 +142,7 @@ async function createPage() {
   const target = targets.find((item) => item.type === 'page')
   if (!target) throw new Error('Chrome DevTools has no page target. Open the local frontend in Chromium before running this suite.')
   const page = new CDPPage(target)
-  await page.connect()
+  await page.connect(options)
   return page
 }
 
@@ -241,6 +250,53 @@ async function runLogs(page, state) {
   assert(!errors.length, `run log streams failed: ${errors.join('; ')}`)
 }
 
+function median(values) {
+  const ordered = [...values].sort((left, right) => left - right)
+  return ordered[Math.floor(ordered.length / 2)]
+}
+
+async function startup(page) {
+  const runs = Number(process.env.GLYPHFLOW_STARTUP_RUNS ?? 5)
+  if (!Number.isInteger(runs) || runs < 1) throw new Error('GLYPHFLOW_STARTUP_RUNS must be a positive integer')
+  await page.command('Page.addScriptToEvaluateOnNewDocument', { source: `
+    window.__glyphflowLargestContentfulPaint = null
+    try {
+      new PerformanceObserver((list) => {
+        const entry = list.getEntries().at(-1)
+        if (entry) window.__glyphflowLargestContentfulPaint = entry.startTime
+      }).observe({ type: 'largest-contentful-paint', buffered: true })
+    } catch {}
+  ` })
+  const measurements = []
+  for (let index = 0; index < runs; index += 1) {
+    await page.command('Network.clearBrowserCache')
+    await page.navigate('/login')
+    await sleep(250)
+    measurements.push(await page.evaluate(() => {
+      const navigation = performance.getEntriesByType('navigation')[0]
+      const entries = navigation ? [navigation, ...performance.getEntriesByType('resource')] : performance.getEntriesByType('resource')
+      const total = (field) => entries.reduce((sum, entry) => sum + (Number(entry[field]) || 0), 0)
+      const paint = (name) => performance.getEntriesByType('paint').find((entry) => entry.name === name)?.startTime ?? null
+      const lcp = window.__glyphflowLargestContentfulPaint ?? performance.getEntriesByType('largest-contentful-paint').at(-1)?.startTime ?? null
+      return {
+        transferBytes: total('transferSize'),
+        encodedBytes: total('encodedBodySize'),
+        decodedBytes: total('decodedBodySize'),
+        parseEvaluateMs: navigation ? navigation.domInteractive - navigation.responseEnd : null,
+        firstContentfulPaintMs: paint('first-contentful-paint'),
+        lcpMs: lcp,
+        interactionReadyMs: navigation?.loadEventEnd ?? null,
+      }
+    }))
+  }
+  const fields = ['transferBytes', 'encodedBytes', 'decodedBytes', 'parseEvaluateMs', 'firstContentfulPaintMs', 'lcpMs', 'interactionReadyMs']
+  const summary = Object.fromEntries(fields.map((field) => {
+    const values = measurements.map((measurement) => measurement[field]).filter((value) => value !== null)
+    return [field, values.length ? median(values) : null]
+  }))
+  console.log(JSON.stringify({ runs, median: summary, measurements }, null, 2))
+}
+
 async function main() {
   try {
     const response = await fetch(`${baseURL}/login`)
@@ -248,7 +304,16 @@ async function main() {
   } catch (error) {
     throw new Error(`Cannot reach ${baseURL}. Start ./dev_run.sh first (${error.message})`)
   }
-  const page = await createPage()
+  const startupMode = process.argv.includes('--startup')
+  const page = await createPage({ disableCache: startupMode })
+  if (startupMode) {
+    try {
+      await startup(page)
+    } finally {
+      await page.close()
+    }
+    return
+  }
   const state = { createdTaskID: '' }
   const checks = [
     ['login and session bootstrap', () => login(page)],

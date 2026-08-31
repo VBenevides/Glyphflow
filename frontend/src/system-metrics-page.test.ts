@@ -26,4 +26,11 @@ describe('system metrics page', () => {
     expect(html).toContain('Low-cardinality counters')
     expect(html).not.toContain('payload')
   })
+
+  it('shows unavailable database capacity explicitly', () => {
+    const unavailable = { ...data, signals: { ...data.signals, disk: { freeBytes: 0, freePercent: 0, state: 'UNAVAILABLE', code: 'database_storage_capacity_unconfigured' } }, alerts: [{ code: 'storage_unavailable', severity: 'critical', status: 'firing', value: 0, threshold: 0 }] }
+    const html = renderToStaticMarkup(createElement(SystemMetricsView, { data: unavailable }))
+    expect(html).toContain('Unavailable')
+    expect(html).toContain('database_storage_capacity_unconfigured')
+  })
 })

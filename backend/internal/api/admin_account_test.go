@@ -56,7 +56,10 @@ func TestAdministrationAndAccountRoutes(t *testing.T) {
 	if err := auth.LinkOIDC(user.ID, "corp", "subject"); err != nil {
 		t.Fatal(err)
 	}
-	profile := auth.Profile(claims)
+	profile, err := auth.Profile(claims)
+	if err != nil {
+		t.Fatal(err)
+	}
 	identities, ok := profile["identities"].([]map[string]any)
 	if !ok || len(identities) != 1 {
 		encoded, _ := json.Marshal(profile)

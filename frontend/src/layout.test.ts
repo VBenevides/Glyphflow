@@ -6,6 +6,7 @@ const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8')
 
 describe('UI layout contracts', () => {
   it('keeps authentication controls compact and aligned', () => {
+    expect(css).toContain('.gf-password-field { position: relative; width: 100%; max-width: 32rem; }')
     expect(css).toContain(".gf-editor-form label:has(> input[type='checkbox']) { display: inline-flex; align-items: center;")
     expect(css).toContain('.gf-editor-form label:has(> select#default-role) > select { width: 12rem; flex: 0 0 12rem; }')
     expect(css).toContain(".gf-editor-form label:has(> select#default-role) { align-items: stretch; flex-direction: column;")

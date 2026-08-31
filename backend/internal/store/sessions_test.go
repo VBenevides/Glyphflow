@@ -39,6 +39,10 @@ func TestSessionRepositoryRotationAndReplayRevocation(t *testing.T) {
 	if err := repository.Rotate(ctx, first.ID, first.RefreshTokenHash, replacement); err != nil {
 		t.Fatal(err)
 	}
+	page, total, err := repository.ListAdminPage(ctx, email, 1, 0)
+	if err != nil || total != 1 || len(page) != 1 || page[0].ID != replacement.ID || page[0].UserEmail != email {
+		t.Fatalf("ListAdminPage = %#v, total %d, error %v", page, total, err)
+	}
 	if err := repository.Rotate(ctx, first.ID, first.RefreshTokenHash, replacement); err != ErrSessionReplay {
 		t.Fatalf("replay error = %v, want ErrSessionReplay", err)
 	}

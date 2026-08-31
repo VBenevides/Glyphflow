@@ -10,18 +10,19 @@ historical evidence or target designs, not runtime contracts.
 Browser
   -> Vite dev server, or Nginx in the image
   -> Go control plane (:8080)
-       -> PostgreSQL (authoritative control-plane state)
-       -> NATS JetStream (orders, events, heartbeats, control messages)
+       -> SQLite (local) / PostgreSQL (production; authoritative control-plane state)
+       -> embedded NATS JetStream (local) / separate NATS process (production)
             -> outbound-only Go workers
-                 -> SQLite (worker-local recovery and pending events)
+                 -> separate SQLite (worker-local recovery and pending events)
                  -> child processes (argument-array execution)
 ```
 
 In the container deployment, Nginx serves the built React application and
 proxies `/api/`, `/docs`, and `/openapi.json` to the control plane
 ([`build/nginx.conf`](build/nginx.conf)). In local development, `dev_run.sh`
-runs Vite and the control plane directly and starts only PostgreSQL and NATS
-with Compose. Set `GLYPHFLOW_DISABLE_NGINX=true` when private ingress routes
+runs Vite and the control plane directly with SQLite and embedded NATS. The
+optional Compose stack starts PostgreSQL and NATS as separate containers. Set
+`GLYPHFLOW_DISABLE_NGINX=true` when private ingress routes
 directly to the control-plane listener on port `8080`.
 
 The control plane is one process. Its HTTP API, scheduler, dispatcher,
@@ -35,20 +36,21 @@ Workers are separate processes or machines and do not connect to PostgreSQL.
 |---|---|---|
 | Frontend | React views, routing, and HTTP API client | [`frontend/src`](frontend/src) |
 | API | HTTP routes, authentication, authorization, and request orchestration | [`backend/internal/api`](backend/internal/api) |
-| Store | PostgreSQL repositories, canonical schema, transactions, and durable state transitions | [`backend/internal/store`](backend/internal/store), [`backend/migrations/001_canonical.sql`](backend/migrations/001_canonical.sql) |
+| Store | SQLite/PostgreSQL repositories, canonical schema, transactions, and durable state transitions | [`backend/internal/store`](backend/internal/store), [`backend/migrations/001_canonical.sql`](backend/migrations/001_canonical.sql) |
 | Control plane | Scheduling, dispatch, event ingestion, heartbeats, and start claims | [`backend/internal/controlplane`](backend/internal/controlplane) |
 | Protocol | Signed order, event, and control-message formats and verification | [`backend/internal/protocol`](backend/internal/protocol) |
 | Queue | NATS JetStream connection, subjects, consumers, and acknowledgements | [`backend/internal/queue`](backend/internal/queue) |
 | Worker | Enrollment, order verification, execution, recovery, heartbeats, and event publishing | [`backend/cmd/worker`](backend/cmd/worker), [`backend/internal/worker`](backend/internal/worker) |
 
-PostgreSQL is the source of truth for control-plane state. NATS transports
-messages and provides durable delivery; it is not business state. SQLite is
-only worker-local state for accepted orders, boot recovery, and events waiting
-for publication ([`backend/internal/worker/store.go`](backend/internal/worker/store.go)).
+The control-plane database is the source of truth: SQLite locally and
+PostgreSQL in production. NATS transports messages and provides durable
+delivery; it is not business state. Worker SQLite is a different database,
+used only for accepted orders, boot recovery, and events waiting for
+publication ([`backend/internal/worker/store.go`](backend/internal/worker/store.go)).
 
 ## Runtime flow
 
-1. The API stores task and schedule changes in PostgreSQL.
+1. The API stores task and schedule changes in the configured control-plane database.
 2. The scheduler creates due runs and snapshots the required execution data in
    a database transaction ([`backend/internal/store/schedules.go`](backend/internal/store/schedules.go)).
 3. The dispatcher claims work, signs an order, and publishes it to the
@@ -80,7 +82,7 @@ multi-replica leader election or a load/failover guarantee.
 
 ## Deployment
 
-- Local development: [`dev_run.sh`](dev_run.sh) plus [`compose.yaml`](compose.yaml).
+- Local development: [`dev_run.sh`](dev_run.sh), SQLite, and embedded NATS; [`compose.yaml`](compose.yaml) remains an optional containerized stack.
 - Container image: [`build/Dockerfile`](build/Dockerfile), containing the built
   frontend, Nginx, the control-plane binary, the canonical schema, and runner
   binaries.

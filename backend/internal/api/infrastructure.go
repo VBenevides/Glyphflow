@@ -948,7 +948,7 @@ func (s *InfrastructureService) buildRunnerArtifact(r *http.Request, platformNam
 	if err := validateRunnerEndpoints(controlPlaneURL, embeddedNATSEndpoint, defaultControlPlaneURL, approvedNATSEndpoint, allowInsecure); err != nil {
 		return nil, "", err
 	}
-	packed, err := worker.PackBootstrap(raw, worker.Bootstrap{Token: token, RunnerID: runnerID, ControlPlaneURL: controlPlaneURL, ControlPublicKey: controlPlanePublicKey, NATSURL: strings.TrimSpace(embeddedNATSEndpoint), MaxMessageBytes: maxMessageBytes})
+	packed, err := worker.PackBootstrap(raw, worker.Bootstrap{Token: token, RunnerID: runnerID, ControlPlaneURL: controlPlaneURL, ControlPublicKey: controlPlanePublicKey, NATSURL: strings.TrimSpace(embeddedNATSEndpoint), MaxMessageBytes: maxMessageBytes, AllowInsecureTransport: allowInsecure})
 	return packed, filename, err
 }
 

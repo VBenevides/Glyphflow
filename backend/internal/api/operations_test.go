@@ -36,17 +36,17 @@ func TestTaskDefinitionIncludesResourceRequirements(t *testing.T) {
 	}
 }
 
-func TestTaskSecretReferencesAreRejectedAtTheAPI(t *testing.T) {
+func TestTaskSecretReferencesAreStoredAsNamedIDs(t *testing.T) {
 	o := NewOperationsService()
 	create := httptest.NewRecorder()
-	o.taskCollection(create, httptest.NewRequest(http.MethodPost, "/api/v1/tasks", bytes.NewBufferString(`{"name":"secret task","command":["echo"],"runner_pool":"default","secret_references":{"TOKEN":"env://TOKEN"}}`)))
-	if create.Code != http.StatusBadRequest || !bytes.Contains(create.Body.Bytes(), []byte("secret references are not supported")) {
-		t.Fatalf("task creation accepted secret references: %d %s", create.Code, create.Body.String())
+	o.taskCollection(create, httptest.NewRequest(http.MethodPost, "/api/v1/tasks", bytes.NewBufferString(`{"name":"secret task","command":["echo"],"runner_pool":"default","secret_references":{"TOKEN":"secret-1"}}`)))
+	if create.Code != http.StatusCreated || !bytes.Contains(create.Body.Bytes(), []byte(`"secretReferences":{"TOKEN":"secret-1"}`)) {
+		t.Fatalf("task creation did not preserve secret references: %d %s", create.Code, create.Body.String())
 	}
 
 	version := httptest.NewRecorder()
-	o.taskPath(version, httptest.NewRequest(http.MethodPost, "/api/v1/tasks/task-1/versions", bytes.NewBufferString(`{"command":["echo"],"secret_references":{"TOKEN":"env://TOKEN"}}`)))
-	if version.Code != http.StatusBadRequest || !bytes.Contains(version.Body.Bytes(), []byte("secret references are not supported")) {
-		t.Fatalf("task version accepted secret references: %d %s", version.Code, version.Body.String())
+	o.taskPath(version, httptest.NewRequest(http.MethodPost, "/api/v1/tasks/task-1/versions", bytes.NewBufferString(`{"command":["echo"],"secret_references":{"TOKEN":"secret-1"}}`)))
+	if version.Code != http.StatusCreated || !bytes.Contains(version.Body.Bytes(), []byte(`"secretReferences":{"TOKEN":"secret-1"}`)) {
+		t.Fatalf("task version did not preserve secret references: %d %s", version.Code, version.Body.String())
 	}
 }

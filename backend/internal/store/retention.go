@@ -4,9 +4,6 @@ import (
 	"context"
 	"errors"
 	"time"
-
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const (
@@ -35,9 +32,12 @@ type RetentionResult struct {
 	Runs, DeadLetters, AuditEvents, RunnerMetrics int64
 }
 
-type RetentionStore struct{ pool *pgxpool.Pool }
+type RetentionStore struct{ pool database }
 
-func NewRetentionRepository(pool *pgxpool.Pool) *RetentionStore { return &RetentionStore{pool: pool} }
+func NewRetentionRepository(pool any) *RetentionStore {
+	db, _ := databaseFrom(pool)
+	return &RetentionStore{pool: db}
+}
 
 func (s *RetentionStore) SetLegalHold(ctx context.Context, dataClass, dataID string, held bool, reason string) error {
 	if s == nil || s.pool == nil {
@@ -122,7 +122,7 @@ func boundedRetentionBatch(batch int) int {
 	return batch
 }
 
-func purgeRows(ctx context.Context, tx pgx.Tx, runCutoff, auditCutoff, metricsCutoff time.Time, batch int, criticalOnly bool) (RetentionResult, error) {
+func purgeRows(ctx context.Context, tx databaseTx, runCutoff, auditCutoff, metricsCutoff time.Time, batch int, criticalOnly bool) (RetentionResult, error) {
 	result := RetentionResult{}
 	if criticalOnly {
 		deleted, err := deleteRunBatch(ctx, tx, runCutoff, batch)
@@ -145,7 +145,7 @@ func purgeRows(ctx context.Context, tx pgx.Tx, runCutoff, auditCutoff, metricsCu
 	return result, err
 }
 
-func deleteRunnerMetricsBatch(ctx context.Context, tx pgx.Tx, cutoff time.Time, batch int) (int64, error) {
+func deleteRunnerMetricsBatch(ctx context.Context, tx databaseTx, cutoff time.Time, batch int) (int64, error) {
 	result, err := tx.Exec(ctx, `WITH candidates AS (SELECT runner_id, sampled_at FROM runner_metrics WHERE sampled_at < $1 ORDER BY sampled_at, runner_id LIMIT $2) DELETE FROM runner_metrics m USING candidates c WHERE m.runner_id = c.runner_id AND m.sampled_at = c.sampled_at`, cutoff, batch)
 	if err != nil {
 		return 0, err
@@ -153,7 +153,7 @@ func deleteRunnerMetricsBatch(ctx context.Context, tx pgx.Tx, cutoff time.Time, 
 	return result.RowsAffected(), nil
 }
 
-func deleteRunBatch(ctx context.Context, tx pgx.Tx, cutoff time.Time, batch int) (int64, error) {
+func deleteRunBatch(ctx context.Context, tx databaseTx, cutoff time.Time, batch int) (int64, error) {
 	result, err := tx.Exec(ctx, `WITH candidates AS (SELECT r.id FROM runs r WHERE r.state IN ('SUCCEEDED', 'FAILED', 'CANCELLED') AND r.completed_at IS NOT NULL AND r.completed_at < $1 AND NOT EXISTS (SELECT 1 FROM retention_legal_holds h WHERE h.data_class = 'run' AND h.data_id = r.id) ORDER BY r.completed_at, r.id FOR UPDATE SKIP LOCKED LIMIT $2) DELETE FROM runs r USING candidates c WHERE r.id = c.id`, cutoff, batch)
 	if err != nil {
 		return 0, err
@@ -161,7 +161,7 @@ func deleteRunBatch(ctx context.Context, tx pgx.Tx, cutoff time.Time, batch int)
 	return result.RowsAffected(), nil
 }
 
-func deleteDeadLetterBatch(ctx context.Context, tx pgx.Tx, cutoff time.Time, batch int) (int64, error) {
+func deleteDeadLetterBatch(ctx context.Context, tx databaseTx, cutoff time.Time, batch int) (int64, error) {
 	result, err := tx.Exec(ctx, `WITH candidates AS (SELECT d.id FROM dead_letters d WHERE d.state IN ('RECONCILED', 'DISCARDED') AND d.last_failed_at < $1 AND NOT EXISTS (SELECT 1 FROM retention_legal_holds h WHERE h.data_class = 'dead_letter' AND h.data_id = d.id) ORDER BY d.last_failed_at, d.id FOR UPDATE SKIP LOCKED LIMIT $2) DELETE FROM dead_letters d USING candidates c WHERE d.id = c.id`, cutoff, batch)
 	if err != nil {
 		return 0, err
@@ -169,7 +169,7 @@ func deleteDeadLetterBatch(ctx context.Context, tx pgx.Tx, cutoff time.Time, bat
 	return result.RowsAffected(), nil
 }
 
-func deleteAuditBatch(ctx context.Context, tx pgx.Tx, cutoff time.Time, batch int) (int64, error) {
+func deleteAuditBatch(ctx context.Context, tx databaseTx, cutoff time.Time, batch int) (int64, error) {
 	result, err := tx.Exec(ctx, `WITH candidates AS (SELECT a.id FROM audit_events a WHERE a.created_at < $1 AND NOT EXISTS (SELECT 1 FROM retention_legal_holds h WHERE h.data_class = 'audit' AND h.data_id = a.id) ORDER BY a.created_at, a.id LIMIT $2) DELETE FROM audit_events a USING candidates c WHERE a.id = c.id`, cutoff, batch)
 	if err != nil {
 		return 0, err

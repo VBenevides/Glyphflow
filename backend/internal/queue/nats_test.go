@@ -24,7 +24,7 @@ func newTestMessages(items ...jetstream.Msg) *testMessages {
 	return &testMessages{items: items, stopped: make(chan struct{}), once: make(chan struct{}, 1)}
 }
 
-func (m *testMessages) Next() (jetstream.Msg, error) {
+func (m *testMessages) Next(...jetstream.NextOpt) (jetstream.Msg, error) {
 	if len(m.items) > 0 {
 		message := m.items[0]
 		m.items = m.items[1:]
@@ -80,7 +80,7 @@ func TestMutualTLSAndWorkerPermissions(t *testing.T) {
 		t.Fatal("incomplete TLS configuration was accepted")
 	}
 	permissions := WorkerPermissions("worker-1")
-	if len(permissions.Publish.Allow) != 3 || permissions.Publish.Allow[0] != "glyphflow.events.worker-1" || permissions.Publish.Allow[1] != "glyphflow.heartbeats.worker-1" || permissions.Publish.Allow[2] != StartClaimSubject("worker-1") {
+	if len(permissions.Publish.Allow) != 4 || permissions.Publish.Allow[0] != "glyphflow.events.worker-1" || permissions.Publish.Allow[1] != "glyphflow.heartbeats.worker-1" || permissions.Publish.Allow[2] != StartClaimSubject("worker-1") || permissions.Publish.Allow[3] != SecretDeliverySubject("worker-1") {
 		t.Fatalf("unexpected publish permissions: %#v", permissions.Publish.Allow)
 	}
 	if len(permissions.Subscribe.Allow) != 2 || permissions.Subscribe.Allow[0] != "glyphflow.orders.worker-1" || permissions.Subscribe.Allow[1] != "glyphflow.control.worker-1" {

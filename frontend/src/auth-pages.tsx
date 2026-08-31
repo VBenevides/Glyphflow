@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Eye, EyeOff, LogIn, ShieldCheck } from 'lucide-react'
+import { Eye, EyeOff, LogIn } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from './auth'
 import { api, ApiError, type OidcProvider } from './api'
@@ -78,7 +78,7 @@ export function RegistrationPage() {
     event.preventDefault(); setBusy(true); setError('')
     try { await api.post('/api/v1/auth/register', { email, password }); await api.post('/api/v1/auth/login', { email, password }); await restore(); navigate(redirect, { replace: true }) } catch (cause) { setError(cause instanceof ApiError && cause.status === 403 ? 'Your account is awaiting administrator approval.' : cause instanceof Error ? cause.message : 'Unable to register') } finally { setBusy(false) }
   }
-  return <AuthFrame title="Create account"><form className="gf-form" onSubmit={submit}><label htmlFor="register-email">Email</label><Input id="register-email" type="text" inputMode="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /><label htmlFor="register-password">Password</label><Input id="register-password" type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={12} required />{error && <p className="gf-form-error" role="alert">{error}</p>}<Button type="submit" busy={busy}>Register</Button><Button type="button" variant="ghost" onClick={() => navigate('/login')}>Back to sign in</Button></form></AuthFrame>
+  return <AuthFrame title="Create account"><form className="gf-form" onSubmit={submit}><label htmlFor="register-email">Email</label><Input id="register-email" type="text" inputMode="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /><label htmlFor="register-password">Password</label><Input id="register-password" type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={8} required />{error && <p className="gf-form-error" role="alert">{error}</p>}<Button type="submit" busy={busy}>Register</Button><Button type="button" variant="ghost" onClick={() => navigate('/login')}>Back to sign in</Button></form></AuthFrame>
 }
 
 export function OidcCallbackPage() {
@@ -95,8 +95,4 @@ export function OidcCallbackPage() {
   }, [location.search, navigate, restore])
   if (error) return <AuthFrame title="Single sign-on failed"><ErrorState message={error} onRetry={() => navigate('/login', { replace: true })} /></AuthFrame>
   return <AuthFrame title="Completing sign-in"><LoadingState label="Verifying provider response" /></AuthFrame>
-}
-
-export function AccountHint() {
-  return <p className="gf-auth-hint"><ShieldCheck size={16} aria-hidden="true" /> Sessions use secure server cookies.</p>
 }

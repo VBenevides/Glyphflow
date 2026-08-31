@@ -6,14 +6,13 @@ import (
 	"errors"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type OIDCProviderRecord struct {
-	ID, Name, Issuer, ClientID, SecretReference string
-	CallbackURLs                                []string
-	AuthEndpointOverride, Audience              string
-	Enabled, AutoProvision                      bool
+	ID, Name, Issuer, ClientID     string
+	CallbackURLs                   []string
+	AuthEndpointOverride, Audience string
+	Enabled, AutoProvision         bool
 }
 
 type OIDCProviderRepository interface {
@@ -48,10 +47,11 @@ type OIDCProvisioner interface {
 	ProvisionOIDC(context.Context, UserRecord, string, string, SSOIdentityRecord) error
 }
 
-type OIDCProviderStore struct{ pool *pgxpool.Pool }
+type OIDCProviderStore struct{ pool database }
 
-func NewOIDCProviderRepository(pool *pgxpool.Pool) *OIDCProviderStore {
-	return &OIDCProviderStore{pool: pool}
+func NewOIDCProviderRepository(pool any) *OIDCProviderStore {
+	db, _ := databaseFrom(pool)
+	return &OIDCProviderStore{pool: db}
 }
 
 func (s *OIDCProviderStore) ProvisionOIDC(ctx context.Context, user UserRecord, defaultRoleID, adminRoleID string, identity SSOIdentityRecord) error {
@@ -89,26 +89,25 @@ func (s *OIDCProviderStore) Upsert(ctx context.Context, provider OIDCProviderRec
 	}
 	_, err = s.pool.Exec(ctx, `
 		INSERT INTO sso_providers
-			(id, name, issuer, client_id, secret_reference, callback_urls, auth_endpoint_override, audience, enabled, auto_provision)
-		VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10)
+			(id, name, issuer, client_id, callback_urls, auth_endpoint_override, audience, enabled, auto_provision)
+		VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9)
 		ON CONFLICT (id) DO UPDATE SET
 			name = EXCLUDED.name,
 			issuer = EXCLUDED.issuer,
 			client_id = EXCLUDED.client_id,
-			secret_reference = EXCLUDED.secret_reference,
 			callback_urls = EXCLUDED.callback_urls,
 			auth_endpoint_override = EXCLUDED.auth_endpoint_override,
 			audience = EXCLUDED.audience,
 			enabled = EXCLUDED.enabled,
 			auto_provision = EXCLUDED.auto_provision,
 			updated_at = now()`,
-		provider.ID, provider.Name, provider.Issuer, provider.ClientID, provider.SecretReference, callbacks,
-		provider.AuthEndpointOverride, provider.Audience, provider.Enabled, provider.AutoProvision)
+		provider.ID, provider.Name, provider.Issuer, provider.ClientID, callbacks, provider.AuthEndpointOverride,
+		provider.Audience, provider.Enabled, provider.AutoProvision)
 	return err
 }
 
 func (s *OIDCProviderStore) List(ctx context.Context) ([]OIDCProviderRecord, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id, name, issuer, client_id, secret_reference, callback_urls, auth_endpoint_override, audience, enabled, auto_provision FROM sso_providers ORDER BY lower(name), id`)
+	rows, err := s.pool.Query(ctx, `SELECT id, name, issuer, client_id, callback_urls, auth_endpoint_override, audience, enabled, auto_provision FROM sso_providers ORDER BY lower(name), id`)
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +116,7 @@ func (s *OIDCProviderStore) List(ctx context.Context) ([]OIDCProviderRecord, err
 	for rows.Next() {
 		var provider OIDCProviderRecord
 		var callbacks []byte
-		if err := rows.Scan(&provider.ID, &provider.Name, &provider.Issuer, &provider.ClientID, &provider.SecretReference, &callbacks, &provider.AuthEndpointOverride, &provider.Audience, &provider.Enabled, &provider.AutoProvision); err != nil {
+		if err := rows.Scan(&provider.ID, &provider.Name, &provider.Issuer, &provider.ClientID, &callbacks, &provider.AuthEndpointOverride, &provider.Audience, &provider.Enabled, &provider.AutoProvision); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal(callbacks, &provider.CallbackURLs); err != nil {
@@ -131,8 +130,8 @@ func (s *OIDCProviderStore) List(ctx context.Context) ([]OIDCProviderRecord, err
 func (s *OIDCProviderStore) Find(ctx context.Context, id string) (OIDCProviderRecord, bool, error) {
 	var provider OIDCProviderRecord
 	var callbacks []byte
-	err := s.pool.QueryRow(ctx, `SELECT id, name, issuer, client_id, secret_reference, callback_urls, auth_endpoint_override, audience, enabled, auto_provision FROM sso_providers WHERE id = $1`, id).
-		Scan(&provider.ID, &provider.Name, &provider.Issuer, &provider.ClientID, &provider.SecretReference, &callbacks, &provider.AuthEndpointOverride, &provider.Audience, &provider.Enabled, &provider.AutoProvision)
+	err := s.pool.QueryRow(ctx, `SELECT id, name, issuer, client_id, callback_urls, auth_endpoint_override, audience, enabled, auto_provision FROM sso_providers WHERE id = $1`, id).
+		Scan(&provider.ID, &provider.Name, &provider.Issuer, &provider.ClientID, &callbacks, &provider.AuthEndpointOverride, &provider.Audience, &provider.Enabled, &provider.AutoProvision)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return OIDCProviderRecord{}, false, nil
 	}

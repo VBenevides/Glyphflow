@@ -39,6 +39,27 @@ func TestAuditAppendFailureIsSignalled(t *testing.T) {
 	}
 }
 
+func TestLiveLogPollingAuditsOncePerViewingWindow(t *testing.T) {
+	audit := NewAuditQueryService()
+	handler := (Server{Auth: func(*http.Request) (Claims, bool) {
+		return Claims{UserID: "user-1"}, true
+	}, Permissions: func(Claims) map[string]bool { return map[string]bool{"logs.read": true} }, AuditQuery: audit}).require("logs.read", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	}))
+	for range 3 {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/runs/run-1/logs?stream=stdout", nil))
+	}
+	if len(audit.events) != 1 {
+		t.Fatalf("live-log audit events = %d, want 1", len(audit.events))
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/runs/run-1/logs/download?stream=stdout", nil))
+	if len(audit.events) != 2 {
+		t.Fatalf("download audit events = %d, want 2", len(audit.events))
+	}
+}
+
 func TestDurableAuditFailureBlocksMutation(t *testing.T) {
 	audit := NewAuditQueryService()
 	audit.SetRepository(failingAuditRepository{err: errors.New("audit database unavailable")})

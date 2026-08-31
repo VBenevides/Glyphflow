@@ -22,6 +22,9 @@ const openAPISpec = `{
       "DeadLetter": {"type": "object", "required": ["id", "stream", "consumer", "subject", "messageId", "state"], "properties": {"id": {"type": "string"}, "runnerId": {"type": "string"}, "stream": {"type": "string"}, "consumer": {"type": "string"}, "subject": {"type": "string"}, "messageId": {"type": "string"}, "payloadSha256": {"type": "string"}, "error": {"type": "string"}, "correlationId": {"type": "string"}, "state": {"type": "string"}, "attempts": {"type": "integer"}, "firstFailedAt": {"type": "string", "format": "date-time"}, "lastFailedAt": {"type": "string", "format": "date-time"}}},
       "DeadLetterAction": {"type": "object", "required": ["reason"], "properties": {"reason": {"type": "string", "maxLength": 512}, "state": {"type": "string", "enum": ["RECONCILED", "DISCARDED"]}}},
       "ScheduleProjection": {"type": "object", "required": ["available"], "properties": {"available": {"type": "boolean"}, "calculatedAt": {"type": "string", "format": "date-time"}, "windowStart": {"type": "string", "format": "date-time"}, "windowEnd": {"type": "string", "format": "date-time"}, "durationSource": {"type": "string"}, "segments": {"type": "array", "items": {"type": "object"}}, "conflicts": {"type": "array", "items": {"type": "object"}}}},
+      "SecretTaskUsage": {"type": "object", "required": ["id", "name"], "properties": {"id": {"type": "string"}, "name": {"type": "string"}}},
+      "SecretMetadata": {"type": "object", "required": ["id", "name", "status", "tasks", "canDelete"], "properties": {"id": {"type": "string"}, "name": {"type": "string"}, "status": {"type": "string", "enum": ["UNKNOWN", "VALID", "INTEGRITY_FAILED", "KEY_UNAVAILABLE", "DECRYPTION_FAILED"]}, "createdAt": {"type": "string", "format": "date-time"}, "updatedAt": {"type": "string", "format": "date-time"}, "lastValidatedAt": {"type": "string", "format": "date-time"}, "tasks": {"type": "array", "items": {"$ref": "#/components/schemas/SecretTaskUsage"}}, "canDelete": {"type": "boolean"}}},
+      "SecretAttention": {"type": "object", "required": ["id", "name", "status"], "properties": {"id": {"type": "string"}, "name": {"type": "string"}, "status": {"type": "string", "enum": ["UNKNOWN", "VALID", "INTEGRITY_FAILED", "KEY_UNAVAILABLE", "DECRYPTION_FAILED"]}}},
       "Error": {"type": "object", "properties": {"error": {"type": "string"}}}
     }
   },
@@ -78,6 +81,9 @@ const openAPISpec = `{
     "/api/v1/runners/enroll": {"post": {"tags": ["Runners"], "summary": "Consume a one-use runner enrollment", "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["runner_id", "token"]}}}}, "responses": {"200": {"description": "Runner connection"}, "401": {"description": "Invalid or used enrollment"}}}},
     "/api/v1/audit": {"get": {"tags": ["Administration"], "summary": "List audit events", "security": [{"bearerAuth": []}], "responses": {"200": {"description": "Audit page"}}}},
     "/api/v1/admin/system/metrics": {"get": {"tags": ["Administration"], "summary": "Get operational system metrics", "security": [{"bearerAuth": []}], "responses": {"200": {"description": "System metrics", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SystemMetrics"}}}}, "503": {"description": "Metrics unavailable"}}}},
+    "/api/v1/admin/secrets/attention": {"get": {"tags": ["Administration"], "summary": "List secrets requiring attention", "security": [{"bearerAuth": []}], "responses": {"200": {"description": "Secret integrity statuses", "content": {"application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/SecretAttention"}}}}}, "503": {"description": "Secret status unavailable"}}}},
+    "/api/v1/admin/secrets": {"get": {"tags": ["Administration"], "summary": "List named secrets without values", "security": [{"bearerAuth": []}], "responses": {"200": {"description": "Secret metadata", "content": {"application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/SecretMetadata"}}}}}}}, "post": {"tags": ["Administration"], "summary": "Create an encrypted named secret", "security": [{"bearerAuth": []}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["name", "secret_value"], "properties": {"name": {"type": "string"}, "secret_value": {"type": "string", "format": "password", "writeOnly": true}}}}}}, "responses": {"201": {"description": "Secret created"}}}},
+    "/api/v1/admin/secrets/{secret_id}": {"put": {"tags": ["Administration"], "summary": "Replace an encrypted named secret", "security": [{"bearerAuth": []}], "parameters": [{"name": "secret_id", "in": "path", "required": true, "schema": {"type": "string"}}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["name", "secret_value"], "properties": {"name": {"type": "string"}, "secret_value": {"type": "string", "format": "password", "writeOnly": true}}}}}}, "responses": {"200": {"description": "Secret replaced"}}}, "delete": {"tags": ["Administration"], "summary": "Delete an unused encrypted secret", "security": [{"bearerAuth": []}], "parameters": [{"name": "secret_id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"204": {"description": "Secret deleted"}, "404": {"description": "Not found"}, "409": {"description": "Secret is still in use"}}}},
     "/api/v1/admin/dead-letters": {"get": {"tags": ["Administration"], "summary": "List dead-letter records", "security": [{"bearerAuth": []}], "responses": {"200": {"description": "Dead-letter page", "content": {"application/json": {"schema": {"type": "object"}}}}, "503": {"description": "Dead-letter storage unavailable"}}}},
     "/api/v1/admin/dead-letters/{dead_letter_id}": {"get": {"tags": ["Administration"], "summary": "Inspect a dead-letter record", "security": [{"bearerAuth": []}], "responses": {"200": {"description": "Dead-letter record", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DeadLetter"}}}}, "404": {"description": "Not found"}}}},
     "/api/v1/admin/dead-letters/{dead_letter_id}/retry": {"post": {"tags": ["Administration"], "summary": "Retry a dead-letter record", "security": [{"bearerAuth": []}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DeadLetterAction"}}}}, "responses": {"202": {"description": "Retry queued"}, "409": {"description": "Record is not actionable"}}}},
@@ -90,7 +96,7 @@ const openAPISpec = `{
     "/api/v1/admin/execution-status/{code}": {"put": {"tags": ["Administration"], "summary": "Update a custom exit code", "security": [{"bearerAuth": []}], "parameters": [{"name": "code", "in": "path", "required": true, "schema": {"type": "integer"}}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["meaning"], "properties": {"code": {"type": "integer"}, "meaning": {"type": "string"}}}}}}, "responses": {"200": {"description": "Updated"}, "409": {"description": "System exit codes cannot be changed"}}}, "delete": {"tags": ["Administration"], "summary": "Delete a custom exit code", "security": [{"bearerAuth": []}], "parameters": [{"name": "code", "in": "path", "required": true, "schema": {"type": "integer"}}], "responses": {"204": {"description": "Deleted"}, "409": {"description": "System exit codes cannot be deleted"}}}},
     "/api/v1/admin/auth/sessions/revoke": {"post": {"tags": ["Administration"], "summary": "Revoke a session", "security": [{"bearerAuth": []}], "parameters": [{"name": "session_id", "in": "query", "required": true, "schema": {"type": "string"}}], "responses": {"204": {"description": "Session revoked"}}}},
     "/api/v1/admin/auth/sessions": {"get": {"tags": ["Administration"], "summary": "List active sessions", "security": [{"bearerAuth": []}], "parameters": [{"name": "email", "in": "query", "schema": {"type": "string"}}, {"name": "page", "in": "query", "schema": {"type": "integer"}}, {"name": "limit", "in": "query", "schema": {"type": "integer"}}], "responses": {"200": {"description": "Session page"}}}},
-    "/api/v1/admin/auth/providers": {"get": {"tags": ["Administration"], "summary": "List OIDC providers", "security": [{"bearerAuth": []}], "responses": {"200": {"description": "Providers"}}}, "post": {"tags": ["Administration"], "summary": "Add or update an OIDC provider", "security": [{"bearerAuth": []}], "requestBody": {"content": {"application/json": {"schema": {"type": "object"}}}}, "responses": {"201": {"description": "Provider updated"}}}},
+    "/api/v1/admin/auth/providers": {"get": {"tags": ["Administration"], "summary": "List OIDC providers", "security": [{"bearerAuth": []}], "responses": {"200": {"description": "Providers"}}}, "post": {"tags": ["Administration"], "summary": "Add or update an OIDC provider", "security": [{"bearerAuth": []}], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"clientSecret": {"type": "string", "format": "password", "writeOnly": true}}}}}}, "responses": {"201": {"description": "Provider updated"}}}},
     "/api/v1/admin/auth/users/{user_id}/disable": {"post": {"tags": ["Administration"], "summary": "Disable a user", "security": [{"bearerAuth": []}], "parameters": [{"name": "user_id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"204": {"description": "User disabled"}}}},
     "/api/v1/admin/auth/users/{user_id}/sessions/revoke-all": {"post": {"tags": ["Administration"], "summary": "Revoke all user sessions", "security": [{"bearerAuth": []}], "parameters": [{"name": "user_id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"204": {"description": "Sessions revoked"}}}},
     "/api/v1/admin/roles": {"get": {"tags": ["Administration"], "summary": "List managed roles", "security": [{"bearerAuth": []}], "responses": {"200": {"description": "Roles"}}}, "post": {"tags": ["Administration"], "summary": "Create a role", "security": [{"bearerAuth": []}], "requestBody": {"content": {"application/json": {"schema": {"type": "object"}}}}, "responses": {"201": {"description": "Role created"}}}},
@@ -104,7 +110,6 @@ const swaggerHTML = `<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Glyphflow API Docs</title>
-  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.18.2/swagger-ui.css">
 </head>
 <body>
   <main>
@@ -117,14 +122,21 @@ const swaggerHTML = `<!doctype html>
         <span id="login-status" role="status"></span>
       </form>
     </section>
-    <div id="swagger-ui"></div>
+    <section>
+      <h1>Offline OpenAPI specification</h1>
+      <p><a href="/openapi.json">OpenAPI JSON</a></p>
+      <pre id="openapi-spec">Loading…</pre>
+    </section>
   </main>
-  <script src="https://unpkg.com/swagger-ui-dist@5.18.2/swagger-ui-bundle.js"></script>
   <script>
-    let ui;
-    window.onload = function () {
-      ui = SwaggerUIBundle({url: '/openapi.json', dom_id: '#swagger-ui', presets: [SwaggerUIBundle.presets.apis], layout: 'BaseLayout'});
-    };
+    fetch('/openapi.json').then(function (response) {
+      if (!response.ok) throw new Error('OpenAPI document unavailable');
+      return response.json();
+    }).then(function (spec) {
+      document.getElementById('openapi-spec').textContent = JSON.stringify(spec, null, 2);
+    }).catch(function (error) {
+      document.getElementById('openapi-spec').textContent = error.message;
+    });
     document.getElementById('login-form').addEventListener('submit', async function (event) {
       event.preventDefault();
       const status = document.getElementById('login-status');
