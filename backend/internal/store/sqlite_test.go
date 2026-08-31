@@ -2,8 +2,11 @@ package store
 
 import (
 	"context"
+	"crypto/ed25519"
 	"testing"
 	"time"
+
+	"github.com/VBenevides/Glyphflow/backend/internal/platform"
 )
 
 func TestSQLiteControlPlaneRepositoriesShareOneDatabase(t *testing.T) {
@@ -12,10 +15,35 @@ func TestSQLiteControlPlaneRepositoriesShareOneDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if err := ApplySQLiteMigrations(context.Background(), db, "../../migrations"); err != nil {
-		t.Fatal(err)
+	if max := db.Stats().MaxOpenConnections; max != 8 {
+		t.Fatalf("SQLite max open connections = %d, want 8", max)
 	}
 	ctx := context.Background()
+	first, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	second, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	var firstTimeout, secondTimeout int
+	if err := first.QueryRowContext(ctx, "PRAGMA busy_timeout").Scan(&firstTimeout); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.QueryRowContext(ctx, "PRAGMA busy_timeout").Scan(&secondTimeout); err != nil {
+		t.Fatal(err)
+	}
+	if firstTimeout != 30000 || secondTimeout != 30000 {
+		t.Fatalf("SQLite busy timeouts = %d/%d, want 30000/30000", firstTimeout, secondTimeout)
+	}
+	first.Close()
+	second.Close()
+	if err := ApplySQLiteMigrations(ctx, db, "../../migrations"); err != nil {
+		t.Fatal(err)
+	}
 	if err := NewRoleRepository(db).Ensure(ctx, "role-1", "user", "", false, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -96,5 +124,31 @@ func TestSQLiteControlPlaneRepositoriesShareOneDatabase(t *testing.T) {
 	}
 	if statuses, err := secrets.ListStatuses(ctx); err != nil || len(statuses) != 1 || statuses[0].CanDelete || len(statuses[0].Tasks) != 1 {
 		t.Fatalf("secret statuses = %#v, err=%v", statuses, err)
+	}
+}
+
+func TestSQLiteRunnerEnrollmentCanBeConsumed(t *testing.T) {
+	db, err := OpenSQLite(t.TempDir() + "/controlplane.sqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	if err := ApplySQLiteMigrations(ctx, db, "../../migrations"); err != nil {
+		t.Fatal(err)
+	}
+	repository := NewRunnerRepository(db)
+	if err := repository.EnsurePool(ctx, "pool-enroll", "Pool"); err != nil {
+		t.Fatal(err)
+	}
+	token, hash, err := platform.NewEnrollmentToken(32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.CreateEnrollment(ctx, RunnerRecord{ID: "runner-enroll", Name: "Runner", PoolID: "pool-enroll"}, RunnerEnrollmentRecord{ID: "enrollment-enroll", RunnerID: "runner-enroll", TokenHash: hash, ExpiresAt: time.Now().Add(time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.ConsumeEnrollmentWithKey(ctx, platform.HashToken(token), time.Now(), "runner:runner-enroll", make([]byte, ed25519.PublicKeySize)); err != nil {
+		t.Fatal(err)
 	}
 }

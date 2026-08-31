@@ -170,7 +170,7 @@ func TestRunnerEnrollmentBuildsBootstrapBinaryAndConsumesToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	bootstrap, err := worker.UnpackBootstrap(raw)
-	if err != nil || bootstrap == nil || bootstrap.RunnerID != "runner-1" || bootstrap.ControlPlaneURL != "http://configured.example" || bootstrap.NATSURL != "nats://embedded:4222" {
+	if err != nil || bootstrap == nil || bootstrap.RunnerID != "runner-1" || bootstrap.ControlPlaneURL != "http://configured.example" || bootstrap.NATSURL != "nats://embedded:4222" || !bootstrap.AllowInsecureTransport {
 		t.Fatalf("bootstrap = %#v, err=%v", bootstrap, err)
 	}
 	consume := httptest.NewRecorder()

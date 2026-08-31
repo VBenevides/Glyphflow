@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -94,6 +95,29 @@ func TestResolveControlPlaneEndpointPriority(t *testing.T) {
 	t.Setenv("RUNNER_CONTROL_PLANE_URL", "")
 	if got := resolveControlPlaneEndpoint(bootstrap); got != "http://embedded:8080" {
 		t.Fatalf("embedded endpoint = %q", got)
+	}
+}
+
+func TestApplyBootstrapTransportDefaults(t *testing.T) {
+	t.Setenv("ENVIRONMENT", "")
+	t.Setenv("ALLOW_INSECURE_TRANSPORT", "")
+	if err := applyBootstrapTransportDefaults(&worker.Bootstrap{AllowInsecureTransport: true}); err != nil {
+		t.Fatal(err)
+	}
+	if os.Getenv("ENVIRONMENT") != "development" || os.Getenv("ALLOW_INSECURE_TRANSPORT") != "true" {
+		t.Fatalf("transport defaults = %q/%q", os.Getenv("ENVIRONMENT"), os.Getenv("ALLOW_INSECURE_TRANSPORT"))
+	}
+	if err := validateWorkerControlPlaneEndpoint("http://control.example"); err != nil {
+		t.Fatalf("development HTTP endpoint rejected: %v", err)
+	}
+
+	t.Setenv("ENVIRONMENT", "production")
+	t.Setenv("ALLOW_INSECURE_TRANSPORT", "false")
+	if err := applyBootstrapTransportDefaults(&worker.Bootstrap{AllowInsecureTransport: true}); err != nil {
+		t.Fatal(err)
+	}
+	if os.Getenv("ENVIRONMENT") != "production" || os.Getenv("ALLOW_INSECURE_TRANSPORT") != "false" {
+		t.Fatalf("explicit transport settings changed = %q/%q", os.Getenv("ENVIRONMENT"), os.Getenv("ALLOW_INSECURE_TRANSPORT"))
 	}
 }
 

@@ -20,14 +20,15 @@ import (
 const bootstrapMagic = "GLYPHFLOW_RUNNER_BOOTSTRAP_V1"
 
 type Bootstrap struct {
-	Token            string `json:"token"`
-	RunnerID         string `json:"runner_id"`
-	ControlPlaneURL  string `json:"control_plane_url"`
-	ControlPublicKey string `json:"control_public_key,omitempty"`
-	NATSURL          string `json:"nats_url"`
-	MaxMessageBytes  int    `json:"max_message_bytes"`
-	RunnerKeyID      string `json:"runner_key_id,omitempty"`
-	RunnerPublicKey  string `json:"runner_public_key,omitempty"`
+	Token                  string `json:"token"`
+	RunnerID               string `json:"runner_id"`
+	ControlPlaneURL        string `json:"control_plane_url"`
+	ControlPublicKey       string `json:"control_public_key,omitempty"`
+	NATSURL                string `json:"nats_url"`
+	MaxMessageBytes        int    `json:"max_message_bytes"`
+	AllowInsecureTransport bool   `json:"allow_insecure_transport,omitempty"`
+	RunnerKeyID            string `json:"runner_key_id,omitempty"`
+	RunnerPublicKey        string `json:"runner_public_key,omitempty"`
 }
 
 type RunnerConnection struct {

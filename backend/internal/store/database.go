@@ -412,7 +412,7 @@ func sqliteQuery(query string, args []any) (string, []any, error) {
 		}
 		args[index-1] = decoded
 	}
-	query = sqliteDecode.ReplaceAllString(query, "$$1")
+	query = sqliteDecode.ReplaceAllString(query, "$$${1}")
 	query = strings.ReplaceAll(query, "convert_from(", "CAST(")
 	query = strings.ReplaceAll(query, ", 'UTF8')", " AS TEXT)")
 	query = strings.ReplaceAll(query, "GREATEST(", "MAX(")
@@ -436,7 +436,7 @@ func sqliteQuery(query string, args []any) (string, []any, error) {
 		}
 		return parts[1] + " IN (" + strings.Join(placeholders, ",") + ")"
 	})
-	query = sqliteDecode.ReplaceAllString(query, "$$1")
+	query = sqliteDecode.ReplaceAllString(query, "$$${1}")
 
 	var output strings.Builder
 	outputArgs := make([]any, 0, len(args))

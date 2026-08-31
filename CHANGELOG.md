@@ -2,7 +2,7 @@
 
 All notable changes to Glyphflow are documented here.
 
-## [0.3.1] - 2026-08-27
+## [0.3.1] - 2026-08-30
 
 ### Features
 
@@ -16,6 +16,10 @@ All notable changes to Glyphflow are documented here.
 - Hardened API response caching, OIDC state entropy and cleanup, session error propagation and revocation after password changes, signed worker cancellation handling, impossible cron-date validation, and queue selection.
 - Raised Go dependency security floors, expanded security checks across shipped build tags, and corrected the development storage-capacity environment default.
 - Enabled development workers to connect to the control plane's embedded NATS endpoint through enrollment bootstrap or explicit endpoint overrides.
+- Made development enrollment artifacts carry the local HTTP/NATS transport policy so separately launched workers do not need copied development environment variables.
+- Fixed local SQLite runner enrollment token lookup.
+- Configured local SQLite connections with a 30-second busy timeout.
+- Lowered the minimum password length to eight characters.
 
 ### Other
 

@@ -303,9 +303,10 @@ The recommended worker workflow is enrollment from the console:
 4. run it as a service or supervised process.
 
 The binary contains a short-lived bootstrap credential and the control-plane
-public key. On first start it enrolls over HTTP(S), receives its NATS
-connection, generates and persists its own signing key, and stores local state
-under its data directory. A development worker can use the control plane's
+public key and the control plane's development transport policy. On first start
+it enrolls over HTTP(S), receives its NATS connection, generates and persists
+its own signing key, and stores local state under its data directory. A
+development worker can use the control plane's
 embedded NATS server when it runs on the same machine; set
 `GLYPHFLOW_NATS=embed` and use the endpoint from the enrollment artifact. Set
 `GLYPHFLOW_CONTROL_PLANE_URL` or `GLYPHFLOW_NATS_ENDPOINT` when those local

@@ -38,6 +38,9 @@ func runWorker(ctx context.Context, stdout, stderr io.Writer, status StatusSink)
 	if err != nil {
 		return fmt.Errorf("load worker bootstrap: %w", err)
 	}
+	if err := applyBootstrapTransportDefaults(bootstrap); err != nil {
+		return err
+	}
 	if os.Getenv("DATA_DIR") == "" {
 		dataDir := worker.DefaultDataDir()
 		if bootstrap != nil {
@@ -258,6 +261,23 @@ var closeWorkerStore = func(localStore *worker.LocalStore) { _ = localStore.Clos
 func setWorkerEnv(name, value string) error {
 	if err := setenv(name, value); err != nil {
 		return fmt.Errorf("set worker environment %s: %w", name, err)
+	}
+	return nil
+}
+
+func applyBootstrapTransportDefaults(bootstrap *worker.Bootstrap) error {
+	if bootstrap == nil || !bootstrap.AllowInsecureTransport {
+		return nil
+	}
+	if os.Getenv("ENVIRONMENT") == "" {
+		if err := setWorkerEnv("ENVIRONMENT", "development"); err != nil {
+			return err
+		}
+	}
+	if os.Getenv("ALLOW_INSECURE_TRANSPORT") == "" {
+		if err := setWorkerEnv("ALLOW_INSECURE_TRANSPORT", "true"); err != nil {
+			return err
+		}
 	}
 	return nil
 }

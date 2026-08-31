@@ -23,12 +23,20 @@ func OpenSQLite(path string) (*sql.DB, error) {
 			return nil, err
 		}
 	}
-	db, err := sql.Open("sqlite", path)
+	dsn := path
+	if path == ":memory:" {
+		dsn = "file::memory:?mode=memory&cache=shared"
+	}
+	separator := "?"
+	if strings.Contains(dsn, "?") {
+		separator = "&"
+	}
+	db, err := sql.Open("sqlite", dsn+separator+"_pragma=busy_timeout%3d30000")
 	if err != nil {
 		return nil, err
 	}
 	db.SetMaxOpenConns(8)
-	if _, err := db.Exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000`); err != nil {
+	if _, err := db.Exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=30000`); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
