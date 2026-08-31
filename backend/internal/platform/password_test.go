@@ -41,8 +41,11 @@ func TestArgon2idPepperAndSaltProperties(t *testing.T) {
 }
 
 func TestPasswordPolicy(t *testing.T) {
-	if err := ValidatePassword("short"); err == nil {
-		t.Fatal("short password accepted")
+	if err := ValidatePassword("1234567"); err == nil {
+		t.Fatal("seven-character password accepted")
+	}
+	if err := ValidatePassword("12345678"); err != nil {
+		t.Fatalf("eight-character password rejected: %v", err)
 	}
 	if err := ValidatePassword("valid password"); err != nil {
 		t.Fatal(err)

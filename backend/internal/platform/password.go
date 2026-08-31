@@ -30,8 +30,8 @@ func DefaultPasswordHasher(pepper []byte) PasswordHasher {
 }
 
 func ValidatePassword(password string) error {
-	if utf8.RuneCountInString(password) < 12 {
-		return errors.New("password must contain at least 12 characters")
+	if utf8.RuneCountInString(password) < 8 {
+		return errors.New("password must contain at least 8 characters")
 	}
 	for _, character := range password {
 		if unicode.IsControl(character) {
