@@ -8,16 +8,20 @@ All notable changes to Glyphflow are documented here.
 
 - Added file-backed AES-256-GCM storage for SSO and named task secrets, integrity statuses, existing-key deployment, just-in-time runner environment injection, secret visibility controls, and admin task-usage/deletion protection.
 - Added control-plane alert evaluation, PostgreSQL-owned storage-capacity signals, and SQL-backed administrator pagination.
+- Added environment-selectable local SQLite or PostgreSQL control-plane storage and embedded or remote NATS JetStream operation, with each worker retaining its own separate SQLite recovery database.
+- Added SQLite-compatible control-plane repositories and migrations while preserving the PostgreSQL production path.
 
 ### Bugfixes
 
 - Hardened API response caching, OIDC state entropy and cleanup, session error propagation and revocation after password changes, signed worker cancellation handling, impossible cron-date validation, and queue selection.
 - Raised Go dependency security floors, expanded security checks across shipped build tags, and corrected the development storage-capacity environment default.
+- Enabled development workers to connect to the control plane's embedded NATS endpoint through enrollment bootstrap or explicit endpoint overrides.
 
 ### Other
 
 - Removed the unused production pipeline and dead helpers, normalized Go module metadata, expanded orchestrator lifecycle coverage, coalesced live-log audit polling, measured frontend startup timing, documented retention and control-plane HA boundaries, and removed the offline API docs CDN dependency.
 - Added shared API contract fixtures and bumped the application version to 0.3.1.
+- Added backend and frontend environment examples, updated local and Compose deployment documentation, and aligned local browser-acceptance defaults.
 
 ## [0.3.0] - 2026-08-27
 

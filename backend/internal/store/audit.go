@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"time"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type AuditEventRecord struct {
@@ -33,11 +31,14 @@ type AuditRepository interface {
 	Query(context.Context, AuditFilter) ([]AuditEventRecord, AuditCounts, error)
 }
 
-type AuditStore struct{ pool *pgxpool.Pool }
+type AuditStore struct{ pool database }
 
 const maxAuditQueryRows = 1000
 
-func NewAuditRepository(pool *pgxpool.Pool) *AuditStore { return &AuditStore{pool: pool} }
+func NewAuditRepository(pool any) *AuditStore {
+	db, _ := databaseFrom(pool)
+	return &AuditStore{pool: db}
+}
 
 func (s *AuditStore) Append(ctx context.Context, event AuditEventRecord) error {
 	input, err := json.Marshal(event.RequestInput)

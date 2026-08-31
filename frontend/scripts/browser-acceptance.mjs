@@ -2,8 +2,8 @@
 
 const baseURL = (process.env.GLYPHFLOW_URL ?? 'http://localhost:5173').replace(/\/$/, '')
 const cdpURL = process.env.GLYPHFLOW_CDP_URL ?? 'http://127.0.0.1:9222'
-const email = process.env.GLYPHFLOW_ADMIN_EMAIL ?? 'admin@example_domain.com'
-const password = process.env.GLYPHFLOW_ADMIN_PASSWORD ?? 'admin-password-123'
+const email = process.env.GLYPHFLOW_ADMIN_EMAIL ?? 'admin@domain.com'
+const password = process.env.GLYPHFLOW_ADMIN_PASSWORD ?? 'password'
 
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))
 

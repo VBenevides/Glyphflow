@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 
 	"github.com/VBenevides/Glyphflow/backend/internal/platform"
@@ -17,6 +18,19 @@ func NewPostgreSQLStoragePressureProvider(pool *pgxpool.Pool, capacityBytes int6
 	return NewDatabaseStoragePressureProvider(func(ctx context.Context) (int64, error) {
 		var usedBytes int64
 		if err := pool.QueryRow(ctx, databaseSizeQuery).Scan(&usedBytes); err != nil {
+			return 0, err
+		}
+		return usedBytes, nil
+	}, capacityBytes)
+}
+
+func NewSQLiteStoragePressureProvider(db *sql.DB, capacityBytes int64) func(context.Context) (platform.StoragePressure, error) {
+	if db == nil {
+		return NewDatabaseStoragePressureProvider(nil, capacityBytes)
+	}
+	return NewDatabaseStoragePressureProvider(func(ctx context.Context) (int64, error) {
+		var usedBytes int64
+		if err := db.QueryRowContext(ctx, `SELECT page_count * page_size FROM pragma_page_count, pragma_page_size`).Scan(&usedBytes); err != nil {
 			return 0, err
 		}
 		return usedBytes, nil

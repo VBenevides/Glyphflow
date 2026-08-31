@@ -7,7 +7,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type ExitCodeRecord struct {
@@ -23,7 +22,7 @@ type ExitCodeRepository interface {
 	Delete(context.Context, int) error
 }
 
-type ExitCodeStore struct{ pool *pgxpool.Pool }
+type ExitCodeStore struct{ pool database }
 
 var (
 	ErrExitCodeNotFound = errors.New("exit code not found")
@@ -32,7 +31,10 @@ var (
 	ErrExitCodeInUse    = errors.New("exit code is used by an execution attempt")
 )
 
-func NewExitCodeRepository(pool *pgxpool.Pool) *ExitCodeStore { return &ExitCodeStore{pool: pool} }
+func NewExitCodeRepository(pool any) *ExitCodeStore {
+	db, _ := databaseFrom(pool)
+	return &ExitCodeStore{pool: db}
+}
 
 func (s *ExitCodeStore) List(ctx context.Context) ([]ExitCodeRecord, error) {
 	rows, err := s.pool.Query(ctx, `SELECT code, meaning, is_system FROM exit_code ORDER BY code`)

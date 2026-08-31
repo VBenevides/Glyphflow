@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type RoleRecord struct {
@@ -39,9 +38,12 @@ type RoleRepository interface {
 	EffectivePermissions(context.Context, string) ([]string, error)
 }
 
-type RoleStore struct{ pool *pgxpool.Pool }
+type RoleStore struct{ pool database }
 
-func NewRoleRepository(pool *pgxpool.Pool) *RoleStore { return &RoleStore{pool: pool} }
+func NewRoleRepository(pool any) *RoleStore {
+	db, _ := databaseFrom(pool)
+	return &RoleStore{pool: db}
+}
 
 func SSOAssignmentKey(providerID, groupName string) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(providerID)) + "." + base64.RawURLEncoding.EncodeToString([]byte(groupName))
@@ -70,7 +72,7 @@ func (s *RoleStore) Create(ctx context.Context, id, name, description string, pe
 	return s.Ensure(ctx, id, name, description, false, permissions)
 }
 
-func replaceRolePermissions(ctx context.Context, tx pgx.Tx, roleID string, permissions []string) error {
+func replaceRolePermissions(ctx context.Context, tx databaseTx, roleID string, permissions []string) error {
 	if _, err := tx.Exec(ctx, `DELETE FROM role_permissions WHERE role_id = $1`, roleID); err != nil {
 		return err
 	}

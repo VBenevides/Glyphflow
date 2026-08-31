@@ -75,6 +75,32 @@ func TestValidateWorkerRequiresNATSTLSOutsideDevelopment(t *testing.T) {
 	}
 }
 
+func TestValidateWorkerAllowsEmbeddedNATSInDevelopment(t *testing.T) {
+	config := Config{
+		Role:                   Worker,
+		NATSMode:               "embedded",
+		NATSURL:                "nats://127.0.0.1:4222",
+		DataDir:                "/var/lib/glyphflow",
+		RunnerID:               "worker-1",
+		MaxMessageBytes:        1024,
+		MaxOutputBytes:         1024,
+		Environment:            "development",
+		AllowInsecureTransport: true,
+	}
+	if err := config.Validate(); err != nil {
+		t.Fatalf("development worker using embedded NATS rejected: %v", err)
+	}
+	config.NATSURL = ""
+	if err := config.Validate(); err == nil || !strings.Contains(err.Error(), "NATS_URL") {
+		t.Fatalf("worker without embedded NATS endpoint error = %v", err)
+	}
+	config.NATSURL = "tls://nats.example:4222"
+	config.Environment = "production"
+	if err := config.Validate(); err == nil || !strings.Contains(err.Error(), "only in development") {
+		t.Fatalf("production worker using embedded NATS error = %v", err)
+	}
+}
+
 func TestValidateControlPlaneRequiresPasswordPepper(t *testing.T) {
 	config := Config{
 		Role:                    ControlPlane,
@@ -145,6 +171,28 @@ func TestFromEnvParsesSystemAdminEmails(t *testing.T) {
 	configured, err := FromEnv(ControlPlane)
 	if err != nil || configured.RunnerMetricsMonthsKeep != 7 {
 		t.Fatalf("configured runner metrics retention = %d, err=%v", configured.RunnerMetricsMonthsKeep, err)
+	}
+}
+
+func TestFromEnvDefaultsToLocalSQLiteAndEmbeddedNATS(t *testing.T) {
+	t.Setenv("DATABASE_URL", "")
+	t.Setenv("NATS_URL", "")
+	t.Setenv("DATA_DIR", t.TempDir())
+	t.Setenv("ACCESS_TOKEN_SECRET", "01234567890123456789012345678901")
+	t.Setenv("PASSWORD_PEPPER", "0123456789012345")
+	t.Setenv("WEB_ORIGIN", "http://localhost:5173")
+	t.Setenv("MAX_MESSAGE_BYTES", "1024")
+	t.Setenv("ENVIRONMENT", "development")
+	t.Setenv("ALLOW_INSECURE_TRANSPORT", "true")
+	config, err := FromEnv(ControlPlane)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.DatabaseMode != "sqlite" || config.DatabaseURL == "" {
+		t.Fatalf("database mode/path = %q/%q", config.DatabaseMode, config.DatabaseURL)
+	}
+	if config.NATSMode != "embedded" || config.NATSURL != "" {
+		t.Fatalf("NATS mode/url = %q/%q", config.NATSMode, config.NATSURL)
 	}
 }
 

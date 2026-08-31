@@ -8,7 +8,6 @@ import (
 	"unicode"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type UserRecord struct {
@@ -81,9 +80,12 @@ type UserRepository interface {
 	SetStatus(context.Context, string, string) error
 }
 
-type UserStore struct{ pool *pgxpool.Pool }
+type UserStore struct{ pool database }
 
-func NewUserRepository(pool *pgxpool.Pool) *UserStore { return &UserStore{pool: pool} }
+func NewUserRepository(pool any) *UserStore {
+	db, _ := databaseFrom(pool)
+	return &UserStore{pool: db}
+}
 
 func (s *UserStore) Create(ctx context.Context, user UserRecord, passwordHash string) error {
 	user.DisplayName = NormalizeDisplayName(user.Email, user.DisplayName)
@@ -170,7 +172,7 @@ func (s *UserStore) List(ctx context.Context, status string) ([]UserRecord, erro
 		query += ` WHERE status = $1`
 	}
 	query += ` ORDER BY lower(username), id`
-	var rows pgx.Rows
+	var rows databaseRows
 	var err error
 	if status == "" {
 		rows, err = s.pool.Query(ctx, query)

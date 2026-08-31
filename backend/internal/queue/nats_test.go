@@ -24,7 +24,7 @@ func newTestMessages(items ...jetstream.Msg) *testMessages {
 	return &testMessages{items: items, stopped: make(chan struct{}), once: make(chan struct{}, 1)}
 }
 
-func (m *testMessages) Next() (jetstream.Msg, error) {
+func (m *testMessages) Next(...jetstream.NextOpt) (jetstream.Msg, error) {
 	if len(m.items) > 0 {
 		message := m.items[0]
 		m.items = m.items[1:]

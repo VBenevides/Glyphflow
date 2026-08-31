@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const (
@@ -58,10 +57,11 @@ type EncryptedSecretRepository interface {
 	Delete(context.Context, string) error
 }
 
-type EncryptedSecretStore struct{ pool *pgxpool.Pool }
+type EncryptedSecretStore struct{ pool database }
 
-func NewEncryptedSecretRepository(pool *pgxpool.Pool) *EncryptedSecretStore {
-	return &EncryptedSecretStore{pool: pool}
+func NewEncryptedSecretRepository(pool any) *EncryptedSecretStore {
+	db, _ := databaseFrom(pool)
+	return &EncryptedSecretStore{pool: db}
 }
 
 func (s *EncryptedSecretStore) Upsert(ctx context.Context, secret EncryptedSecretRecord) error {
@@ -138,17 +138,20 @@ func (s *EncryptedSecretStore) ListStatuses(ctx context.Context) ([]EncryptedSec
 				WHERE 'oidc-provider:' || provider.id = secret.id
 			) AS can_delete
 		FROM encrypted_secrets AS secret
-		LEFT JOIN LATERAL (
-			SELECT jsonb_agg(jsonb_build_object('id', usage.id, 'name', usage.name) ORDER BY lower(usage.name), usage.id) AS tasks,
+		LEFT JOIN (
+			SELECT usage.secret_id,
+				jsonb_agg(jsonb_build_object('id', usage.id, 'name', usage.name) ORDER BY lower(usage.name), usage.id) AS tasks,
 				COUNT(*) AS task_count
 			FROM (
-				SELECT DISTINCT task.id, task.name
-				FROM tasks AS task
+				SELECT DISTINCT secret.id AS secret_id, task.id, task.name
+				FROM encrypted_secrets AS secret
+				JOIN tasks AS task ON NOT task.is_deleted
 				JOIN task_versions AS version ON version.id = task.current_version_id AND version.task_id = task.id
-				CROSS JOIN LATERAL jsonb_each_text(version.secret_references) AS reference(name, value)
-				WHERE NOT task.is_deleted AND reference.value = secret.id
+				CROSS JOIN jsonb_each_text(version.secret_references) AS reference
+				WHERE reference.value = secret.id
 			) AS usage
-		) AS task_usage ON TRUE
+			GROUP BY usage.secret_id
+		) AS task_usage ON task_usage.secret_id = secret.id
 		ORDER BY lower(secret.name), secret.id`)
 	if err != nil {
 		return nil, err

@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type OIDCAuthorizationStateRecord struct {
@@ -27,10 +26,11 @@ type OIDCAuthorizationStateAnyRepository interface {
 	ConsumeAny(context.Context, string, string, string, string, time.Time) (OIDCAuthorizationStateRecord, error)
 }
 
-type OIDCAuthorizationStateStore struct{ pool *pgxpool.Pool }
+type OIDCAuthorizationStateStore struct{ pool database }
 
-func NewOIDCAuthorizationStateRepository(pool *pgxpool.Pool) *OIDCAuthorizationStateStore {
-	return &OIDCAuthorizationStateStore{pool: pool}
+func NewOIDCAuthorizationStateRepository(pool any) *OIDCAuthorizationStateStore {
+	db, _ := databaseFrom(pool)
+	return &OIDCAuthorizationStateStore{pool: db}
 }
 
 func (s *OIDCAuthorizationStateStore) Create(ctx context.Context, state OIDCAuthorizationStateRecord) error {

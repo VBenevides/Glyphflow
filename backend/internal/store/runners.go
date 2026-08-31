@@ -11,7 +11,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type RunnerRecord struct {
@@ -61,7 +60,7 @@ type RunnerRepository interface {
 	MarkStale(context.Context, time.Time) error
 }
 
-type RunnerStore struct{ pool *pgxpool.Pool }
+type RunnerStore struct{ pool database }
 
 const DefaultRunnerCapacity = 10
 
@@ -71,7 +70,10 @@ var (
 	ErrRunnerHasExecutionHistory = errors.New("runner is referenced by execution history")
 )
 
-func NewRunnerRepository(pool *pgxpool.Pool) *RunnerStore { return &RunnerStore{pool: pool} }
+func NewRunnerRepository(pool any) *RunnerStore {
+	db, _ := databaseFrom(pool)
+	return &RunnerStore{pool: db}
+}
 
 func (s *RunnerStore) EnsurePool(ctx context.Context, id, name string) error {
 	_, err := s.pool.Exec(ctx, `INSERT INTO runner_pools (id, name, description) VALUES ($1, $2, CASE WHEN $1 = 'default' THEN 'Default Runner Pool' ELSE '' END) ON CONFLICT (id) DO UPDATE SET description = CASE WHEN runner_pools.id = 'default' AND runner_pools.description = '' THEN EXCLUDED.description ELSE runner_pools.description END`, id, name)
@@ -142,7 +144,7 @@ func (s *RunnerStore) DeletePool(ctx context.Context, id string) error {
 	return nil
 }
 
-const runnerQuery = `SELECT r.id, r.name, p.id, p.name, r.desired_state, r.observed_state, r.nats_endpoint, r.control_plane_url, r.capacity, COALESCE((SELECT current_capacity FROM runner_sessions WHERE runner_id = r.id AND disconnected_at IS NULL ORDER BY last_heartbeat_at DESC LIMIT 1), 0), r.active_count, r.last_seen_at, COALESCE(r.capabilities->>'platform', ''), COALESCE(r.capabilities->>'architecture', ''), r.is_archived, r.is_deleted, m.sampled_at, m.cpu_percent, m.memory_percent, m.memory_used_bytes, m.memory_total_bytes FROM runners r LEFT JOIN runner_pools p ON p.id = r.pool_id LEFT JOIN LATERAL (SELECT sampled_at, cpu_percent, memory_percent, memory_used_bytes, memory_total_bytes FROM runner_metrics WHERE runner_id = r.id ORDER BY sampled_at DESC LIMIT 1) m ON true`
+const runnerQuery = `WITH latest_metrics AS (SELECT rm.runner_id, rm.sampled_at, rm.cpu_percent, rm.memory_percent, rm.memory_used_bytes, rm.memory_total_bytes, ROW_NUMBER() OVER (PARTITION BY rm.runner_id ORDER BY rm.sampled_at DESC) AS row_number FROM runner_metrics rm) SELECT r.id, r.name, p.id, p.name, r.desired_state, r.observed_state, r.nats_endpoint, r.control_plane_url, r.capacity, COALESCE((SELECT current_capacity FROM runner_sessions WHERE runner_id = r.id AND disconnected_at IS NULL ORDER BY last_heartbeat_at DESC LIMIT 1), 0), r.active_count, r.last_seen_at, COALESCE(r.capabilities->>'platform', ''), COALESCE(r.capabilities->>'architecture', ''), r.is_archived, r.is_deleted, m.sampled_at, m.cpu_percent, m.memory_percent, m.memory_used_bytes, m.memory_total_bytes FROM runners r LEFT JOIN runner_pools p ON p.id = r.pool_id LEFT JOIN latest_metrics m ON m.runner_id = r.id AND m.row_number = 1`
 
 func (s *RunnerStore) List(ctx context.Context) ([]RunnerRecord, error) {
 	rows, err := s.pool.Query(ctx, runnerQuery+` WHERE NOT r.is_archived AND NOT r.is_deleted ORDER BY r.id`)
@@ -211,7 +213,7 @@ func (s *RunnerStore) SetDesiredState(ctx context.Context, id, state string) (Ru
 	} else {
 		query += ` AND NOT is_archived AND NOT is_deleted`
 	}
-	var result pgconn.CommandTag
+	var result databaseResult
 	var err error
 	if state == "REVOKED" {
 		result, err = s.pool.Exec(ctx, query, id)

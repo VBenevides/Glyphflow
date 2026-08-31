@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var (
@@ -40,9 +39,12 @@ type SessionRepository interface {
 	DeleteOlderThan(context.Context, time.Time) error
 }
 
-type SessionStore struct{ pool *pgxpool.Pool }
+type SessionStore struct{ pool database }
 
-func NewSessionRepository(pool *pgxpool.Pool) *SessionStore { return &SessionStore{pool: pool} }
+func NewSessionRepository(pool any) *SessionStore {
+	db, _ := databaseFrom(pool)
+	return &SessionStore{pool: db}
+}
 
 func (s *SessionStore) Create(ctx context.Context, session SessionRecord) error {
 	_, err := s.pool.Exec(ctx, `INSERT INTO auth_sessions (id, user_id, refresh_token_hash, access_expires_at, refresh_expires_at, session_family_id, user_agent, ip_address, last_seen_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`, session.ID, session.UserID, session.RefreshTokenHash, session.AccessExpiresAt, session.RefreshExpiresAt, session.SessionFamilyID, session.UserAgent, session.IPAddress, session.LastSeenAt)

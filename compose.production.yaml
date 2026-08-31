@@ -22,6 +22,8 @@ services:
       NATS_CERT_FILE: /run/secrets/nats-cert
       NATS_KEY_FILE: /run/secrets/nats-key
       NATS_CA_FILE: /run/secrets/nats-ca
+      GLYPHFLOW_DATABASE: postgresql
+      GLYPHFLOW_NATS: remote
       PGSSLROOTCERT: /run/secrets/postgres-ca
       WEB_ORIGIN: ${WEB_ORIGIN:?WEB_ORIGIN must be set to an https origin}
       CORS_ORIGIN: ${CORS_ORIGIN:?CORS_ORIGIN must be an explicit allowlist}

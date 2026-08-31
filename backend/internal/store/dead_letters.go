@@ -12,7 +12,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type DeadLetterRecord struct {
@@ -54,13 +53,14 @@ type DeadLetterStats struct {
 }
 
 type DeadLetterStore struct {
-	pool *pgxpool.Pool
+	pool database
 	key  []byte
 }
 
-func NewDeadLetterRepository(pool *pgxpool.Pool, applicationSecret []byte) *DeadLetterStore {
+func NewDeadLetterRepository(pool any, applicationSecret []byte) *DeadLetterStore {
 	digest := sha256.Sum256(append([]byte("glyphflow dead-letter payload key\x00"), applicationSecret...))
-	return &DeadLetterStore{pool: pool, key: digest[:]}
+	db, _ := databaseFrom(pool)
+	return &DeadLetterStore{pool: db, key: digest[:]}
 }
 
 func (s *DeadLetterStore) Persist(ctx context.Context, record DeadLetterRecord) error {

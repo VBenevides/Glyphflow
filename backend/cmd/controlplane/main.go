@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -22,6 +24,7 @@ import (
 	"github.com/VBenevides/Glyphflow/backend/internal/platform"
 	"github.com/VBenevides/Glyphflow/backend/internal/queue"
 	"github.com/VBenevides/Glyphflow/backend/internal/store"
+	natsserver "github.com/nats-io/nats-server/v2/server"
 )
 
 func main() {
@@ -45,16 +48,51 @@ func run() error {
 	}
 	ctx, stop := notifyContext()
 	defer stop()
-	db, err := pgxpool.New(ctx, cfg.DatabaseURL)
-	if err != nil {
-		return err
+	var db any
+	var pingDatabase func(context.Context) error
+	var closeDatabase func()
+	if cfg.DatabaseMode == "sqlite" {
+		sqliteDB, err := store.OpenSQLite(cfg.DatabaseURL)
+		if err != nil {
+			return err
+		}
+		db = sqliteDB
+		pingDatabase = sqliteDB.PingContext
+		closeDatabase = func() { _ = sqliteDB.Close() }
+		if err := store.ApplySQLiteMigrations(ctx, sqliteDB, "migrations"); err != nil {
+			closeDatabase()
+			return err
+		}
+	} else {
+		postgresDB, err := pgxpool.New(ctx, cfg.DatabaseURL)
+		if err != nil {
+			return err
+		}
+		db = postgresDB
+		pingDatabase = postgresDB.Ping
+		closeDatabase = func() { closeControlPlaneDB(postgresDB) }
+		if err := waitForDatabase(ctx, postgresDB.Ping, time.Second); err != nil {
+			closeDatabase()
+			return err
+		}
+		if err := store.ApplyMigrations(ctx, postgresDB, "migrations"); err != nil {
+			closeDatabase()
+			return err
+		}
 	}
-	defer closeControlPlaneDB(db)
-	if err := waitForDatabase(ctx, db.Ping, time.Second); err != nil {
-		return err
+	defer closeDatabase()
+	if cfg.DatabaseMode == "sqlite" {
+		if err := waitForDatabase(ctx, pingDatabase, time.Second); err != nil {
+			return err
+		}
 	}
-	if err := store.ApplyMigrations(ctx, db, "migrations"); err != nil {
-		return err
+	if cfg.NATSMode == "embedded" {
+		server, err := startEmbeddedNATS(cfg.DataDir)
+		if err != nil {
+			return err
+		}
+		defer server.Shutdown()
+		cfg.NATSURL = server.ClientURL()
 	}
 	configStore := store.NewConfigStore(db)
 	for name, value := range map[string]any{
@@ -164,7 +202,12 @@ func run() error {
 	operations.SetSecretRepository(encryptedSecretRepository)
 	scheduleRepository := store.NewScheduleRepository(db)
 	retentionRepository := store.NewRetentionRepository(db)
-	storagePressure := store.NewPostgreSQLStoragePressureProvider(db, cfg.DatabaseStorageCapacityBytes)
+	var storagePressure func(context.Context) (platform.StoragePressure, error)
+	if cfg.DatabaseMode == "sqlite" {
+		storagePressure = store.NewSQLiteStoragePressureProvider(db.(*sql.DB), cfg.DatabaseStorageCapacityBytes)
+	} else {
+		storagePressure = store.NewPostgreSQLStoragePressureProvider(db.(*pgxpool.Pool), cfg.DatabaseStorageCapacityBytes)
+	}
 	operations.SetScheduleRepository(scheduleRepository)
 	globalVariables := api.NewGlobalVariableService()
 	globalVariables.SetRepository(store.NewGlobalVariableRepository(db))
@@ -208,7 +251,7 @@ func run() error {
 	health := controlplane.NewHealth("session-cleanup", "heartbeat", "dispatcher", "start-claim", "secret-delivery", "scheduler")
 	deadLetterRepository := store.NewDeadLetterRepository(db, cfg.InstallationEncryptionKey)
 	application := api.Server{AuthService: authService, AuthAdmin: &api.AuthAdminService{Auth: authService, OIDC: oidcService, Sessions: authService.SessionManager()}, Sessions: authService.SessionManager(), OIDC: oidcService, Roles: roles, Auth: authService.Authenticator(), Permissions: authService.Permissions, Metrics: metrics, Logger: logger, CSRFOrigin: cfg.WebOrigin, CSRFOrigins: cfg.CSRFOrigins, CORSOrigins: cfg.CORSOrigins, Operations: operations, Runs: runs, Infrastructure: infrastructure, AuditQuery: audit, ExitCodes: store.NewExitCodeRepository(db), GlobalVariables: globalVariables, Secrets: api.NewSecretAdminService(encryptedSecretRepository, cfg.InstallationEncryptionKey), DeadLetters: api.NewDeadLetterService(deadLetterRepository, nil), Ready: func(ctx context.Context) error {
-		if err := db.Ping(ctx); err != nil {
+		if err := pingDatabase(ctx); err != nil {
 			return err
 		}
 		return nil
@@ -380,7 +423,7 @@ func run() error {
 	}()
 	go projectionService.Run(ctx, 30*time.Minute)
 	application.Ready = func(ctx context.Context) error {
-		if err := db.Ping(ctx); err != nil {
+		if err := pingDatabase(ctx); err != nil {
 			return err
 		}
 		if jetstream == nil {
@@ -436,6 +479,27 @@ var notifyContext = func() (context.Context, context.CancelFunc) {
 }
 
 var closeControlPlaneDB = func(db *pgxpool.Pool) { db.Close() }
+
+func startEmbeddedNATS(dataDir string) (*natsserver.Server, error) {
+	server, err := natsserver.NewServer(&natsserver.Options{
+		Host:                   "127.0.0.1",
+		Port:                   -1,
+		JetStream:              true,
+		StoreDir:               filepath.Join(dataDir, "nats"),
+		NoLog:                  true,
+		NoSigs:                 true,
+		DisableJetStreamBanner: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+	server.Start()
+	if !server.ReadyForConnections(10 * time.Second) {
+		server.Shutdown()
+		return nil, errors.New("embedded NATS did not become ready")
+	}
+	return server, nil
+}
 
 func waitForDatabase(ctx context.Context, ping func(context.Context) error, retryInterval time.Duration) error {
 	for {

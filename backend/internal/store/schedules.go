@@ -10,7 +10,6 @@ import (
 
 	"github.com/VBenevides/Glyphflow/backend/internal/platform"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type ScheduleDefinition struct {
@@ -66,11 +65,14 @@ type DueScheduleRecord struct {
 }
 
 type ScheduleStore struct {
-	pool            *pgxpool.Pool
+	pool            database
 	storagePressure func(context.Context) (platform.StoragePressure, error)
 }
 
-func NewScheduleRepository(pool *pgxpool.Pool) *ScheduleStore { return &ScheduleStore{pool: pool} }
+func NewScheduleRepository(pool any) *ScheduleStore {
+	db, _ := databaseFrom(pool)
+	return &ScheduleStore{pool: db}
+}
 
 func (s *ScheduleStore) SetStoragePressureProvider(provider func(context.Context) (platform.StoragePressure, error)) {
 	s.storagePressure = provider
@@ -441,7 +443,7 @@ func validateScheduleDefinition(definition ScheduleDefinition) error {
 	return nil
 }
 
-func insertScheduleVersion(ctx context.Context, tx pgx.Tx, scheduleID, taskID string, version int, taskVersionID string, definition ScheduleDefinition) error {
+func insertScheduleVersion(ctx context.Context, tx databaseTx, scheduleID, taskID string, version int, taskVersionID string, definition ScheduleDefinition) error {
 	_, err := tx.Exec(ctx, `INSERT INTO schedule_versions (id, schedule_id, task_id, version, task_version_id, expression, timezone, misfire_policy, catchup_limit, start_deadline_seconds, concurrency_policy, max_concurrent_runs) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`, scheduleID+"-v"+strconv.Itoa(version), scheduleID, taskID, version, taskVersionID, definition.Expression, definition.Timezone, definition.MisfirePolicy, definition.CatchupLimit, definition.DeadlineSeconds, definition.ConcurrencyPolicy, definition.MaxConcurrentRuns)
 	return err
 }

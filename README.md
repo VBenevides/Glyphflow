@@ -35,8 +35,9 @@ one place to inspect what happened.
 
 Workers run on the machines that own the work. They connect outbound to the
 control plane's message bus, execute commands locally, and report signed
-lifecycle events and logs back to the console. PostgreSQL stays with the
-control plane; workers do not need database credentials or a PostgreSQL client.
+lifecycle events and logs back to the console. The control plane uses SQLite
+locally and PostgreSQL in production; workers keep a separate local
+`runner.sqlite` and never need database credentials.
 
 ## Main features
 
@@ -50,7 +51,7 @@ but less ceremony than a full container-orchestration platform.
 - **Useful history:** inspect attempts, state transitions, streamed stdout/stderr, exit codes, and audit events.
 - **Deliberate placement:** send work to a pool, pin it to a runner, or match runner capability tags.
 - **Recoverable delivery:** durable state, leases, fencing, local worker recovery, and signed messages handle restarts and redelivery.
-- **Self-hosted by design:** the required runtime is PostgreSQL, NATS JetStream, the Glyphflow control plane, and your workers.
+- **Self-hosted by design:** local development uses SQLite and embedded NATS JetStream; production uses PostgreSQL, a separate NATS JetStream process, the Glyphflow control plane, and your workers.
 
 ## What you can do
 
@@ -146,20 +147,20 @@ meanings, and public API documentation. Once the control plane is running:
 Browser
   │ task, schedule, and operator actions
   ▼
-Control plane ───── PostgreSQL
+Control plane ───── SQLite (local) / PostgreSQL (production)
   │                  durable state, versions, leases, audit history
   │
-  └─────────────── NATS JetStream
+  └─────────────── embedded NATS (local) / remote NATS (production)
                        signed orders and lifecycle events
                            │
                            ▼
                      Outbound-only worker
-                       local SQLite + child process
+                       separate runner.sqlite + child process
 ```
 
 For a scheduled run, the control plane:
 
-1. creates the run and dispatch outbox record in PostgreSQL;
+1. creates the run and dispatch outbox record in the configured control-plane database;
 2. selects a healthy worker with capacity, matching capabilities, and available resources;
 3. signs and publishes the execution order through NATS JetStream;
 4. lets the worker verify, persist, and execute the order locally; and
@@ -175,7 +176,6 @@ truth.
 
 ### Requirements
 
-- Docker Compose
 - Go 1.25 or newer
 - Node.js 22.22.2 or newer
 - npm
@@ -188,8 +188,11 @@ cd Glyphflow
 ./dev_run.sh
 ```
 
-`dev_run.sh` starts PostgreSQL and NATS with Docker Compose, builds local
-runner binaries, and starts the Go control plane and React development server.
+`dev_run.sh` starts the Go control plane with local SQLite and embedded NATS
+JetStream, builds local runner binaries, and starts the React development
+server. Docker is not required for this path. See
+[`backend/.env.example`](backend/.env.example) and
+[`frontend/.env.example`](frontend/.env.example) for configurable variables.
 The provisional, non-guaranteed development targets are in
 [`docs/DEV-PROFILE.md`](docs/DEV-PROFILE.md).
 
@@ -197,13 +200,14 @@ Open <http://localhost:5173> and sign in with the development bootstrap
 account:
 
 ```text
-email:    admin@example_domain.com
-password: admin-password-123
+email:    admin@domain.com
+password: password
 ```
 
 This account and these credentials are for local development only. Press
-`Ctrl-C` to stop the processes. Development Docker volumes are retained so a
-later run can reuse local PostgreSQL and NATS data.
+`Ctrl-C` to stop the processes. Control-plane data is stored in
+`.dev-data/controlplane.sqlite` and `.dev-data/nats`; each worker separately
+stores recovery state in its own `DATA_DIR/runner.sqlite`.
 
 ### Make your first run
 
@@ -249,8 +253,8 @@ The current release is clean-install-only. On first start, the image applies
 its single canonical PostgreSQL schema to a new database; it does not upgrade
 databases from earlier releases.
 
-The base [`compose.yaml`](compose.yaml) is intentionally convenient for local
-use. It exposes PostgreSQL and NATS and contains development credentials. Do
+The base [`compose.yaml`](compose.yaml) remains available as a containerized
+PostgreSQL/NATS development stack. It contains development credentials; do
 not use those defaults for a public deployment.
 
 For production, provide the required values and secret files described in
@@ -301,9 +305,11 @@ The recommended worker workflow is enrollment from the console:
 The binary contains a short-lived bootstrap credential and the control-plane
 public key. On first start it enrolls over HTTP(S), receives its NATS
 connection, generates and persists its own signing key, and stores local state
-under its data directory. Set `GLYPHFLOW_CONTROL_PLANE_URL` or
-`GLYPHFLOW_NATS_ENDPOINT` on the target machine when the embedded endpoints
-are not reachable from that network.
+under its data directory. A development worker can use the control plane's
+embedded NATS server when it runs on the same machine; set
+`GLYPHFLOW_NATS=embed` and use the endpoint from the enrollment artifact. Set
+`GLYPHFLOW_CONTROL_PLANE_URL` or `GLYPHFLOW_NATS_ENDPOINT` when those local
+endpoints are not reachable from the worker.
 
 For maintainers building a worker from source:
 
@@ -334,9 +340,11 @@ with `_FILE` or `_SOURCE`.
 
 | Variable | Purpose |
 | --- | --- |
-| `DATABASE_URL` / `DATABASE_URL_FILE` | PostgreSQL connection URL; production Compose reads the protected file |
-| `DATABASE_STORAGE_CAPACITY_BYTES` | Positive application-database storage budget used with PostgreSQL `pg_database_size`; required outside development |
-| `NATS_URL` / `NATS_URL_FILE` | Control-plane NATS endpoint; use `tls://` outside development; production Compose reads the protected file |
+| `GLYPHFLOW_DATABASE` | `sqlite` for local development; `psql` or `postgresql` for production |
+| `DATABASE_URL` / `DATABASE_URL_FILE` | SQLite path in local development, or PostgreSQL connection URL; production Compose reads the protected file |
+| `DATABASE_STORAGE_CAPACITY_BYTES` | Application-database storage budget; SQLite uses the database file size and PostgreSQL uses `pg_database_size` |
+| `GLYPHFLOW_NATS` | `embed`/`embedded` for local development; `remote` for a separate NATS JetStream process |
+| `NATS_URL` / `NATS_URL_FILE` | Remote control-plane NATS endpoint; use `tls://` outside development; production Compose reads the protected file |
 | `NATS_CERT_FILE`, `NATS_KEY_FILE`, `NATS_CA_FILE` | NATS client TLS material |
 | `ACCESS_TOKEN_SECRET` / `ACCESS_TOKEN_SECRET_FILE` | Session and access-token signing secret; minimum 32 bytes |
 | `CONTROL_PLANE_SIGNING_PRIVATE_KEY` / `CONTROL_PLANE_SIGNING_PRIVATE_KEY_FILE` | Persistent base64 raw Ed25519 private key outside development |
@@ -400,7 +408,8 @@ started without an embedded bootstrap, configure:
 | Variable | Purpose |
 | --- | --- |
 | `RUNNER_ID` | Stable runner identifier |
-| `NATS_URL` | Worker NATS endpoint |
+| `GLYPHFLOW_NATS` | `embed` for a development worker using the control plane's embedded NATS; `remote` for a separate NATS process |
+| `NATS_URL` | Worker NATS endpoint; enrollment artifacts set this automatically |
 | `DATA_DIR` | Persistent worker directory containing `runner.sqlite` and signing keys |
 | `MAX_MESSAGE_BYTES` | Maximum accepted protocol message size |
 | `MAX_OUTPUT_BYTES` | Maximum captured process output; cannot exceed `MAX_MESSAGE_BYTES` |

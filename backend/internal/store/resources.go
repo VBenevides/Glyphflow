@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type ResourceRecord struct {
@@ -28,9 +27,12 @@ type ResourceRepository interface {
 	Release(context.Context, string, string, int64) error
 }
 
-type ResourceStore struct{ pool *pgxpool.Pool }
+type ResourceStore struct{ pool database }
 
-func NewResourceRepository(pool *pgxpool.Pool) *ResourceStore { return &ResourceStore{pool: pool} }
+func NewResourceRepository(pool any) *ResourceStore {
+	db, _ := databaseFrom(pool)
+	return &ResourceStore{pool: db}
+}
 
 const resourceQuery = `SELECT r.id, r.name, r.kind, r.enabled, COALESCE(l.execution_attempt_id, ''), r.next_fencing_token, l.expires_at FROM resources r LEFT JOIN resource_leases l ON l.resource_id = r.id AND l.state = 'ACTIVE' AND l.expires_at > now()`
 

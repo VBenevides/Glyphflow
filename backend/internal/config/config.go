@@ -26,7 +26,9 @@ const (
 
 type Config struct {
 	Role                          Role
+	DatabaseMode                  string
 	DatabaseURL                   string
+	NATSMode                      string
 	NATSURL                       string
 	NATSCertFile                  string
 	NATSKeyFile                   string
@@ -82,10 +84,23 @@ func FromEnv(role Role) (Config, error) {
 	if len(csrfOrigins) == 0 {
 		csrfOrigins = parseOrigins(os.Getenv("WEB_ORIGIN"))
 	}
+	databaseURL := strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	databaseMode := normalizeDatabaseMode(os.Getenv("GLYPHFLOW_DATABASE"), databaseURL)
+	natsURL := strings.TrimSpace(os.Getenv("NATS_URL"))
+	natsMode := normalizeNATSMode(os.Getenv("GLYPHFLOW_NATS"), natsURL)
+	dataDir := strings.TrimSpace(os.Getenv("DATA_DIR"))
+	if dataDir == "" && databaseMode == "sqlite" {
+		dataDir, _ = filepath.Abs(".dev-data")
+	}
+	if databaseMode == "sqlite" && databaseURL == "" {
+		databaseURL = filepath.Join(dataDir, "controlplane.sqlite")
+	}
 	config := Config{
 		Role:                          role,
-		DatabaseURL:                   os.Getenv("DATABASE_URL"),
-		NATSURL:                       os.Getenv("NATS_URL"),
+		DatabaseMode:                  databaseMode,
+		DatabaseURL:                   databaseURL,
+		NATSMode:                      natsMode,
+		NATSURL:                       natsURL,
 		NATSCertFile:                  os.Getenv("NATS_CERT_FILE"),
 		NATSKeyFile:                   os.Getenv("NATS_KEY_FILE"),
 		NATSCAFile:                    os.Getenv("NATS_CA_FILE"),
@@ -106,7 +121,7 @@ func FromEnv(role Role) (Config, error) {
 		BootstrapOIDCSubject:          strings.TrimSpace(os.Getenv("GLYPHFLOW_BOOTSTRAP_OIDC_SUBJECT")),
 		SystemAdminEmails:             systemAdminEmails,
 		Environment:                   strings.ToLower(strings.TrimSpace(os.Getenv("ENVIRONMENT"))),
-		DataDir:                       os.Getenv("DATA_DIR"),
+		DataDir:                       dataDir,
 		LogMonthsKeep:                 3,
 		AuditMonthsKeep:               12,
 		RunnerMetricsMonthsKeep:       3,
@@ -171,8 +186,21 @@ func (c Config) Validate() error {
 			return fmt.Errorf("system admin email: %w", err)
 		}
 	}
-	if err := requireURL("NATS_URL", c.NATSURL, "nats", "tls"); err != nil {
-		return err
+	databaseMode := normalizeDatabaseMode(c.DatabaseMode, c.DatabaseURL)
+	if databaseMode == "" {
+		return errors.New("GLYPHFLOW_DATABASE must be sqlite, psql, or postgresql")
+	}
+	natsMode := normalizeNATSMode(c.NATSMode, c.NATSURL)
+	if natsMode == "" {
+		return errors.New("GLYPHFLOW_NATS must be embed or remote")
+	}
+	if natsMode == "remote" || c.Role == Worker {
+		if err := requireURL("NATS_URL", c.NATSURL, "nats", "tls"); err != nil {
+			return err
+		}
+	}
+	if c.Role == Worker && natsMode == "embedded" && c.Environment != "development" {
+		return errors.New("GLYPHFLOW_NATS=embed for workers is supported only in development")
 	}
 	if !filepath.IsAbs(c.DataDir) {
 		return errors.New("DATA_DIR must be an absolute path")
@@ -187,6 +215,12 @@ func (c Config) Validate() error {
 		return errors.New("DATABASE_STORAGE_CAPACITY_BYTES must not be negative")
 	}
 	if c.Role == ControlPlane {
+		if c.Environment != "development" && databaseMode == "sqlite" {
+			return errors.New("GLYPHFLOW_DATABASE=sqlite is supported only in development")
+		}
+		if c.Environment == "production" && natsMode == "embedded" {
+			return errors.New("GLYPHFLOW_NATS=embed is not supported in production")
+		}
 		if len([]byte(c.AccessTokenSecret)) < 32 {
 			return errors.New("ACCESS_TOKEN_SECRET must contain at least 32 bytes")
 		}
@@ -200,7 +234,7 @@ func (c Config) Validate() error {
 			if err := requireURL("WEB_ORIGIN", c.WebOrigin, "https"); err != nil {
 				return err
 			}
-			if !strings.HasPrefix(c.NATSURL, "tls://") {
+			if natsMode != "remote" || !strings.HasPrefix(c.NATSURL, "tls://") {
 				return errors.New("NATS_URL must use TLS outside development")
 			}
 		}
@@ -219,11 +253,21 @@ func (c Config) Validate() error {
 		if c.Environment == "production" && (c.NATSCertFile == "" || c.NATSKeyFile == "" || c.NATSCAFile == "") {
 			return errors.New("production requires NATS client certificate, key, and CA files")
 		}
-		if err := requireURL("DATABASE_URL", c.DatabaseURL, "postgres", "postgresql"); err != nil {
-			return err
-		}
-		if c.Environment != "development" && databaseSSLMode(c.DatabaseURL) != "verify-full" {
-			return errors.New("DATABASE_URL must use sslmode=verify-full outside development")
+		if databaseMode == "postgresql" {
+			if err := requireURL("DATABASE_URL", c.DatabaseURL, "postgres", "postgresql"); err != nil {
+				return err
+			}
+			if c.Environment != "development" && databaseSSLMode(c.DatabaseURL) != "verify-full" {
+				return errors.New("DATABASE_URL must use sslmode=verify-full outside development")
+			}
+		} else {
+			path := strings.TrimSpace(c.DatabaseURL)
+			if path == "" {
+				return errors.New("DATABASE_URL must contain the SQLite database path")
+			}
+			if strings.Contains(path, "://") && !strings.HasPrefix(strings.ToLower(path), "file://") {
+				return errors.New("DATABASE_URL must contain a SQLite database path")
+			}
 		}
 		return nil
 	}
@@ -245,6 +289,40 @@ func (c Config) Validate() error {
 		}
 	}
 	return nil
+}
+
+func normalizeDatabaseMode(value, databaseURL string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(databaseURL)), "postgres") {
+			return "postgresql"
+		}
+		return "sqlite"
+	}
+	if value == "psql" {
+		return "postgresql"
+	}
+	if value == "sqlite" || value == "postgresql" {
+		return value
+	}
+	return ""
+}
+
+func normalizeNATSMode(value, natsURL string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		if strings.TrimSpace(natsURL) != "" {
+			return "remote"
+		}
+		return "embedded"
+	}
+	if value == "embed" || value == "embedded" {
+		return "embedded"
+	}
+	if value == "remote" {
+		return value
+	}
+	return ""
 }
 
 const installationEncryptionKeySize = 32

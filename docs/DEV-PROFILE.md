@@ -9,7 +9,7 @@ do not publish them as guarantees.
 
 | Area | Development target |
 | --- | --- |
-| Topology | One control plane, one PostgreSQL, one NATS server, and one worker |
+| Topology | One control plane, one SQLite database, embedded NATS, and one worker |
 | Host budget | 4 vCPU, 8 GiB RAM, and at least 20 GiB free persistent disk |
 | Runner | 1 runner with capacity 1 and 1 active execution |
 | Throughput | 10 short task completions per minute, best effort |
@@ -26,10 +26,11 @@ do not publish them as guarantees.
 | Storage pressure | Warning at 20%, critical at 10%, emergency at 5% free; cleanup targets 15% |
 | Operational alerts | Queue lag 30s/5m, open dead letters 1/10, oldest dead letter 5m/30m, stuck runs 1/10 |
 
-The base development Compose file does not enforce the host or service budget.
-The resource rows are sizing targets for local tests. The configured data path
-must remain disposable, and development PostgreSQL/NATS volumes may be reset.
-No retention claim is made for NATS data, backups, or release evidence.
+The direct local profile does not enforce the host or service budget. The
+resource rows are sizing targets for local tests. The configured data path must
+remain disposable; `.dev-data/controlplane.sqlite` and `.dev-data/nats` hold
+control-plane state, while each worker has its own `runner.sqlite`. No
+retention claim is made for NATS data, backups, or release evidence.
 
 These values provide repeatable development inputs for OQ-003, OQ-004, OQ-010,
 OQ-015, and OQ-016. They do not close those production questions or unblock

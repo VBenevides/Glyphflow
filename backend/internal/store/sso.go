@@ -6,7 +6,6 @@ import (
 	"errors"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type OIDCProviderRecord struct {
@@ -48,10 +47,11 @@ type OIDCProvisioner interface {
 	ProvisionOIDC(context.Context, UserRecord, string, string, SSOIdentityRecord) error
 }
 
-type OIDCProviderStore struct{ pool *pgxpool.Pool }
+type OIDCProviderStore struct{ pool database }
 
-func NewOIDCProviderRepository(pool *pgxpool.Pool) *OIDCProviderStore {
-	return &OIDCProviderStore{pool: pool}
+func NewOIDCProviderRepository(pool any) *OIDCProviderStore {
+	db, _ := databaseFrom(pool)
+	return &OIDCProviderStore{pool: db}
 }
 
 func (s *OIDCProviderStore) ProvisionOIDC(ctx context.Context, user UserRecord, defaultRoleID, adminRoleID string, identity SSOIdentityRecord) error {

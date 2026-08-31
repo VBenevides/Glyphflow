@@ -13,7 +13,7 @@ func TestParseEmailList(t *testing.T) {
 }
 
 func TestNormalizeEmailRejectsInvalidAddress(t *testing.T) {
-	if email, err := NormalizeEmail("admin@example_domain.com"); err != nil || email != "admin@example_domain.com" {
+	if email, err := NormalizeEmail("admin@domain.com"); err != nil || email != "admin@domain.com" {
 		t.Fatalf("development email rejected: %q, %v", email, err)
 	}
 	for _, value := range []string{"", "not-an-email", "Admin <admin@example.com>"} {
