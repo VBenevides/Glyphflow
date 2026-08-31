@@ -35,6 +35,8 @@ jobs:
           node-version: 22.22.2
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      - name: Install Gio Linux dependencies
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y pkg-config libegl1-mesa-dev libvulkan-dev libwayland-dev libx11-dev libx11-xcb-dev libxkbcommon-dev libxkbcommon-x11-dev libxcursor-dev libxfixes-dev
 
       - name: Install govulncheck
         env:
