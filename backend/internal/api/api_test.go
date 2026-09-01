@@ -250,8 +250,17 @@ func TestInMemoryTaskAndScheduleDeletion(t *testing.T) {
 	if response := request(http.MethodPost, "/api/v1/tasks", `{"name":"Nightly","command":["echo","hi"],"runner_pool":"default"}`); response.Code != http.StatusCreated {
 		t.Fatalf("task creation returned %d", response.Code)
 	}
+	if response := request(http.MethodPost, "/api/v1/schedules", `{"name":"Too soon","task_id":"task-1","expression":"0 * * * *","timezone":"UTC","start_deadline_seconds":0}`); response.Code != http.StatusBadRequest {
+		t.Fatalf("zero schedule deadline returned %d", response.Code)
+	}
+	if response := request(http.MethodPost, "/api/v1/schedules", `{"name":"Too soon","task_id":"task-1","expression":"0 * * * *","timezone":"UTC","start_deadline_seconds":29}`); response.Code != http.StatusBadRequest {
+		t.Fatalf("short schedule deadline returned %d", response.Code)
+	}
 	if response := request(http.MethodPost, "/api/v1/schedules", `{"name":"Hourly","task_id":"task-1","expression":"0 * * * *","timezone":"UTC"}`); response.Code != http.StatusCreated {
 		t.Fatalf("schedule creation returned %d", response.Code)
+	}
+	if response := request(http.MethodGet, "/api/v1/schedules/schedule-1", ""); response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"deadlineSeconds":60`)) {
+		t.Fatalf("default schedule deadline response = %d: %s", response.Code, response.Body.String())
 	}
 	if response := request(http.MethodDelete, "/api/v1/schedules/schedule-1", ""); response.Code != http.StatusNoContent {
 		t.Fatalf("schedule deletion returned %d", response.Code)

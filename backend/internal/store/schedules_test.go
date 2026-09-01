@@ -91,3 +91,14 @@ func TestScheduleRepositoryKeepsImmutableVersionsAndPointer(t *testing.T) {
 		t.Fatalf("deleted schedule still exists: found=%t, err=%v", found, err)
 	}
 }
+
+func TestScheduleDeadlineDefaultsAndMinimum(t *testing.T) {
+	definition := ScheduleDefinition{ID: "schedule-1", Name: "Hourly", TaskID: "task-1", Expression: "0 * * * *", Timezone: "UTC"}
+	if got := normalizeScheduleDefinition(definition).DeadlineSeconds; got != defaultStartDeadlineSeconds {
+		t.Fatalf("default deadline = %d, want %d", got, defaultStartDeadlineSeconds)
+	}
+	definition.DeadlineSeconds = minimumStartDeadlineSeconds - 1
+	if err := validateScheduleDefinition(definition); err == nil {
+		t.Fatal("deadline below minimum was accepted")
+	}
+}

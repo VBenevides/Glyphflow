@@ -82,6 +82,11 @@ type OperationsService struct {
 	scheduleProjection         *controlplane.ProjectionService
 }
 
+const (
+	defaultScheduleDeadlineSeconds = 60
+	minimumScheduleDeadlineSeconds = 30
+)
+
 func NewOperationsService() *OperationsService {
 	return &OperationsService{tasks: map[string]TaskRecord{}, schedules: map[string]ScheduleRecord{}}
 }
@@ -218,13 +223,29 @@ func scheduleRecordFromStore(schedule store.ScheduleRecord) ScheduleRecord {
 }
 
 func scheduleDefinition(id string, input scheduleInput) (store.ScheduleDefinition, error) {
-	definition := store.ScheduleDefinition{ID: id, Name: input.Name, TaskID: input.TaskID, Expression: input.Expression, Timezone: input.Timezone, Enabled: true, MisfirePolicy: input.MisfirePolicy, CatchupLimit: input.CatchupLimit, DeadlineSeconds: input.DeadlineSeconds, ConcurrencyPolicy: input.ConcurrencyPolicy, MaxConcurrentRuns: input.MaxConcurrentRuns}
+	var err error
+	input, err = normalizeScheduleInput(input)
+	if err != nil {
+		return store.ScheduleDefinition{}, err
+	}
+	definition := store.ScheduleDefinition{ID: id, Name: input.Name, TaskID: input.TaskID, Expression: input.Expression, Timezone: input.Timezone, Enabled: true, MisfirePolicy: input.MisfirePolicy, CatchupLimit: input.CatchupLimit, DeadlineSeconds: *input.DeadlineSeconds, ConcurrencyPolicy: input.ConcurrencyPolicy, MaxConcurrentRuns: input.MaxConcurrentRuns}
 	next, err := controlplane.NextFire(input.Expression, input.Timezone, time.Now().UTC())
 	if err != nil {
 		return store.ScheduleDefinition{}, err
 	}
 	definition.NextFireAt = &next
 	return definition, nil
+}
+
+func normalizeScheduleInput(input scheduleInput) (scheduleInput, error) {
+	if input.DeadlineSeconds == nil {
+		deadlineSeconds := defaultScheduleDeadlineSeconds
+		input.DeadlineSeconds = &deadlineSeconds
+	}
+	if *input.DeadlineSeconds < minimumScheduleDeadlineSeconds {
+		return input, errors.New("start deadline must be at least 30 seconds")
+	}
+	return input, nil
 }
 
 func (o *OperationsService) checkScheduleConflicts(ctx context.Context, definition store.ScheduleDefinition) ([]controlplane.ProjectionConflict, error) {
@@ -746,7 +767,7 @@ type scheduleInput struct {
 	Timezone          string `json:"timezone"`
 	MisfirePolicy     string `json:"misfire_policy"`
 	CatchupLimit      int    `json:"catchup_limit"`
-	DeadlineSeconds   int    `json:"start_deadline_seconds"`
+	DeadlineSeconds   *int   `json:"start_deadline_seconds"`
 	ConcurrencyPolicy string `json:"concurrency_policy"`
 	MaxConcurrentRuns int    `json:"max_concurrent_runs"`
 }
@@ -823,6 +844,11 @@ func (o *OperationsService) saveSchedule(input scheduleInput, id string) (Schedu
 	if strings.TrimSpace(input.TaskID) == "" || strings.TrimSpace(input.Name) == "" || strings.TrimSpace(input.Expression) == "" || strings.TrimSpace(input.Timezone) == "" {
 		return ScheduleRecord{}, errors.New("task, name, expression, and timezone are required")
 	}
+	var err error
+	input, err = normalizeScheduleInput(input)
+	if err != nil {
+		return ScheduleRecord{}, err
+	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if id == "" {
@@ -832,7 +858,7 @@ func (o *OperationsService) saveSchedule(input scheduleInput, id string) (Schedu
 	if existing, ok := o.schedules[id]; ok && input.Name == "" {
 		input.Name = existing.Name
 	}
-	schedule := ScheduleRecord{ID: id, Name: input.Name, TaskID: input.TaskID, Enabled: true, State: "ACTIVE", Timezone: input.Timezone, Expression: input.Expression, MisfirePolicy: input.MisfirePolicy, CatchupLimit: input.CatchupLimit, DeadlineSeconds: input.DeadlineSeconds, ConcurrencyPolicy: input.ConcurrencyPolicy, MaxConcurrentRuns: input.MaxConcurrentRuns}
+	schedule := ScheduleRecord{ID: id, Name: input.Name, TaskID: input.TaskID, Enabled: true, State: "ACTIVE", Timezone: input.Timezone, Expression: input.Expression, MisfirePolicy: input.MisfirePolicy, CatchupLimit: input.CatchupLimit, DeadlineSeconds: *input.DeadlineSeconds, ConcurrencyPolicy: input.ConcurrencyPolicy, MaxConcurrentRuns: input.MaxConcurrentRuns}
 	o.schedules[id] = schedule
 	return schedule, nil
 }

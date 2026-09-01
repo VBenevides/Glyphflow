@@ -69,6 +69,11 @@ type ScheduleStore struct {
 	storagePressure func(context.Context) (platform.StoragePressure, error)
 }
 
+const (
+	defaultStartDeadlineSeconds = 60
+	minimumStartDeadlineSeconds = 30
+)
+
 func NewScheduleRepository(pool any) *ScheduleStore {
 	db, _ := databaseFrom(pool)
 	return &ScheduleStore{pool: db}
@@ -381,7 +386,7 @@ func (s *ScheduleStore) CreateDueRun(ctx context.Context, now time.Time, next fu
 
 func deadlineValue(occurrence time.Time, seconds int) any {
 	if seconds <= 0 {
-		return occurrence.Add(defaultStartDelay)
+		return occurrence.Add(defaultStartDeadlineSeconds * time.Second)
 	}
 	return occurrence.Add(time.Duration(seconds) * time.Second)
 }
@@ -427,6 +432,9 @@ func normalizeScheduleDefinition(definition ScheduleDefinition) ScheduleDefiniti
 	if definition.MisfirePolicy == "" {
 		definition.MisfirePolicy = "SKIP_ALL"
 	}
+	if definition.DeadlineSeconds == 0 {
+		definition.DeadlineSeconds = defaultStartDeadlineSeconds
+	}
 	if definition.ConcurrencyPolicy == "" {
 		definition.ConcurrencyPolicy = "ALLOW"
 	}
@@ -439,6 +447,9 @@ func validateScheduleDefinition(definition ScheduleDefinition) error {
 	}
 	if _, err := platform.ScheduleLocation(definition.Timezone); err != nil && globalVariableReferencePattern.FindString(definition.Timezone) != definition.Timezone {
 		return errors.New("schedule timezone is invalid")
+	}
+	if definition.DeadlineSeconds < minimumStartDeadlineSeconds {
+		return errors.New("start deadline must be at least 30 seconds")
 	}
 	return nil
 }
