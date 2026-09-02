@@ -349,8 +349,21 @@ func sqliteTime(value any) (time.Time, error) {
 	if text == "epoch" {
 		return time.Unix(0, 0).UTC(), nil
 	}
-	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05.999999999-07:00", "2006-01-02 15:04:05"} {
-		if parsed, err := time.Parse(layout, text); err == nil {
+	legacyText := text
+	if fields := strings.Fields(text); len(fields) == 4 {
+		legacyText = strings.Join(fields[:3], " ")
+	}
+	for _, candidate := range []struct {
+		text, layout string
+	}{
+		{text, time.RFC3339Nano},
+		{text, time.RFC3339},
+		{text, "2006-01-02 15:04:05.999999999-07:00"},
+		{text, "2006-01-02 15:04:05"},
+		{legacyText, "2006-01-02 15:04:05.999999999 -0700"},
+		{legacyText, "2006-01-02 15:04:05 -0700"},
+	} {
+		if parsed, err := time.Parse(candidate.layout, candidate.text); err == nil {
 			return parsed, nil
 		}
 	}
@@ -459,8 +472,13 @@ func sqliteQuery(query string, args []any) (string, []any, error) {
 			}
 			value = items[item]
 		}
-		if timestamp, ok := value.(time.Time); ok {
+		switch timestamp := value.(type) {
+		case time.Time:
 			value = timestamp.UTC().Format("2006-01-02 15:04:05.999999999")
+		case *time.Time:
+			if timestamp != nil {
+				value = timestamp.UTC().Format("2006-01-02 15:04:05.999999999")
+			}
 		}
 		output.WriteByte('?')
 		outputArgs = append(outputArgs, value)
