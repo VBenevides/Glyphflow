@@ -959,7 +959,17 @@ func (s *InfrastructureService) enrollInMemory(w http.ResponseWriter, input runn
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "selected runner pool does not exist or is disabled"})
 		return
 	}
+	if s.saveInMemoryEnrollment(input, token, expiry, pool) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "runner is archived"})
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusCreated, map[string]string{"artifact": base64.StdEncoding.EncodeToString(artifact), "expires_at": expiry.UTC().Format(time.RFC3339), "filename": filename, "runner_id": input.RunnerID, "runner_name": input.RunnerName})
+}
+
+func (s *InfrastructureService) saveInMemoryEnrollment(input runnerEnrollmentInput, token string, expiry time.Time, pool RunnerPoolRecord) bool {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	for existingToken, item := range s.enrollments {
 		if item.RunnerID == input.RunnerID && !item.Used {
 			delete(s.enrollments, existingToken)
@@ -968,9 +978,7 @@ func (s *InfrastructureService) enrollInMemory(w http.ResponseWriter, input runn
 	s.enrollments[token] = &enrollment{Token: token, RunnerID: input.RunnerID, Expires: expiry}
 	item, ok := s.runners[input.RunnerID]
 	if ok && (item.IsArchived || item.IsDeleted) {
-		s.mu.Unlock()
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "runner is archived"})
-		return
+		return true
 	}
 	if !ok {
 		item = RunnerRecord{ID: input.RunnerID, Name: input.RunnerName, PoolID: input.PoolID, DesiredState: "ENABLED", ObservedState: "PENDING", Pool: pool.Name, Platform: input.Platform, Architecture: input.Architecture, NATSEndpoint: strings.TrimSpace(input.EmbeddedNATSEndpoint), ControlPlaneURL: input.ControlPlaneURL}
@@ -988,9 +996,7 @@ func (s *InfrastructureService) enrollInMemory(w http.ResponseWriter, input runn
 		}
 	}
 	s.runners[input.RunnerID] = item
-	s.mu.Unlock()
-	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusCreated, map[string]string{"artifact": base64.StdEncoding.EncodeToString(artifact), "expires_at": expiry.UTC().Format(time.RFC3339), "filename": filename, "runner_id": input.RunnerID, "runner_name": input.RunnerName})
+	return false
 }
 
 func (s *InfrastructureService) buildRunnerArtifact(r *http.Request, platformName, architecture, runnerID, token, controlPlaneURL, embeddedNATSEndpoint, ui string) ([]byte, string, error) {
