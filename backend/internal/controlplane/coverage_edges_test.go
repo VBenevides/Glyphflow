@@ -62,6 +62,16 @@ func testScheduleEdges(t *testing.T, now time.Time) {
 
 func testPolicyEdges(t *testing.T, now time.Time) {
 	valid := SchedulePolicy{Misfire: MisfireRunLatest, Concurrency: ConcurrencyQueue, StartDeadline: time.Minute, ExecutionTimeout: time.Minute}
+	testPolicyValidation(t)
+	testPolicyOccurrences(t, valid, now)
+	testPolicyMisfires(t, valid, now)
+	testPolicyConcurrency(t, valid, now)
+	if !valid.DeadlineExceeded(now, now.Add(time.Minute+time.Nanosecond)) {
+		t.Fatal("deadline was not exceeded")
+	}
+}
+
+func testPolicyValidation(t *testing.T) {
 	for _, policy := range []SchedulePolicy{
 		{Misfire: "bad", Concurrency: ConcurrencyQueue, ExecutionTimeout: time.Minute},
 		{Misfire: MisfireRunLatest, Concurrency: "bad", ExecutionTimeout: time.Minute},
@@ -75,12 +85,18 @@ func testPolicyEdges(t *testing.T, now time.Time) {
 			t.Fatalf("invalid policy accepted: %#v", policy)
 		}
 	}
+}
+
+func testPolicyOccurrences(t *testing.T, valid SchedulePolicy, now time.Time) {
 	if count, err := valid.OccurrencesDue(now, now, time.Minute, 0); err != nil || count != 0 {
 		t.Fatalf("not-due policy = %d, %v", count, err)
 	}
 	if count, err := valid.OccurrencesDue(now, now.Add(-time.Minute), 0, 0); err != nil || count != 0 {
 		t.Fatalf("zero-interval policy = %d, %v", count, err)
 	}
+}
+
+func testPolicyMisfires(t *testing.T, valid SchedulePolicy, now time.Time) {
 	for _, misfire := range []MisfirePolicy{MisfireSkipAll, MisfireRunLatest, MisfireFailAndAlert} {
 		policy := valid
 		policy.Misfire = misfire
@@ -89,6 +105,9 @@ func testPolicyEdges(t *testing.T, now time.Time) {
 			t.Fatalf("evaluate %s = %#v, %v", misfire, decision, err)
 		}
 	}
+}
+
+func testPolicyConcurrency(t *testing.T, valid SchedulePolicy, now time.Time) {
 	for _, concurrency := range []ConcurrencyPolicy{ConcurrencyQueue, ConcurrencySkip, ConcurrencyReplace, ConcurrencyAllow, "bad"} {
 		policy := valid
 		policy.Concurrency = concurrency
@@ -105,9 +124,6 @@ func testPolicyEdges(t *testing.T, now time.Time) {
 		if err != nil || (concurrency == ConcurrencySkip && !decision.Skipped) || (concurrency == ConcurrencyReplace && !decision.Replaced) {
 			t.Fatalf("concurrency decision %s = %#v, %v", concurrency, decision, err)
 		}
-	}
-	if !valid.DeadlineExceeded(now, now.Add(time.Minute+time.Nanosecond)) {
-		t.Fatal("deadline was not exceeded")
 	}
 }
 
