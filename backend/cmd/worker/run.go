@@ -44,6 +44,39 @@ func runWorker(ctx context.Context, stdout, stderr io.Writer, status StatusSink)
 	if err := applyBootstrapTransportDefaults(bootstrap); err != nil {
 		return err
 	}
+	if err := prepareWorkerDataDir(bootstrap); err != nil {
+		return err
+	}
+	localStore, err := worker.OpenStore(filepath.Join(os.Getenv("DATA_DIR"), "runner.sqlite"))
+	if err != nil {
+		return fmt.Errorf("open worker store: %w", err)
+	}
+	defer closeWorkerStore(localStore)
+	connection, found, storedKey, foundKey, err := loadWorkerState(localStore)
+	if err != nil {
+		return err
+	}
+	connection, storedKey, foundKey, err = enrollWorkerIfNeeded(ctx, bootstrap, localStore, connection, found, storedKey, foundKey)
+	if err != nil {
+		return err
+	}
+	connection, err = configureWorkerConnection(bootstrap, localStore, connection)
+	if err != nil {
+		return err
+	}
+	controlPublicKey, err := base64.RawStdEncoding.DecodeString(connection.ControlPublicKey)
+	if err != nil || len(controlPublicKey) != ed25519.PublicKeySize {
+		return fmt.Errorf("runner control-plane public key is unavailable")
+	}
+	cfg, err := config.FromEnv(config.Worker)
+	if err != nil {
+		return fmt.Errorf("load worker configuration: %w", err)
+	}
+	setWorkerStatus(status, cfg, stderr)
+	return runWorkerProcess(ctx, stdout, stderr, status, localStore, cfg, connection, storedKey, foundKey, controlPublicKey)
+}
+
+func prepareWorkerDataDir(bootstrap *worker.Bootstrap) error {
 	if os.Getenv("DATA_DIR") == "" {
 		dataDir := worker.DefaultDataDir()
 		if bootstrap != nil {
@@ -56,90 +89,93 @@ func runWorker(ctx context.Context, stdout, stderr io.Writer, status StatusSink)
 	if err := os.MkdirAll(os.Getenv("DATA_DIR"), 0o700); err != nil {
 		return fmt.Errorf("create worker data directory: %w", err)
 	}
-	localStore, err := worker.OpenStore(filepath.Join(os.Getenv("DATA_DIR"), "runner.sqlite"))
-	if err != nil {
-		return fmt.Errorf("open worker store: %w", err)
-	}
-	defer closeWorkerStore(localStore)
+	return nil
+}
+
+func loadWorkerState(localStore *worker.LocalStore) (worker.RunnerConnection, bool, protocol.SigningKey, bool, error) {
 	connection, found, err := localStore.LoadConnection()
 	if err != nil {
-		return fmt.Errorf("load worker connection: %w", err)
+		return worker.RunnerConnection{}, false, protocol.SigningKey{}, false, fmt.Errorf("load worker connection: %w", err)
 	}
 	storedKey, foundKey, err := localStore.LoadSigningKey()
 	if err != nil {
-		return fmt.Errorf("load worker signing key: %w", err)
+		return worker.RunnerConnection{}, false, protocol.SigningKey{}, false, fmt.Errorf("load worker signing key: %w", err)
 	}
+	return connection, found, storedKey, foundKey, nil
+}
+
+func enrollWorkerIfNeeded(ctx context.Context, bootstrap *worker.Bootstrap, localStore *worker.LocalStore, connection worker.RunnerConnection, found bool, storedKey protocol.SigningKey, foundKey bool) (worker.RunnerConnection, protocol.SigningKey, bool, error) {
 	if bootstrap != nil && needsRunnerEnrollment(bootstrap, found, foundKey, storedKey) {
 		bootstrap.ControlPlaneURL = resolveControlPlaneEndpoint(bootstrap)
 		if err := validateWorkerControlPlaneEndpoint(bootstrap.ControlPlaneURL); err != nil {
-			return fmt.Errorf("worker control-plane endpoint: %w", err)
+			return connection, storedKey, foundKey, fmt.Errorf("worker control-plane endpoint: %w", err)
 		}
-		enrollmentKey := storedKey
-		enrollmentKey, err = protocol.GenerateSigningKey(runnerKeyPrefix+bootstrap.RunnerID, time.Now().UTC(), 365*24*time.Hour)
+		enrollmentKey, err := protocol.GenerateSigningKey(runnerKeyPrefix+bootstrap.RunnerID, time.Now().UTC(), 365*24*time.Hour)
 		if err != nil {
-			return fmt.Errorf("generate enrollment signing key: %w", err)
+			return connection, storedKey, foundKey, fmt.Errorf("generate enrollment signing key: %w", err)
 		}
 		bootstrap.RunnerKeyID = enrollmentKey.ID
 		bootstrap.RunnerPublicKey = base64.RawStdEncoding.EncodeToString(enrollmentKey.Public.PublicKey)
-		if enrolledConnection, enrollErr := bootstrap.Enroll(ctx); enrollErr == nil {
+		enrolledConnection, enrollErr := bootstrap.Enroll(ctx)
+		if enrollErr == nil {
 			connection = enrolledConnection
 			if err := localStore.SaveSigningKey(enrollmentKey); err != nil {
-				return fmt.Errorf("save enrolled signing key: %w", err)
+				return connection, storedKey, foundKey, fmt.Errorf("save enrolled signing key: %w", err)
 			}
 			if err := localStore.SaveConnection(connection); err != nil {
-				return fmt.Errorf("save enrolled connection: %w", err)
+				return connection, storedKey, foundKey, fmt.Errorf("save enrolled connection: %w", err)
 			}
-			storedKey, foundKey = enrollmentKey, true
-		} else {
-			return fmt.Errorf("runner enrollment failed: %w", enrollErr)
+			return connection, enrollmentKey, true, nil
 		}
-	} else if !found {
+		return connection, storedKey, foundKey, fmt.Errorf("runner enrollment failed: %w", enrollErr)
+	}
+	if !found {
 		connection = worker.RunnerConnection{}
 	}
+	return connection, storedKey, foundKey, nil
+}
+
+func configureWorkerConnection(bootstrap *worker.Bootstrap, localStore *worker.LocalStore, connection worker.RunnerConnection) (worker.RunnerConnection, error) {
 	connection.NATSURL = resolveNATSEndpoint(bootstrap, connection.NATSURL)
 	if bootstrap != nil && bootstrap.ControlPublicKey != "" && connection.ControlPublicKey != bootstrap.ControlPublicKey {
 		connection.ControlPublicKey = bootstrap.ControlPublicKey
 		if err := localStore.SaveConnection(connection); err != nil {
-			return fmt.Errorf("save control-plane key: %w", err)
+			return connection, fmt.Errorf("save control-plane key: %w", err)
 		}
 	}
 	if connection.RunnerID != "" {
 		if err := setWorkerEnv("RUNNER_ID", connection.RunnerID); err != nil {
-			return err
+			return connection, err
 		}
 	}
 	if connection.NATSURL != "" {
 		if err := setWorkerEnv("NATS_URL", connection.NATSURL); err != nil {
-			return err
+			return connection, err
 		}
 	}
 	if connection.MaxMessageBytes > 0 {
 		if err := setWorkerEnv("MAX_MESSAGE_BYTES", fmt.Sprintf("%d", connection.MaxMessageBytes)); err != nil {
-			return err
+			return connection, err
 		}
 		if os.Getenv("MAX_OUTPUT_BYTES") == "" {
 			if err := setWorkerEnv("MAX_OUTPUT_BYTES", fmt.Sprintf("%d", connection.MaxMessageBytes)); err != nil {
-				return err
+				return connection, err
 			}
 		}
 	}
-	controlPublicKey, err := base64.RawStdEncoding.DecodeString(connection.ControlPublicKey)
-	if err != nil || len(controlPublicKey) != ed25519.PublicKeySize {
-		return fmt.Errorf("runner control-plane public key is unavailable")
+	return connection, nil
+}
+
+func setWorkerStatus(status StatusSink, cfg config.Config, stderr io.Writer) {
+	if status == nil {
+		return
 	}
-	cfg, err := config.FromEnv(config.Worker)
-	if err != nil {
-		return fmt.Errorf("load worker configuration: %w", err)
+	status.SetRunnerID(cfg.RunnerID)
+	endpoint, parseErr := redactNATSEndpoint(cfg.NATSURL)
+	if parseErr != nil {
+		fmt.Fprintln(stderr, "worker NATS endpoint could not be parsed")
 	}
-	if status != nil {
-		status.SetRunnerID(cfg.RunnerID)
-		endpoint, parseErr := redactNATSEndpoint(cfg.NATSURL)
-		if parseErr != nil {
-			fmt.Fprintln(stderr, "worker NATS endpoint could not be parsed")
-		}
-		status.SetNATSEndpoint(endpoint)
-	}
-	return runWorkerProcess(ctx, stdout, stderr, status, localStore, cfg, connection, storedKey, foundKey, controlPublicKey)
+	status.SetNATSEndpoint(endpoint)
 }
 
 func runWorkerProcess(ctx context.Context, stdout, stderr io.Writer, status StatusSink, localStore *worker.LocalStore, cfg config.Config, connection worker.RunnerConnection, storedKey protocol.SigningKey, foundKey bool, controlPublicKey []byte) error {
