@@ -71,6 +71,9 @@ func (d postgresDatabase) QueryRow(ctx context.Context, query string, args ...an
 func (d postgresDatabase) Begin(ctx context.Context) (databaseTx, error) {
 	tx, err := d.pool.Begin(ctx)
 	if err != nil {
+		if tx != nil {
+			_ = tx.Rollback(ctx)
+		}
 		return nil, err
 	}
 	return postgresTx{tx: tx}, nil
@@ -169,6 +172,9 @@ func (d sqliteDatabase) QueryRow(ctx context.Context, query string, args ...any)
 func (d sqliteDatabase) Begin(ctx context.Context) (databaseTx, error) {
 	tx, err := d.db.BeginTx(ctx, nil)
 	if err != nil {
+		if tx != nil {
+			_ = tx.Rollback()
+		}
 		return nil, err
 	}
 	return sqliteTx{tx: tx}, nil
