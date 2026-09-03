@@ -120,6 +120,7 @@ run_dispatch_check() {
   local nats_endpoint=$2
   local origin=$3
   local label=$4
+  local json_header='Content-Type: application/json'
   local dispatch_dir="$test_tmp/dispatch-$label"
   local cookie_jar="$dispatch_dir/cookies"
   local csrf login_payload enrollment_payload enrollment_json artifact runner_id runner_path
@@ -131,14 +132,14 @@ run_dispatch_check() {
   [[ -n "$csrf" ]] || { echo "deployment check: CSRF token was not issued" >&2; return 1; }
   login_payload=$(jq -nc --arg email admin@example.com --arg password "$DEPLOYMENT_CHECK_PASSWORD" '{email:$email,password:$password}')
   curl --fail --silent --show-error -b "$cookie_jar" -c "$cookie_jar" \
-    -H 'Content-Type: application/json' -H "Origin: $origin" -H "X-CSRF-Token: $csrf" \
+    -H "$json_header" -H "Origin: $origin" -H "X-CSRF-Token: $csrf" \
     --data "$login_payload" "$base_url/api/v1/auth/login" >/dev/null
 
   enrollment_payload=$(jq -nc --arg name "deployment-check-$label-$$" --arg control "$base_url" \
     --arg nats "$nats_endpoint" '{runner_name:$name,pool_id:"default",platform:"linux",architecture:"amd64",capacity:1,ui:"headless",control_plane_url:$control,embedded_nats_endpoint:$nats}')
   enrollment_json="$dispatch_dir/enrollment.json"
   curl --fail --silent --show-error -b "$cookie_jar" \
-    -H 'Content-Type: application/json' -H "Origin: $origin" -H "X-CSRF-Token: $csrf" \
+    -H "$json_header" -H "Origin: $origin" -H "X-CSRF-Token: $csrf" \
     --data "$enrollment_payload" "$base_url/api/v1/runners/enrollments" > "$enrollment_json"
   artifact=$(jq -r '.artifact // empty' "$enrollment_json")
   runner_id=$(jq -r '.runner_id // empty' "$enrollment_json")
@@ -166,14 +167,14 @@ run_dispatch_check() {
 
   task_json="$dispatch_dir/task.json"
   curl --fail --silent --show-error -b "$cookie_jar" \
-    -H 'Content-Type: application/json' -H "Origin: $origin" -H "X-CSRF-Token: $csrf" \
+    -H "$json_header" -H "Origin: $origin" -H "X-CSRF-Token: $csrf" \
     --data '{"name":"deployment-check","command":["printf","deployment-check"],"runner_pool":"default","duration_seconds":30,"max_output_bytes":1024}' \
     "$base_url/api/v1/tasks" > "$task_json"
   task_id=$(jq -r '.id // empty' "$task_json")
   [[ -n "$task_id" ]] || { echo "deployment check: task was not created" >&2; return 1; }
   run_json="$dispatch_dir/run.json"
   curl --fail --silent --show-error -b "$cookie_jar" \
-    -H 'Content-Type: application/json' -H "Origin: $origin" -H "X-CSRF-Token: $csrf" \
+    -H "$json_header" -H "Origin: $origin" -H "X-CSRF-Token: $csrf" \
     --data "$(jq -nc --arg id "$task_id" '{task_id:$id}')" "$base_url/api/v1/runs/execute" > "$run_json"
   run_id=$(jq -r '.id // empty' "$run_json")
   [[ -n "$run_id" ]] || { echo "deployment check: run was not created" >&2; return 1; }
