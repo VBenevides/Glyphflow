@@ -70,6 +70,22 @@ func TestLogBufferCapacitySourceIsLive(t *testing.T) {
 	}
 }
 
+func TestLogBufferStatusSettersAndTooltip(t *testing.T) {
+	buffer := NewLogBuffer(nil)
+	buffer.SetRunnerID("runner-1")
+	buffer.SetNATSEndpoint("nats://example")
+	buffer.SetCapacitySource(new(atomic.Int64))
+	buffer.SetRunningSource(func() int64 { return 1 })
+	buffer.SetParallelExecutions(3)
+	snapshot := buffer.Snapshot(0)
+	if snapshot.RunnerID != "runner-1" || snapshot.NATSEndpoint != "nats://example" || snapshot.ParallelExecutions != 3 || snapshot.RunningExecutions != 1 {
+		t.Fatalf("snapshot = %#v", snapshot)
+	}
+	if got := trayTooltip(snapshot); got != "Capacity: 1/3" {
+		t.Fatalf("tooltip = %q", got)
+	}
+}
+
 func TestLogBufferRunningSourceIsLive(t *testing.T) {
 	var running atomic.Int64
 	running.Store(2)
