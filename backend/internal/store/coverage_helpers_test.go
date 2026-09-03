@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func TestStoreValueHelpers(t *testing.T) {
+func TestStoreUserValueHelpers(t *testing.T) {
 	for _, test := range []struct {
 		email, want string
 	}{
@@ -44,7 +44,9 @@ func TestStoreValueHelpers(t *testing.T) {
 	if _, err := userStatus(UserRecord{Status: "invalid"}); err == nil {
 		t.Fatal("userStatus accepted an invalid status")
 	}
+}
 
+func TestStoreRetryHelpers(t *testing.T) {
 	for _, test := range []struct {
 		event        RunEventInput
 		initial, max int
@@ -62,7 +64,9 @@ func TestStoreValueHelpers(t *testing.T) {
 	if got := maxInt(4, 9); got != 9 {
 		t.Fatalf("maxInt = %d, want 9", got)
 	}
+}
 
+func TestStoreSerializationHelpers(t *testing.T) {
 	if got, err := decodeEnvironment([]byte(`{"TEXT":"value","NUMBER":42}`)); err != nil || got["TEXT"] != "value" || got["NUMBER"] != "42" {
 		t.Fatalf("decodeEnvironment = %#v, %v", got, err)
 	}
