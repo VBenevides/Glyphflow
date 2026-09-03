@@ -1082,52 +1082,7 @@ func requestBaseURL(r *http.Request) string {
 }
 func (s *InfrastructureService) resourceCollection(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
-		var input struct {
-			Name string `json:"name"`
-			Kind string `json:"kind"`
-		}
-		if json.NewDecoder(r.Body).Decode(&input) != nil || strings.TrimSpace(input.Name) == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "resource name is required"})
-			return
-		}
-		if strings.TrimSpace(input.Kind) == "" {
-			input.Kind = "exclusive"
-		}
-		input.Kind = strings.ToLower(strings.TrimSpace(input.Kind))
-		if input.Kind != "exclusive" && input.Kind != "non-blocking" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "resource kind must be exclusive or non-blocking"})
-			return
-		}
-		id, err := randomID()
-		if err != nil {
-			writeError(w, http.StatusServiceUnavailable, "resource creation failed", err)
-			return
-		}
-		s.mu.RLock()
-		repository := s.resourceRepository
-		s.mu.RUnlock()
-		if repository != nil {
-			if err := repository.Create(r.Context(), resourceIDPrefix+id, strings.TrimSpace(input.Name), strings.TrimSpace(input.Kind)); err != nil {
-				writeError(w, http.StatusBadRequest, "resource creation failed", err)
-				return
-			}
-			item, found, err := repository.Find(r.Context(), resourceIDPrefix+id)
-			if err != nil {
-				writeError(w, http.StatusServiceUnavailable, errorResourceStorage, err)
-				return
-			}
-			if !found {
-				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "resource was created but could not be read back"})
-				return
-			}
-			writeJSON(w, http.StatusCreated, resourceRecordFromStore(item))
-			return
-		}
-		item := ResourceRecord{ID: resourceIDPrefix + id, Name: strings.TrimSpace(input.Name), Kind: strings.TrimSpace(input.Kind), Enabled: true}
-		s.mu.Lock()
-		s.resources[item.ID] = item
-		s.mu.Unlock()
-		writeJSON(w, http.StatusCreated, item)
+		s.resourceCreate(w, r)
 		return
 	}
 	if r.Method != http.MethodGet {
@@ -1160,6 +1115,55 @@ func (s *InfrastructureService) resourceCollection(w http.ResponseWriter, r *htt
 	items = filterResources(items, r.URL.Query().Get("search"), r.URL.Query().Get("kind"))
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 	writePage(w, r, items)
+}
+
+func (s *InfrastructureService) resourceCreate(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Name string `json:"name"`
+		Kind string `json:"kind"`
+	}
+	if json.NewDecoder(r.Body).Decode(&input) != nil || strings.TrimSpace(input.Name) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "resource name is required"})
+		return
+	}
+	if strings.TrimSpace(input.Kind) == "" {
+		input.Kind = "exclusive"
+	}
+	input.Kind = strings.ToLower(strings.TrimSpace(input.Kind))
+	if input.Kind != "exclusive" && input.Kind != "non-blocking" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "resource kind must be exclusive or non-blocking"})
+		return
+	}
+	id, err := randomID()
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "resource creation failed", err)
+		return
+	}
+	s.mu.RLock()
+	repository := s.resourceRepository
+	s.mu.RUnlock()
+	if repository != nil {
+		if err := repository.Create(r.Context(), resourceIDPrefix+id, strings.TrimSpace(input.Name), strings.TrimSpace(input.Kind)); err != nil {
+			writeError(w, http.StatusBadRequest, "resource creation failed", err)
+			return
+		}
+		item, found, err := repository.Find(r.Context(), resourceIDPrefix+id)
+		if err != nil {
+			writeError(w, http.StatusServiceUnavailable, errorResourceStorage, err)
+			return
+		}
+		if !found {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "resource was created but could not be read back"})
+			return
+		}
+		writeJSON(w, http.StatusCreated, resourceRecordFromStore(item))
+		return
+	}
+	item := ResourceRecord{ID: resourceIDPrefix + id, Name: strings.TrimSpace(input.Name), Kind: strings.TrimSpace(input.Kind), Enabled: true}
+	s.mu.Lock()
+	s.resources[item.ID] = item
+	s.mu.Unlock()
+	writeJSON(w, http.StatusCreated, item)
 }
 
 func filterResources(items []ResourceRecord, search string, kindValues ...string) []ResourceRecord {
