@@ -100,7 +100,7 @@ func TestWaitForDatabaseStopsWhenCanceled(t *testing.T) {
 }
 
 func TestControlPlaneSQLiteStartupInitializesRuntime(t *testing.T) {
-	t.Chdir("../..")
+	chdirBackend(t)
 	cfg := config.Config{
 		DatabaseMode:                 "sqlite",
 		DatabaseURL:                  filepath.Join(t.TempDir(), "controlplane.sqlite"),

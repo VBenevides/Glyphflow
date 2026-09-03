@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"io"
+	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -18,9 +20,18 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+func chdirBackend(t *testing.T) {
+	t.Helper()
+	_, source, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("could not locate test source")
+	}
+	t.Chdir(filepath.Join(filepath.Dir(source), "../.."))
+}
+
 func newSQLiteControlPlaneDatabase(t *testing.T) (controlPlaneDatabase, config.Config) {
 	t.Helper()
-	t.Chdir("/home/wdtg/Projects/Glyphflow/backend")
+	chdirBackend(t)
 	cfg := config.Config{
 		DatabaseMode:                 "sqlite",
 		DatabaseURL:                  t.TempDir() + "/controlplane.sqlite",
@@ -90,7 +101,7 @@ func TestOpenControlPlaneDatabaseRejectsInvalidSQLiteInputs(t *testing.T) {
 
 func TestRunStopsAfterSQLiteStartupRuntimeFailure(t *testing.T) {
 	setControlPlaneStartupEnv(t)
-	t.Chdir("/home/wdtg/Projects/Glyphflow/backend")
+	chdirBackend(t)
 	t.Setenv("GLYPHFLOW_DATABASE", "sqlite")
 	t.Setenv("DATABASE_URL", t.TempDir()+"/controlplane.sqlite")
 	t.Setenv("GLYPHFLOW_NATS", "remote")
@@ -103,7 +114,7 @@ func TestRunStopsAfterSQLiteStartupRuntimeFailure(t *testing.T) {
 
 func TestRunStopsAfterJetStreamConnectionFailure(t *testing.T) {
 	setControlPlaneStartupEnv(t)
-	t.Chdir("/home/wdtg/Projects/Glyphflow/backend")
+	chdirBackend(t)
 	t.Setenv("GLYPHFLOW_DATABASE", "sqlite")
 	t.Setenv("DATABASE_URL", t.TempDir()+"/controlplane.sqlite")
 	t.Setenv("GLYPHFLOW_NATS", "remote")
