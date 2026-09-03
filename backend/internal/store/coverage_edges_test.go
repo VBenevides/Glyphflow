@@ -1527,6 +1527,11 @@ func TestSQLiteSSOProviderAndMappingLifecycle(t *testing.T) {
 }
 
 func TestTaskSerializationAndReferenceBranches(t *testing.T) {
+	testTaskSerializationBranches(t)
+	testTaskReferenceBranches(t)
+}
+
+func testTaskSerializationBranches(t *testing.T) {
 	makeTaskScan := func(invalid int) coverageScanner {
 		return func(dest ...any) error {
 			for index, value := range dest {
@@ -1560,6 +1565,9 @@ func TestTaskSerializationAndReferenceBranches(t *testing.T) {
 			t.Fatalf("invalid task JSON at scan index %d was accepted", index)
 		}
 	}
+}
+
+func testTaskReferenceBranches(t *testing.T) {
 	ctx := context.Background()
 	if err := recordGlobalVariableReferences(ctx, coverageTx{row: coverageScanner(func(dest ...any) error { *(dest[0].(*string)) = "variable"; return nil }), result: coverageRowsAffected(1)}, "task_version", "version", "$ENV:MODE"); err != nil {
 		t.Fatalf("global variable reference failed: %v", err)
