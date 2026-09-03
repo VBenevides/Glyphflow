@@ -71,6 +71,20 @@ function runnerCapacityDetail(runner: Runner) {
   return 'Heartbeat current'
 }
 
+function runnerMetricValue(runner: Runner, field: 'cpuPercent' | 'memoryPercent') {
+  if (runnerIsStale(runner.heartbeatAt)) return 'Stale'
+  return formatMetricPercent(runner.currentMetrics?.[field])
+}
+
+function runnerMetricDetail(runner: Runner) {
+  if (!runner.currentMetrics) return 'No samples'
+  return `Sampled ${formatDateTime(runner.currentMetrics.sampledAt)}`
+}
+
+function canEditRunner(manage: boolean, runner: Runner) {
+  return manage && !runner.isArchived
+}
+
 export function RunnerDetailPage() {
   const { runnerId = '' } = useParams()
   const navigate = useNavigate()
@@ -101,7 +115,10 @@ export function RunnerDetailPage() {
   return (
     <main className="gf-content">
       <QueryState query={query}>
-        {(runner) => (
+        {(runner) => {
+          const editable = canEditRunner(manage, runner)
+          const revoked = runnerIsRevoked(runner)
+          return (
           <>
             <PageHeader title={runner.name} description={`Pool ${runner.pool ?? '—'} · ${runner.observedState ?? '—'}`} refresh={<QueryRefresh query={query} />} />
             {runner.isArchived && <p className="gf-form-error" role="alert">This runner is archived permanently and cannot be recovered.</p>}
@@ -109,8 +126,8 @@ export function RunnerDetailPage() {
               <MetricCard label="Desired state" value={<StatusPill status={runner.desiredState ?? '—'} />} icon={Server} />
               <MetricCard label="Observed state" value={<StatusPill status={runner.observedState ?? '—'} />} icon={Activity} />
               <MetricCard label="Capacity" value={`${runner.activeCount ?? 0}/${runner.capacity ?? 0}`} detail={runnerCapacityDetail(runner)} icon={ListChecks} />
-              <MetricCard label="CPU" value={runnerIsStale(runner.heartbeatAt) ? 'Stale' : formatMetricPercent(runner.currentMetrics?.cpuPercent)} detail={runner.currentMetrics ? `Sampled ${formatDateTime(runner.currentMetrics.sampledAt)}` : 'No samples'} icon={Activity} />
-              <MetricCard label="Memory" value={runnerIsStale(runner.heartbeatAt) ? 'Stale' : formatMetricPercent(runner.currentMetrics?.memoryPercent)} detail={runner.currentMetrics ? `Sampled ${formatDateTime(runner.currentMetrics.sampledAt)}` : 'No samples'} icon={HardDrive} />
+              <MetricCard label="CPU" value={runnerMetricValue(runner, 'cpuPercent')} detail={runnerMetricDetail(runner)} icon={Activity} />
+              <MetricCard label="Memory" value={runnerMetricValue(runner, 'memoryPercent')} detail={runnerMetricDetail(runner)} icon={HardDrive} />
             </section>
             <section className="gf-card-panel">
               <div className="gf-runner-metrics-header"><h2>Resource history</h2><label>Range<select className="gf-input" aria-label="Resource history range" value={metricRange} onChange={(event) => setMetricRange(event.target.value as RunnerMetricRange)}><option value="1h">Last hour</option><option value="6h">Last 6 hours</option><option value="24h">Last 24 hours</option><option value="7d">Last 7 days</option><option value="30d">Last 30 days</option></select></label></div>
@@ -118,20 +135,20 @@ export function RunnerDetailPage() {
             </section>
             <section className="gf-card-panel">
               <h2>Capacity</h2>
-              {manage && !runner.isArchived ? <div className="gf-dialog-actions gf-capacity-controls"><label>Tasks<Input type="number" min={1} value={capacityDraft || String(runner.capacity ?? 10)} onChange={(event) => setCapacityDraft(event.target.value)} /></label><Button busy={capacityBusy} onClick={() => updateCapacity(runner)}>Update capacity</Button></div> : <p className="gf-muted">Configured capacity: {runner.capacity ?? '—'}</p>}
+              {editable ? <div className="gf-dialog-actions gf-capacity-controls"><label>Tasks<Input type="number" min={1} value={capacityDraft || String(runner.capacity ?? 10)} onChange={(event) => setCapacityDraft(event.target.value)} /></label><Button busy={capacityBusy} onClick={() => updateCapacity(runner)}>Update capacity</Button></div> : <p className="gf-muted">Configured capacity: {runner.capacity ?? '—'}</p>}
               {capacityError && <p className="gf-form-error" role="alert">{capacityError}</p>}
             </section>
             <section className="gf-card-panel gf-binary-configuration">
               <h2>Binary Configuration</h2>
               <Tabs defaultValue="endpoints" className="gf-binary-tabs">
                 <TabsList aria-label="Binary configuration tabs"><TabsTrigger value="endpoints">Endpoints</TabsTrigger><TabsTrigger value="generation">Binary Generation</TabsTrigger></TabsList>
-                <TabsContent value="endpoints" className="gf-binary-tab-content"><div className="gf-binary-endpoint-grid"><div className="gf-binary-endpoint"><h3>Control plane endpoint</h3>{manage && !runner.isArchived ? <div className="gf-runner-endpoint-form"><div className="gf-runner-endpoint-control"><label htmlFor="runner-control-plane-url">Endpoint</label><Input id="runner-control-plane-url" value={controlPlaneURLDraft ?? runner.controlPlaneUrl ?? ''} placeholder="http://localhost:8080" onChange={(event) => setControlPlaneURLDraft(event.target.value)} /><Button busy={controlPlaneURLBusy} onClick={() => updateControlPlaneURL(runner)}>Save endpoint</Button></div><small><code>GLYPHFLOW_CONTROL_PLANE_URL</code> on the runner machine overrides this value.</small></div> : <><p className="gf-muted">Configured endpoint: {runner.controlPlaneUrl || 'server default'}</p><p className="gf-muted"><code>GLYPHFLOW_CONTROL_PLANE_URL</code> on the runner machine overrides this value.</p></>}{controlPlaneURLError && <p className="gf-form-error" role="alert">{controlPlaneURLError}</p>}</div><div className="gf-binary-endpoint"><h3>NATS endpoint</h3>{manage && !runner.isArchived ? <div className="gf-runner-endpoint-form"><div className="gf-runner-endpoint-control"><label htmlFor="runner-nats-endpoint">Endpoint</label><Input id="runner-nats-endpoint" value={natsEndpointDraft ?? runner.natsEndpoint ?? ''} placeholder="nats://localhost:4222" onChange={(event) => setNatsEndpointDraft(event.target.value)} /><Button busy={natsEndpointBusy} onClick={() => updateNATSEndpoint(runner)}>Save endpoint</Button></div><small><code>GLYPHFLOW_NATS_ENDPOINT</code> on the runner machine overrides this value.</small></div> : <><p className="gf-muted">Configured endpoint: {runner.natsEndpoint || 'server default'}</p><p className="gf-muted"><code>GLYPHFLOW_NATS_ENDPOINT</code> on the runner machine overrides this value.</p></>}{natsEndpointError && <p className="gf-form-error" role="alert">{natsEndpointError}</p>}</div></div></TabsContent>
-                <TabsContent value="generation" className="gf-binary-tab-content">{manage && !runner.isArchived ? <div className="gf-binary-generation-controls"><label className="gf-worker-ui-control">Worker UI<select className="gf-input" value={workerUI} onChange={(event) => setWorkerUI(event.target.value as WorkerUI)}>{workerUIOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label><Button busy={binaryBusy} title="Create and download a new one-use runner binary" onClick={() => generateBinary(runner)}>Generate Binary</Button></div> : <p className="gf-muted">Binary generation is unavailable for this runner.</p>}{binaryError && <p className="gf-form-error" role="alert">{binaryError}</p>}</TabsContent>
+                <TabsContent value="endpoints" className="gf-binary-tab-content"><div className="gf-binary-endpoint-grid"><div className="gf-binary-endpoint"><h3>Control plane endpoint</h3>{editable ? <div className="gf-runner-endpoint-form"><div className="gf-runner-endpoint-control"><label htmlFor="runner-control-plane-url">Endpoint</label><Input id="runner-control-plane-url" value={controlPlaneURLDraft ?? runner.controlPlaneUrl ?? ''} placeholder="http://localhost:8080" onChange={(event) => setControlPlaneURLDraft(event.target.value)} /><Button busy={controlPlaneURLBusy} onClick={() => updateControlPlaneURL(runner)}>Save endpoint</Button></div><small><code>GLYPHFLOW_CONTROL_PLANE_URL</code> on the runner machine overrides this value.</small></div> : <><p className="gf-muted">Configured endpoint: {runner.controlPlaneUrl || 'server default'}</p><p className="gf-muted"><code>GLYPHFLOW_CONTROL_PLANE_URL</code> on the runner machine overrides this value.</p></>}{controlPlaneURLError && <p className="gf-form-error" role="alert">{controlPlaneURLError}</p>}</div><div className="gf-binary-endpoint"><h3>NATS endpoint</h3>{editable ? <div className="gf-runner-endpoint-form"><div className="gf-runner-endpoint-control"><label htmlFor="runner-nats-endpoint">Endpoint</label><Input id="runner-nats-endpoint" value={natsEndpointDraft ?? runner.natsEndpoint ?? ''} placeholder="nats://localhost:4222" onChange={(event) => setNatsEndpointDraft(event.target.value)} /><Button busy={natsEndpointBusy} onClick={() => updateNATSEndpoint(runner)}>Save endpoint</Button></div><small><code>GLYPHFLOW_NATS_ENDPOINT</code> on the runner machine overrides this value.</small></div> : <><p className="gf-muted">Configured endpoint: {runner.natsEndpoint || 'server default'}</p><p className="gf-muted"><code>GLYPHFLOW_NATS_ENDPOINT</code> on the runner machine overrides this value.</p></>}{natsEndpointError && <p className="gf-form-error" role="alert">{natsEndpointError}</p>}</div></div></TabsContent>
+                <TabsContent value="generation" className="gf-binary-tab-content">{editable ? <div className="gf-binary-generation-controls"><label className="gf-worker-ui-control">Worker UI<select className="gf-input" value={workerUI} onChange={(event) => setWorkerUI(event.target.value as WorkerUI)}>{workerUIOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label><Button busy={binaryBusy} title="Create and download a new one-use runner binary" onClick={() => generateBinary(runner)}>Generate Binary</Button></div> : <p className="gf-muted">Binary generation is unavailable for this runner.</p>}{binaryError && <p className="gf-form-error" role="alert">{binaryError}</p>}</TabsContent>
               </Tabs>
             </section>
             <section className="gf-card-panel">
               <h2>Lifecycle</h2>
-              {manage && !runner.isArchived ? <div className="gf-lifecycle-list"><div className="gf-lifecycle-action"><DangerousAction label="Drain" variant="secondary" onConfirm={() => action('drain')} onConflict={() => query.refetch()} /><p>Stops new work while active runs finish.</p></div><div className="gf-lifecycle-action">{runnerIsRevoked(runner) ? <DangerousAction label="Unrevoke" variant="secondary" title="Unrevoke runner" warning="Re-enables this runner so it can connect and receive work." confirmLabel="Unrevoke" onConfirm={() => action('reset')} onConflict={() => query.refetch()} /> : <DangerousAction label="Revoke" onConfirm={() => action('revoke')} onConflict={() => query.refetch()} />}<p>{runnerIsRevoked(runner) ? 'Re-enables this runner to receive work.' : 'Prevents this runner from receiving work.'}</p></div><div className="gf-lifecycle-action"><DangerousAction label="Archive" title="Archive runner permanently" warning="Archiving cancels this runner's active work and permanently removes its ability to connect. Archived runners cannot be recovered." confirmLabel="Archive" onConfirm={() => api.delete(`/api/v1/runners/${encodeURIComponent(runnerId)}`).then(() => navigate('/runners'))} /><p>Permanently removes this runner and cancels active work.</p></div></div> : <p className="gf-muted">Lifecycle actions are unavailable for this runner.</p>}
+              {editable ? <div className="gf-lifecycle-list"><div className="gf-lifecycle-action"><DangerousAction label="Drain" variant="secondary" onConfirm={() => action('drain')} onConflict={() => query.refetch()} /><p>Stops new work while active runs finish.</p></div><div className="gf-lifecycle-action">{revoked ? <DangerousAction label="Unrevoke" variant="secondary" title="Unrevoke runner" warning="Re-enables this runner so it can connect and receive work." confirmLabel="Unrevoke" onConfirm={() => action('reset')} onConflict={() => query.refetch()} /> : <DangerousAction label="Revoke" onConfirm={() => action('revoke')} onConflict={() => query.refetch()} />}<p>{revoked ? 'Re-enables this runner to receive work.' : 'Prevents this runner from receiving work.'}</p></div><div className="gf-lifecycle-action"><DangerousAction label="Archive" title="Archive runner permanently" warning="Archiving cancels this runner's active work and permanently removes its ability to connect. Archived runners cannot be recovered." confirmLabel="Archive" onConfirm={() => api.delete(`/api/v1/runners/${encodeURIComponent(runnerId)}`).then(() => navigate('/runners'))} /><p>Permanently removes this runner and cancels active work.</p></div></div> : <p className="gf-muted">Lifecycle actions are unavailable for this runner.</p>}
             </section>
             <section className="gf-card-panel">
               <h2>Current runs</h2>
@@ -140,7 +157,8 @@ export function RunnerDetailPage() {
               </QueryState>
             </section>
           </>
-        )}
+          )
+        }}
       </QueryState>
     </main>
   )
