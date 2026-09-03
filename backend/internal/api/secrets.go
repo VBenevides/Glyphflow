@@ -164,7 +164,7 @@ func (s Server) secretCollection(w http.ResponseWriter, r *http.Request) {
 func (s Server) secretPath(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, "/api/v1/admin/secrets/")
 	if id == "" || strings.Contains(id, "/") {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "secret not found"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": errorSecretNotFound})
 		return
 	}
 	if r.Method == http.MethodDelete {
@@ -173,7 +173,7 @@ func (s Server) secretPath(w http.ResponseWriter, r *http.Request) {
 			case errors.Is(err, store.ErrEncryptedSecretInUse):
 				writeJSON(w, http.StatusConflict, map[string]string{"error": "secret is still in use"})
 			case errors.Is(err, store.ErrEncryptedSecretNotFound):
-				writeJSON(w, http.StatusNotFound, map[string]string{"error": "secret not found"})
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": errorSecretNotFound})
 			default:
 				writeError(w, http.StatusServiceUnavailable, "secret deletion unavailable", err)
 			}
@@ -183,7 +183,7 @@ func (s Server) secretPath(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodPut {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "secret not found"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": errorSecretNotFound})
 		return
 	}
 	var input secretInput
@@ -208,7 +208,7 @@ func (s Server) secretAttention(w http.ResponseWriter, r *http.Request) {
 	if s.Secrets != nil && s.Secrets.hasDurableRepository() {
 		items, err := s.Secrets.List(r.Context())
 		if err != nil {
-			writeError(w, http.StatusServiceUnavailable, "secret status unavailable", err)
+			writeError(w, http.StatusServiceUnavailable, errorSecretStatusUnavailable, err)
 			return
 		}
 		attention := make([]SecretStatusView, 0, len(items))
@@ -221,12 +221,12 @@ func (s Server) secretAttention(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.OIDC == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "secret status unavailable"})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": errorSecretStatusUnavailable})
 		return
 	}
 	secrets, err := s.OIDC.SecretAttention()
 	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, "secret status unavailable", err)
+		writeError(w, http.StatusServiceUnavailable, errorSecretStatusUnavailable, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, secrets)

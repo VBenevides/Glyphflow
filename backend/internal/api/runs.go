@@ -88,7 +88,7 @@ func (s *RunService) collection(w http.ResponseWriter, r *http.Request) {
 			if paged, ok := repository.(store.RunPager); ok {
 				result, err := paged.ListPage(r.Context(), filter)
 				if err != nil {
-					writeError(w, http.StatusServiceUnavailable, "run storage unavailable", err)
+					writeError(w, http.StatusServiceUnavailable, errorRunStorage, err)
 					return
 				}
 				items := make([]RunRecord, 0, len(result.Items))
@@ -100,7 +100,7 @@ func (s *RunService) collection(w http.ResponseWriter, r *http.Request) {
 			}
 			items, err := repository.List(r.Context())
 			if err != nil {
-				writeError(w, http.StatusServiceUnavailable, "run storage unavailable", err)
+				writeError(w, http.StatusServiceUnavailable, errorRunStorage, err)
 				return
 			}
 			result := make([]RunRecord, 0, len(items))
@@ -122,7 +122,7 @@ func (s *RunService) collection(w http.ResponseWriter, r *http.Request) {
 		writePage(w, r, items)
 		return
 	}
-	writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+	writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
 }
 
 func runListFilter(r *http.Request) (store.RunListFilter, int, int) {
@@ -235,7 +235,7 @@ func isActiveRunState(state string) bool {
 
 func (s *RunService) execute(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
 		return
 	}
 	var input struct {
@@ -252,7 +252,7 @@ func (s *RunService) execute(w http.ResponseWriter, r *http.Request) {
 	if repository != nil {
 		id, err := store.NewRunID()
 		if err != nil {
-			writeError(w, http.StatusServiceUnavailable, "run creation failed", err)
+			writeError(w, http.StatusServiceUnavailable, errorRunCreation, err)
 			return
 		}
 		idempotencyKey := input.IdempotencyKey
@@ -269,7 +269,7 @@ func (s *RunService) execute(w http.ResponseWriter, r *http.Request) {
 				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "storage_unavailable"})
 				return
 			}
-			writeError(w, http.StatusConflict, "run creation failed", err)
+			writeError(w, http.StatusConflict, errorRunCreation, err)
 			return
 		}
 		writeJSON(w, http.StatusCreated, runRecordFromStore(created))
@@ -277,7 +277,7 @@ func (s *RunService) execute(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := store.NewRunID()
 	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, "run creation failed", err)
+		writeError(w, http.StatusServiceUnavailable, errorRunCreation, err)
 		return
 	}
 	s.mu.Lock()
@@ -291,7 +291,7 @@ func (s *RunService) execute(w http.ResponseWriter, r *http.Request) {
 func (s *RunService) path(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	if len(parts) < 4 {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "run not found"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": errorRunNotFound})
 		return
 	}
 	id := parts[3]
@@ -302,9 +302,9 @@ func (s *RunService) path(w http.ResponseWriter, r *http.Request) {
 		if repository != nil {
 			run, found, err := repository.Find(r.Context(), id)
 			if err != nil {
-				writeError(w, http.StatusServiceUnavailable, "run storage unavailable", err)
+				writeError(w, http.StatusServiceUnavailable, errorRunStorage, err)
 			} else if !found {
-				writeJSON(w, http.StatusNotFound, map[string]string{"error": "run not found"})
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": errorRunNotFound})
 			} else {
 				writeJSON(w, http.StatusOK, runRecordFromStore(run))
 			}
@@ -314,7 +314,7 @@ func (s *RunService) path(w http.ResponseWriter, r *http.Request) {
 		run, ok := s.runs[id]
 		s.mu.RUnlock()
 		if !ok {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "run not found"})
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": errorRunNotFound})
 			return
 		}
 		writeJSON(w, http.StatusOK, run)
@@ -356,13 +356,13 @@ func (s *RunService) logsResponse(w http.ResponseWriter, r *http.Request, id str
 			bytes += len(chunk.Text)
 		}
 		if strings.HasSuffix(r.URL.Path, "/download") {
-			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.Header().Set(headerContentType, "text/plain; charset=utf-8")
 			for _, chunk := range chunks {
 				_, _ = w.Write([]byte(chunk.Text))
 			}
 			return
 		}
-		w.Header().Set("Content-Type", "application/x-ndjson")
+		w.Header().Set(headerContentType, "application/x-ndjson")
 		for _, chunk := range chunks {
 			_ = json.NewEncoder(w).Encode(LogChunk{Sequence: int(chunk.Sequence), Text: chunk.Text})
 		}
@@ -374,7 +374,7 @@ func (s *RunService) logsResponse(w http.ResponseWriter, r *http.Request, id str
 	_, exists := s.runs[id]
 	s.mu.RUnlock()
 	if !exists {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "run not found"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": errorRunNotFound})
 		return
 	}
 	after, _ := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)
@@ -392,13 +392,13 @@ func (s *RunService) logsResponse(w http.ResponseWriter, r *http.Request, id str
 		bytes += len(chunk.Text)
 	}
 	if strings.HasSuffix(r.URL.Path, "/download") {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set(headerContentType, "text/plain; charset=utf-8")
 		for _, chunk := range filtered {
 			_, _ = w.Write([]byte(chunk.Text))
 		}
 		return
 	}
-	w.Header().Set("Content-Type", "application/x-ndjson")
+	w.Header().Set(headerContentType, "application/x-ndjson")
 	for _, chunk := range filtered {
 		_ = json.NewEncoder(w).Encode(chunk)
 	}
@@ -406,7 +406,7 @@ func (s *RunService) logsResponse(w http.ResponseWriter, r *http.Request, id str
 
 func (s *RunService) action(w http.ResponseWriter, r *http.Request, id, action string) {
 	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
 		return
 	}
 	var input struct {
@@ -428,9 +428,9 @@ func (s *RunService) action(w http.ResponseWriter, r *http.Request, id, action s
 				}
 				if !changed {
 					if _, found, findErr := s.repository.Find(r.Context(), id); findErr != nil || !found {
-						writeJSON(w, http.StatusNotFound, map[string]string{"error": "run not found"})
+						writeJSON(w, http.StatusNotFound, map[string]string{"error": errorRunNotFound})
 					} else {
-						writeJSON(w, http.StatusConflict, map[string]string{"error": "run action is not allowed in the current state"})
+						writeJSON(w, http.StatusConflict, map[string]string{"error": errorRunActionNotAllowed})
 					}
 					return
 				}
@@ -447,7 +447,7 @@ func (s *RunService) action(w http.ResponseWriter, r *http.Request, id, action s
 				}
 				if !changed {
 					if _, found, findErr := s.repository.Find(r.Context(), id); findErr != nil || !found {
-						writeJSON(w, http.StatusNotFound, map[string]string{"error": "run not found"})
+						writeJSON(w, http.StatusNotFound, map[string]string{"error": errorRunNotFound})
 					} else {
 						writeJSON(w, http.StatusConflict, map[string]string{"error": "run retry is not allowed in the current state"})
 					}
@@ -474,9 +474,9 @@ func (s *RunService) action(w http.ResponseWriter, r *http.Request, id, action s
 		}
 		if !changed {
 			if _, found, findErr := s.repository.Find(r.Context(), id); findErr != nil || !found {
-				writeJSON(w, http.StatusNotFound, map[string]string{"error": "run not found"})
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": errorRunNotFound})
 			} else {
-				writeJSON(w, http.StatusConflict, map[string]string{"error": "run action is not allowed in the current state"})
+				writeJSON(w, http.StatusConflict, map[string]string{"error": errorRunActionNotAllowed})
 			}
 			return
 		}
@@ -485,7 +485,7 @@ func (s *RunService) action(w http.ResponseWriter, r *http.Request, id, action s
 	}
 	run, ok := s.runs[id]
 	if !ok {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "run not found"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": errorRunNotFound})
 		return
 	}
 	allowed := false
@@ -507,7 +507,7 @@ func (s *RunService) action(w http.ResponseWriter, r *http.Request, id, action s
 		}
 	}
 	if !allowed {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "run action is not allowed in the current state"})
+		writeJSON(w, http.StatusConflict, map[string]string{"error": errorRunActionNotAllowed})
 		return
 	}
 	s.runs[id] = run
