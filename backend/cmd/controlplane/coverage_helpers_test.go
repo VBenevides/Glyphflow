@@ -436,6 +436,7 @@ func TestControlPlaneHeartbeatStopsAfterConfigurationFailure(t *testing.T) {
 func TestControlPlaneRetryLoopRecordsFailureAndStops(t *testing.T) {
 	health := controlplane.NewHealth("retry")
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	go func() {
 		time.Sleep(10 * time.Millisecond)
 		cancel()
