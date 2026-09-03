@@ -175,6 +175,14 @@ func testCoverageRunListing(t *testing.T) {
 }
 
 func TestCoverageAuditAndOIDCHelpers(t *testing.T) {
+	testCoverageAuditHelpers(t)
+	provider := coverageTestProvider()
+	testCoverageOIDCHelpers(t, provider)
+	testCoverageOIDCService(t, provider)
+}
+
+func testCoverageAuditHelpers(t *testing.T) {
+	t.Helper()
 	now := time.Date(2026, 9, 3, 10, 11, 12, 0, time.UTC)
 	event := auditEventFromStore(store.AuditEventRecord{ID: "audit-1", Method: http.MethodPost, Target: "/api/v1/tasks", ActorID: "user-1", CreatedAt: now, BeforeValue: "old", AfterValue: map[string]any{"name": "new"}})
 	if event.Description != "Create task" || event.Before["value"] != "old" || event.After["name"] != "new" || event.CreatedAt != now.Format(time.RFC3339Nano) {
@@ -194,8 +202,14 @@ func TestCoverageAuditAndOIDCHelpers(t *testing.T) {
 	if err := audit.AddLiveLog("new", AuditEvent{ID: "duplicate"}); err != nil || len(audit.events) != 1 {
 		t.Fatalf("live log deduplication: err=%v events=%#v", err, audit.events)
 	}
+}
 
-	provider := OIDCProvider{Key: "corp", Name: "Corporate", Issuer: "https://issuer.example", ClientID: "client", Callback: "https://app.example/callback", AuthURL: "https://issuer.example/auth", Audience: "aud", Enabled: true, AutoProvision: true}
+func coverageTestProvider() OIDCProvider {
+	return OIDCProvider{Key: "corp", Name: "Corporate", Issuer: "https://issuer.example", ClientID: "client", Callback: "https://app.example/callback", AuthURL: "https://issuer.example/auth", Audience: "aud", Enabled: true, AutoProvision: true}
+}
+
+func testCoverageOIDCHelpers(t *testing.T, provider OIDCProvider) {
+	t.Helper()
 	record := providerRecord(provider)
 	if len(record.CallbackURLs) != 1 || record.CallbackURLs[0] != provider.Callback {
 		t.Fatalf("provider record = %#v", record)
@@ -224,7 +238,10 @@ func TestCoverageAuditAndOIDCHelpers(t *testing.T) {
 	if safeTransport(nil) == nil || safeTransport(roundTripFunc(func(*http.Request) (*http.Response, error) { return nil, nil })) == nil {
 		t.Fatal("safe transport was not returned")
 	}
+}
 
+func testCoverageOIDCService(t *testing.T, provider OIDCProvider) {
+	t.Helper()
 	service := NewOIDCService()
 	if _, _, err := service.CompleteAuthorizationCode("state", "nonce", "", time.Now()); err == nil {
 		t.Fatal("empty authorization code accepted")
