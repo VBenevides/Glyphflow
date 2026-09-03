@@ -13,8 +13,8 @@ CREATE TABLE users (
     status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'pending', 'disabled')),
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
-    CHECK (email <> '' AND email = lower(btrim(email))),
-    CHECK (username <> '' AND username = lower(btrim(username)))
+    CHECK (length(email) > 0 AND email = lower(btrim(email))),
+    CHECK (length(username) > 0 AND username = lower(btrim(username)))
 );
 CREATE UNIQUE INDEX users_username_ci_idx ON users (lower(username));
 CREATE UNIQUE INDEX users_email_ci_idx ON users (lower(email));
@@ -47,7 +47,7 @@ CREATE TABLE roles (
     name text NOT NULL,
     description text NOT NULL DEFAULT '',
     is_system boolean NOT NULL DEFAULT false,
-    CHECK (name <> '')
+    CHECK (length(name) > 0)
 );
 CREATE UNIQUE INDEX roles_name_ci_idx ON roles (lower(name));
 
@@ -145,7 +145,7 @@ CREATE INDEX audit_events_actor_idx ON audit_events(actor_id, created_at DESC);
 
 CREATE TABLE exit_code (
     code integer PRIMARY KEY,
-    meaning text NOT NULL CHECK (btrim(meaning) <> ''),
+    meaning text NOT NULL CHECK (length(btrim(meaning)) > 0),
     is_system boolean NOT NULL DEFAULT false
 );
 INSERT INTO exit_code (code, meaning, is_system) VALUES
