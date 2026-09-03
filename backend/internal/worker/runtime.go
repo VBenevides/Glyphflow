@@ -46,6 +46,14 @@ type eventRecord struct {
 	metrics   map[string]int64
 }
 
+type executionResult struct {
+	output   []byte
+	exitCode *int
+	runErr   error
+	streamed bool
+	memory   *MemoryStats
+}
+
 func (r OrderRuntime) logf(format string, args ...any) {
 	writer := r.Writer
 	if writer == nil {
@@ -174,7 +182,7 @@ func (r OrderRuntime) handleExecution(ctx context.Context, message queue.Message
 		defer r.Active.remove(payload.OrderID)
 	}
 	output, exitCode, runErr, streamed, memory := r.runExecutor(ctx, executionContext, payload, secretValues)
-	return r.finishExecution(ctx, executionContext, payload, taskName, active, output, exitCode, runErr, streamed, memory)
+	return r.finishExecution(ctx, executionContext, payload, taskName, active, executionResult{output: output, exitCode: exitCode, runErr: runErr, streamed: streamed, memory: memory})
 }
 
 func (r OrderRuntime) fetchExecutionSecrets(ctx context.Context, payload protocol.OrderPayload) (map[string]string, error) {
@@ -260,8 +268,8 @@ func (r OrderRuntime) persistOutputChunks(ctx context.Context, payload protocol.
 	return nil
 }
 
-func (r OrderRuntime) finishExecution(ctx, executionContext context.Context, payload protocol.OrderPayload, taskName string, active *activeOrder, output []byte, exitCode *int, runErr error, streamed bool, memory *MemoryStats) error {
-	exitCode, runErr, timedOut := normalizeExecutionResult(executionContext, exitCode, runErr)
+func (r OrderRuntime) finishExecution(ctx, executionContext context.Context, payload protocol.OrderPayload, taskName string, active *activeOrder, result executionResult) error {
+	exitCode, runErr, timedOut := normalizeExecutionResult(executionContext, result.exitCode, result.runErr)
 	finishedCode := -1
 	if exitCode != nil {
 		finishedCode = *exitCode
@@ -272,10 +280,10 @@ func (r OrderRuntime) finishExecution(ctx, executionContext context.Context, pay
 		errorText = runErr.Error()
 	}
 	terminalOutput := ""
-	if !streamed {
-		terminalOutput = string(output)
+	if !result.streamed {
+		terminalOutput = string(result.output)
 	}
-	metrics := map[string]int64{"max_memory_bytes": int64(memory.MaxBytes), "average_memory_bytes": int64(memory.AverageBytes)}
+	metrics := map[string]int64{"max_memory_bytes": int64(result.memory.MaxBytes), "average_memory_bytes": int64(result.memory.AverageBytes)}
 	if err := r.publishEvent(ctx, payload, eventRecord{typeName: terminalEventType(runErr, timedOut, active), sequence: 3, result: terminalOutput, errorText: errorText, exitCode: exitCode, channel: "state", metrics: metrics}); err != nil {
 		return err
 	}
