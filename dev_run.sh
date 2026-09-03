@@ -55,11 +55,13 @@ backend_pid=$!
 
 (
   cd "$project_root/frontend"
+  # Local development only; production endpoints must use HTTPS.
   VITE_BACKEND_URL="${VITE_BACKEND_URL:-http://localhost:8080}" \
   npm run dev -- --host "${FRONTEND_HOST:-0.0.0.0}"
 ) &
 frontend_pid=$!
 
+# Local development only; production endpoints must use HTTPS.
 echo "Frontend: http://${FRONTEND_HOST:-0.0.0.0}:5173"
 echo "Backend:  http://0.0.0.0:8080"
 echo "Press Ctrl-C to stop both processes."
