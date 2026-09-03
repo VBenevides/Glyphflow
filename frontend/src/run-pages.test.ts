@@ -37,7 +37,7 @@ describe('run inventory', () => {
   it('renders the detail timeline payload', () => {
     const markup = renderToStaticMarkup(createElement(RunTimeline, { run: {
       id: 'run-1', state: 'RUNNING', attempts: [{ id: 'attempt-1', attemptNumber: 1, state: 'RUNNING', runnerId: 'runner-1', runnerSessionId: 'session-1', fencingToken: 4, dispatchedAt: '2026-08-14T12:00:00Z' }],
-      events: [{ eventId: 'event-1', attemptId: 'attempt-1', eventKind: 'started', stateSequence: 2, reportedAt: '2026-08-14T12:00:01Z', payload: { pid: 7 } }],
+      events: [{ eventId: 'event-1', attemptId: 'attempt-1', eventKind: 'started', stateSequence: 2, reportedAt: '2026-08-14T12:00:01Z', payload: { pid: 7 } }, { eventId: 'event-2', attemptId: 'attempt-1', eventKind: 'custom', stateSequence: 3, reportedAt: '2026-08-14T12:00:02Z', payload: () => undefined }],
       sessions: [{ id: 'session-1', runnerId: 'runner-1', bootId: 'boot-1', connectedAt: '2026-08-14T11:59:00Z' }],
       leases: [{ id: 'lease-1', resourceId: 'resource-1', state: 'ACTIVE', fencingToken: 5, expiresAt: '2026-08-14T12:05:00Z' }],
       cancellation: { state: 'REQUESTED', reason: 'operator stop', requestedAt: '2026-08-14T12:00:02Z' },

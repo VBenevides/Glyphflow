@@ -24,7 +24,7 @@ export function sessionMetadata(session: AuthSession): Array<{ label: string; va
   ]
 }
 
-function oidcLinkUrl() {
+export function oidcLinkUrl() {
   const redirect = window.location.origin + '/account/identities'
   return `/api/v1/auth/oidc/link?redirect=${encodeURIComponent(redirect)}`
 }

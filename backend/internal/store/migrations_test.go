@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,6 +34,20 @@ func TestLoadMigrationsSortsAndRejectsDuplicates(t *testing.T) {
 func TestMigrationsUseAnAdvisoryTransactionLock(t *testing.T) {
 	if !strings.Contains(migrationLockSQL, "pg_advisory_xact_lock") {
 		t.Fatal("migration lock is not transactional")
+	}
+}
+
+func TestApplyMigrationsRejectsInvalidInputBeforeOpeningDatabase(t *testing.T) {
+	if err := ApplyMigrations(context.Background(), nil, filepath.Join(t.TempDir(), "missing")); err == nil {
+		t.Fatal("missing migration directory was accepted")
+	}
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "002_other.sql"), []byte("SELECT 2"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyMigrations(context.Background(), nil, dir); err == nil {
+		t.Fatal("non-canonical migration set was accepted")
 	}
 }
 

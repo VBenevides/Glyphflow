@@ -24,7 +24,7 @@ function AuthFrame({ title, children }: Readonly<{ title: string; children: Reac
   return <main className="gf-auth-page"><section className="gf-auth-card"><BrandMark /><p className="gf-brand-name">Glyphflow</p><h1>{title}</h1>{children}</section></main>
 }
 
-function oidcLoginUrl(provider: string, redirect: string) {
+export function oidcLoginUrl(provider: string, redirect: string) {
   const callback = window.location.origin + '/auth/oidc/callback'
   return `/api/v1/auth/oidc/login?provider=${encodeURIComponent(provider)}&redirect_uri=${encodeURIComponent(callback)}&redirect=${encodeURIComponent(redirect)}`
 }

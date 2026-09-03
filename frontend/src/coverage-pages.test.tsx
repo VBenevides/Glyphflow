@@ -26,7 +26,7 @@ import { TaskEditorPage } from './task-editor'
 import { TaskDetailPage, TaskInventoryPage } from './task-pages'
 import { TaskPicker } from './task-picker'
 import { UserDetailsPage } from './user-details-page'
-import { api } from './api'
+import { ApiError, api } from './api'
 
 const authFixture = vi.hoisted(() => {
   const permissions = ['users.read', 'users.manage', 'roles.read', 'roles.manage', 'sso.read', 'sso.manage', 'secrets.read', 'secrets.manage', 'auth.settings.manage', 'tasks.read', 'tasks.manage', 'runs.read', 'runs.execute', 'runs.cancel', 'runs.retry', 'logs.read', 'resources.read', 'resources.manage', 'runners.read', 'runners.manage', 'audit.read', 'system.metrics.read', 'system.deadletter.read', 'system.deadletter.manage']
@@ -251,6 +251,52 @@ describe('data-backed page coverage', () => {
     expect(renderPage(<LoginPage />, '/login?redirect=%2Fruns')).toContain('Sign in')
     expect(renderPage(<RegistrationPage />, '/register')).toContain('Create account')
     expect(renderPage(<OidcCallbackPage />, '/auth/oidc/callback?code=one&state=two')).toContain('Completing sign-in')
+  })
+
+  it('covers alternate authentication, account, and task states', async () => {
+    authFixture.config = { ...authFixture.config, passwordLogin: false, registration: false, oidc: false }
+    expect(renderPage(<LoginPage />, '/login')).toContain('No sign-in methods are configured')
+    expect(renderPage(<RegistrationPage />, '/register')).toContain('Registration is disabled')
+    expect(renderPage(<AccountPage />, '/account/identities')).toContain('Single sign-on is disabled')
+
+    authFixture.config = { ...authFixture.config, passwordLogin: true, registration: true, oidc: true }
+    vi.spyOn(api, 'get').mockImplementation(async (path) => path.includes('/oidc/providers') ? [{ key: 'github', name: 'GitHub', issuer: 'https://github.example' }] as never : page([]) as never)
+    vi.spyOn(api, 'post').mockResolvedValue({} as never)
+    let mounted = await mountPage(<LoginPage />, '/login?redirect=%2Faccount')
+    await act(async () => { await Promise.resolve() })
+    expect(mounted.host.textContent).toContain('Continue with GitHub')
+    mounted.root.unmount(); mounted.host.remove()
+
+    vi.restoreAllMocks()
+    vi.spyOn(api, 'post').mockRejectedValue(new ApiError(403, 'pending'))
+    mounted = await mountPage(<RegistrationPage />, '/register')
+    await submitForm(mounted.host)
+    expect(mounted.host.textContent).toContain('awaiting administrator approval')
+    mounted.root.unmount(); mounted.host.remove()
+
+    vi.restoreAllMocks()
+    vi.spyOn(api, 'post').mockRejectedValue(new Error('registration failed'))
+    mounted = await mountPage(<RegistrationPage />, '/register')
+    await submitForm(mounted.host)
+    expect(mounted.host.textContent).toContain('registration failed')
+    mounted.root.unmount(); mounted.host.remove()
+  })
+
+  it('covers populated gantt and task comparison views', async () => {
+    const occurrence = { id: 'segment-1', scheduleId: 'schedule-1', scheduleName: 'Nightly', scheduleVersionId: 'schedule-v1', taskId: 'task-1', taskName: 'Nightly task', taskVersionId: 'task-v1', timezone: 'UTC', laneId: 'runner-1', laneLabel: 'Runner: Runner one', startAt: '2026-09-03T01:00:00Z', endAt: '2026-09-03T02:00:00Z' }
+    const report = { available: true, calculatedAt: '2026-09-02T00:00:00Z', windowStart: '2026-09-01T00:00:00Z', windowEnd: '2026-09-08T00:00:00Z', segments: [{ ...occurrence, occurrenceCount: 1, conflicted: true, exclusiveResources: [] }], conflicts: [{ id: 'conflict-1', resourceId: 'resource-1', resourceName: 'Database', startAt: occurrence.startAt, endAt: occurrence.endAt, occurrences: [occurrence] }] }
+    expect(renderPage(<SchedulingGantt report={report} />, '/schedules')).toContain('This projection is older than one hour')
+    let mounted = await mountPage(<SchedulingGantt report={report} />, '/schedules')
+    await clickButton(mounted.host, 'Daily')
+    await clickButton(mounted.host, 'By task')
+    mounted.root.unmount(); mounted.host.remove()
+
+    const versions = [{ id: 'v1', version: 1, command: ['echo', 'one'], pool: 'default', resources: ['a', 'b'], durationSeconds: 30 }, { id: 'v2', version: 2, command: ['echo', 'two'], pool: 'default', resources: [], durationSeconds: 60 }]
+    expect(renderPage(<TaskDetailPage />, '/tasks/task-1', '/tasks/:taskId', (client) => client.setQueryData(['task-versions', 'task-1'], versions))).toContain('Version history')
+    mounted = await mountPage(<TaskDetailPage />, '/tasks/task-1', '/tasks/:taskId', (client) => client.setQueryData(['task-versions', 'task-1'], versions))
+    await clickButton(mounted.host, 'v2')
+    expect(mounted.host.textContent).toContain('Changes from v1 to v2')
+    mounted.root.unmount(); mounted.host.remove()
   })
 
   it('renders empty collection states and permission boundaries', () => {

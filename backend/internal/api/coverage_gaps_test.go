@@ -622,6 +622,46 @@ func TestCoverageRunnerMetricsBranches(t *testing.T) {
 	}
 }
 
+type coverageRunnerMetricsRepository struct {
+	*coverageRunnerRepository
+	metrics    []store.RunnerMetricsRecord
+	metricsErr error
+}
+
+func (r *coverageRunnerMetricsRepository) ListRunnerMetrics(context.Context, string, time.Time, time.Time, int) ([]store.RunnerMetricsRecord, error) {
+	return r.metrics, r.metricsErr
+}
+
+func TestCoverageDurableRunnerMetricsBranches(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	request := func() *http.Request {
+		return httptest.NewRequest(http.MethodGet, "/?from="+now.Add(-time.Hour).Format(time.RFC3339)+"&to="+now.Add(time.Hour).Format(time.RFC3339), nil)
+	}
+
+	for name, repository := range map[string]*coverageRunnerMetricsRepository{
+		"find error":     {coverageRunnerRepository: &coverageRunnerRepository{runnerErr: errors.New("unavailable"), runnerFound: true}},
+		"missing runner": {coverageRunnerRepository: &coverageRunnerRepository{runnerFound: false}},
+		"list error":     {coverageRunnerRepository: &coverageRunnerRepository{runnerFound: true}, metricsErr: errors.New("unavailable")},
+		"success":        {coverageRunnerRepository: &coverageRunnerRepository{runnerFound: true}, metrics: []store.RunnerMetricsRecord{{SampledAt: now, CPUPercent: 12}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			service := NewInfrastructureService()
+			service.SetRunnerRepository(repository)
+			response := httptest.NewRecorder()
+			service.runnerMetricsPath(response, request(), "runner-1")
+			want := http.StatusOK
+			if name == "find error" || name == "list error" {
+				want = http.StatusServiceUnavailable
+			} else if name == "missing runner" {
+				want = http.StatusNotFound
+			}
+			if response.Code != want {
+				t.Fatalf("runner metrics status = %d, want %d", response.Code, want)
+			}
+		})
+	}
+}
+
 func TestCoverageOperationsHelpers(t *testing.T) {
 	testCoverageOperationsTasks(t)
 	testCoverageOperationFilters(t)

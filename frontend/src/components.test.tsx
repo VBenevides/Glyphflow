@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { createRoot } from 'react-dom/client'
 import { act } from 'react'
 import { Activity } from 'lucide-react'
-import { Button, DataTable, Dialog, EmptyState, InfoTooltip, Input, matchingFilterOptions, MetricCard, PageHeader, StatusPill } from './components'
+import { Button, DataTable, Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, EmptyState, InfoTooltip, Input, matchingFilterOptions, MetricCard, PageHeader, StatusPill } from './components'
 
 describe('shared components', () => {
   it('renders status text and table headers accessibly', () => {
@@ -62,5 +62,17 @@ describe('shared components', () => {
     expect(html).toContain('gf-metric-success')
     expect(html).toContain('gf-metric-icon')
     expect(html).toContain('aria-hidden="true"')
+  })
+
+  it('renders menu wrappers and primitive table values', () => {
+    const menu = renderToStaticMarkup(<DropdownMenu open><DropdownMenuContent><DropdownMenuItem>Inspect</DropdownMenuItem><DropdownMenuSeparator /></DropdownMenuContent></DropdownMenu>)
+    expect(menu).toContain('gf-dropdown-item')
+    expect(menu).toContain('gf-dropdown-separator')
+    const table = renderToStaticMarkup(<DataTable caption="Values" rows={[{ id: 'values', missing: undefined, empty: null, number: 1, boolean: true, bigint: 2n, symbol: Symbol('x'), unsupported: () => undefined }]} columns={[{ key: 'missing', label: 'Missing' }, { key: 'empty', label: 'Empty' }, { key: 'number', label: 'Number' }, { key: 'boolean', label: 'Boolean' }, { key: 'bigint', label: 'Bigint' }, { key: 'symbol', label: 'Symbol' }, { key: 'unsupported', label: 'Unsupported' }]} />)
+    expect(table).toContain('1')
+    expect(table).toContain('true')
+    expect(table).toContain('2')
+    expect(table).toContain('x')
+    expect(table).toContain('—')
   })
 })
