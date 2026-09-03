@@ -1187,64 +1187,11 @@ func filterResources(items []ResourceRecord, search string, kindValues ...string
 func (s *InfrastructureService) resourcePath(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	if len(parts) == 5 && parts[4] == "lease" {
-		s.mu.RLock()
-		repository := s.resourceRepository
-		s.mu.RUnlock()
-		if r.Method == http.MethodPost {
-			var input struct {
-				Holder     string `json:"holder"`
-				TTLSeconds int    `json:"ttl_seconds"`
-			}
-			if json.NewDecoder(r.Body).Decode(&input) != nil || strings.TrimSpace(input.Holder) == "" {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "holder is required"})
-				return
-			}
-			if input.TTLSeconds == 0 {
-				input.TTLSeconds = 30
-			}
-			if repository != nil {
-				item, err := repository.Acquire(r.Context(), parts[3], input.Holder, time.Duration(input.TTLSeconds)*time.Second, time.Now().UTC())
-				if err != nil {
-					writeError(w, http.StatusConflict, "resource lease could not be acquired", err)
-					return
-				}
-				writeJSON(w, http.StatusCreated, resourceRecordFromStore(item))
-				return
-			}
-			item, err := s.AcquireLease(parts[3], input.Holder, time.Duration(input.TTLSeconds)*time.Second)
-			if err != nil {
-				status := http.StatusConflict
-				if errors.Is(err, errResourceNotFound) || errors.Is(err, errInvalidLease) {
-					status = http.StatusBadRequest
-				}
-				writeError(w, status, "resource lease could not be acquired", err)
-				return
-			}
-			writeJSON(w, http.StatusCreated, item)
-			return
-		}
-		if r.Method == http.MethodDelete {
-			var input struct {
-				Holder       string `json:"holder"`
-				FencingToken int64  `json:"fencing_token"`
-			}
-			if json.NewDecoder(r.Body).Decode(&input) != nil || strings.TrimSpace(input.Holder) == "" {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "holder is required"})
-				return
-			}
-			if repository != nil {
-				if err := repository.Release(r.Context(), parts[3], input.Holder, input.FencingToken); err != nil {
-					writeError(w, http.StatusConflict, "resource lease could not be released", err)
-					return
-				}
-				w.WriteHeader(http.StatusNoContent)
-				return
-			}
-			if err := s.ReleaseLease(parts[3], input.Holder, input.FencingToken); err != nil {
-				writeError(w, http.StatusConflict, "resource lease could not be released", err)
-				return
-			}
-			w.WriteHeader(http.StatusNoContent)
+		if r.Method == http.MethodPost || r.Method == http.MethodDelete {
+			s.mu.RLock()
+			repository := s.resourceRepository
+			s.mu.RUnlock()
+			s.resourceLeasePath(w, r, parts[3], repository)
 			return
 		}
 	}
@@ -1257,28 +1204,95 @@ func (s *InfrastructureService) resourcePath(w http.ResponseWriter, r *http.Requ
 	repository := s.resourceRepository
 	s.mu.RUnlock()
 	if repository != nil {
-		item, found, err := repository.Find(r.Context(), id)
+		s.resourceRepositoryPath(w, r, id, repository)
+		return
+	}
+	s.resourceInMemoryPath(w, r, id)
+}
+
+func (s *InfrastructureService) resourceLeasePath(w http.ResponseWriter, r *http.Request, id string, repository store.ResourceRepository) {
+	if r.Method == http.MethodPost {
+		var input struct {
+			Holder     string `json:"holder"`
+			TTLSeconds int    `json:"ttl_seconds"`
+		}
+		if json.NewDecoder(r.Body).Decode(&input) != nil || strings.TrimSpace(input.Holder) == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "holder is required"})
+			return
+		}
+		if input.TTLSeconds == 0 {
+			input.TTLSeconds = 30
+		}
+		if repository != nil {
+			item, err := repository.Acquire(r.Context(), id, input.Holder, time.Duration(input.TTLSeconds)*time.Second, time.Now().UTC())
+			if err != nil {
+				writeError(w, http.StatusConflict, "resource lease could not be acquired", err)
+				return
+			}
+			writeJSON(w, http.StatusCreated, resourceRecordFromStore(item))
+			return
+		}
+		item, err := s.AcquireLease(id, input.Holder, time.Duration(input.TTLSeconds)*time.Second)
 		if err != nil {
-			writeError(w, http.StatusServiceUnavailable, errorResourceStorage, err)
+			status := http.StatusConflict
+			if errors.Is(err, errResourceNotFound) || errors.Is(err, errInvalidLease) {
+				status = http.StatusBadRequest
+			}
+			writeError(w, status, "resource lease could not be acquired", err)
 			return
 		}
-		if !found {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": errorResourceNotFound})
+		writeJSON(w, http.StatusCreated, item)
+		return
+	}
+	if r.Method == http.MethodDelete {
+		var input struct {
+			Holder       string `json:"holder"`
+			FencingToken int64  `json:"fencing_token"`
+		}
+		if json.NewDecoder(r.Body).Decode(&input) != nil || strings.TrimSpace(input.Holder) == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "holder is required"})
 			return
 		}
-		if r.Method == http.MethodGet {
-			writeJSON(w, http.StatusOK, resourceRecordFromStore(item))
-		} else if r.Method == http.MethodDelete {
-			if err := repository.Delete(r.Context(), id); err != nil {
-				writeError(w, http.StatusConflict, "resource deletion failed", err)
+		if repository != nil {
+			if err := repository.Release(r.Context(), id, input.Holder, input.FencingToken); err != nil {
+				writeError(w, http.StatusConflict, "resource lease could not be released", err)
 				return
 			}
 			w.WriteHeader(http.StatusNoContent)
-		} else {
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
+			return
 		}
+		if err := s.ReleaseLease(id, input.Holder, input.FencingToken); err != nil {
+			writeError(w, http.StatusConflict, "resource lease could not be released", err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func (s *InfrastructureService) resourceRepositoryPath(w http.ResponseWriter, r *http.Request, id string, repository store.ResourceRepository) {
+	item, found, err := repository.Find(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, errorResourceStorage, err)
 		return
 	}
+	if !found {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": errorResourceNotFound})
+		return
+	}
+	if r.Method == http.MethodGet {
+		writeJSON(w, http.StatusOK, resourceRecordFromStore(item))
+	} else if r.Method == http.MethodDelete {
+		if err := repository.Delete(r.Context(), id); err != nil {
+			writeError(w, http.StatusConflict, "resource deletion failed", err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	} else {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
+	}
+}
+
+func (s *InfrastructureService) resourceInMemoryPath(w http.ResponseWriter, r *http.Request, id string) {
 	s.mu.Lock()
 	item, ok := s.resources[id]
 	if ok && r.Method == http.MethodDelete {
