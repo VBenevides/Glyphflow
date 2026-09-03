@@ -37,7 +37,10 @@ func TestMigrationsUseAnAdvisoryTransactionLock(t *testing.T) {
 }
 
 func TestMigrationChecksumIsStable(t *testing.T) {
-	if migrationChecksum("SELECT 1") != migrationChecksum("SELECT 1") || migrationChecksum("SELECT 1") == migrationChecksum("SELECT 2") {
+	first := migrationChecksum("SELECT 1")
+	second := migrationChecksum("SELECT 1")
+	other := migrationChecksum("SELECT 2")
+	if first != second || first == other {
 		t.Fatal("migration checksum is not stable")
 	}
 }
