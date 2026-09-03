@@ -23,6 +23,7 @@ import (
 	"github.com/VBenevides/Glyphflow/backend/internal/queue"
 	"github.com/VBenevides/Glyphflow/backend/internal/store"
 	"github.com/VBenevides/Glyphflow/backend/internal/worker"
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/mem"
 )
@@ -36,7 +37,7 @@ func runWorker(ctx context.Context, stdout, stderr io.Writer, status StatusSink)
 	if stderr == nil {
 		stderr = io.Discard
 	}
-	bootstrap, err := worker.LoadEmbeddedBootstrap()
+	bootstrap, err := loadEmbeddedBootstrap()
 	if err != nil {
 		return fmt.Errorf("load worker bootstrap: %w", err)
 	}
@@ -168,17 +169,18 @@ func runWorkerProcess(ctx context.Context, stdout, stderr io.Writer, status Stat
 		return fmt.Errorf("save worker boot id: %w", err)
 	}
 	var jetstream *queue.JetStream
+	jetstreamClosed := false
 	closeJetStream := func() {
-		if jetstream != nil {
+		if jetstream != nil && !jetstreamClosed {
 			jetstream.Close()
-			jetstream = nil
+			jetstreamClosed = true
 		}
 	}
 	defer closeJetStream()
 	if strings.HasPrefix(cfg.NATSURL, "tls://") {
-		jetstream, err = queue.ConnectJetStreamTLSWithContext(ctx, cfg.NATSURL, queue.TLSConfig{CertificateFile: cfg.NATSCertFile, KeyFile: cfg.NATSKeyFile, CAFile: cfg.NATSCAFile})
+		jetstream, err = connectJetStreamTLS(ctx, cfg.NATSURL, queue.TLSConfig{CertificateFile: cfg.NATSCertFile, KeyFile: cfg.NATSKeyFile, CAFile: cfg.NATSCAFile})
 	} else {
-		jetstream, err = queue.ConnectJetStreamPlainWithContext(ctx, cfg.NATSURL)
+		jetstream, err = connectJetStreamPlain(ctx, cfg.NATSURL)
 	}
 	if err != nil {
 		return fmt.Errorf("connect to NATS JetStream: %w", err)
@@ -195,11 +197,11 @@ func runWorkerProcess(ctx context.Context, stdout, stderr io.Writer, status Stat
 	}
 	runtime := worker.OrderRuntime{Store: localStore, Publisher: jetstream, StartClaimer: worker.NewNATSStartClaimer(jetstream, workerKey, ed25519.PublicKey(controlPublicKey)), SecretFetcher: worker.NewNATSSecretFetcher(jetstream, workerKey, ed25519.PublicKey(controlPublicKey)), RunnerID: cfg.RunnerID, ExecutorBootID: bootID, ProcessID: int64(os.Getpid()), ControlPublicKey: ed25519.PublicKey(controlPublicKey), SigningKey: workerKey, Active: activeOrders, Executor: worker.Executor{Roots: []string{cfg.DataDir, "."}, MaxOutputBytes: cfg.MaxOutputBytes}, Writer: stdout}
 	orderSlots := make(chan struct{}, capacity)
-	consumer, err := jetstream.Consumer(ctx, "runner-"+cfg.RunnerID, queue.Subject("orders", cfg.RunnerID), capacity)
+	consumer, err := createJetStreamConsumer(jetstream, ctx, "runner-"+cfg.RunnerID, queue.Subject("orders", cfg.RunnerID), capacity)
 	if err != nil {
 		return fmt.Errorf("create order consumer: %w", err)
 	}
-	controlConsumer, err := jetstream.Consumer(ctx, "runner-control-"+cfg.RunnerID, queue.Subject("control", cfg.RunnerID), 10)
+	controlConsumer, err := createJetStreamConsumer(jetstream, ctx, "runner-control-"+cfg.RunnerID, queue.Subject("control", cfg.RunnerID), 10)
 	if err != nil {
 		return fmt.Errorf("create control consumer: %w", err)
 	}
@@ -264,6 +266,12 @@ func runWorkerProcess(ctx context.Context, stdout, stderr io.Writer, status Stat
 var setenv = os.Setenv
 
 var closeWorkerStore = func(localStore *worker.LocalStore) { _ = localStore.Close() }
+var loadEmbeddedBootstrap = worker.LoadEmbeddedBootstrap
+var connectJetStreamTLS = queue.ConnectJetStreamTLSWithContext
+var connectJetStreamPlain = queue.ConnectJetStreamPlainWithContext
+var createJetStreamConsumer = func(j *queue.JetStream, ctx context.Context, durable, subject string, maxPending int) (jetstream.Consumer, error) {
+	return j.Consumer(ctx, durable, subject, maxPending)
+}
 
 func setWorkerEnv(name, value string) error {
 	if err := setenv(name, value); err != nil {
