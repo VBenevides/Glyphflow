@@ -311,7 +311,7 @@ func testCoverageAuthHelpers(t *testing.T) {
 		t.Fatalf("memory identity providers = %#v", providers)
 	}
 	auth.SetSSORepository(newMemorySSORepository())
-	if providers := auth.identityProviderNames("user-1"); providers == nil {
+	if auth.identityProviderNames("user-1") == nil {
 		t.Fatal("repository identity providers returned nil")
 	}
 	if err := auth.SetDefaultRoleID("missing"); err == nil {
