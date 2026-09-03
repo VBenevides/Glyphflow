@@ -1005,16 +1005,7 @@ func (s *RunStore) ApplyRunEvent(ctx context.Context, event RunEventInput) error
 		return tx.Commit(ctx)
 	}
 	if event.EventType == "log_chunk" {
-		if event.EventChannel != "stdout" && event.EventChannel != "stderr" {
-			return errors.New("log chunk stream is invalid")
-		}
-		if event.Result == "" {
-			return errors.New("log chunk is empty")
-		}
-		if _, err := tx.Exec(ctx, `INSERT INTO execution_log_chunks (event_id, execution_attempt_id, stream, chunk_sequence, reported_at, payload, size_bytes, checksum) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT DO NOTHING`, event.EventID, attemptID, event.EventChannel, event.Sequence, event.ReportedAt, []byte(event.Result), len([]byte(event.Result)), sha256Hex([]byte(event.Result))); err != nil {
-			return err
-		}
-		return tx.Commit(ctx)
+		return s.applyLogChunkEvent(ctx, tx, event, attemptID)
 	}
 	if event.Sequence <= lastSequence {
 		return tx.Commit(ctx)
@@ -1038,97 +1029,151 @@ func (s *RunStore) ApplyRunEvent(ctx context.Context, event RunEventInput) error
 			return err
 		}
 	}
-	switch event.EventType {
-	case "accepted":
-		_, err = tx.Exec(ctx, `UPDATE execution_attempts SET state = CASE WHEN state = 'RUNNING' THEN state ELSE 'ACCEPTED' END, accepted_at = COALESCE(accepted_at, $2), updated_at = now() WHERE id = $1`, attemptID, event.ReportedAt)
-	case "started":
-		_, err = tx.Exec(ctx, `UPDATE execution_attempts SET state = 'RUNNING', started_at = COALESCE(started_at, $2), updated_at = now() WHERE id = $1`, attemptID, event.ReportedAt)
-		if err == nil {
-			_, err = tx.Exec(ctx, `UPDATE runs SET state = 'RUNNING', state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state = 'DISPATCHED'`, event.RunID)
-		}
-	case "heartbeat":
-		_, err = tx.Exec(ctx, `UPDATE execution_attempts SET last_heartbeat_at = $2, updated_at = now() WHERE id = $1`, attemptID, event.ReportedAt)
-	case "completed", "failed", "timed_out", "cancelled":
-		state := map[string]string{"completed": "SUCCEEDED", "failed": "FAILED", "timed_out": "FAILED", "cancelled": "CANCELLED"}[event.EventType]
-		var maxMemory, averageMemory *int64
-		if value, ok := event.Metrics["max_memory_bytes"]; ok {
-			maxMemory = &value
-		}
-		if value, ok := event.Metrics["average_memory_bytes"]; ok {
-			averageMemory = &value
-		}
-		_, err = tx.Exec(ctx, `UPDATE execution_attempts SET state = $2, finished_at = COALESCE(finished_at, $3), termination_reason = NULLIF($4, ''), exit_code = $5, result = $6::jsonb, max_memory_used_bytes = COALESCE($7, max_memory_used_bytes), average_memory_used_bytes = COALESCE($8, average_memory_used_bytes), updated_at = now() WHERE id = $1`, attemptID, state, event.ReportedAt, event.Error, event.ExitCode, payload, maxMemory, averageMemory)
-		if err == nil {
-			if event.EventType == "failed" || event.EventType == "timed_out" {
-				var maxAttempts, initialBackoff, maxBackoff int
-				var multiplier float64
-				var exitCodes, reasons []byte
-				if queryErr := tx.QueryRow(ctx, `SELECT max_attempts, initial_backoff_seconds, max_backoff_seconds, backoff_multiplier, retryable_exit_codes, retryable_termination_reasons FROM task_versions tv JOIN runs r ON r.task_version_id = tv.id WHERE r.id = $1`, event.RunID).Scan(&maxAttempts, &initialBackoff, &maxBackoff, &multiplier, &exitCodes, &reasons); queryErr != nil {
-					err = queryErr
-				} else if shouldRetry(event, int(maxAttempts), exitCodes, reasons) {
-					if multiplier < 1 {
-						multiplier = 2
-					}
-					seconds := float64(initialBackoff)
-					for index := 1; index < int(event.Attempt); index++ {
-						seconds *= multiplier
-						if maxBackoff > 0 && seconds >= float64(maxBackoff) {
-							seconds = float64(maxBackoff)
-							break
-						}
-					}
-					if maxBackoff > 0 && seconds > float64(maxBackoff) {
-						seconds = float64(maxBackoff)
-					}
-					_, err = tx.Exec(ctx, `UPDATE runs SET state = 'RETRY_WAIT', retry_not_before = now() + ($2 * interval '1 second'), completed_at = NULL, state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state NOT IN ('SUCCEEDED', 'FAILED', 'CANCELLED')`, event.RunID, seconds)
-				} else {
-					_, err = tx.Exec(ctx, `UPDATE runs SET state = $2, completed_at = $3, retry_not_before = NULL, state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state NOT IN ('SUCCEEDED', 'FAILED', 'CANCELLED')`, event.RunID, state, event.ReportedAt)
-				}
-			} else {
-				_, err = tx.Exec(ctx, `UPDATE runs SET state = $2, completed_at = $3, retry_not_before = NULL, state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state NOT IN ('SUCCEEDED', 'FAILED', 'CANCELLED')`, event.RunID, state, event.ReportedAt)
-			}
-		}
-		if err == nil {
-			_, err = tx.Exec(ctx, `UPDATE runners SET active_count = GREATEST(active_count - 1, 0), updated_at = now() WHERE id = $1 AND active_count > 0`, runnerID)
-		}
-		if err == nil {
-			_, err = tx.Exec(ctx, `UPDATE resource_leases SET state = 'RELEASED', released_at = now() WHERE execution_attempt_id = $1 AND state = 'ACTIVE'`, attemptID)
-		}
-	case "unknown":
-		_, err = tx.Exec(ctx, `UPDATE execution_attempts SET state = 'UNKNOWN', finished_at = COALESCE(finished_at, $2), termination_reason = 'runner restart', updated_at = now() WHERE id = $1`, attemptID, event.ReportedAt)
-		if err == nil {
-			var policy string
-			if queryErr := tx.QueryRow(ctx, `SELECT ambiguity_policy FROM task_versions tv JOIN runs r ON r.task_version_id = tv.id WHERE r.id = $1`, event.RunID).Scan(&policy); queryErr != nil {
-				err = queryErr
-			} else {
-				state, resolveErr := platform.ResolveAmbiguous(platform.AmbiguityPolicy(policy))
-				if resolveErr != nil {
-					err = resolveErr
-				} else if state == "retry_wait" {
-					_, err = tx.Exec(ctx, `UPDATE runs SET state = 'RETRY_WAIT', retry_not_before = now() + interval '1 second', state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state NOT IN ('SUCCEEDED','FAILED','CANCELLED')`, event.RunID)
-				} else if state == "failed" {
-					_, err = tx.Exec(ctx, `UPDATE runs SET state = 'FAILED', completed_at = $2, state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state NOT IN ('SUCCEEDED','FAILED','CANCELLED')`, event.RunID, event.ReportedAt)
-				} else {
-					_, err = tx.Exec(ctx, `UPDATE runs SET state = 'UNKNOWN', state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state NOT IN ('SUCCEEDED','FAILED','CANCELLED')`, event.RunID)
-				}
-			}
-		}
-		if err == nil {
-			_, err = tx.Exec(ctx, `UPDATE runners SET active_count = GREATEST(active_count - 1, 0), updated_at = now() WHERE id = $1 AND active_count > 0`, runnerID)
-		}
-		if err == nil {
-			_, err = tx.Exec(ctx, `UPDATE resource_leases SET state = 'RELEASED', released_at = now() WHERE execution_attempt_id = $1 AND state = 'ACTIVE'`, attemptID)
-		}
-	default:
-		return errors.New("unsupported run event type")
-	}
-	if err != nil {
+	if err := s.applyRunEventTransition(ctx, tx, event, attemptID, runnerID, attemptState, payload); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE execution_attempts SET last_applied_state_sequence = $2, state_version = state_version + 1, updated_at = now() WHERE id = $1`, attemptID, event.Sequence); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func (s *RunStore) applyLogChunkEvent(ctx context.Context, tx databaseTx, event RunEventInput, attemptID string) error {
+	if event.EventChannel != "stdout" && event.EventChannel != "stderr" {
+		return errors.New("log chunk stream is invalid")
+	}
+	if event.Result == "" {
+		return errors.New("log chunk is empty")
+	}
+	_, err := tx.Exec(ctx, `INSERT INTO execution_log_chunks (event_id, execution_attempt_id, stream, chunk_sequence, reported_at, payload, size_bytes, checksum) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT DO NOTHING`, event.EventID, attemptID, event.EventChannel, event.Sequence, event.ReportedAt, []byte(event.Result), len([]byte(event.Result)), sha256Hex([]byte(event.Result)))
+	if err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *RunStore) applyRunEventTransition(ctx context.Context, tx databaseTx, event RunEventInput, attemptID, runnerID, attemptState string, payload []byte) error {
+	var err error
+	switch event.EventType {
+	case "accepted":
+		_, err = tx.Exec(ctx, `UPDATE execution_attempts SET state = CASE WHEN state = 'RUNNING' THEN state ELSE 'ACCEPTED' END, accepted_at = COALESCE(accepted_at, $2), updated_at = now() WHERE id = $1`, attemptID, event.ReportedAt)
+	case "started":
+		err = startRunAttempt(ctx, tx, event, attemptID)
+	case "heartbeat":
+		_, err = tx.Exec(ctx, `UPDATE execution_attempts SET last_heartbeat_at = $2, updated_at = now() WHERE id = $1`, attemptID, event.ReportedAt)
+	case "completed", "failed", "timed_out", "cancelled":
+		err = s.applyCompletedRunEvent(ctx, tx, event, attemptID, runnerID, payload)
+	case "unknown":
+		err = s.applyUnknownRunEvent(ctx, tx, event, attemptID, runnerID)
+	default:
+		return errors.New("unsupported run event type")
+	}
+	return err
+}
+
+func startRunAttempt(ctx context.Context, tx databaseTx, event RunEventInput, attemptID string) error {
+	if _, err := tx.Exec(ctx, `UPDATE execution_attempts SET state = 'RUNNING', started_at = COALESCE(started_at, $2), updated_at = now() WHERE id = $1`, attemptID, event.ReportedAt); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `UPDATE runs SET state = 'RUNNING', state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state = 'DISPATCHED'`, event.RunID)
+	return err
+}
+
+func (s *RunStore) applyCompletedRunEvent(ctx context.Context, tx databaseTx, event RunEventInput, attemptID, runnerID string, payload []byte) error {
+	state := map[string]string{"completed": "SUCCEEDED", "failed": "FAILED", "timed_out": "FAILED", "cancelled": "CANCELLED"}[event.EventType]
+	var maxMemory, averageMemory *int64
+	if value, ok := event.Metrics["max_memory_bytes"]; ok {
+		maxMemory = &value
+	}
+	if value, ok := event.Metrics["average_memory_bytes"]; ok {
+		averageMemory = &value
+	}
+	if _, err := tx.Exec(ctx, `UPDATE execution_attempts SET state = $2, finished_at = COALESCE(finished_at, $3), termination_reason = NULLIF($4, ''), exit_code = $5, result = $6::jsonb, max_memory_used_bytes = COALESCE($7, max_memory_used_bytes), average_memory_used_bytes = COALESCE($8, average_memory_used_bytes), updated_at = now() WHERE id = $1`, attemptID, state, event.ReportedAt, event.Error, event.ExitCode, payload, maxMemory, averageMemory); err != nil {
+		return err
+	}
+	if event.EventType == "failed" || event.EventType == "timed_out" {
+		if err := s.updateRetryState(ctx, tx, event); err != nil {
+			return err
+		}
+	} else if err := updateTerminalRun(ctx, tx, event, state); err != nil {
+		return err
+	}
+	return releaseRunResources(ctx, tx, runnerID, attemptID)
+}
+
+func (s *RunStore) updateRetryState(ctx context.Context, tx databaseTx, event RunEventInput) error {
+	var maxAttempts, initialBackoff, maxBackoff int
+	var multiplier float64
+	var exitCodes, reasons []byte
+	if err := tx.QueryRow(ctx, `SELECT max_attempts, initial_backoff_seconds, max_backoff_seconds, backoff_multiplier, retryable_exit_codes, retryable_termination_reasons FROM task_versions tv JOIN runs r ON r.task_version_id = tv.id WHERE r.id = $1`, event.RunID).Scan(&maxAttempts, &initialBackoff, &maxBackoff, &multiplier, &exitCodes, &reasons); err != nil {
+		return err
+	}
+	if !shouldRetry(event, maxAttempts, exitCodes, reasons) {
+		return updateTerminalRun(ctx, tx, event, "FAILED")
+	}
+	seconds := retryDelaySeconds(event, initialBackoff, maxBackoff, multiplier)
+	_, err := tx.Exec(ctx, `UPDATE runs SET state = 'RETRY_WAIT', retry_not_before = now() + ($2 * interval '1 second'), completed_at = NULL, state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state NOT IN ('SUCCEEDED', 'FAILED', 'CANCELLED')`, event.RunID, seconds)
+	return err
+}
+
+func retryDelaySeconds(event RunEventInput, initialBackoff, maxBackoff int, multiplier float64) float64 {
+	if multiplier < 1 {
+		multiplier = 2
+	}
+	seconds := float64(initialBackoff)
+	for index := 1; index < int(event.Attempt); index++ {
+		seconds *= multiplier
+		if maxBackoff > 0 && seconds >= float64(maxBackoff) {
+			return float64(maxBackoff)
+		}
+	}
+	if maxBackoff > 0 && seconds > float64(maxBackoff) {
+		return float64(maxBackoff)
+	}
+	return seconds
+}
+
+func updateTerminalRun(ctx context.Context, tx databaseTx, event RunEventInput, state string) error {
+	_, err := tx.Exec(ctx, `UPDATE runs SET state = $2, completed_at = $3, retry_not_before = NULL, state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state NOT IN ('SUCCEEDED', 'FAILED', 'CANCELLED')`, event.RunID, state, event.ReportedAt)
+	return err
+}
+
+func releaseRunResources(ctx context.Context, tx databaseTx, runnerID, attemptID string) error {
+	if _, err := tx.Exec(ctx, `UPDATE runners SET active_count = GREATEST(active_count - 1, 0), updated_at = now() WHERE id = $1 AND active_count > 0`, runnerID); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `UPDATE resource_leases SET state = 'RELEASED', released_at = now() WHERE execution_attempt_id = $1 AND state = 'ACTIVE'`, attemptID)
+	return err
+}
+
+func (s *RunStore) applyUnknownRunEvent(ctx context.Context, tx databaseTx, event RunEventInput, attemptID, runnerID string) error {
+	if _, err := tx.Exec(ctx, `UPDATE execution_attempts SET state = 'UNKNOWN', finished_at = COALESCE(finished_at, $2), termination_reason = 'runner restart', updated_at = now() WHERE id = $1`, attemptID, event.ReportedAt); err != nil {
+		return err
+	}
+	var policy string
+	if err := tx.QueryRow(ctx, `SELECT ambiguity_policy FROM task_versions tv JOIN runs r ON r.task_version_id = tv.id WHERE r.id = $1`, event.RunID).Scan(&policy); err != nil {
+		return err
+	}
+	if err := applyUnknownRunState(ctx, tx, event, platform.AmbiguityPolicy(policy)); err != nil {
+		return err
+	}
+	return releaseRunResources(ctx, tx, runnerID, attemptID)
+}
+
+func applyUnknownRunState(ctx context.Context, tx databaseTx, event RunEventInput, policy platform.AmbiguityPolicy) error {
+	state, err := platform.ResolveAmbiguous(policy)
+	if err != nil {
+		return err
+	}
+	switch state {
+	case "retry_wait":
+		_, err = tx.Exec(ctx, `UPDATE runs SET state = 'RETRY_WAIT', retry_not_before = now() + interval '1 second', state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state NOT IN ('SUCCEEDED','FAILED','CANCELLED')`, event.RunID)
+	case "failed":
+		_, err = tx.Exec(ctx, `UPDATE runs SET state = 'FAILED', completed_at = $2, state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state NOT IN ('SUCCEEDED','FAILED','CANCELLED')`, event.RunID, event.ReportedAt)
+	default:
+		_, err = tx.Exec(ctx, `UPDATE runs SET state = 'UNKNOWN', state_version = state_version + 1, updated_at = now() WHERE id = $1 AND state NOT IN ('SUCCEEDED','FAILED','CANCELLED')`, event.RunID)
+	}
+	return err
 }
 
 func shouldRetry(event RunEventInput, maxAttempts int, exitCodes, reasons []byte) bool {
@@ -1139,34 +1184,26 @@ func shouldRetry(event RunEventInput, maxAttempts int, exitCodes, reasons []byte
 	var retryReasons []string
 	_ = json.Unmarshal(exitCodes, &codes)
 	_ = json.Unmarshal(reasons, &retryReasons)
-	if len(codes) > 0 {
-		if event.ExitCode == nil {
-			return false
-		}
-		matched := false
-		for _, code := range codes {
-			if *event.ExitCode == code {
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			return false
+	return (len(codes) == 0 || event.ExitCode != nil && containsExitCode(codes, *event.ExitCode)) &&
+		(len(retryReasons) == 0 || containsRetryReason(retryReasons, event.Error))
+}
+
+func containsExitCode(codes []int, expected int) bool {
+	for _, code := range codes {
+		if code == expected {
+			return true
 		}
 	}
-	if len(retryReasons) > 0 {
-		matched := false
-		for _, reason := range retryReasons {
-			if reason == event.Error {
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			return false
+	return false
+}
+
+func containsRetryReason(reasons []string, expected string) bool {
+	for _, reason := range reasons {
+		if reason == expected {
+			return true
 		}
 	}
-	return true
+	return false
 }
 
 func legalAttemptTransition(state, eventType string) bool {
