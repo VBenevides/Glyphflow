@@ -15,7 +15,7 @@ export function auditQuery(filters: { actor: string; action: string; target: str
 
 type AuditPage = Page<AuditEvent> & { failureCount?: number; writeCount?: number }
 
-function AuditMetadata({ event }: { event: AuditEvent }) {
+function AuditMetadata({ event }: Readonly<{ event: AuditEvent }>) {
   const actor = event.actorName ?? event.actor ?? '—'
   return <dl className="gf-audit-meta">
     <div><dt>Timestamp</dt><dd><time dateTime={event.createdAt}>{formatDateTime(event.createdAt)}</time></dd></div>
@@ -29,7 +29,7 @@ function AuditMetadata({ event }: { event: AuditEvent }) {
   </dl>
 }
 
-function AuditValuePanel({ title, value }: { title: string; value: unknown }) {
+function AuditValuePanel({ title, value }: Readonly<{ title: string; value: unknown }>) {
   return <section className="gf-audit-value-panel"><h3>{title}</h3><AuditValue value={value} /></section>
 }
 

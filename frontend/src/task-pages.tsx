@@ -61,7 +61,7 @@ export function taskVersionDiff(previous: TaskVersion, current: TaskVersion): Ta
   return rows.filter((row) => row.previous !== row.current)
 }
 
-function VersionComparison({ versions, version }: { versions: TaskVersion[]; version: number }) {
+function VersionComparison({ versions, version }: Readonly<{ versions: TaskVersion[]; version: number }>) {
   const current = versions.find((item) => item.version === version)
   if (!current) return null
   const previous = versions.find((item) => item.version === version - 1)
@@ -73,7 +73,7 @@ function VersionComparison({ versions, version }: { versions: TaskVersion[]; ver
   return <section className="gf-card-panel"><h3>Changes from v{version - 1} to v{version}</h3>{content}</section>
 }
 
-function ManualTaskRunButton({ taskId }: { taskId: string }) {
+function ManualTaskRunButton({ taskId }: Readonly<{ taskId: string }>) {
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
   return <><Button type="button" onClick={() => setOpen(true)}>Run now</Button>{open && <ManualRunPage inDialog initialTaskId={taskId} onClose={() => setOpen(false)} onStarted={(result) => { setOpen(false); if (result.id) navigate(`/runs/${result.id}`) }} />}</>

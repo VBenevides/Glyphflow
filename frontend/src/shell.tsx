@@ -62,12 +62,12 @@ function routeIcon(path: string) {
   return Server
 }
 
-export function AppearanceChoices({ theme, onSelect }: { theme: Theme; onSelect: (theme: Theme) => void }) {
+export function AppearanceChoices({ theme, onSelect }: Readonly<{ theme: Theme; onSelect: (theme: Theme) => void }>) {
   const light = theme === 'light'
   return <Button variant="ghost" className={`gf-theme-toggle${light ? '' : ' is-dark'}`} role="switch" aria-checked={!light} aria-label={`Switch to ${light ? 'dark' : 'light'} mode`} onClick={() => onSelect(light ? 'dark' : 'light')}><span className={`gf-theme-option${light ? ' is-current' : ''}`}><Sun size={15} aria-hidden="true" /><span className="gf-theme-label">Light mode</span></span><span className="gf-theme-switch" aria-hidden="true"><span /></span><span className={`gf-theme-option${light ? '' : ' is-current'}`}><Moon size={15} aria-hidden="true" /><span className="gf-theme-label">Dark mode</span></span></Button>
 }
 
-export function Shell({ children }: { children: ReactNode }) {
+export function Shell({ children }: Readonly<{ children: ReactNode }>) {
   const { config, profile, permissions, restore, setProfile } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()

@@ -26,7 +26,7 @@ export function projectionDismissalKey(calculatedAt: string) {
   return `glyphflow:schedule-projection-dismissed:${calculatedAt}`
 }
 
-function WidgetState({ widget, result }: { widget: Widget; result: UseQueryResult<unknown> }) {
+function WidgetState({ widget, result }: Readonly<{ widget: Widget; result: UseQueryResult<unknown> }>) {
   if (result.isPending) return <section className="gf-dashboard-widget"><h2>{widget.label}</h2><LoadingState label="Loading" /></section>
   if (result.isError && result.data === undefined) return <section className="gf-dashboard-widget"><h2>{widget.label}</h2><ErrorState message={result.error instanceof Error ? result.error.message : 'Widget failed'} onRetry={() => result.refetch()} /></section>
   const value = result.data as Page<Run | Schedule | Runner> | undefined

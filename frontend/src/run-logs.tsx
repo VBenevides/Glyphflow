@@ -57,7 +57,7 @@ export function useLogStream(runId: string, stream: 'stdout' | 'stderr', enabled
   return { ...state, text, paused, pause: () => setPaused(true), resume: () => setPaused(false), reconnect: () => { setPaused(false); setState((current) => ({ ...current, reconnecting: true })); setGeneration((value) => value + 1) } }
 }
 
-export function LiveLogPanel({ runId, stream, terminal = false }: { runId: string; stream: 'stdout' | 'stderr'; terminal?: boolean }) {
+export function LiveLogPanel({ runId, stream, terminal = false }: Readonly<{ runId: string; stream: 'stdout' | 'stderr'; terminal?: boolean }>) {
   const log = useLogStream(runId, stream, true, terminal)
   const stopped = terminal || log.stopped
   let statusLabel = 'Live View'

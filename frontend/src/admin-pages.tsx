@@ -18,7 +18,7 @@ export function roleMappingsValue(mappings: GroupRoleMapping[]): Record<string, 
   return Object.fromEntries(mappings.map(({ group, role }) => [group.trim(), role]).filter(([group, role]) => group && role))
 }
 
-function RoleSelect({ id, value, roles, onChange, disabled = false }: { id: string; value: string; roles?: RoleDefinition[]; onChange: (value: string) => void; disabled?: boolean }) {
+function RoleSelect({ id, value, roles, onChange, disabled = false }: Readonly<{ id: string; value: string; roles?: RoleDefinition[]; onChange: (value: string) => void; disabled?: boolean }>) {
   return <select id={id} className="gf-input" value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} required><option value="">Select a role</option>{roles?.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}</select>
 }
 
@@ -47,7 +47,7 @@ export function filterAndSortRoles(roles: RoleDefinition[], search: string): Rol
   return roles.filter((role) => !needle || [role.id, role.name, role.description ?? '', ...role.permissions].some((value) => value.toLowerCase().includes(needle))).sort((left, right) => Number(Boolean(right.system)) - Number(Boolean(left.system)) || left.name.localeCompare(right.name))
 }
 
-function UserActionsMenu({ user, manage, onAccess, onDisable, onApprove }: { user: UserRecord; manage: boolean; onAccess: () => void; onDisable: () => void; onApprove: () => void }) {
+function UserActionsMenu({ user, manage, onAccess, onDisable, onApprove }: Readonly<{ user: UserRecord; manage: boolean; onAccess: () => void; onDisable: () => void; onApprove: () => void }>) {
   const userLabel = user.displayName ?? user.email ?? user.username
   let statusAction = 'Disable'
   if (user.status === 'pending') statusAction = 'Approve'
@@ -58,13 +58,13 @@ function UserActionsMenu({ user, manage, onAccess, onDisable, onApprove }: { use
 
 type IdentityView = 'users' | 'sessions' | 'sso' | 'secrets'
 
-function IdentityAdminLayout({ view, title, description, refresh, children }: { view: IdentityView; title: string; description: string; refresh?: ReactNode; children: ReactNode }) {
+function IdentityAdminLayout({ view, title, description, refresh, children }: Readonly<{ view: IdentityView; title: string; description: string; refresh?: ReactNode; children: ReactNode }>) {
   const navigate = useNavigate()
   const paths: Record<IdentityView, string> = { users: '/admin/users', sessions: '/admin/users/sessions', sso: '/admin/sso', secrets: '/admin/secrets' }
   return <main className="gf-content"><PageHeader title={title} description={description} refresh={refresh} /><Tabs value={view} onValueChange={(next) => navigate(paths[next as IdentityView])}><TabsList aria-label="Identity administration"><TabsTrigger value="users">Users</TabsTrigger><TabsTrigger value="sessions">Sessions</TabsTrigger><TabsTrigger value="sso">SSO</TabsTrigger><TabsTrigger value="secrets">Secrets</TabsTrigger></TabsList></Tabs>{children}</main>
 }
 
-export function UserCreationForm({ onCreated }: { onCreated: (userID: string) => Promise<void> }) {
+export function UserCreationForm({ onCreated }: Readonly<{ onCreated: (userID: string) => Promise<void> }>) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -79,7 +79,7 @@ export function UserCreationForm({ onCreated }: { onCreated: (userID: string) =>
   return <form className="gf-editor-form" onSubmit={submit}><div className="gf-form-grid"><label htmlFor="admin-user-email">Email<Input id="admin-user-email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label><label htmlFor="admin-user-password">Temporary password<Input id="admin-user-password" type="password" autoComplete="new-password" minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} required /></label></div>{error && <p className="gf-form-error" role="alert">{error}</p>}<div className="gf-dialog-actions"><Button type="submit" busy={busy}>Create user</Button></div></form>
 }
 
-export function UserAccessEditor({ user, roles, onChanged, onClose }: { user: UserRecord; roles?: RoleDefinition[]; onChanged: () => Promise<void>; onClose: () => void }) {
+export function UserAccessEditor({ user, roles, onChanged, onClose }: Readonly<{ user: UserRecord; roles?: RoleDefinition[]; onChanged: () => Promise<void>; onClose: () => void }>) {
   const [roleID, setRoleID] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -155,7 +155,7 @@ export function SessionManagementPage() {
   </IdentityAdminLayout>
 }
 
-function RoleEditor({ role, onDone }: { role?: RoleDefinition; onDone: () => void }) {
+function RoleEditor({ role, onDone }: Readonly<{ role?: RoleDefinition; onDone: () => void }>) {
   const [name, setName] = useState(role?.name ?? '')
   const [selected, setSelected] = useState(() => new Set(role?.permissions ?? []))
   const [error, setError] = useState('')
@@ -238,7 +238,7 @@ function secretTaskUsage(secret: SecretMetadata): ReactNode {
   return <span className="gf-muted">SSO configuration</span>
 }
 
-function SecretEditor({ secret, onDone }: { secret?: SecretMetadata; onDone: () => Promise<void> }) {
+function SecretEditor({ secret, onDone }: Readonly<{ secret?: SecretMetadata; onDone: () => Promise<void> }>) {
   const [name, setName] = useState(secret?.name ?? '')
   const [value, setValue] = useState('')
   const [valueVisible, setValueVisible] = useState(false)

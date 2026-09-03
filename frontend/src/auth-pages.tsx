@@ -20,7 +20,7 @@ export function availableLoginMethods(config: { passwordLogin: boolean; oidc: bo
   return [config.passwordLogin ? 'password' : '', config.oidc ? 'oidc' : ''].filter(Boolean)
 }
 
-function AuthFrame({ title, children }: { title: string; children: React.ReactNode }) {
+function AuthFrame({ title, children }: Readonly<{ title: string; children: React.ReactNode }>) {
   return <main className="gf-auth-page"><section className="gf-auth-card"><BrandMark /><p className="gf-brand-name">Glyphflow</p><h1>{title}</h1>{children}</section></main>
 }
 

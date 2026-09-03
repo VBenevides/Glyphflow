@@ -32,7 +32,7 @@ export function formatBytes(value: number): string {
   return `${amount.toFixed(amount >= 10 ? 0 : 1)} ${unit}`
 }
 
-export function SystemMetricsView({ data }: { data: SystemMetrics }) {
+export function SystemMetricsView({ data }: Readonly<{ data: SystemMetrics }>) {
   const alertRows = data.alerts.map((alert) => ({ ...alert, id: alert.code }))
   const metricRows = Object.entries(data.metrics).sort(([left], [right]) => left.localeCompare(right)).map(([name, value]) => ({ id: name, name, value }))
   return <>
@@ -54,7 +54,7 @@ export function SystemMetricsView({ data }: { data: SystemMetrics }) {
   </>
 }
 
-function DeadLetterRecovery({ canManage }: { canManage: boolean }) {
+function DeadLetterRecovery({ canManage }: Readonly<{ canManage: boolean }>) {
   const queryClient = useQueryClient()
   const [page, setPage] = useState(1)
   const [reasons, setReasons] = useState<Record<string, string>>({})
@@ -68,7 +68,7 @@ function deadLetterDiagnostic(error?: string) {
   return error.length > 160 ? `${error.slice(0, 160)}…` : error
 }
 
-function DeadLetterTable({ data, canManage, page, setPage, reasons, setReasons, action }: { data: DeadLetterPage; canManage: boolean; page: number; setPage: (page: number) => void; reasons: Record<string, string>; setReasons: (reasons: Record<string, string>) => void; action: { isPending: boolean; mutate: (input: { id: string; state: 'retry' | 'reconcile'; reason: string }) => void } }) {
+function DeadLetterTable({ data, canManage, page, setPage, reasons, setReasons, action }: Readonly<{ data: DeadLetterPage; canManage: boolean; page: number; setPage: (page: number) => void; reasons: Record<string, string>; setReasons: (reasons: Record<string, string>) => void; action: { isPending: boolean; mutate: (input: { id: string; state: 'retry' | 'reconcile'; reason: string }) => void } }>) {
   const rows = data.items.map((item) => ({ ...item, id: item.id }))
   return <>
     {rows.length ? <DataTable<DeadLetter> caption="Dead-letter records" rows={rows} columns={[{ key: 'id', label: 'Record', render: (item) => <Identifier id={item.id} copyLabel="Copy dead-letter ID" /> }, { key: 'runnerId', label: 'Runner', render: (item) => <Identifier id={item.runnerId} copyLabel="Copy runner ID" /> }, { key: 'subject', label: 'Subject' }, { key: 'messageId', label: 'Message', render: (item) => <Identifier id={item.messageId} copyLabel="Copy message ID" /> }, { key: 'attempts', label: 'Attempts' }, { key: 'state', label: 'State', render: (item) => <StatusPill status={item.state} /> }, { key: 'error', label: 'Diagnostic', render: (item) => <span title={item.error}>{deadLetterDiagnostic(item.error)}</span> }, ...(canManage ? [{ key: 'actions', label: 'Actions', render: (item: DeadLetter) => <div className="gf-inline-actions"><Input aria-label={`Reason for ${item.id}`} value={reasons[item.id] ?? ''} maxLength={512} placeholder="Operator reason" onChange={(event) => setReasons({ ...reasons, [item.id]: event.target.value })} /><Button busy={action.isPending} disabled={!reasons[item.id]?.trim()} onClick={() => action.mutate({ id: item.id, state: 'retry', reason: reasons[item.id].trim() })}>Retry</Button><Button variant="danger" busy={action.isPending} disabled={!reasons[item.id]?.trim()} onClick={() => action.mutate({ id: item.id, state: 'reconcile', reason: reasons[item.id].trim() })}>Discard</Button></div> }] : [])]} /> : <EmptyState title="No open dead letters">The queue has no records requiring operator action.</EmptyState>}

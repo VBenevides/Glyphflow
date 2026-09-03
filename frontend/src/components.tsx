@@ -41,11 +41,11 @@ export function FilterInput({ label, options = [], value, onChange, id, ...props
   return <div className="gf-filter-field"><label htmlFor={inputID}>{label}</label><div className="gf-filter-input"><Input {...props} id={inputID} value={value} autoComplete="off" onFocus={() => setOpen(true)} onChange={(event) => { onChange(event.target.value); setOpen(true) }} onBlur={() => window.setTimeout(() => setOpen(false), 100)} aria-autocomplete="list" aria-expanded={open} aria-controls={open ? `${inputID}-options` : undefined} />{open && <div id={`${inputID}-options`} className="gf-task-options" role="listbox">{matches.length ? matches.map((option) => <button type="button" role="option" aria-selected={option === value} className="gf-task-option" key={option} onMouseDown={(event) => { event.preventDefault(); onChange(option); setOpen(false) }}>{option}</button>) : <span className="gf-task-empty">No matching values</span>}</div>}</div></div>
 }
 
-export function InfoTooltip({ text }: { text: string }) {
+export function InfoTooltip({ text }: Readonly<{ text: string }>) {
   return <span className="gf-info-tooltip"><button type="button" className="gf-info-tooltip-trigger" aria-label="More information" title={text}>i</button></span>
 }
 
-export function Identifier({ id, name, href, className, linkClassName, copyLabel = 'Copy identifier' }: { id?: string; name?: string; href?: string; className?: string; linkClassName?: string; copyLabel?: string }) {
+export function Identifier({ id, name, href, className, linkClassName, copyLabel = 'Copy identifier' }: Readonly<{ id?: string; name?: string; href?: string; className?: string; linkClassName?: string; copyLabel?: string }>) {
   if (!id) return <span>—</span>
   const compact = compactIdentifier(id)
   const label = name ? `${name} · ${compact}` : compact
@@ -53,21 +53,21 @@ export function Identifier({ id, name, href, className, linkClassName, copyLabel
   return <span className={'gf-identifier' + (className ? ' ' + className : '')}>{content}<Button variant="ghost" className="gf-identifier-copy" aria-label={copyLabel} onClick={() => { void navigator.clipboard?.writeText(id).catch(() => undefined) }}><Copy size={15} aria-hidden="true" /></Button></span>
 }
 
-export function FieldLabel({ children, info, htmlFor }: { children: ReactNode; info?: string; htmlFor?: string }) {
+export function FieldLabel({ children, info, htmlFor }: Readonly<{ children: ReactNode; info?: string; htmlFor?: string }>) {
   return <span className="gf-field-label">{htmlFor ? <label htmlFor={htmlFor}>{children}</label> : children}{info && <InfoTooltip text={info} />}</span>
 }
 
-export function Dialog({ open, title, children, onClose, className }: { open: boolean; title: string; children: ReactNode; onClose: () => void; className?: string }) {
+export function Dialog({ open, title, children, onClose, className }: Readonly<{ open: boolean; title: string; children: ReactNode; onClose: () => void; className?: string }>) {
   const titleId = useId()
   return <DialogPrimitive.Root open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose() }}><DialogPrimitive.Portal><DialogPrimitive.Overlay className="gf-dialog-backdrop" /><DialogPrimitive.Content aria-modal="true" aria-labelledby={titleId} className={'gf-dialog' + (className ? ' ' + className : '')}><div className="gf-dialog-header"><DialogPrimitive.Title asChild><h2 id={titleId}>{title}</h2></DialogPrimitive.Title><DialogPrimitive.Close asChild><Button className="gf-dialog-close" variant="ghost" aria-label="Close dialog">×</Button></DialogPrimitive.Close></div><div className="gf-dialog-body">{children}</div></DialogPrimitive.Content></DialogPrimitive.Portal></DialogPrimitive.Root>
 }
 
-export function StatusPill({ status }: { status: string }) {
+export function StatusPill({ status }: Readonly<{ status: string }>) {
   const normalized = status.toLowerCase().replace(/[^a-z0-9]+/g, '-')
   return <span className={'gf-status gf-status-' + normalized}>{status}</span>
 }
 
-export function PageHeader({ title, description, action, meta, refresh }: { title: string; description?: string; action?: ReactNode; meta?: ReactNode; refresh?: ReactNode }) {
+export function PageHeader({ title, description, action, meta, refresh }: Readonly<{ title: string; description?: string; action?: ReactNode; meta?: ReactNode; refresh?: ReactNode }>) {
   return <header className="gf-page-header"><div><h1>{title}</h1>{description && <p>{description}</p>}{refresh && <div className="gf-page-header-refresh">{refresh}</div>}</div><div className="gf-page-header-actions">{meta && <div className="gf-page-header-meta">{meta}</div>}{action}</div></header>
 }
 
@@ -101,13 +101,13 @@ export const DropdownMenuSeparator = forwardRef<ElementRef<typeof DropdownMenuPr
   return <DropdownMenuPrimitive.Separator ref={ref} className={'gf-dropdown-separator' + (className ? ' ' + className : '')} {...props} />
 })
 
-export function TableActions({ label = 'Actions', children }: { label?: string; children: ReactNode }) {
+export function TableActions({ label = 'Actions', children }: Readonly<{ label?: string; children: ReactNode }>) {
   return <DropdownMenu><DropdownMenuTrigger asChild><Button type="button" variant="ghost" aria-label={label}><MoreHorizontal size={18} /></Button></DropdownMenuTrigger><DropdownMenuPortal><DropdownMenuContent align="end">{children}</DropdownMenuContent></DropdownMenuPortal></DropdownMenu>
 }
 
 export type MetricTone = 'default' | 'success' | 'warning' | 'danger' | 'info'
 
-export function MetricCard({ label, value, detail, icon: Icon, tone = 'default' }: { label: string; value: ReactNode; detail?: ReactNode; icon: ComponentType<{ className?: string; size?: string | number }>; tone?: MetricTone }) {
+export function MetricCard({ label, value, detail, icon: Icon, tone = 'default' }: Readonly<{ label: string; value: ReactNode; detail?: ReactNode; icon: ComponentType<{ className?: string; size?: string | number }>; tone?: MetricTone }>) {
   return <section className={'gf-metric gf-metric-' + tone}><div className="gf-metric-heading"><span>{label}</span><span className="gf-metric-icon" aria-hidden="true"><Icon size={16} /></span></div><strong>{value}</strong>{detail && <small>{detail}</small>}</section>
 }
 
@@ -119,7 +119,7 @@ function tableValue(value: unknown): ReactNode {
   return value.toString()
 }
 
-export function DataTable<T extends { id?: string | number }>({ columns, rows, caption, className }: { columns: Column<T>[]; rows: T[]; caption: string; className?: string }) {
+export function DataTable<T extends { id?: string | number }>({ columns, rows, caption, className }: Readonly<{ columns: Column<T>[]; rows: T[]; caption: string; className?: string }>) {
   return (
     <div className="gf-table-wrap">
       <table className={'gf-table' + (className ? ' ' + className : '')}>
@@ -131,18 +131,18 @@ export function DataTable<T extends { id?: string | number }>({ columns, rows, c
   )
 }
 
-export function Pagination({ page, pages, limit = 10, onChange, onLimitChange }: { page: number; pages: number; limit?: number; onChange: (page: number) => void; onLimitChange?: (limit: number) => void }) {
+export function Pagination({ page, pages, limit = 10, onChange, onLimitChange }: Readonly<{ page: number; pages: number; limit?: number; onChange: (page: number) => void; onLimitChange?: (limit: number) => void }>) {
   return <nav className="gf-pagination" aria-label="Pagination"><Button variant="secondary" disabled={page <= 1} onClick={() => onChange(page - 1)}>Previous</Button><span>Page {page} of {Math.max(1, pages)}</span>{onLimitChange && <label className="gf-pagination-size">Items per page<select className="gf-input" aria-label="Items per page" value={limit} onChange={(event) => onLimitChange(Number(event.target.value))}><option value="10">10</option><option value="20">20</option><option value="50">50</option><option value="100">100</option></select></label>}<Button variant="secondary" disabled={page >= pages} onClick={() => onChange(page + 1)}>Next</Button></nav>
 }
 
-export function EmptyState({ title, children }: { title: string; children?: ReactNode }) {
+export function EmptyState({ title, children }: Readonly<{ title: string; children?: ReactNode }>) {
   return <section className="gf-state gf-empty"><h2>{title}</h2>{children && <p>{children}</p>}</section>
 }
 
-export function ErrorState({ title = 'Something went wrong', message, onRetry }: { title?: string; message?: string; onRetry?: () => void }) {
+export function ErrorState({ title = 'Something went wrong', message, onRetry }: Readonly<{ title?: string; message?: string; onRetry?: () => void }>) {
   return <section className="gf-state gf-error" role="alert"><h2>{title}</h2>{message && <p>{message}</p>}{onRetry && <Button variant="secondary" onClick={onRetry}>Try again</Button>}</section>
 }
 
-export function LoadingState({ label = 'Loading' }: { label?: string }) {
+export function LoadingState({ label = 'Loading' }: Readonly<{ label?: string }>) {
   return <section className="gf-state gf-loading" role="status" aria-live="polite"><span className="gf-spinner" aria-hidden="true" />{label}…</section>
 }

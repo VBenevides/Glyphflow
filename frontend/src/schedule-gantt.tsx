@@ -177,7 +177,7 @@ function rangeLabel(range: GanttRange) {
   return formatDateTime(range.startAt) + ' – ' + formatDateTime(range.endAt)
 }
 
-export function SchedulingGantt({ report }: { report: ScheduleProjection }) {
+export function SchedulingGantt({ report }: Readonly<{ report: ScheduleProjection }>) {
   const [view, setView] = useState<GanttView>('week')
   const [grouping, setGrouping] = useState<GanttGrouping>('runner')
   const [dayOffset, setDayOffset] = useState(0)

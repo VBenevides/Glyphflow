@@ -44,7 +44,7 @@ function metricPoints(items: RunnerMetric[], field: 'cpuPercent' | 'memoryPercen
   return items.map((item, index) => `${(index / maxIndex) * width},${height - (item[field] / 100) * height}`).join(' ')
 }
 
-function RunnerMetricChart({ label, items, field }: { label: string; items: RunnerMetric[]; field: 'cpuPercent' | 'memoryPercent' }) {
+function RunnerMetricChart({ label, items, field }: Readonly<{ label: string; items: RunnerMetric[]; field: 'cpuPercent' | 'memoryPercent' }>) {
   if (!items.length) return <p className="gf-muted">No {label.toLowerCase()} samples in this range.</p>
   const latest = items[items.length - 1]
   return <div className="gf-runner-metric-chart"><div className="gf-runner-metric-chart-heading"><strong>{label}</strong><span>{formatMetricPercent(latest[field])} current</span></div><svg viewBox="0 0 720 180" role="img" aria-label={`${label} history`} preserveAspectRatio="none"><polyline points={metricPoints(items, field)} fill="none" stroke="currentColor" strokeWidth="3" vectorEffect="non-scaling-stroke" /><line x1="0" y1="0" x2="0" y2="180" stroke="currentColor" opacity="0.2" /><line x1="0" y1="180" x2="720" y2="180" stroke="currentColor" opacity="0.2" /></svg></div>

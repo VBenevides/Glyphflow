@@ -41,7 +41,7 @@ export function waitingRunMessage(run: Pick<Run, 'state' | 'placementBlocker'>) 
   return run.state.toUpperCase() === 'WAITING' ? run.placementBlocker ?? '' : ''
 }
 
-export function RunIDCell({ id, compact = false }: { id: string; compact?: boolean }) {
+export function RunIDCell({ id, compact = false }: Readonly<{ id: string; compact?: boolean }>) {
   return <Identifier id={id} href={`/runs/${id}`} className={`gf-run-id-cell${compact ? ' gf-run-id-cell-compact' : ''}`} linkClassName="gf-run-id" copyLabel="Copy run ID" />
 }
 
@@ -72,7 +72,7 @@ function timelineValue(value: unknown) {
   return typeof value === 'object' ? JSON.stringify(value) ?? '—' : value.toString()
 }
 
-export function RunTimeline({ run }: { run: Run }) {
+export function RunTimeline({ run }: Readonly<{ run: Run }>) {
   const attempts = run.attempts ?? []
   const events = run.events ?? []
   const sessions = run.sessions ?? []
@@ -80,7 +80,7 @@ export function RunTimeline({ run }: { run: Run }) {
   return <section className="gf-card-panel"><h2>Attempt timeline</h2>{attempts.length ? <ol className="gf-dashboard-list">{attempts.map((attempt, index) => <li key={attempt.id ?? index}><span><strong>Attempt {attempt.attemptNumber ?? index + 1}</strong> <StatusPill status={attempt.state} /></span><small>Runner <Identifier id={attempt.runnerId} /> · Session <Identifier id={attempt.runnerSessionId} /> · Fencing {timelineValue(attempt.fencingToken)}</small><small>Dispatched {timelineValue(attempt.dispatchedAt)} · Started {timelineValue(attempt.startedAt)} · Finished {timelineValue(attempt.finishedAt)}</small></li>)}</ol> : <p className="gf-muted">No attempts returned.</p>}<h3>Events</h3>{events.length ? <ul className="gf-dashboard-list">{events.map((event, index) => <li key={event.eventId ?? event.id ?? index}><span><strong>{timelineValue(event.eventKind)}</strong> · Attempt <Identifier id={event.attemptId} /></span><small>Sequence {timelineValue(event.stateSequence)} · {timelineValue(event.reportedAt)}</small>{event.payload !== undefined && <small>{timelineValue(event.payload)}</small>}</li>)}</ul> : <p className="gf-muted">No state events returned.</p>}<h3>Sessions</h3>{sessions.length ? <ul className="gf-dashboard-list">{sessions.map((session) => <li key={session.id}><span><strong><Identifier id={session.id} /></strong> · Runner <Identifier id={session.runnerId} /> · Boot <Identifier id={session.bootId} /></span><small>Connected {timelineValue(session.connectedAt)} · Heartbeat {timelineValue(session.lastHeartbeatAt)} · Disconnected {timelineValue(session.disconnectedAt)}</small></li>)}</ul> : <p className="gf-muted">No runner sessions returned.</p>}<h3>Leases</h3>{leases.length ? <ul className="gf-dashboard-list">{leases.map((lease) => <li key={lease.id}><span><strong><Identifier id={lease.resourceId ?? lease.resourceName} name={lease.resourceId ? lease.resourceName : undefined} copyLabel="Copy resource ID" /></strong> · <StatusPill status={lease.state} /></span><small>Fencing {timelineValue(lease.fencingToken)} · Acquired {timelineValue(lease.acquiredAt)} · Expires {timelineValue(lease.expiresAt)} · Released {timelineValue(lease.releasedAt)}</small></li>)}</ul> : <p className="gf-muted">No resource leases returned.</p>}<h3>Cancellation</h3>{run.cancellation ? <p>{timelineValue(run.cancellation.state)} · {timelineValue(run.cancellation.reason)} · Requested {timelineValue(run.cancellation.requestedAt)} · Acknowledged {timelineValue(run.cancellation.acknowledgedAt)}</p> : <p className="gf-muted">No cancellation requested.</p>}<h3>Log gaps</h3>{run.logGaps?.length ? <ul className="gf-dashboard-list">{run.logGaps.map((gap, index) => <li key={`${gap.stream}-${gap.fromSequence}-${gap.toSequence}-${index}`}><strong>{gap.stream}</strong>: sequences {gap.fromSequence}–{gap.toSequence}</li>)}</ul> : <p className="gf-muted">No log gaps detected.</p>}</section>
 }
 
-function RunActionPanel({ run, canCancel, canRetry }: { run: Run; canCancel: boolean; canRetry: boolean }) {
+function RunActionPanel({ run, canCancel, canRetry }: Readonly<{ run: Run; canCancel: boolean; canRetry: boolean }>) {
   const actions = eligibleRunActions(run.state)
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['run', run.id] })
   return <section className="gf-card-panel"><h2>Actions</h2><div className="gf-dialog-actions">{canCancel && actions.cancel && <DangerousAction label="Cancel" title="Cancel task" cancelLabel="Abandon task cancellation" confirmLabel="Confirm task cancellation" reasonRequired onConfirm={(reason) => api.post(`/api/v1/runs/${encodeURIComponent(run.id)}/cancel`, { reason }).then(refresh)} onConflict={refresh} />}{canRetry && actions.retry && <DangerousAction label="Retry" variant="secondary" reasonRequired onConfirm={(reason) => api.post(`/api/v1/runs/${encodeURIComponent(run.id)}/retry`, { reason }).then(refresh)} onConflict={refresh} />}{canRetry && actions.reconcile && <DangerousAction label="Reconcile unknown" variant="secondary" reasonRequired warning="This can cause an external command to run again. Confirm the side effect is understood." onConfirm={(reason) => api.post(`/api/v1/runs/${encodeURIComponent(run.id)}/reconcile`, { reason }).then(refresh)} onConflict={refresh} />}</div></section>

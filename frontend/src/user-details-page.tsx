@@ -9,7 +9,7 @@ import { formatDateTime } from './format'
 import { hasPermission } from './permissions'
 import { sessionDeviceLabel } from './session-device'
 
-export function UserDetailsPage({ userId, self }: { userId: string; self: boolean }) {
+export function UserDetailsPage({ userId, self }: Readonly<{ userId: string; self: boolean }>) {
   const { permissions } = useAuth()
   const manage = hasPermission(permissions, 'users.manage')
   const query = useQuery({ queryKey: ['admin-user', userId], queryFn: ({ signal }) => api.get<UserRecord>(`/api/v1/users/${encodeURIComponent(userId)}`, undefined, signal) })

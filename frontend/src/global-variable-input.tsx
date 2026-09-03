@@ -14,7 +14,7 @@ type Props = {
   onScroll?: (event: UIEvent<HTMLInputElement | HTMLTextAreaElement>) => void
 }
 
-export function GlobalVariableInput({ value, variables, onChange, multiline, className = '', ...props }: Props) {
+export function GlobalVariableInput({ value, variables, onChange, multiline, className = '', ...props }: Readonly<Props>) {
   const ref = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null)
   const setRef = (node: HTMLInputElement | HTMLTextAreaElement | null) => { ref.current = node }
   const [open, setOpen] = useState(false)
