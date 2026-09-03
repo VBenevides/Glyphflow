@@ -21,6 +21,13 @@ func TestScheduleAndPolicyEdgeCoverage(t *testing.T) {
 		t.Fatal("scheduler storage error was ignored")
 	}
 	now := time.Date(2026, time.September, 3, 12, 0, 0, 0, time.UTC)
+	testScheduleEdges(t, now)
+	testPolicyEdges(t, now)
+	testProjectionEdges(t, now)
+	testDueScheduleQueue(t, now)
+}
+
+func testScheduleEdges(t *testing.T, now time.Time) {
 	if got, err := (Schedule{Manual: true}).Next(now); err != nil || !got.Equal(now) {
 		t.Fatalf("manual schedule = %v, %v", got, err)
 	}
@@ -51,7 +58,9 @@ func TestScheduleAndPolicyEdgeCoverage(t *testing.T) {
 	if _, err := nextCronMinute(now, "0 0 30 2 *"); err == nil {
 		t.Fatal("cron without a calendar date accepted")
 	}
+}
 
+func testPolicyEdges(t *testing.T, now time.Time) {
 	valid := SchedulePolicy{Misfire: MisfireRunLatest, Concurrency: ConcurrencyQueue, StartDeadline: time.Minute, ExecutionTimeout: time.Minute}
 	for _, policy := range []SchedulePolicy{
 		{Misfire: "bad", Concurrency: ConcurrencyQueue, ExecutionTimeout: time.Minute},
@@ -100,6 +109,9 @@ func TestScheduleAndPolicyEdgeCoverage(t *testing.T) {
 	if !valid.DeadlineExceeded(now, now.Add(time.Minute+time.Nanosecond)) {
 		t.Fatal("deadline was not exceeded")
 	}
+}
+
+func testProjectionEdges(t *testing.T, now time.Time) {
 	if _, err := BuildScheduleProjection(nil, time.Time{}); err == nil {
 		t.Fatal("zero-time projection accepted")
 	}
@@ -118,6 +130,9 @@ func TestScheduleAndPolicyEdgeCoverage(t *testing.T) {
 	if raw := secretDeliveryResponse(context.Background(), nil, nil, nil, protocol.SigningKey{ID: "invalid"}, nil, []byte("invalid")); raw != nil {
 		t.Fatal("rejected response signed with invalid key")
 	}
+}
+
+func testDueScheduleQueue(t *testing.T, now time.Time) {
 	queue := NewDueScheduleQueue()
 	queue.Add(DueSchedule{})
 	queue.Add(DueSchedule{ID: "invalid", Interval: 0})
