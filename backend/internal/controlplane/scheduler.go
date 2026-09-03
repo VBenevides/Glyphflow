@@ -137,39 +137,9 @@ func parseCronField(field string, min, max int) (map[int]bool, error) {
 		if part == "" {
 			return nil, errors.New("cron contains an empty field")
 		}
-		step := 1
-		base := part
-		slash := strings.IndexByte(part, '/')
-		if slash >= 0 {
-			base = part[:slash]
-			parsed, err := strconv.Atoi(part[slash+1:])
-			if err != nil || parsed <= 0 {
-				return nil, errors.New("cron step must be positive")
-			}
-			step = parsed
-		}
-		start, end := min, max
-		if base != "*" {
-			if dash := strings.IndexByte(base, '-'); dash >= 0 {
-				var err error
-				start, err = strconv.Atoi(base[:dash])
-				if err != nil {
-					return nil, errors.New("cron range is invalid")
-				}
-				end, err = strconv.Atoi(base[dash+1:])
-				if err != nil || end < start {
-					return nil, errors.New("cron range is invalid")
-				}
-			} else {
-				var err error
-				start, err = strconv.Atoi(base)
-				if err != nil {
-					return nil, errors.New("cron value is invalid")
-				}
-				if slash < 0 {
-					end = start
-				}
-			}
+		start, end, step, err := parseCronPart(part, min, max)
+		if err != nil {
+			return nil, err
 		}
 		if start < min || end > max {
 			return nil, errors.New("cron value is outside its field range")
@@ -179,6 +149,55 @@ func parseCronField(field string, min, max int) (map[int]bool, error) {
 		}
 	}
 	return values, nil
+}
+
+func parseCronPart(part string, min, max int) (int, int, int, error) {
+	base, step, hasStep, err := parseCronStep(part)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	start, end, err := parseCronRange(base, min, max, hasStep)
+	return start, end, step, err
+}
+
+func parseCronStep(part string) (string, int, bool, error) {
+	slash := strings.IndexByte(part, '/')
+	if slash < 0 {
+		return part, 1, false, nil
+	}
+	step, err := strconv.Atoi(part[slash+1:])
+	if err != nil || step <= 0 {
+		return "", 0, false, errors.New("cron step must be positive")
+	}
+	return part[:slash], step, true, nil
+}
+
+func parseCronRange(base string, min, max int, hasStep bool) (int, int, error) {
+	start, end := min, max
+	if base == "*" {
+		return start, end, nil
+	}
+	dash := strings.IndexByte(base, '-')
+	if dash >= 0 {
+		start, err := strconv.Atoi(base[:dash])
+		if err != nil {
+			return 0, 0, errors.New("cron range is invalid")
+		}
+		end, err = strconv.Atoi(base[dash+1:])
+		if err != nil || end < start {
+			return 0, 0, errors.New("cron range is invalid")
+		}
+		return start, end, nil
+	}
+	var err error
+	start, err = strconv.Atoi(base)
+	if err != nil {
+		return 0, 0, errors.New("cron value is invalid")
+	}
+	if !hasStep {
+		end = start
+	}
+	return start, end, nil
 }
 
 func splitComma(value string) []string {
