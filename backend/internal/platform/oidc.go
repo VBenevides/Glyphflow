@@ -150,66 +150,72 @@ func verifyOIDCSignature(signingInput, encodedSignature, algorithm, keyID, jwks 
 		return errors.New("OIDC JWKS is invalid")
 	}
 	for _, rawKey := range document.Keys {
-		var key struct {
-			KTY string `json:"kty"`
-			Kid string `json:"kid"`
-			Alg string `json:"alg"`
-			Use string `json:"use"`
-			N   string `json:"n"`
-			E   string `json:"e"`
-			Crv string `json:"crv"`
-			X   string `json:"x"`
-			Y   string `json:"y"`
+		verified, err := verifyOIDCKey(signingInput, signature, algorithm, keyID, rawKey)
+		if err != nil {
+			return err
 		}
-		if json.Unmarshal(rawKey, &key) != nil || key.Kid != keyID || (key.Alg != "" && key.Alg != algorithm) || (key.Use != "" && key.Use != "sig") {
-			continue
-		}
-		input := []byte(signingInput)
-		switch algorithm {
-		case "RS256":
-			if key.KTY != "RSA" {
-				continue
-			}
-			n, nErr := decodeBigInt(key.N)
-			e, eErr := decodeBigInt(key.E)
-			if nErr != nil || eErr != nil || !e.IsInt64() {
-				continue
-			}
-			digest := sha256.Sum256(input)
-			// RS256 is defined by JOSE to use PKCS#1 v1.5; do not change this without
-			// deliberately breaking existing SSO provider compatibility.
-			if rsa.VerifyPKCS1v15(&rsa.PublicKey{N: n, E: int(e.Int64())}, crypto.SHA256, digest[:], signature) == nil { // NOSONAR
-				return nil
-			}
-		case "ES256", "ES384":
-			curve, size := elliptic.P256(), 32
-			if algorithm == "ES384" {
-				curve, size = elliptic.P384(), 48
-			}
-			if key.KTY != "EC" || key.Crv != curve.Params().Name || len(signature) != size*2 {
-				continue
-			}
-			x, xErr := decodeBigInt(key.X)
-			y, yErr := decodeBigInt(key.Y)
-			if xErr != nil || yErr != nil || !curve.IsOnCurve(x, y) {
-				continue
-			}
-			var digest []byte
-			if algorithm == "ES256" {
-				hashValue := sha256.Sum256(input)
-				digest = hashValue[:]
-			} else {
-				hashValue := sha512.Sum384(input)
-				digest = hashValue[:]
-			}
-			if ecdsa.Verify(&ecdsa.PublicKey{Curve: curve, X: x, Y: y}, digest, new(big.Int).SetBytes(signature[:size]), new(big.Int).SetBytes(signature[size:])) {
-				return nil
-			}
-		default:
-			return errors.New("OIDC signing algorithm is not supported")
+		if verified {
+			return nil
 		}
 	}
 	return errors.New("OIDC ID token signature is invalid")
+}
+
+func verifyOIDCKey(signingInput string, signature []byte, algorithm, keyID string, rawKey json.RawMessage) (bool, error) {
+	var key struct {
+		KTY string `json:"kty"`
+		Kid string `json:"kid"`
+		Alg string `json:"alg"`
+		Use string `json:"use"`
+		N   string `json:"n"`
+		E   string `json:"e"`
+		Crv string `json:"crv"`
+		X   string `json:"x"`
+		Y   string `json:"y"`
+	}
+	if json.Unmarshal(rawKey, &key) != nil || key.Kid != keyID || (key.Alg != "" && key.Alg != algorithm) || (key.Use != "" && key.Use != "sig") {
+		return false, nil
+	}
+	input := []byte(signingInput)
+	switch algorithm {
+	case "RS256":
+		if key.KTY != "RSA" {
+			return false, nil
+		}
+		n, nErr := decodeBigInt(key.N)
+		e, eErr := decodeBigInt(key.E)
+		if nErr != nil || eErr != nil || !e.IsInt64() {
+			return false, nil
+		}
+		digest := sha256.Sum256(input)
+		// RS256 is defined by JOSE to use PKCS#1 v1.5; do not change this without
+		// deliberately breaking existing SSO provider compatibility.
+		return rsa.VerifyPKCS1v15(&rsa.PublicKey{N: n, E: int(e.Int64())}, crypto.SHA256, digest[:], signature) == nil, nil // NOSONAR
+	case "ES256", "ES384":
+		curve, size := elliptic.P256(), 32
+		if algorithm == "ES384" {
+			curve, size = elliptic.P384(), 48
+		}
+		if key.KTY != "EC" || key.Crv != curve.Params().Name || len(signature) != size*2 {
+			return false, nil
+		}
+		x, xErr := decodeBigInt(key.X)
+		y, yErr := decodeBigInt(key.Y)
+		if xErr != nil || yErr != nil || !curve.IsOnCurve(x, y) {
+			return false, nil
+		}
+		var digest []byte
+		if algorithm == "ES256" {
+			hashValue := sha256.Sum256(input)
+			digest = hashValue[:]
+		} else {
+			hashValue := sha512.Sum384(input)
+			digest = hashValue[:]
+		}
+		return ecdsa.Verify(&ecdsa.PublicKey{Curve: curve, X: x, Y: y}, digest, new(big.Int).SetBytes(signature[:size]), new(big.Int).SetBytes(signature[size:])), nil
+	default:
+		return false, errors.New("OIDC signing algorithm is not supported")
+	}
 }
 
 func decodeBigInt(value string) (*big.Int, error) {
