@@ -16,6 +16,11 @@ type Schedule struct {
 	Timezone string
 }
 
+type cronCalendar struct {
+	dom, month, dow map[int]bool
+	domAny, dowAny  bool
+}
+
 func NextFire(expression, timezone string, now time.Time) (time.Time, error) {
 	return (Schedule{Cron: expression, Timezone: timezone}).Next(now)
 }
@@ -57,7 +62,7 @@ func nextCronMinute(now time.Time, expression string) (time.Time, error) {
 	}
 	for i := 1; i <= 24*60*366*8; i++ {
 		candidate := now.Truncate(time.Minute).Add(time.Duration(i) * time.Minute)
-		if cronMinuteMatches(candidate, minute, hour, dom, month, dow, domAny, dowAny) {
+		if cronMinuteMatches(candidate, minute, hour, cronCalendar{dom: dom, month: month, dow: dow, domAny: domAny, dowAny: dowAny}) {
 			return candidate, nil
 		}
 	}
@@ -89,20 +94,20 @@ func parseCronFields(expression string) (map[int]bool, map[int]bool, map[int]boo
 	return minute, hour, dom, month, dow, err
 }
 
-func cronMinuteMatches(candidate time.Time, minute, hour, dom, month, dow map[int]bool, domAny, dowAny bool) bool {
-	if !minute[candidate.Minute()] || !hour[candidate.Hour()] || !month[int(candidate.Month())] {
+func cronMinuteMatches(candidate time.Time, minute, hour map[int]bool, calendar cronCalendar) bool {
+	if !minute[candidate.Minute()] || !hour[candidate.Hour()] || !calendar.month[int(candidate.Month())] {
 		return false
 	}
-	if domAny && dowAny {
+	if calendar.domAny && calendar.dowAny {
 		return true
 	}
-	if domAny {
-		return dow[int(candidate.Weekday())]
+	if calendar.domAny {
+		return calendar.dow[int(candidate.Weekday())]
 	}
-	if dowAny {
-		return dom[candidate.Day()]
+	if calendar.dowAny {
+		return calendar.dom[candidate.Day()]
 	}
-	return dom[candidate.Day()] || dow[int(candidate.Weekday())]
+	return calendar.dom[candidate.Day()] || calendar.dow[int(candidate.Weekday())]
 }
 
 func cronFieldIsAny(values map[int]bool, min, max int) bool {

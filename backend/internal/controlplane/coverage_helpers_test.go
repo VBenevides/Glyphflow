@@ -42,7 +42,8 @@ func TestCronHelperBranches(t *testing.T) {
 			candidateDOW = map[int]bool{}
 			candidateDOM = map[int]bool{}
 		}
-		if got := cronMinuteMatches(candidate, minute, hour, candidateDOM, month, candidateDOW, test.domAny, test.dowAny); got != test.want {
+		calendar := cronCalendar{dom: candidateDOM, month: month, dow: candidateDOW, domAny: test.domAny, dowAny: test.dowAny}
+		if got := cronMinuteMatches(candidate, minute, hour, calendar); got != test.want {
 			t.Errorf("cronMinuteMatches(%+v) = %v, want %v", test, got, test.want)
 		}
 	}
