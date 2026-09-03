@@ -1,6 +1,5 @@
-import { StartupPage } from './feedback'
+import { FatalErrorPage, StartupPage } from './feedback'
 import { AuthProvider, useAuth } from './auth'
-import { FatalErrorPage } from './feedback'
 import { AppRoutes } from './routes'
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { LoginPage, OidcCallbackPage, RegistrationPage } from './auth-pages'
