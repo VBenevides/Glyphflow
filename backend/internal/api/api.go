@@ -331,77 +331,58 @@ func (s Server) registerPathRoutes(mux *trackedMux) {
 	mux.Handle("/api/v1/audit", s.require("audit.read", http.HandlerFunc(s.AuditQuery.query)))
 	mux.Handle("/api/v1/admin/system/metrics", s.require("system.metrics.read", http.HandlerFunc(s.SystemMetrics.metrics)))
 	mux.Handle("/api/v1/admin/secrets/attention", s.require("secrets.read|secrets.manage", http.HandlerFunc(s.secretAttention)))
-	mux.Handle("/api/v1/admin/dead-letters", s.requireMethodRole(func(r *http.Request) string {
-		if r.Method == http.MethodGet {
-			return "system.deadletter.read"
-		}
-		return "system.deadletter.manage"
-	}, http.HandlerFunc(s.DeadLetters.collection)))
-	mux.Handle("/api/v1/admin/dead-letters/", s.requireMethodRole(func(r *http.Request) string {
-		if r.Method == http.MethodGet {
-			return "system.deadletter.read"
-		}
-		return "system.deadletter.manage"
-	}, http.HandlerFunc(s.DeadLetters.path)))
-	for path, role := range map[string]string{"/api/v1/events": "event.read"} {
-		mux.Handle(path, s.require(role, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			writeJSON(w, http.StatusGone, map[string]string{"error": "endpoint is deprecated; use /api/v1/runs/{run_id}/events"})
-		})))
-	}
+	mux.Handle("/api/v1/admin/dead-letters", s.requireMethodRole(methodRole("system.deadletter.read", "system.deadletter.manage"), http.HandlerFunc(s.DeadLetters.collection)))
+	mux.Handle("/api/v1/admin/dead-letters/", s.requireMethodRole(methodRole("system.deadletter.read", "system.deadletter.manage"), http.HandlerFunc(s.DeadLetters.path)))
+	mux.Handle("/api/v1/events", s.require("event.read", deprecatedHandler("endpoint is deprecated; use /api/v1/runs/{run_id}/events")))
 	mux.Handle("/api/v1/runs/execute", s.require("runs.execute", http.HandlerFunc(s.Runs.execute)))
-	for path, permission := range map[string]string{"/api/v1/runs/retry": permissionRunsRetry, "/api/v1/runs/cancel": permissionRunsCancel} {
-		mux.Handle(path, s.require(permission, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			writeJSON(w, http.StatusGone, map[string]string{"error": "endpoint is deprecated; use /api/v1/runs/{run_id}/retry or /cancel"})
-		})))
+	mux.Handle("/api/v1/runs/retry", s.require(permissionRunsRetry, deprecatedHandler("endpoint is deprecated; use /api/v1/runs/{run_id}/retry or /cancel")))
+	mux.Handle("/api/v1/runs/cancel", s.require(permissionRunsCancel, deprecatedHandler("endpoint is deprecated; use /api/v1/runs/{run_id}/retry or /cancel")))
+	mux.Handle("/api/v1/tasks/", s.requireMethodRole(taskPathPermission, http.HandlerFunc(s.Operations.taskPath)))
+	mux.Handle("/api/v1/schedules/", s.requireMethodRole(methodRole(permissionTaskRead, permissionTaskManage), http.HandlerFunc(s.Operations.schedulePath)))
+	mux.Handle("/api/v1/resources/", s.requireMethodRole(methodRole("resources.read", permissionResourcesManage), http.HandlerFunc(s.Infrastructure.resourcePath)))
+	mux.Handle("/api/v1/runners/", s.requireMethodRole(methodRole(permissionRunnersRead, permissionRunnersManage), http.HandlerFunc(s.Infrastructure.runnerPath)))
+	mux.Handle("/api/v1/runs/", s.requireMethodRole(runPathPermission, http.HandlerFunc(s.Runs.path)))
+}
+
+func methodRole(readPermission, managePermission string) func(*http.Request) string {
+	return func(r *http.Request) string {
+		if r.Method == http.MethodGet {
+			return readPermission
+		}
+		return managePermission
 	}
-	mux.Handle("/api/v1/tasks/", s.requireMethodRole(func(r *http.Request) string {
-		if strings.HasSuffix(r.URL.Path, "/cancel") {
-			return "run.cancel"
-		}
-		if strings.HasSuffix(r.URL.Path, "/retry") {
-			return "run.retry"
-		}
-		if r.Method == http.MethodGet {
-			return permissionTaskReadLegacy
-		}
-		return permissionTaskManageLegacy
-	}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		s.Operations.taskPath(w, r)
-	})))
-	mux.Handle("/api/v1/schedules/", s.requireMethodRole(func(r *http.Request) string {
-		if r.Method == http.MethodGet {
-			return permissionTaskRead
-		}
-		return permissionTaskManage
-	}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		s.Operations.schedulePath(w, r)
-	})))
-	mux.Handle("/api/v1/resources/", s.requireMethodRole(func(r *http.Request) string {
-		if r.Method == http.MethodGet {
-			return "resources.read"
-		}
-		return permissionResourcesManage
-	}, http.HandlerFunc(s.Infrastructure.resourcePath)))
-	mux.Handle("/api/v1/runners/", s.requireMethodRole(func(r *http.Request) string {
-		if r.Method == http.MethodGet {
-			return permissionRunnersRead
-		}
-		return permissionRunnersManage
-	}, http.HandlerFunc(s.Infrastructure.runnerPath)))
-	mux.Handle("/api/v1/runs/", s.requireMethodRole(func(r *http.Request) string {
-		if strings.Contains(r.URL.Path, "/logs") || strings.HasSuffix(r.URL.Path, "/events") {
-			return permissionLogsRead
-		}
-		if strings.HasSuffix(r.URL.Path, "/cancel") {
-			return permissionRunsCancel
-		}
-		if strings.HasSuffix(r.URL.Path, "/retry") || strings.HasSuffix(r.URL.Path, "/reconcile") {
-			return permissionRunsRetry
-		}
-		return "runs.read"
-	}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		s.Runs.path(w, r)
-	})))
+}
+
+func taskPathPermission(r *http.Request) string {
+	if strings.HasSuffix(r.URL.Path, "/cancel") {
+		return "run.cancel"
+	}
+	if strings.HasSuffix(r.URL.Path, "/retry") {
+		return "run.retry"
+	}
+	if r.Method == http.MethodGet {
+		return permissionTaskReadLegacy
+	}
+	return permissionTaskManageLegacy
+}
+
+func runPathPermission(r *http.Request) string {
+	if strings.Contains(r.URL.Path, "/logs") || strings.HasSuffix(r.URL.Path, "/events") {
+		return permissionLogsRead
+	}
+	if strings.HasSuffix(r.URL.Path, "/cancel") {
+		return permissionRunsCancel
+	}
+	if strings.HasSuffix(r.URL.Path, "/retry") || strings.HasSuffix(r.URL.Path, "/reconcile") {
+		return permissionRunsRetry
+	}
+	return "runs.read"
+}
+
+func deprecatedHandler(message string) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusGone, map[string]string{"error": message})
+	}
 }
 
 func (s Server) wrapHandler(mux *trackedMux) http.Handler {
