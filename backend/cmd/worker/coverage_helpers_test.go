@@ -20,7 +20,7 @@ import (
 	"github.com/VBenevides/Glyphflow/backend/internal/store"
 	"github.com/VBenevides/Glyphflow/backend/internal/worker"
 	"github.com/nats-io/nats.go/jetstream"
-	_ "modernc.org/sqlite"
+	_ "modernc.org/sqlite" // Registers the SQLite database/sql driver used by LocalStore tests.
 )
 
 type coverageStatusSink struct {
