@@ -68,6 +68,11 @@ func TestAuditDataAndRedactionHelpers(t *testing.T) {
 	created := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	event := AuditEvent{Actor: "user-1", Action: http.MethodPost, Target: "/api/v1/tasks/t1", Result: "success", CorrelationID: "corr-1", CreatedAt: created.Format(time.RFC3339Nano)}
 	filters := map[string]string{"actor": "USER", "action": "post", "target": "tasks", "result": "SUCCESS", "correlationId": "CORR"}
+	testAuditMatchingAndPagination(t, event, filters, created)
+	testAuditRedactionHelpers(t)
+}
+
+func testAuditMatchingAndPagination(t *testing.T, event AuditEvent, filters map[string]string, created time.Time) {
 	if !auditMatches(event, filters, created, created.Add(-time.Second), created.Add(time.Second)) {
 		t.Fatal("matching audit event was rejected")
 	}
@@ -101,7 +106,9 @@ func TestAuditDataAndRedactionHelpers(t *testing.T) {
 			t.Fatalf("normalizeAuditPagination() = %+v", got)
 		}
 	}
+}
 
+func testAuditRedactionHelpers(t *testing.T) {
 	redacted := redactAuditMap(map[string]any{
 		"password":             "hidden",
 		"passwordLoginEnabled": true,
