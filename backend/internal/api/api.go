@@ -35,8 +35,24 @@ type requestAuditDetails struct {
 	Traceback string
 }
 
-const auditErrorBodyLimit = 4 << 10
-const maxRequestBodyBytes = 1 << 20
+const (
+	auditErrorBodyLimit = 4 << 10
+	maxRequestBodyBytes = 1 << 20
+
+	permissionTaskRead         = "tasks.read"
+	permissionTaskManage       = "tasks.manage"
+	permissionTaskReadLegacy   = "task.read"
+	permissionTaskCreate       = "task.create"
+	permissionTaskManageLegacy = "task.manage"
+	permissionUsersManage      = "users.manage"
+	permissionResourcesManage  = "resources.manage"
+	permissionRunnersRead      = "runners.read"
+	permissionRunnersManage    = "runners.manage"
+	permissionLogsRead         = "logs.read"
+	permissionRunsCancel       = "runs.cancel"
+	permissionRunsRetry        = "runs.retry"
+	headerCorrelationID        = "X-Correlation-ID"
+)
 
 func recordRequestError(r *http.Request, err error) {
 	if err == nil {
@@ -197,9 +213,9 @@ func (s Server) Handler() http.Handler {
 	})
 	mux.Handle("/api/v1/tasks", s.requireMethodRole(func(r *http.Request) string {
 		if r.Method == http.MethodPost {
-			return "task.create"
+			return permissionTaskCreate
 		}
-		return "task.read"
+		return permissionTaskReadLegacy
 	}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodPost {
 			writeJSON(w, 405, map[string]string{"error": "method not allowed"})
@@ -209,41 +225,41 @@ func (s Server) Handler() http.Handler {
 	})))
 	mux.Handle("/api/v1/schedules", s.requireMethodRole(func(r *http.Request) string {
 		if r.Method == http.MethodGet {
-			return "tasks.read"
+			return permissionTaskRead
 		}
-		return "tasks.manage"
+		return permissionTaskManage
 	}, http.HandlerFunc(s.Operations.scheduleCollection)))
-	mux.Handle("/api/v1/schedule-projection", s.require("tasks.read", http.HandlerFunc(s.scheduleProjection)))
-	mux.Handle("/api/v1/schedules/preview", s.require("tasks.manage", http.HandlerFunc(s.Operations.preview)))
-	mux.Handle("/api/v1/global-variables/options", s.require("tasks.read", http.HandlerFunc(s.GlobalVariables.collection)))
-	mux.Handle("/api/v1/global-variables", s.require("users.manage", http.HandlerFunc(s.GlobalVariables.collection)))
-	mux.Handle("/api/v1/global-variables/", s.require("users.manage", http.HandlerFunc(s.GlobalVariables.path)))
+	mux.Handle("/api/v1/schedule-projection", s.require(permissionTaskRead, http.HandlerFunc(s.scheduleProjection)))
+	mux.Handle("/api/v1/schedules/preview", s.require(permissionTaskManage, http.HandlerFunc(s.Operations.preview)))
+	mux.Handle("/api/v1/global-variables/options", s.require(permissionTaskRead, http.HandlerFunc(s.GlobalVariables.collection)))
+	mux.Handle("/api/v1/global-variables", s.require(permissionUsersManage, http.HandlerFunc(s.GlobalVariables.collection)))
+	mux.Handle("/api/v1/global-variables/", s.require(permissionUsersManage, http.HandlerFunc(s.GlobalVariables.path)))
 	mux.Handle("/api/v1/resources", s.requireMethodRole(func(r *http.Request) string {
 		if r.Method == http.MethodGet {
 			return "resources.read"
 		}
-		return "resources.manage"
+		return permissionResourcesManage
 	}, http.HandlerFunc(s.Infrastructure.resourceCollection)))
 	mux.Handle("/api/v1/runners/pools", s.requireMethodRole(func(r *http.Request) string {
 		if r.Method == http.MethodGet {
-			return "runners.read"
+			return permissionRunnersRead
 		}
-		return "runners.manage"
+		return permissionRunnersManage
 	}, http.HandlerFunc(s.Infrastructure.poolCollection)))
 	mux.Handle("/api/v1/runners/pools/", s.requireMethodRole(func(r *http.Request) string {
 		if r.Method == http.MethodGet {
-			return "runners.read"
+			return permissionRunnersRead
 		}
-		return "runners.manage"
+		return permissionRunnersManage
 	}, http.HandlerFunc(s.Infrastructure.poolPath)))
 	mux.Handle("/api/v1/runners", s.requireMethodRole(func(r *http.Request) string {
 		if r.Method == http.MethodGet {
-			return "runners.read"
+			return permissionRunnersRead
 		}
-		return "runners.manage"
+		return permissionRunnersManage
 	}, http.HandlerFunc(s.Infrastructure.runnerCollection)))
 	for path, readPermission := range map[string]string{"/api/v1/roles": "roles.read", "/api/v1/sso": "sso.read", "/api/v1/logs": "logs.read"} {
-		managePermission := map[string]string{"/api/v1/schedules": "tasks.manage", "/api/v1/resources": "resources.manage", "/api/v1/users": "users.manage", "/api/v1/roles": "roles.manage", "/api/v1/sso": "sso.manage", "/api/v1/logs": "logs.read"}[path]
+		managePermission := map[string]string{"/api/v1/schedules": permissionTaskManage, "/api/v1/resources": permissionResourcesManage, "/api/v1/users": permissionUsersManage, "/api/v1/roles": "roles.manage", "/api/v1/sso": "sso.manage", "/api/v1/logs": permissionLogsRead}[path]
 		mux.Handle(path, s.requireMethodRole(func(r *http.Request) string {
 			if r.Method == http.MethodGet {
 				return readPermission
@@ -288,17 +304,17 @@ func (s Server) Handler() http.Handler {
 			return "run.retry"
 		}
 		if r.Method == http.MethodGet {
-			return "task.read"
+			return permissionTaskReadLegacy
 		}
-		return "task.manage"
+		return permissionTaskManageLegacy
 	}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.Operations.taskPath(w, r)
 	})))
 	mux.Handle("/api/v1/schedules/", s.requireMethodRole(func(r *http.Request) string {
 		if r.Method == http.MethodGet {
-			return "tasks.read"
+			return permissionTaskRead
 		}
-		return "tasks.manage"
+		return permissionTaskManage
 	}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.Operations.schedulePath(w, r)
 	})))
@@ -306,23 +322,23 @@ func (s Server) Handler() http.Handler {
 		if r.Method == http.MethodGet {
 			return "resources.read"
 		}
-		return "resources.manage"
+		return permissionResourcesManage
 	}, http.HandlerFunc(s.Infrastructure.resourcePath)))
 	mux.Handle("/api/v1/runners/", s.requireMethodRole(func(r *http.Request) string {
 		if r.Method == http.MethodGet {
-			return "runners.read"
+			return permissionRunnersRead
 		}
-		return "runners.manage"
+		return permissionRunnersManage
 	}, http.HandlerFunc(s.Infrastructure.runnerPath)))
 	mux.Handle("/api/v1/runs/", s.requireMethodRole(func(r *http.Request) string {
 		if strings.Contains(r.URL.Path, "/logs") || strings.HasSuffix(r.URL.Path, "/events") {
-			return "logs.read"
+			return permissionLogsRead
 		}
 		if strings.HasSuffix(r.URL.Path, "/cancel") {
-			return "runs.cancel"
+			return permissionRunsCancel
 		}
 		if strings.HasSuffix(r.URL.Path, "/retry") || strings.HasSuffix(r.URL.Path, "/reconcile") {
-			return "runs.retry"
+			return permissionRunsRetry
 		}
 		return "runs.read"
 	}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -430,7 +446,7 @@ func (s Server) require(role string, next http.Handler) http.Handler {
 			}
 			if s.AuditQuery != nil {
 				actorName, actorEmail := s.auditActor(claims.UserID)
-				_ = s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: "failure", CorrelationID: r.Header.Get("X-Correlation-ID"), Output: map[string]any{"status": http.StatusForbidden, "error": "forbidden"}})
+				_ = s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: "failure", CorrelationID: r.Header.Get(headerCorrelationID), Output: map[string]any{"status": http.StatusForbidden, "error": "forbidden"}})
 			}
 			writeJSON(w, 403, map[string]string{"error": "forbidden"})
 			return
@@ -438,7 +454,7 @@ func (s Server) require(role string, next http.Handler) http.Handler {
 		auditDetails := &requestAuditDetails{Input: captureAuditInput(r), Before: s.auditBefore(r)}
 		if isMutatingMethod(r.Method) && s.AuditQuery != nil && s.AuditQuery.hasDurableRepository() {
 			actorName, actorEmail := s.auditActor(claims.UserID)
-			if err := s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: "accepted", CorrelationID: r.Header.Get("X-Correlation-ID"), Input: auditDetails.Input}); err != nil {
+			if err := s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: "accepted", CorrelationID: r.Header.Get(headerCorrelationID), Input: auditDetails.Input}); err != nil {
 				writeError(w, http.StatusServiceUnavailable, "audit storage unavailable", err)
 				return
 			}
@@ -478,7 +494,7 @@ func (s Server) require(role string, next http.Handler) http.Handler {
 					output["error"] = auditDetails.Error
 					traceback = auditDetails.Error + "\n" + auditDetails.Traceback
 				}
-				event := AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: result, CorrelationID: r.Header.Get("X-Correlation-ID"), Input: auditDetails.Input, Output: output, Before: auditDetails.Before, After: auditDetails.After, Traceback: traceback}
+				event := AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: result, CorrelationID: r.Header.Get(headerCorrelationID), Input: auditDetails.Input, Output: output, Before: auditDetails.Before, After: auditDetails.After, Traceback: traceback}
 				if isLiveLogRequest(r) && result == "success" {
 					_ = s.AuditQuery.AddLiveLog(liveLogAuditKey(claims, r), event)
 				} else {
