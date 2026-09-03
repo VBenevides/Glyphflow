@@ -313,7 +313,7 @@ func (s Server) registerInfrastructureRoutes(mux *trackedMux) {
 }
 
 func (s Server) registerDeprecatedRoutes(mux *trackedMux) {
-	for path, readPermission := range map[string]string{"/api/v1/roles": "roles.read", "/api/v1/sso": "sso.read", "/api/v1/logs": "logs.read"} {
+	for path, readPermission := range map[string]string{"/api/v1/roles": "roles.read", "/api/v1/sso": "sso.read", "/api/v1/logs": permissionLogsRead} {
 		managePermission := map[string]string{"/api/v1/schedules": permissionTaskManage, "/api/v1/resources": permissionResourcesManage, "/api/v1/users": permissionUsersManage, "/api/v1/roles": "roles.manage", "/api/v1/sso": "sso.manage", "/api/v1/logs": permissionLogsRead}[path]
 		mux.Handle(path, s.requireMethodRole(func(r *http.Request) string {
 			if r.Method == http.MethodGet {
@@ -937,7 +937,7 @@ func (s Server) effectivePermissions(claims Claims) map[string]bool {
 }
 
 func hasPermission(permissions map[string]bool, required string) bool {
-	aliases := map[string]string{"task.read": "tasks.read", "task.create": permissionTaskManage, "task.manage": permissionTaskManage, "run.read": "runs.read", "run.cancel": "runs.cancel", "run.retry": "runs.retry", "runner.read": "runners.read", "event.read": "logs.read"}
+	aliases := map[string]string{"task.read": "tasks.read", "task.create": permissionTaskManage, "task.manage": permissionTaskManage, "run.read": "runs.read", "run.cancel": "runs.cancel", "run.retry": "runs.retry", "runner.read": "runners.read", "event.read": permissionLogsRead}
 	for _, candidate := range strings.Split(required, "|") {
 		if permissions[candidate] || permissions[aliases[candidate]] {
 			return true
