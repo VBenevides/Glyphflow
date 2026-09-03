@@ -1219,9 +1219,17 @@ func (p coverageDeadLetterPublisher) Publish(context.Context, queue.Message) err
 
 func TestCoverageDeadLetterRepositoryErrorBranches(t *testing.T) {
 	item := store.DeadLetterSummary{ID: "dead-1", Subject: "events", MessageID: "msg-1", State: "OPEN"}
-	request := func(method, path, body string) (*httptest.ResponseRecorder, *http.Request) {
-		return httptest.NewRecorder(), httptest.NewRequest(method, path, strings.NewReader(body))
-	}
+	testCoverageDeadLetterErrors(t, item)
+	testCoverageDeadLetterValidation(t, item)
+}
+
+func coverageDeadLetterRequest(method, path, body string) (*httptest.ResponseRecorder, *http.Request) {
+	return httptest.NewRecorder(), httptest.NewRequest(method, path, strings.NewReader(body))
+}
+
+func testCoverageDeadLetterErrors(t *testing.T, item store.DeadLetterSummary) {
+	t.Helper()
+	request := coverageDeadLetterRequest
 	for _, test := range []struct {
 		name string
 		call func(*DeadLetterService, *coverageDeadLetterRepository, *httptest.ResponseRecorder, *http.Request)
@@ -1297,7 +1305,11 @@ func TestCoverageDeadLetterRepositoryErrorBranches(t *testing.T) {
 			}
 		})
 	}
+}
 
+func testCoverageDeadLetterValidation(t *testing.T, item store.DeadLetterSummary) {
+	t.Helper()
+	request := coverageDeadLetterRequest
 	service := NewDeadLetterService(&coverageDeadLetterRepository{item: item, findFound: true, beginClaimed: false}, &deadLetterPublisherStub{})
 	for _, body := range []string{"not-json", `{"reason":""}`, `{"reason":"operator"}`} {
 		response, req := request(http.MethodPost, "/", body)
