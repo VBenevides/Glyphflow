@@ -1085,6 +1085,12 @@ func TestRunClaimCancellingBranches(t *testing.T) {
 }
 
 func testRunClaimCancellingResults(t *testing.T, ctx context.Context, input func(...any) error, build func(CancellationCandidate) ([]byte, error), newStore func(coverageTx) *RunStore) {
+	testRunClaimCancellingLookupResults(t, ctx, input, build, newStore)
+	testRunClaimCancellingBuildResults(t, ctx, input, build, newStore)
+	testRunClaimCancellingCommitResults(t, ctx, input, build, newStore)
+}
+
+func testRunClaimCancellingLookupResults(t *testing.T, ctx context.Context, input func(...any) error, build func(CancellationCandidate) ([]byte, error), newStore func(coverageTx) *RunStore) {
 	if _, claimed, err := (&RunStore{pool: coverageDatabase{beginErr: errors.New("begin")}}).ClaimCancelling(ctx, build); err == nil || claimed {
 		t.Fatal("begin failure was ignored")
 	}
@@ -1094,12 +1100,18 @@ func testRunClaimCancellingResults(t *testing.T, ctx context.Context, input func
 	if _, claimed, err := newStore(coverageTx{row: coverageScanner(func(...any) error { return errors.New("scan") })}).ClaimCancelling(ctx, build); err == nil || claimed {
 		t.Fatal("cancellation scan failure was ignored")
 	}
+}
+
+func testRunClaimCancellingBuildResults(t *testing.T, ctx context.Context, input func(...any) error, build func(CancellationCandidate) ([]byte, error), newStore func(coverageTx) *RunStore) {
 	if _, claimed, err := newStore(coverageTx{row: coverageScanner(input)}).ClaimCancelling(ctx, func(CancellationCandidate) ([]byte, error) { return nil, errors.New("build") }); err == nil || claimed {
 		t.Fatal("cancellation build failure was ignored")
 	}
 	if _, claimed, err := newStore(coverageTx{row: coverageScanner(input)}).ClaimCancelling(ctx, func(CancellationCandidate) ([]byte, error) { return nil, nil }); err == nil || claimed {
 		t.Fatal("empty cancellation order was accepted")
 	}
+}
+
+func testRunClaimCancellingCommitResults(t *testing.T, ctx context.Context, input func(...any) error, build func(CancellationCandidate) ([]byte, error), newStore func(coverageTx) *RunStore) {
 	if _, claimed, err := newStore(coverageTx{row: coverageScanner(input), execErr: errors.New("exec")}).ClaimCancelling(ctx, build); err == nil || claimed {
 		t.Fatal("cancellation update failure was ignored")
 	}
