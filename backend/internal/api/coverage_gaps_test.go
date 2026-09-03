@@ -1006,8 +1006,14 @@ func (r *coverageRunnerRepository) Archive(context.Context, string) (bool, error
 }
 
 func TestCoverageDurableRunnerRepositoryBranches(t *testing.T) {
+	repository := coverageRunnerRepositoryFixture()
+	testCoverageRunnerRoutes(t, repository)
+	testCoverageRunnerErrors(t, repository)
+}
+
+func coverageRunnerRepositoryFixture() *coverageRunnerRepository {
 	runner := store.RunnerRecord{ID: "runner-1", Name: "Build", Pool: "default", DesiredState: "ENABLED", ObservedState: "ONLINE", Capacity: 2}
-	repository := &coverageRunnerRepository{
+	return &coverageRunnerRepository{
 		pools:       []store.RunnerPoolRecord{{ID: "pool-1", Name: "Default", Enabled: true}},
 		pool:        store.RunnerPoolRecord{ID: "pool-1", Name: "Default", Enabled: true},
 		poolFound:   true,
@@ -1016,13 +1022,15 @@ func TestCoverageDurableRunnerRepositoryBranches(t *testing.T) {
 		runnerFound: true,
 		archived:    true,
 	}
+}
+
+func testCoverageRunnerRoutes(t *testing.T, repository *coverageRunnerRepository) {
+	t.Helper()
 	infrastructure := NewInfrastructureService()
 	infrastructure.SetRunnerRepository(repository)
-	request := func(method, path, body string) (*httptest.ResponseRecorder, *http.Request) {
-		return httptest.NewRecorder(), httptest.NewRequest(method, path, strings.NewReader(body))
-	}
+	request := coverageRunnerRequest
 
-	response, req := request(http.MethodGet, "/api/v1/runners/pools", "")
+	response, req := coverageRunnerRequest(http.MethodGet, "/api/v1/runners/pools", "")
 	infrastructure.poolCollection(response, req)
 	if response.Code != http.StatusOK {
 		t.Fatalf("durable pool list = %d", response.Code)
@@ -1084,7 +1092,15 @@ func TestCoverageDurableRunnerRepositoryBranches(t *testing.T) {
 	if response.Code != http.StatusNoContent {
 		t.Fatalf("durable runner archive = %d", response.Code)
 	}
+}
 
+func coverageRunnerRequest(method, path, body string) (*httptest.ResponseRecorder, *http.Request) {
+	return httptest.NewRecorder(), httptest.NewRequest(method, path, strings.NewReader(body))
+}
+
+func testCoverageRunnerErrors(t *testing.T, repository *coverageRunnerRepository) {
+	t.Helper()
+	request := coverageRunnerRequest
 	for _, test := range []struct {
 		name string
 		call func(*coverageRunnerRepository)
