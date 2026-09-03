@@ -177,6 +177,17 @@ func (s Server) Handler() http.Handler {
 	if err := ValidateRouteRegistry(RouteRegistry()); err != nil {
 		panic(err)
 	}
+	s.initializeCoreServices()
+	s.initializeAuthServices()
+	mux := newTrackedMux()
+	s.registerRoutes(mux)
+	if err := ValidateBuiltRoutes(mux.patterns, RouteRegistry()); err != nil {
+		panic(err)
+	}
+	return s.wrapHandler(mux)
+}
+
+func (s *Server) initializeCoreServices() {
 	if s.AuthRateLimiter == nil {
 		s.AuthRateLimiter = platform.NewRateLimiter(5, time.Minute)
 	}
@@ -204,18 +215,23 @@ func (s Server) Handler() http.Handler {
 	if s.DeadLetters == nil {
 		s.DeadLetters = NewDeadLetterService(nil, nil)
 	}
+	if s.CurrentUser == nil && s.AuthService != nil {
+		s.CurrentUser = &CurrentUserService{Profile: s.AuthService.Profile, Sessions: s.AuthService.sessions}
+	}
+}
+
+func (s *Server) initializeAuthServices() {
 	if s.AuthAdmin == nil && s.AuthService != nil {
 		s.AuthAdmin = &AuthAdminService{Auth: s.AuthService, Sessions: s.AuthService.sessions, OIDC: s.OIDC}
 	}
-	mux := newTrackedMux()
+}
+
+func (s Server) registerRoutes(mux *trackedMux) {
 	mux.HandleFunc("/docs", swaggerUI)
 	mux.HandleFunc("/docs/login", s.docsLogin)
 	mux.HandleFunc("/openapi.json", openAPI)
 	mux.HandleFunc("/api/v1/config", s.runtimeConfig)
 	mux.Handle("/api/v1/runners/enroll", http.HandlerFunc(s.Infrastructure.enrollRunner))
-	if s.CurrentUser == nil && s.AuthService != nil {
-		s.CurrentUser = &CurrentUserService{Profile: s.AuthService.Profile, Sessions: s.AuthService.sessions}
-	}
 	s.passwordRoutes(mux)
 	s.oidcRoutes(mux)
 	s.authAdminRoutes(mux)
@@ -223,6 +239,14 @@ func (s Server) Handler() http.Handler {
 	s.executionStatusRoutes(mux)
 	s.roleRoutes(mux)
 	s.currentUserRoutes(mux)
+	s.registerHealthRoutes(mux)
+	s.registerTaskRoutes(mux)
+	s.registerInfrastructureRoutes(mux)
+	s.registerDeprecatedRoutes(mux)
+	s.registerPathRoutes(mux)
+}
+
+func (s Server) registerHealthRoutes(mux *trackedMux) {
 	mux.HandleFunc("/api/v1/healthz", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "ok"}) })
 	mux.HandleFunc("/api/v1/readyz", func(w http.ResponseWriter, r *http.Request) {
 		if s.Ready != nil {
@@ -233,6 +257,9 @@ func (s Server) Handler() http.Handler {
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 	})
+}
+
+func (s Server) registerTaskRoutes(mux *trackedMux) {
 	mux.Handle("/api/v1/tasks", s.requireMethodRole(func(r *http.Request) string {
 		if r.Method == http.MethodPost {
 			return permissionTaskCreate
@@ -253,6 +280,9 @@ func (s Server) Handler() http.Handler {
 	}, http.HandlerFunc(s.Operations.scheduleCollection)))
 	mux.Handle("/api/v1/schedule-projection", s.require(permissionTaskRead, http.HandlerFunc(s.scheduleProjection)))
 	mux.Handle("/api/v1/schedules/preview", s.require(permissionTaskManage, http.HandlerFunc(s.Operations.preview)))
+}
+
+func (s Server) registerInfrastructureRoutes(mux *trackedMux) {
 	mux.Handle("/api/v1/global-variables/options", s.require(permissionTaskRead, http.HandlerFunc(s.GlobalVariables.collection)))
 	mux.Handle("/api/v1/global-variables", s.require(permissionUsersManage, http.HandlerFunc(s.GlobalVariables.collection)))
 	mux.Handle("/api/v1/global-variables/", s.require(permissionUsersManage, http.HandlerFunc(s.GlobalVariables.path)))
@@ -280,6 +310,9 @@ func (s Server) Handler() http.Handler {
 		}
 		return permissionRunnersManage
 	}, http.HandlerFunc(s.Infrastructure.runnerCollection)))
+}
+
+func (s Server) registerDeprecatedRoutes(mux *trackedMux) {
 	for path, readPermission := range map[string]string{"/api/v1/roles": "roles.read", "/api/v1/sso": "sso.read", "/api/v1/logs": "logs.read"} {
 		managePermission := map[string]string{"/api/v1/schedules": permissionTaskManage, "/api/v1/resources": permissionResourcesManage, "/api/v1/users": permissionUsersManage, "/api/v1/roles": "roles.manage", "/api/v1/sso": "sso.manage", "/api/v1/logs": permissionLogsRead}[path]
 		mux.Handle(path, s.requireMethodRole(func(r *http.Request) string {
@@ -291,6 +324,9 @@ func (s Server) Handler() http.Handler {
 			writeJSON(w, http.StatusGone, map[string]string{"error": "endpoint is deprecated; use the canonical administration or run endpoint"})
 		})))
 	}
+}
+
+func (s Server) registerPathRoutes(mux *trackedMux) {
 	mux.Handle("/api/v1/runs", s.require("run.read", http.HandlerFunc(s.Runs.collection)))
 	mux.Handle("/api/v1/audit", s.require("audit.read", http.HandlerFunc(s.AuditQuery.query)))
 	mux.Handle("/api/v1/admin/system/metrics", s.require("system.metrics.read", http.HandlerFunc(s.SystemMetrics.metrics)))
@@ -366,9 +402,9 @@ func (s Server) Handler() http.Handler {
 	}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.Runs.path(w, r)
 	})))
-	if err := ValidateBuiltRoutes(mux.patterns, RouteRegistry()); err != nil {
-		panic(err)
-	}
+}
+
+func (s Server) wrapHandler(mux *trackedMux) http.Handler {
 	var handler http.Handler = mux
 	handler = s.withLockdown(handler)
 	csrfOrigins := s.CSRFOrigins
@@ -452,34 +488,13 @@ func (s Server) limitRequestBody(next http.Handler) http.Handler {
 
 func (s Server) require(role string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.Auth == nil {
-			writeJSON(w, 401, map[string]string{"error": "authentication required"})
-			return
-		}
-		claims, ok := s.Auth(r)
+		claims, ok := s.authorize(w, r, role)
 		if !ok {
-			writeJSON(w, 401, map[string]string{"error": "authentication required"})
-			return
-		}
-		permissions := s.effectivePermissions(claims)
-		if !hasPermission(permissions, role) {
-			if s.Metrics != nil {
-				s.Metrics.PermissionDenials.Add(1)
-			}
-			if s.AuditQuery != nil {
-				actorName, actorEmail := s.auditActor(claims.UserID)
-				_ = s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: "failure", CorrelationID: r.Header.Get(headerCorrelationID), Output: map[string]any{"status": http.StatusForbidden, "error": "forbidden"}})
-			}
-			writeJSON(w, 403, map[string]string{"error": "forbidden"})
 			return
 		}
 		auditDetails := &requestAuditDetails{Input: captureAuditInput(r), Before: s.auditBefore(r)}
-		if isMutatingMethod(r.Method) && s.AuditQuery != nil && s.AuditQuery.hasDurableRepository() {
-			actorName, actorEmail := s.auditActor(claims.UserID)
-			if err := s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: "accepted", CorrelationID: r.Header.Get(headerCorrelationID), Input: auditDetails.Input}); err != nil {
-				writeError(w, http.StatusServiceUnavailable, "audit storage unavailable", err)
-				return
-			}
+		if !s.recordAcceptedAudit(w, r, claims, auditDetails) {
+			return
 		}
 		ctx := context.WithValue(r.Context(), requestClaimsContextKey{}, claims)
 		ctx = context.WithValue(ctx, requestAuditContextKey{}, auditDetails)
@@ -489,42 +504,90 @@ func (s Server) require(role string, next http.Handler) http.Handler {
 		}
 		recorder := &auditResponseWriter{ResponseWriter: w}
 		next.ServeHTTP(recorder, r)
-		if s.AuditQuery != nil {
-			if recorder.status >= http.StatusBadRequest && auditDetails.Error == "" {
-				auditDetails.Error = redactSensitiveText(auditResponseError(recorder.body, recorder.status))
-				auditDetails.Traceback = string(debug.Stack())
-			}
-			actorName, actorEmail := s.auditActor(claims.UserID)
-			result := "success"
-			if recorder.status >= http.StatusBadRequest {
-				result = "failure"
-			}
-			if result == "success" && isMutatingMethod(r.Method) {
-				if auditDetails.Before != nil {
-					auditDetails.After = s.auditBefore(r)
-				} else if body := auditResponseBody(recorder.body); body != nil {
-					auditDetails.After = auditSnapshot(body)
-				}
-			}
-			if !(r.Method == http.MethodPost && r.URL.Path == "/api/v1/admin/auth/settings" && result == "success") {
-				output := map[string]any{"status": recorder.status}
-				if body := auditResponseBody(recorder.body); body != nil {
-					output["body"] = body
-				}
-				traceback := ""
-				if auditDetails.Error != "" {
-					output["error"] = auditDetails.Error
-					traceback = auditDetails.Error + "\n" + auditDetails.Traceback
-				}
-				event := AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: result, CorrelationID: r.Header.Get(headerCorrelationID), Input: auditDetails.Input, Output: output, Before: auditDetails.Before, After: auditDetails.After, Traceback: traceback}
-				if isLiveLogRequest(r) && result == "success" {
-					_ = s.AuditQuery.AddLiveLog(liveLogAuditKey(claims, r), event)
-				} else {
-					_ = s.AuditQuery.Add(event)
-				}
-			}
-		}
+		s.recordCompletedAudit(r, claims, auditDetails, recorder)
 	})
+}
+
+func (s Server) authorize(w http.ResponseWriter, r *http.Request, role string) (Claims, bool) {
+	if s.Auth == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+		return Claims{}, false
+	}
+	claims, ok := s.Auth(r)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+		return Claims{}, false
+	}
+	if hasPermission(s.effectivePermissions(claims), role) {
+		return claims, true
+	}
+	if s.Metrics != nil {
+		s.Metrics.PermissionDenials.Add(1)
+	}
+	if s.AuditQuery != nil {
+		actorName, actorEmail := s.auditActor(claims.UserID)
+		_ = s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: "failure", CorrelationID: r.Header.Get(headerCorrelationID), Output: map[string]any{"status": http.StatusForbidden, "error": "forbidden"}})
+	}
+	writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+	return Claims{}, false
+}
+
+func (s Server) recordAcceptedAudit(w http.ResponseWriter, r *http.Request, claims Claims, details *requestAuditDetails) bool {
+	if !isMutatingMethod(r.Method) || s.AuditQuery == nil || !s.AuditQuery.hasDurableRepository() {
+		return true
+	}
+	actorName, actorEmail := s.auditActor(claims.UserID)
+	if err := s.AuditQuery.Add(AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: "accepted", CorrelationID: r.Header.Get(headerCorrelationID), Input: details.Input}); err != nil {
+		writeError(w, http.StatusServiceUnavailable, "audit storage unavailable", err)
+		return false
+	}
+	return true
+}
+
+func (s Server) recordCompletedAudit(r *http.Request, claims Claims, details *requestAuditDetails, recorder *auditResponseWriter) {
+	if s.AuditQuery == nil {
+		return
+	}
+	if recorder.status >= http.StatusBadRequest && details.Error == "" {
+		details.Error = redactSensitiveText(auditResponseError(recorder.body, recorder.status))
+		details.Traceback = string(debug.Stack())
+	}
+	result := "success"
+	if recorder.status >= http.StatusBadRequest {
+		result = "failure"
+	}
+	if result == "success" && isMutatingMethod(r.Method) {
+		details.After = s.auditAfter(r, details, recorder)
+	}
+	if r.Method == http.MethodPost && r.URL.Path == "/api/v1/admin/auth/settings" && result == "success" {
+		return
+	}
+	actorName, actorEmail := s.auditActor(claims.UserID)
+	output := map[string]any{"status": recorder.status}
+	if body := auditResponseBody(recorder.body); body != nil {
+		output["body"] = body
+	}
+	traceback := ""
+	if details.Error != "" {
+		output["error"] = details.Error
+		traceback = details.Error + "\n" + details.Traceback
+	}
+	event := AuditEvent{Actor: claims.UserID, ActorName: actorName, ActorEmail: actorEmail, Action: r.Method, Description: auditDescription(r.Method, r.URL.Path), Target: r.URL.Path, Result: result, CorrelationID: r.Header.Get(headerCorrelationID), Input: details.Input, Output: output, Before: details.Before, After: details.After, Traceback: traceback}
+	if isLiveLogRequest(r) && result == "success" {
+		_ = s.AuditQuery.AddLiveLog(liveLogAuditKey(claims, r), event)
+		return
+	}
+	_ = s.AuditQuery.Add(event)
+}
+
+func (s Server) auditAfter(r *http.Request, details *requestAuditDetails, recorder *auditResponseWriter) map[string]any {
+	if details.Before != nil {
+		return s.auditBefore(r)
+	}
+	if body := auditResponseBody(recorder.body); body != nil {
+		return auditSnapshot(body)
+	}
+	return nil
 }
 
 func auditSnapshot(value any) map[string]any {
@@ -551,147 +614,210 @@ func (s Server) auditBefore(r *http.Request) map[string]any {
 	if len(parts) < 4 || parts[0] != "api" || parts[1] != "v1" {
 		return nil
 	}
-	find := func(value any, found bool) map[string]any {
-		if !found {
-			return nil
-		}
-		return auditSnapshot(value)
-	}
 	switch parts[2] {
 	case "global-variables":
-		if len(parts) != 4 || parts[3] == "options" || s.GlobalVariables == nil {
-			return nil
-		}
-		s.GlobalVariables.mu.RLock()
-		repository := s.GlobalVariables.repository
-		item, found := s.GlobalVariables.items[parts[3]]
-		s.GlobalVariables.mu.RUnlock()
-		if repository != nil {
-			stored, ok, _ := repository.Find(r.Context(), parts[3])
-			return find(stored, ok)
-		}
-		return find(item, found)
+		return s.auditBeforeGlobalVariable(r, parts)
 	case "tasks":
-		if len(parts) < 4 || s.Operations == nil {
-			return nil
-		}
-		s.Operations.mu.RLock()
-		repository := s.Operations.repository
-		s.Operations.mu.RUnlock()
-		if repository != nil {
-			stored, ok, _ := repository.Find(r.Context(), parts[3])
-			return find(taskRecordFromStore(stored), ok)
-		}
-		item, ok := s.Operations.task(parts[3])
-		return find(item, ok)
+		return s.auditBeforeTask(r, parts)
 	case "schedules":
-		if len(parts) < 4 || s.Operations == nil {
-			return nil
-		}
-		s.Operations.mu.RLock()
-		repository := s.Operations.scheduleRepository
-		s.Operations.mu.RUnlock()
-		if repository != nil {
-			stored, ok, _ := repository.Find(r.Context(), parts[3])
-			return find(scheduleRecordFromStore(stored), ok)
-		}
-		item, ok := s.Operations.schedule(parts[3])
-		return find(item, ok)
+		return s.auditBeforeSchedule(r, parts)
 	case "resources":
-		if len(parts) < 4 || s.Infrastructure == nil {
-			return nil
-		}
-		s.Infrastructure.mu.RLock()
-		repository := s.Infrastructure.resourceRepository
-		item, found := s.Infrastructure.resources[parts[3]]
-		s.Infrastructure.mu.RUnlock()
-		if repository != nil {
-			stored, ok, _ := repository.Find(r.Context(), parts[3])
-			return find(resourceRecordFromStore(stored), ok)
-		}
-		return find(item, found)
+		return s.auditBeforeResource(r, parts)
 	case "runners":
-		if len(parts) < 4 || s.Infrastructure == nil {
-			return nil
-		}
-		s.Infrastructure.mu.RLock()
-		runnerRepository, poolRepository := s.Infrastructure.runnerRepository, s.Infrastructure.runnerRepository
-		runner, runnerFound := s.Infrastructure.runners[parts[3]]
-		pool, poolFound := s.Infrastructure.pools[parts[3]]
-		s.Infrastructure.mu.RUnlock()
-		if len(parts) >= 5 && parts[3] == "pools" {
-			if poolRepository != nil {
-				stored, ok, _ := poolRepository.FindPool(r.Context(), parts[4])
-				return find(runnerPoolRecordFromStore(stored), ok)
-			}
-			return find(pool, poolFound)
-		}
-		if runnerRepository != nil {
-			stored, ok, _ := runnerRepository.Find(r.Context(), parts[3])
-			return find(runnerRecordFromStore(stored), ok)
-		}
-		return find(runner, runnerFound)
+		return s.auditBeforeRunner(r, parts)
 	case "runs":
-		if len(parts) < 4 || s.Runs == nil || parts[3] == "execute" {
-			return nil
-		}
-		s.Runs.mu.RLock()
-		repository := s.Runs.repository
-		item, found := s.Runs.runs[parts[3]]
-		s.Runs.mu.RUnlock()
-		if repository != nil {
-			stored, ok, _ := repository.Find(r.Context(), parts[3])
-			return find(runRecordFromStore(stored), ok)
-		}
-		return find(item, found)
+		return s.auditBeforeRun(r, parts)
 	case "admin":
-		if len(parts) == 5 && parts[3] == "auth" && parts[4] == "providers" && s.AuthAdmin != nil && s.AuthAdmin.OIDC != nil {
-			var input struct {
-				Key string `json:"key"`
-			}
-			if r.Body != nil {
-				raw, _ := io.ReadAll(r.Body)
-				r.Body = io.NopCloser(bytes.NewReader(raw))
-				_ = json.Unmarshal(raw, &input)
-			}
-			if input.Key != "" {
-				provider, ok := s.AuthAdmin.OIDC.Provider(input.Key)
-				return find(provider, ok)
-			}
+		return s.auditBeforeAdmin(r, parts)
+	}
+	return nil
+}
+
+func auditFind(value any, found bool) map[string]any {
+	if !found {
+		return nil
+	}
+	return auditSnapshot(value)
+}
+
+func (s Server) auditBeforeGlobalVariable(r *http.Request, parts []string) map[string]any {
+	if len(parts) != 4 || parts[3] == "options" || s.GlobalVariables == nil {
+		return nil
+	}
+	s.GlobalVariables.mu.RLock()
+	repository := s.GlobalVariables.repository
+	item, found := s.GlobalVariables.items[parts[3]]
+	s.GlobalVariables.mu.RUnlock()
+	if repository != nil {
+		stored, ok, _ := repository.Find(r.Context(), parts[3])
+		return auditFind(stored, ok)
+	}
+	return auditFind(item, found)
+}
+
+func (s Server) auditBeforeTask(r *http.Request, parts []string) map[string]any {
+	if len(parts) < 4 || s.Operations == nil {
+		return nil
+	}
+	s.Operations.mu.RLock()
+	repository := s.Operations.repository
+	s.Operations.mu.RUnlock()
+	if repository != nil {
+		stored, ok, _ := repository.Find(r.Context(), parts[3])
+		return auditFind(taskRecordFromStore(stored), ok)
+	}
+	item, ok := s.Operations.task(parts[3])
+	return auditFind(item, ok)
+}
+
+func (s Server) auditBeforeSchedule(r *http.Request, parts []string) map[string]any {
+	if len(parts) < 4 || s.Operations == nil {
+		return nil
+	}
+	s.Operations.mu.RLock()
+	repository := s.Operations.scheduleRepository
+	s.Operations.mu.RUnlock()
+	if repository != nil {
+		stored, ok, _ := repository.Find(r.Context(), parts[3])
+		return auditFind(scheduleRecordFromStore(stored), ok)
+	}
+	item, ok := s.Operations.schedule(parts[3])
+	return auditFind(item, ok)
+}
+
+func (s Server) auditBeforeResource(r *http.Request, parts []string) map[string]any {
+	if len(parts) < 4 || s.Infrastructure == nil {
+		return nil
+	}
+	s.Infrastructure.mu.RLock()
+	repository := s.Infrastructure.resourceRepository
+	item, found := s.Infrastructure.resources[parts[3]]
+	s.Infrastructure.mu.RUnlock()
+	if repository != nil {
+		stored, ok, _ := repository.Find(r.Context(), parts[3])
+		return auditFind(resourceRecordFromStore(stored), ok)
+	}
+	return auditFind(item, found)
+}
+
+func (s Server) auditBeforeRunner(r *http.Request, parts []string) map[string]any {
+	if len(parts) < 4 || s.Infrastructure == nil {
+		return nil
+	}
+	s.Infrastructure.mu.RLock()
+	runnerRepository, poolRepository := s.Infrastructure.runnerRepository, s.Infrastructure.runnerRepository
+	runner, runnerFound := s.Infrastructure.runners[parts[3]]
+	pool, poolFound := s.Infrastructure.pools[parts[3]]
+	s.Infrastructure.mu.RUnlock()
+	if len(parts) >= 5 && parts[3] == "pools" {
+		if poolRepository == nil {
+			return auditFind(pool, poolFound)
 		}
-		if len(parts) == 5 && parts[3] == "execution-status" && s.ExitCodes != nil {
-			code, err := strconv.Atoi(parts[4])
-			if err != nil {
-				return nil
-			}
-			items, err := s.ExitCodes.List(r.Context())
-			if err != nil {
-				return nil
-			}
-			for _, item := range items {
-				if item.Code == code {
-					return auditSnapshot(exitCodeRecords([]store.ExitCodeRecord{item})[0])
-				}
-			}
-			return nil
-		}
-		if len(parts) >= 5 && parts[3] == "roles" && s.Roles != nil {
-			role, ok, _ := s.Roles.role(parts[4])
-			if !ok {
-				return nil
-			}
-			return auditSnapshot(map[string]any{"id": role.ID, "name": role.Name, "description": role.Description, "system": role.System, "permissions": role.Permissions, "assignedUsers": role.AssignedUsers})
-		}
-		if len(parts) >= 6 && parts[3] == "auth" && parts[4] == "users" && s.AuthAdmin != nil && s.AuthAdmin.Auth != nil {
-			user, ok, _ := s.AuthAdmin.Auth.UserProfile(parts[5])
-			return find(user, ok)
-		}
-		if len(parts) >= 5 && parts[3] == "dead-letters" && s.DeadLetters != nil && s.DeadLetters.repository != nil {
-			item, ok, _ := s.DeadLetters.repository.Find(r.Context(), parts[4])
-			return find(deadLetterView(item), ok)
+		stored, ok, _ := poolRepository.FindPool(r.Context(), parts[4])
+		return auditFind(runnerPoolRecordFromStore(stored), ok)
+	}
+	if runnerRepository == nil {
+		return auditFind(runner, runnerFound)
+	}
+	stored, ok, _ := runnerRepository.Find(r.Context(), parts[3])
+	return auditFind(runnerRecordFromStore(stored), ok)
+}
+
+func (s Server) auditBeforeRun(r *http.Request, parts []string) map[string]any {
+	if len(parts) < 4 || s.Runs == nil || parts[3] == "execute" {
+		return nil
+	}
+	s.Runs.mu.RLock()
+	repository := s.Runs.repository
+	item, found := s.Runs.runs[parts[3]]
+	s.Runs.mu.RUnlock()
+	if repository != nil {
+		stored, ok, _ := repository.Find(r.Context(), parts[3])
+		return auditFind(runRecordFromStore(stored), ok)
+	}
+	return auditFind(item, found)
+}
+
+func (s Server) auditBeforeAdmin(r *http.Request, parts []string) map[string]any {
+	if result := s.auditBeforeProvider(r, parts); result != nil {
+		return result
+	}
+	if result := s.auditBeforeExitCode(r, parts); result != nil {
+		return result
+	}
+	if result := s.auditBeforeRole(parts); result != nil {
+		return result
+	}
+	if result := s.auditBeforeUser(parts); result != nil {
+		return result
+	}
+	return s.auditBeforeDeadLetter(r, parts)
+}
+
+func (s Server) auditBeforeProvider(r *http.Request, parts []string) map[string]any {
+	if len(parts) != 5 || parts[3] != "auth" || parts[4] != "providers" || s.AuthAdmin == nil || s.AuthAdmin.OIDC == nil {
+		return nil
+	}
+	var input struct {
+		Key string `json:"key"`
+	}
+	if r.Body != nil {
+		raw, _ := io.ReadAll(r.Body)
+		r.Body = io.NopCloser(bytes.NewReader(raw))
+		_ = json.Unmarshal(raw, &input)
+	}
+	if input.Key == "" {
+		return nil
+	}
+	provider, ok := s.AuthAdmin.OIDC.Provider(input.Key)
+	return auditFind(provider, ok)
+}
+
+func (s Server) auditBeforeExitCode(r *http.Request, parts []string) map[string]any {
+	if len(parts) != 5 || parts[3] != "execution-status" || s.ExitCodes == nil {
+		return nil
+	}
+	code, err := strconv.Atoi(parts[4])
+	if err != nil {
+		return nil
+	}
+	items, err := s.ExitCodes.List(r.Context())
+	if err != nil {
+		return nil
+	}
+	for _, item := range items {
+		if item.Code == code {
+			return auditSnapshot(exitCodeRecords([]store.ExitCodeRecord{item})[0])
 		}
 	}
 	return nil
+}
+
+func (s Server) auditBeforeRole(parts []string) map[string]any {
+	if len(parts) < 5 || parts[3] != "roles" || s.Roles == nil {
+		return nil
+	}
+	role, ok, _ := s.Roles.role(parts[4])
+	if !ok {
+		return nil
+	}
+	return auditSnapshot(map[string]any{"id": role.ID, "name": role.Name, "description": role.Description, "system": role.System, "permissions": role.Permissions, "assignedUsers": role.AssignedUsers})
+}
+
+func (s Server) auditBeforeUser(parts []string) map[string]any {
+	if len(parts) < 6 || parts[3] != "auth" || parts[4] != "users" || s.AuthAdmin == nil || s.AuthAdmin.Auth == nil {
+		return nil
+	}
+	user, ok, _ := s.AuthAdmin.Auth.UserProfile(parts[5])
+	return auditFind(user, ok)
+}
+
+func (s Server) auditBeforeDeadLetter(r *http.Request, parts []string) map[string]any {
+	if len(parts) < 5 || parts[3] != "dead-letters" || s.DeadLetters == nil || s.DeadLetters.repository == nil {
+		return nil
+	}
+	item, ok, _ := s.DeadLetters.repository.Find(r.Context(), parts[4])
+	return auditFind(deadLetterView(item), ok)
 }
 
 func isMutatingMethod(method string) bool {

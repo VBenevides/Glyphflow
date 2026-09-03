@@ -439,20 +439,9 @@ func (s *AuthService) registerWithStatus(email, password string, requireRegistra
 	} else if exists {
 		return AuthUser{}, errors.New("registration failed")
 	}
-	roleDefinition, roleFound, err := s.roles.FindByID(context.Background(), roleID)
+	roleDefinition, adminRoleID, err := s.registrationRoles(roleID, systemAdmin)
 	if err != nil {
 		return AuthUser{}, err
-	}
-	if !roleFound {
-		return AuthUser{}, errors.New("default role is not configured")
-	}
-	adminRoleID := ""
-	if systemAdmin {
-		adminRole, found, err := s.roles.FindByName(context.Background(), "admin")
-		if err != nil || !found {
-			return AuthUser{}, errors.New("admin role is not configured")
-		}
-		adminRoleID = adminRole.ID
 	}
 	hash, err := s.hasher.Hash(password)
 	if err != nil {
@@ -471,24 +460,8 @@ func (s *AuthService) registerWithStatus(email, password string, requireRegistra
 	}
 	user := AuthUser{ID: id, Username: key, Email: key, DisplayName: store.DefaultUserDisplayName(key), Status: status, Enabled: status == store.StatusActive}
 	userRecord := store.UserRecord{ID: user.ID, Username: user.Username, Email: user.Email, DisplayName: user.DisplayName, Status: user.Status, Enabled: user.Enabled}
-	if provisioner, ok := s.users.(interface {
-		ProvisionLocal(context.Context, store.UserRecord, string, string, string) error
-	}); ok {
-		if err := provisioner.ProvisionLocal(context.Background(), userRecord, hash, roleDefinition.ID, adminRoleID); err != nil {
-			return AuthUser{}, errors.New("registration failed")
-		}
-	} else {
-		if err := s.users.Create(context.Background(), userRecord, hash); err != nil {
-			return AuthUser{}, errors.New("registration failed")
-		}
-		if err := s.roles.Assign(context.Background(), id, roleDefinition.ID, "default", roleDefinition.ID); err != nil {
-			return AuthUser{}, err
-		}
-		if adminRoleID != "" {
-			if err := s.roles.Assign(context.Background(), id, adminRoleID, systemAdminSource, id); err != nil {
-				return AuthUser{}, err
-			}
-		}
+	if err := s.provisionRegistration(userRecord, hash, roleDefinition.ID, adminRoleID); err != nil {
+		return AuthUser{}, err
 	}
 	s.mu.Lock()
 	audit := s.audit
@@ -500,6 +473,47 @@ func (s *AuthService) registerWithStatus(email, password string, requireRegistra
 		audit("system", "user.register", id)
 	}
 	return user, nil
+}
+
+func (s *AuthService) registrationRoles(roleID string, systemAdmin bool) (store.RoleRecord, string, error) {
+	roleDefinition, found, err := s.roles.FindByID(context.Background(), roleID)
+	if err != nil {
+		return store.RoleRecord{}, "", err
+	}
+	if !found {
+		return store.RoleRecord{}, "", errors.New("default role is not configured")
+	}
+	if !systemAdmin {
+		return roleDefinition, "", nil
+	}
+	adminRole, found, err := s.roles.FindByName(context.Background(), "admin")
+	if err != nil || !found {
+		return store.RoleRecord{}, "", errors.New("admin role is not configured")
+	}
+	return roleDefinition, adminRole.ID, nil
+}
+
+func (s *AuthService) provisionRegistration(user store.UserRecord, hash, roleID, adminRoleID string) error {
+	if provisioner, ok := s.users.(interface {
+		ProvisionLocal(context.Context, store.UserRecord, string, string, string) error
+	}); ok {
+		if err := provisioner.ProvisionLocal(context.Background(), user, hash, roleID, adminRoleID); err != nil {
+			return errors.New("registration failed")
+		}
+		return nil
+	}
+	if err := s.users.Create(context.Background(), user, hash); err != nil {
+		return errors.New("registration failed")
+	}
+	if err := s.roles.Assign(context.Background(), user.ID, roleID, "default", roleID); err != nil {
+		return err
+	}
+	if adminRoleID != "" {
+		if err := s.roles.Assign(context.Background(), user.ID, adminRoleID, systemAdminSource, user.ID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *AuthService) Login(email, password string) (AuthTokens, error) {
@@ -580,62 +594,10 @@ func (s *AuthService) loginOIDC(provider, subject, username, email string, autoP
 		}
 	}
 	if userID == "" && autoProvision {
-		if defaultRoleID == "" {
-			return AuthTokens{}, errors.New("default role is not configured")
-		}
-		if _, exists, err := s.userByEmail(email); err != nil {
-			return AuthTokens{}, err
-		} else if exists {
-			return AuthTokens{}, errors.New("OIDC email is already registered")
-		}
 		var err error
-		userID, err = randomID()
+		userID, err = s.provisionOIDCUser(provider, subject, email, defaultRoleID, systemAdmin, ssoRepository, key)
 		if err != nil {
 			return AuthTokens{}, err
-		}
-		roleDefinition, found, err := s.roles.FindByID(context.Background(), defaultRoleID)
-		if err != nil || !found {
-			return AuthTokens{}, errors.New("default role is not configured")
-		}
-		adminRoleID := ""
-		if systemAdmin {
-			adminRole, found, err := s.roles.FindByName(context.Background(), "admin")
-			if err != nil || !found {
-				return AuthTokens{}, errors.New("admin role is not configured")
-			}
-			adminRoleID = adminRole.ID
-		}
-		status := store.StatusActive
-		if s.UserApprovalRequired() {
-			status = store.StatusPending
-		}
-		userRecord := store.UserRecord{ID: userID, Username: email, Email: email, DisplayName: store.DefaultUserDisplayName(email), Status: status, Enabled: status == store.StatusActive}
-		identity := store.SSOIdentityRecord{ID: "identity-" + userID + "-" + provider, UserID: userID, ProviderID: provider, Subject: subject}
-		if provisioner, ok := ssoRepository.(store.OIDCProvisioner); ok {
-			if err := provisioner.ProvisionOIDC(context.Background(), userRecord, roleDefinition.ID, adminRoleID, identity); err != nil {
-				return AuthTokens{}, err
-			}
-		} else {
-			if err := s.users.Create(context.Background(), userRecord, ""); err != nil {
-				return AuthTokens{}, err
-			}
-			if err := s.roles.Assign(context.Background(), userID, roleDefinition.ID, "default", roleDefinition.ID); err != nil {
-				return AuthTokens{}, err
-			}
-			if adminRoleID != "" {
-				if err := s.roles.Assign(context.Background(), userID, adminRoleID, systemAdminSource, userID); err != nil {
-					return AuthTokens{}, err
-				}
-			}
-			if ssoRepository != nil {
-				if err := ssoRepository.CreateIdentity(context.Background(), identity); err != nil {
-					return AuthTokens{}, err
-				}
-			} else {
-				s.mu.Lock()
-				s.oidcIdentities[key] = userID
-				s.mu.Unlock()
-			}
 		}
 	}
 	user, exists, err := s.userByID(userID)
@@ -654,24 +616,8 @@ func (s *AuthService) loginOIDC(provider, subject, username, email string, autoP
 	if systemAdmin {
 		s.adminGuard.Add(user.ID)
 	}
-	if ssoRepository != nil {
-		mappings, err := ssoRepository.ListGroupRoleMappings(context.Background(), provider)
-		if err != nil {
-			return AuthTokens{}, err
-		}
-		groupSet := map[string]bool{}
-		for _, group := range groups {
-			groupSet[group] = true
-		}
-		assignments := make([]store.RoleAssignmentRecord, 0, len(mappings))
-		for _, mapping := range mappings {
-			if groupSet[mapping.GroupName] {
-				assignments = append(assignments, store.RoleAssignmentRecord{RoleID: mapping.RoleID, SourceKey: mapping.GroupName})
-			}
-		}
-		if err := s.roles.ReplaceSSOAssignments(context.Background(), user.ID, provider, assignments); err != nil {
-			return AuthTokens{}, err
-		}
+	if err := s.syncOIDCRoleAssignments(user.ID, provider, groups, ssoRepository); err != nil {
+		return AuthTokens{}, err
 	}
 	tokens, err := s.issueTokens(user.ID)
 	if err != nil {
@@ -681,6 +627,87 @@ func (s *AuthService) loginOIDC(provider, subject, username, email string, autoP
 		audit(user.ID, "auth.oidc.login", provider)
 	}
 	return tokens, nil
+}
+
+func (s *AuthService) provisionOIDCUser(provider, subject, email, defaultRoleID string, systemAdmin bool, ssoRepository store.SSORepository, identityKey string) (string, error) {
+	if defaultRoleID == "" {
+		return "", errors.New("default role is not configured")
+	}
+	if _, exists, err := s.userByEmail(email); err != nil {
+		return "", err
+	} else if exists {
+		return "", errors.New("OIDC email is already registered")
+	}
+	userID, err := randomID()
+	if err != nil {
+		return "", err
+	}
+	roleDefinition, found, err := s.roles.FindByID(context.Background(), defaultRoleID)
+	if err != nil || !found {
+		return "", errors.New("default role is not configured")
+	}
+	adminRoleID := ""
+	if systemAdmin {
+		adminRole, found, err := s.roles.FindByName(context.Background(), "admin")
+		if err != nil || !found {
+			return "", errors.New("admin role is not configured")
+		}
+		adminRoleID = adminRole.ID
+	}
+	status := store.StatusActive
+	if s.UserApprovalRequired() {
+		status = store.StatusPending
+	}
+	userRecord := store.UserRecord{ID: userID, Username: email, Email: email, DisplayName: store.DefaultUserDisplayName(email), Status: status, Enabled: status == store.StatusActive}
+	identity := store.SSOIdentityRecord{ID: "identity-" + userID + "-" + provider, UserID: userID, ProviderID: provider, Subject: subject}
+	if provisioner, ok := ssoRepository.(store.OIDCProvisioner); ok {
+		if err := provisioner.ProvisionOIDC(context.Background(), userRecord, roleDefinition.ID, adminRoleID, identity); err != nil {
+			return "", err
+		}
+		return userID, nil
+	}
+	if err := s.users.Create(context.Background(), userRecord, ""); err != nil {
+		return "", err
+	}
+	if err := s.roles.Assign(context.Background(), userID, roleDefinition.ID, "default", roleDefinition.ID); err != nil {
+		return "", err
+	}
+	if adminRoleID != "" {
+		if err := s.roles.Assign(context.Background(), userID, adminRoleID, systemAdminSource, userID); err != nil {
+			return "", err
+		}
+	}
+	if ssoRepository != nil {
+		if err := ssoRepository.CreateIdentity(context.Background(), identity); err != nil {
+			return "", err
+		}
+	} else {
+		s.mu.Lock()
+		s.oidcIdentities[identityKey] = userID
+		s.mu.Unlock()
+	}
+	return userID, nil
+}
+
+func (s *AuthService) syncOIDCRoleAssignments(userID, provider string, groups []string, repository store.SSORepository) error {
+	if repository == nil {
+		return nil
+	}
+	mappings, err := repository.ListGroupRoleMappings(context.Background(), provider)
+	if err != nil {
+		return err
+	}
+	groupSet := map[string]bool{}
+	for _, group := range groups {
+		groupSet[group] = true
+	}
+	assignments := make([]store.RoleAssignmentRecord, 0, len(mappings))
+	for _, mapping := range mappings {
+		if groupSet[mapping.GroupName] {
+			assignments = append(assignments, store.RoleAssignmentRecord{RoleID: mapping.RoleID, SourceKey: mapping.GroupName})
+		}
+	}
+	return s.roles.ReplaceSSOAssignments(context.Background(), userID, provider, assignments)
 }
 
 func (s *AuthService) LinkOIDC(userID, provider, subject string) error {
@@ -822,34 +849,47 @@ func (s *AuthService) identityProviderNames(userID string) []string {
 	s.mu.RLock()
 	ssoRepository := s.ssoRepository
 	s.mu.RUnlock()
-	seen := map[string]bool{}
 	providers := []string{}
 	if ssoRepository != nil {
-		records, err := ssoRepository.ListIdentities(context.Background(), userID)
-		if err != nil {
-			return providers
-		}
-		for _, record := range records {
-			if !seen[record.ProviderID] {
-				seen[record.ProviderID] = true
-				providers = append(providers, record.ProviderID)
-			}
-		}
+		providers = s.identityProviderNamesFromRepository(ssoRepository, userID)
 	} else {
-		s.mu.RLock()
-		for key, owner := range s.oidcIdentities {
-			if owner != userID {
-				continue
-			}
-			parts := strings.SplitN(key, "\x00", 2)
-			if len(parts) == 2 && !seen[parts[0]] {
-				seen[parts[0]] = true
-				providers = append(providers, parts[0])
-			}
-		}
-		s.mu.RUnlock()
+		providers = s.identityProviderNamesFromMemory(userID)
 	}
 	sort.Strings(providers)
+	return providers
+}
+
+func (s *AuthService) identityProviderNamesFromRepository(repository store.SSORepository, userID string) []string {
+	records, err := repository.ListIdentities(context.Background(), userID)
+	if err != nil {
+		return []string{}
+	}
+	seen := map[string]bool{}
+	providers := []string{}
+	for _, record := range records {
+		if !seen[record.ProviderID] {
+			seen[record.ProviderID] = true
+			providers = append(providers, record.ProviderID)
+		}
+	}
+	return providers
+}
+
+func (s *AuthService) identityProviderNamesFromMemory(userID string) []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	seen := map[string]bool{}
+	providers := []string{}
+	for key, owner := range s.oidcIdentities {
+		if owner != userID {
+			continue
+		}
+		parts := strings.SplitN(key, "\x00", 2)
+		if len(parts) == 2 && !seen[parts[0]] {
+			seen[parts[0]] = true
+			providers = append(providers, parts[0])
+		}
+	}
 	return providers
 }
 
