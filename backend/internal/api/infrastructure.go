@@ -800,49 +800,41 @@ func (s *InfrastructureService) deleteRunner(w http.ResponseWriter, r *http.Requ
 	s.mu.Unlock()
 	w.WriteHeader(http.StatusNoContent)
 }
-func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeJSON(w, 405, map[string]string{"error": errorMethodNotAllowed})
-		return
-	}
-	s.mu.RLock()
-	limiter := s.enrollmentRateLimiter
-	s.mu.RUnlock()
-	if limiter != nil && !limiter.AllowSource("runner-artifact", remoteAddress(r), time.Now().UTC()) {
-		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "runner enrollment rate limit exceeded"})
-		return
-	}
-	var input struct {
-		RunnerID             string `json:"runner_id"`
-		RunnerName           string `json:"runner_name"`
-		EmbeddedNATSEndpoint string `json:"embedded_nats_endpoint"`
-		ControlPlaneURL      string `json:"control_plane_url"`
-		PoolID               string `json:"pool_id"`
-		Platform             string `json:"platform"`
-		Architecture         string `json:"architecture"`
-		Capacity             *int   `json:"capacity"`
-		UI                   string `json:"ui"`
-	}
+
+type runnerEnrollmentInput struct {
+	RunnerID             string `json:"runner_id"`
+	RunnerName           string `json:"runner_name"`
+	EmbeddedNATSEndpoint string `json:"embedded_nats_endpoint"`
+	ControlPlaneURL      string `json:"control_plane_url"`
+	PoolID               string `json:"pool_id"`
+	Platform             string `json:"platform"`
+	Architecture         string `json:"architecture"`
+	Capacity             *int   `json:"capacity"`
+	UI                   string `json:"ui"`
+}
+
+func parseRunnerEnrollment(w http.ResponseWriter, r *http.Request) (runnerEnrollmentInput, bool) {
+	var input runnerEnrollmentInput
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid runner enrollment request", err)
-		return
+		return input, false
 	}
 	input.RunnerID = strings.TrimSpace(input.RunnerID)
 	input.RunnerName = strings.TrimSpace(input.RunnerName)
 	input.ControlPlaneURL = strings.TrimRight(strings.TrimSpace(input.ControlPlaneURL), "/")
 	if input.RunnerID == "" && input.RunnerName == "" {
-		writeJSON(w, 400, map[string]string{"error": "runner_name is required"})
-		return
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "runner_name is required"})
+		return input, false
 	}
 	if input.RunnerName != "" {
 		if !runnerIDPattern.MatchString(input.RunnerName) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "runner_name must contain only letters, digits, dot, underscore, or hyphen"})
-			return
+			return input, false
 		}
 		rawID := make([]byte, 8)
 		if _, err := rand.Read(rawID); err != nil {
 			writeError(w, http.StatusInternalServerError, "enrollment failed while generating a runner id", err)
-			return
+			return input, false
 		}
 		input.RunnerID = input.RunnerName + "-" + hex.EncodeToString(rawID)
 	} else {
@@ -858,24 +850,50 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 	if input.UI == "" {
 		input.UI = "gui"
 	}
+	if !validateRunnerEnrollmentInput(w, input) {
+		return input, false
+	}
+	return input, true
+}
+
+func validateRunnerEnrollmentInput(w http.ResponseWriter, input runnerEnrollmentInput) bool {
 	if !runnerIDPattern.MatchString(input.RunnerID) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "runner_id must contain only letters, digits, dot, underscore, or hyphen"})
-		return
+		return false
 	}
 	if input.Platform != "linux" && input.Platform != "windows" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "platform must be linux or windows"})
-		return
+		return false
 	}
 	if input.Architecture != "amd64" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "architecture must be amd64"})
-		return
+		return false
 	}
 	if input.UI != "gui" && input.UI != "tui" && input.UI != "headless" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "ui must be gui, tui, or headless"})
-		return
+		return false
 	}
 	if input.Capacity != nil && *input.Capacity < 1 {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "capacity must be at least 1"})
+		return false
+	}
+	return true
+}
+
+func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, 405, map[string]string{"error": errorMethodNotAllowed})
+		return
+	}
+	s.mu.RLock()
+	limiter := s.enrollmentRateLimiter
+	s.mu.RUnlock()
+	if limiter != nil && !limiter.AllowSource("runner-artifact", remoteAddress(r), time.Now().UTC()) {
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "runner enrollment rate limit exceeded"})
+		return
+	}
+	input, ok := parseRunnerEnrollment(w, r)
+	if !ok {
 		return
 	}
 	raw := make([]byte, 32)
@@ -896,32 +914,40 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 	repository := s.runnerRepository
 	s.mu.RUnlock()
 	if repository != nil {
-		pool, found, err := repository.FindPool(r.Context(), input.PoolID)
-		if err != nil {
-			writeError(w, http.StatusServiceUnavailable, "runner pool lookup failed", err)
-			return
-		}
-		if !found || !pool.Enabled {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "selected runner pool does not exist or is disabled"})
-			return
-		}
-		requester := "system"
-		if claims, ok := r.Context().Value(requestClaimsContextKey{}).(Claims); ok && claims.UserID != "" {
-			requester = claims.UserID
-		}
-		capacity := 0
-		if input.Capacity != nil {
-			capacity = *input.Capacity
-		}
-		if err := repository.CreateEnrollment(r.Context(), store.RunnerRecord{ID: input.RunnerID, Name: input.RunnerName, PoolID: input.PoolID, Capacity: capacity, Platform: input.Platform, Architecture: input.Architecture, NATSEndpoint: input.EmbeddedNATSEndpoint, ControlPlaneURL: input.ControlPlaneURL}, store.RunnerEnrollmentRecord{ID: "enrollment-" + input.RunnerID + "-" + platform.HashToken(token), RunnerID: input.RunnerID, TokenHash: platform.HashToken(token), ExpiresAt: expiry, Requester: requester, Target: input.RunnerID, Artifact: map[string]any{"platform": input.Platform, "architecture": input.Architecture}}); err != nil {
-			recordRequestError(r, err)
-			writeError(w, http.StatusConflict, "enrollment could not be saved", err)
-			return
-		}
-		w.Header().Set("Cache-Control", "no-store")
-		writeJSON(w, http.StatusCreated, map[string]string{"artifact": base64.StdEncoding.EncodeToString(artifact), "expires_at": expiry.UTC().Format(time.RFC3339), "filename": filename, "runner_id": input.RunnerID, "runner_name": input.RunnerName})
+		s.enrollDurable(w, r, input, token, expiry, artifact, filename, repository)
 		return
 	}
+	s.enrollInMemory(w, input, token, expiry, artifact, filename)
+}
+
+func (s *InfrastructureService) enrollDurable(w http.ResponseWriter, r *http.Request, input runnerEnrollmentInput, token string, expiry time.Time, artifact []byte, filename string, repository store.RunnerRepository) {
+	pool, found, err := repository.FindPool(r.Context(), input.PoolID)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "runner pool lookup failed", err)
+		return
+	}
+	if !found || !pool.Enabled {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "selected runner pool does not exist or is disabled"})
+		return
+	}
+	requester := "system"
+	if claims, ok := r.Context().Value(requestClaimsContextKey{}).(Claims); ok && claims.UserID != "" {
+		requester = claims.UserID
+	}
+	capacity := 0
+	if input.Capacity != nil {
+		capacity = *input.Capacity
+	}
+	if err := repository.CreateEnrollment(r.Context(), store.RunnerRecord{ID: input.RunnerID, Name: input.RunnerName, PoolID: input.PoolID, Capacity: capacity, Platform: input.Platform, Architecture: input.Architecture, NATSEndpoint: input.EmbeddedNATSEndpoint, ControlPlaneURL: input.ControlPlaneURL}, store.RunnerEnrollmentRecord{ID: "enrollment-" + input.RunnerID + "-" + platform.HashToken(token), RunnerID: input.RunnerID, TokenHash: platform.HashToken(token), ExpiresAt: expiry, Requester: requester, Target: input.RunnerID, Artifact: map[string]any{"platform": input.Platform, "architecture": input.Architecture}}); err != nil {
+		recordRequestError(r, err)
+		writeError(w, http.StatusConflict, "enrollment could not be saved", err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusCreated, map[string]string{"artifact": base64.StdEncoding.EncodeToString(artifact), "expires_at": expiry.UTC().Format(time.RFC3339), "filename": filename, "runner_id": input.RunnerID, "runner_name": input.RunnerName})
+}
+
+func (s *InfrastructureService) enrollInMemory(w http.ResponseWriter, input runnerEnrollmentInput, token string, expiry time.Time, artifact []byte, filename string) {
 	s.mu.RLock()
 	pool, found := s.pools[input.PoolID]
 	s.mu.RUnlock()
