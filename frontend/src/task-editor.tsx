@@ -109,7 +109,7 @@ export function validateTaskDraft(draft: TaskDraft): Record<string, string> {
     if (id && resources.has(id)) errors[`resources.${index}`] = 'Resources must be unique.'
     if (id) resources.add(id)
   })
-	for (const field of ['durationSeconds', 'maxAttempts'] as const) if (!Number.isInteger(Number(draft[field])) || Number(draft[field]) <= 0) errors[field] = 'Enter a positive whole number.'
+	for (const field of ['durationSeconds', 'maxAttempts'] as const) { if (!Number.isInteger(Number(draft[field])) || Number(draft[field]) <= 0) errors[field] = 'Enter a positive whole number.' }
   return errors
 }
 

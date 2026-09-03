@@ -10,7 +10,7 @@ export function mergeChunks(current: LogChunk[], incoming: LogChunk[], maxChars 
   const ordered = [...bySequence.entries()].sort(([a], [b]) => a - b).map(([sequence, text]) => ({ sequence, text }))
   let size = 0
   const reversed = ordered.reverse()
-  const chunks = reversed.filter((chunk) => { if (size >= maxChars || (size > 0 && size + chunk.text.length > maxChars)) return false; size += chunk.text.length; return true }).reverse()
+  const chunks = reversed.filter((chunk) => { if (size >= maxChars || (size > 0 && size + chunk.text.length > maxChars)) { return false }; size += chunk.text.length; return true }).reverse()
   const gap = chunks.some((chunk, index) => index > 0 && chunk.sequence !== chunks[index - 1].sequence + 1)
   return { chunks, duplicates, gap, lastSequence: chunks.length ? chunks[chunks.length - 1].sequence : 0 }
 }
