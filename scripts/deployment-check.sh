@@ -19,6 +19,7 @@ test_tmp=$(mktemp -d)
 production_dir="$test_tmp/production"
 production_config="$test_tmp/production-config.json"
 worker_pid=""
+deployment_check_postgres_password=${DEPLOYMENT_CHECK_POSTGRES_PASSWORD:-$(openssl rand -hex 16)}
 
 cleanup() {
   if [ -n "$worker_pid" ]; then
@@ -73,8 +74,8 @@ create_production_fixtures() {
   make_certificate nats 'serverAuth,clientAuth'
   make_certificate postgres 'serverAuth'
 
-  printf '%s\n' glyphflow > "$production_dir/postgres-password"
-  printf '%s\n' 'postgres://glyphflow:glyphflow@postgres:5432/glyphflow?sslmode=verify-full' > "$production_dir/database-url"
+  printf '%s\n' "$deployment_check_postgres_password" > "$production_dir/postgres-password"
+  printf '%s\n' "postgres://glyphflow:${deployment_check_postgres_password}@postgres:5432/glyphflow?sslmode=verify-full" > "$production_dir/database-url"
   printf '%s\n' 'tls://nats:4222' > "$production_dir/nats-url"
   printf '%s\n' 'deployment-check-access-token-secret-0123456789' > "$production_dir/access-token-secret"
   head -c 64 /dev/urandom | base64 -w0 | tr -d '=' > "$production_dir/control-plane-signing-key"
@@ -274,7 +275,7 @@ docker network create "$network" >/dev/null
 docker run -d --name "$partial_nats" --network "$network" --network-alias nats \
   -p "127.0.0.1:${partial_nats_port}:4222" "$nats_image" --jetstream --http_port 8222 >/dev/null
 docker run -d --name "$partial_postgres" --network "$network" --network-alias postgres \
-  -e POSTGRES_DB=glyphflow -e POSTGRES_USER=glyphflow -e POSTGRES_PASSWORD=glyphflow "$postgres_image" >/dev/null
+  -e POSTGRES_DB=glyphflow -e POSTGRES_USER=glyphflow -e POSTGRES_PASSWORD="$deployment_check_postgres_password" "$postgres_image" >/dev/null
 attempt=0
 while ! docker exec "$partial_postgres" pg_isready -U glyphflow -d glyphflow >/dev/null 2>&1; do
   attempt=$((attempt + 1))

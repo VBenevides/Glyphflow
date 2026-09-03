@@ -254,8 +254,15 @@ its single canonical PostgreSQL schema to a new database; it does not upgrade
 databases from earlier releases.
 
 The base [`compose.yaml`](compose.yaml) remains available as a containerized
-PostgreSQL/NATS development stack. It contains development credentials; do
-not use those defaults for a public deployment.
+PostgreSQL/NATS development stack. Set a local-only PostgreSQL password before
+starting it:
+
+```bash
+export POSTGRES_PASSWORD="$(openssl rand -hex 16)"
+docker compose up -d
+```
+
+Do not use that local password for a public deployment.
 
 For production, provide the required values and secret files described in
 [`compose.production.yaml`](compose.production.yaml), then start the stack:
