@@ -113,13 +113,19 @@ export function MetricCard({ label, value, detail, icon: Icon, tone = 'default' 
 
 export type Column<T> = { key: string; label: string; className?: string; render?: (row: T) => ReactNode }
 
+function tableValue(value: unknown): ReactNode {
+  if (value === undefined || value === null) return '—'
+  if (typeof value === 'object') return JSON.stringify(value) ?? '—'
+  return value.toString()
+}
+
 export function DataTable<T extends { id?: string | number }>({ columns, rows, caption, className }: { columns: Column<T>[]; rows: T[]; caption: string; className?: string }) {
   return (
     <div className="gf-table-wrap">
       <table className={'gf-table' + (className ? ' ' + className : '')}>
         <caption className="gf-visually-hidden">{caption}</caption>
         <thead><tr>{columns.map((column) => <th className={column.className} key={column.key} scope="col">{column.label}</th>)}</tr></thead>
-        <tbody>{rows.map((row, index) => <tr key={row.id ?? index}>{columns.map((column) => { const value = (row as Record<string, unknown>)[column.key]; return <td className={column.className} key={column.key}>{column.render ? column.render(row) : value === undefined || value === null ? '—' : typeof value === 'object' ? JSON.stringify(value) ?? '—' : value.toString()}</td> })}</tr>)}</tbody>
+        <tbody>{rows.map((row, index) => <tr key={row.id ?? index}>{columns.map((column) => { const value = (row as Record<string, unknown>)[column.key]; return <td className={column.className} key={column.key}>{column.render ? column.render(row) : tableValue(value)}</td> })}</tr>)}</tbody>
       </table>
     </div>
   )
