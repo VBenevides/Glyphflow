@@ -64,21 +64,32 @@ func (e Executor) RunStreaming(ctx context.Context, args []string, dir string, f
 }
 
 func (e Executor) RunStreamingWithExitCode(ctx context.Context, args []string, dir string, flushInterval time.Duration, onChunk func(string, []byte) error) ([]byte, *int, error) {
-	if len(args) == 0 {
-		return nil, nil, &ValidationError{"command is required"}
-	}
-	if _, ok := ctx.Deadline(); !ok {
-		return nil, nil, &ValidationError{"execution deadline is required"}
-	}
-	if e.MaxOutputBytes <= 0 {
-		return nil, nil, &ValidationError{"maximum output bytes must be greater than zero"}
-	}
-	if len(e.AllowedCommands) > 0 && !e.AllowedCommands[args[0]] {
-		return nil, nil, &ValidationError{"executable is not allowed"}
+	if err := e.validateExecution(ctx, args, dir); err != nil {
+		return nil, nil, err
 	}
 	clean, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, nil, err
+	}
+	return e.runCommand(ctx, args, clean, flushInterval, onChunk)
+}
+
+func (e Executor) validateExecution(ctx context.Context, args []string, dir string) error {
+	if len(args) == 0 {
+		return &ValidationError{"command is required"}
+	}
+	if _, ok := ctx.Deadline(); !ok {
+		return &ValidationError{"execution deadline is required"}
+	}
+	if e.MaxOutputBytes <= 0 {
+		return &ValidationError{"maximum output bytes must be greater than zero"}
+	}
+	if len(e.AllowedCommands) > 0 && !e.AllowedCommands[args[0]] {
+		return &ValidationError{"executable is not allowed"}
+	}
+	clean, err := filepath.Abs(dir)
+	if err != nil {
+		return err
 	}
 	allowed := false
 	for _, root := range e.Roots {
@@ -88,8 +99,13 @@ func (e Executor) RunStreamingWithExitCode(ctx context.Context, args []string, d
 		}
 	}
 	if !allowed {
-		return nil, nil, &ValidationError{"working directory is outside configured roots"}
+		return &ValidationError{"working directory is outside configured roots"}
 	}
+	_ = clean
+	return nil
+}
+
+func (e Executor) runCommand(ctx context.Context, args []string, clean string, flushInterval time.Duration, onChunk func(string, []byte) error) ([]byte, *int, error) {
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	cmd := exec.CommandContext(runCtx, args[0], args[1:]...)

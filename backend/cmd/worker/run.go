@@ -138,9 +138,14 @@ func runWorker(ctx context.Context, stdout, stderr io.Writer, status StatusSink)
 		}
 		status.SetNATSEndpoint(endpoint)
 	}
+	return runWorkerProcess(ctx, stdout, stderr, status, localStore, cfg, connection, storedKey, foundKey, controlPublicKey)
+}
+
+func runWorkerProcess(ctx context.Context, stdout, stderr io.Writer, status StatusSink, localStore *worker.LocalStore, cfg config.Config, connection worker.RunnerConnection, storedKey protocol.SigningKey, foundKey bool, controlPublicKey []byte) error {
 	activeOrders := &worker.ActiveOrders{}
 	workerKey := storedKey
 	if !foundKey || workerKey.ID != runnerKeyPrefix+cfg.RunnerID || time.Now().UTC().After(workerKey.Public.NotAfter) {
+		var err error
 		workerKey, err = protocol.GenerateSigningKey(runnerKeyPrefix+cfg.RunnerID, time.Now().UTC(), 365*24*time.Hour)
 		if err != nil {
 			return fmt.Errorf("generate worker signing key: %w", err)

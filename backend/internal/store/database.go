@@ -278,13 +278,20 @@ func assignSQLiteValue(dst reflect.Value, value any) error {
 		}
 		return assignSQLiteValue(dst.Elem(), value)
 	}
+	if handled, err := assignSQLiteSpecial(dst, value); handled {
+		return err
+	}
+	return assignSQLitePrimitive(dst, value)
+}
+
+func assignSQLiteSpecial(dst reflect.Value, value any) (bool, error) {
 	if dst.Type() == reflect.TypeOf(time.Time{}) {
 		parsed, err := sqliteTime(value)
 		if err != nil {
-			return err
+			return true, err
 		}
 		dst.Set(reflect.ValueOf(parsed))
-		return nil
+		return true, nil
 	}
 	if dst.Type() == reflect.TypeOf(json.RawMessage{}) {
 		raw := []byte(fmt.Sprint(value))
@@ -292,7 +299,7 @@ func assignSQLiteValue(dst reflect.Value, value any) error {
 			raw = bytes
 		}
 		dst.SetBytes(raw)
-		return nil
+		return true, nil
 	}
 	if dst.Kind() == reflect.Slice && dst.Type().Elem().Kind() == reflect.Uint8 {
 		if bytes, ok := value.([]byte); ok {
@@ -300,15 +307,19 @@ func assignSQLiteValue(dst reflect.Value, value any) error {
 		} else {
 			dst.SetBytes([]byte(fmt.Sprint(value)))
 		}
-		return nil
+		return true, nil
 	}
 	if dst.Kind() == reflect.Map || (dst.Kind() == reflect.Slice && dst.Type().Elem().Kind() != reflect.Uint8) || dst.Kind() == reflect.Struct {
 		raw, ok := value.([]byte)
 		if !ok {
 			raw = []byte(fmt.Sprint(value))
 		}
-		return json.Unmarshal(raw, dst.Addr().Interface())
+		return true, json.Unmarshal(raw, dst.Addr().Interface())
 	}
+	return false, nil
+}
+
+func assignSQLitePrimitive(dst reflect.Value, value any) error {
 	switch dst.Kind() {
 	case reflect.String:
 		if bytes, ok := value.([]byte); ok {
@@ -416,20 +427,8 @@ func sqliteQuery(query string, args []any) (string, []any, error) {
 	query = strings.ReplaceAll(query, "access_expires_at > CURRENT_TIMESTAMP", "datetime(access_expires_at) > CURRENT_TIMESTAMP")
 	query = strings.ReplaceAll(query, "refresh_expires_at > CURRENT_TIMESTAMP", "datetime(refresh_expires_at) > CURRENT_TIMESTAMP")
 	query = strings.ReplaceAll(query, "expires_at > CURRENT_TIMESTAMP", "datetime(expires_at) > CURRENT_TIMESTAMP")
-	for _, match := range sqliteDecode.FindAllStringSubmatch(query, -1) {
-		index, err := strconv.Atoi(match[1])
-		if err != nil || index < 1 || index > len(args) {
-			return "", nil, fmt.Errorf("invalid sqlite decode placeholder $%s", match[1])
-		}
-		hexValue, ok := args[index-1].(string)
-		if !ok {
-			return "", nil, errors.New("sqlite decode argument must be hexadecimal text")
-		}
-		decoded, err := hex.DecodeString(hexValue)
-		if err != nil {
-			return "", nil, err
-		}
-		args[index-1] = decoded
+	if err := decodeSQLiteArguments(args, query); err != nil {
+		return "", nil, err
 	}
 	query = sqliteDecode.ReplaceAllString(query, "$$${1}")
 	query = strings.ReplaceAll(query, "convert_from(", "CAST(")
@@ -446,7 +445,32 @@ func sqliteQuery(query string, args []any) (string, []any, error) {
 	query = strings.ReplaceAll(query, "EXTRACT(EPOCH FROM CURRENT_TIMESTAMP - min(last_failed_at))", "(julianday(CURRENT_TIMESTAMP) - julianday(min(last_failed_at))) * 86400")
 	query = strings.ReplaceAll(query, "DELETE FROM runner_metrics m USING candidates c WHERE m.runner_id = c.runner_id AND m.sampled_at = c.sampled_at", "DELETE FROM runner_metrics WHERE (runner_id, sampled_at) IN (SELECT runner_id, sampled_at FROM candidates)")
 	query = regexp.MustCompile(`(?is)DELETE FROM (\w+) \w+ USING candidates \w+ WHERE \w+\.id = \w+\.id`).ReplaceAllString(query, `DELETE FROM $1 WHERE id IN (SELECT id FROM candidates)`)
-	query = sqliteAny.ReplaceAllStringFunc(query, func(match string) string {
+	query = expandSQLiteAny(query, args)
+	query = sqliteDecode.ReplaceAllString(query, "$$${1}")
+	return bindSQLitePlaceholders(query, args)
+}
+
+func decodeSQLiteArguments(args []any, query string) error {
+	for _, match := range sqliteDecode.FindAllStringSubmatch(query, -1) {
+		index, err := strconv.Atoi(match[1])
+		if err != nil || index < 1 || index > len(args) {
+			return fmt.Errorf("invalid sqlite decode placeholder $%s", match[1])
+		}
+		hexValue, ok := args[index-1].(string)
+		if !ok {
+			return errors.New("sqlite decode argument must be hexadecimal text")
+		}
+		decoded, err := hex.DecodeString(hexValue)
+		if err != nil {
+			return err
+		}
+		args[index-1] = decoded
+	}
+	return nil
+}
+
+func expandSQLiteAny(query string, args []any) string {
+	return sqliteAny.ReplaceAllStringFunc(query, func(match string) string {
 		parts := sqliteAny.FindStringSubmatch(match)
 		items := sqliteSlice(args, parts[2])
 		placeholders := make([]string, len(items))
@@ -455,8 +479,9 @@ func sqliteQuery(query string, args []any) (string, []any, error) {
 		}
 		return parts[1] + " IN (" + strings.Join(placeholders, ",") + ")"
 	})
-	query = sqliteDecode.ReplaceAllString(query, "$$${1}")
+}
 
+func bindSQLitePlaceholders(query string, args []any) (string, []any, error) {
 	var output strings.Builder
 	outputArgs := make([]any, 0, len(args))
 	last := 0

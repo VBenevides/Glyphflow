@@ -294,55 +294,56 @@ func (j *JetStream) processMessage(ctx context.Context, message jetstream.Msg, h
 	queueMessage := Message{Subject: message.Subject(), Data: message.Data(), ID: message.Headers().Get("Nats-Msg-Id")}
 	if err := handler(ctx, queueMessage); err == nil {
 		return message.DoubleAck(ctx)
-	} else {
-		metadata, metadataErr := message.Metadata()
-		if metadataErr == nil && metadata.NumDelivered >= 5 {
-			now := time.Now().UTC()
-			failedAt := now
-			stream, consumer := "", ""
-			attempts := metadata.NumDelivered
-			if metadata != nil {
-				stream, consumer, attempts = metadata.Stream, metadata.Consumer, metadata.NumDelivered
-				if !metadata.Timestamp.IsZero() {
-					failedAt = metadata.Timestamp.UTC()
-				}
-			}
-			messageID := queueMessage.ID
-			if messageID == "" && metadata != nil {
-				messageID = fmt.Sprintf("%s:%d", stream, metadata.Sequence.Stream)
-			}
-			record := DeadLetter{
-				Stream: stream, Consumer: consumer, Subject: message.Subject(), MessageID: messageID,
-				RunnerID: runnerIDFromSubject(message.Subject()), CorrelationID: correlationID(message.Headers()),
-				Payload: append([]byte(nil), message.Data()...), Error: boundedError(err), Attempts: attempts,
-				FirstFailedAt: failedAt, LastFailedAt: now,
-			}
-			if j.deadLetterSink != nil {
-				if persistErr := j.deadLetterSink(ctx, record); persistErr != nil {
-					_ = message.Nak()
-					return persistErr
-				}
-			} else {
-				if publishErr := j.Publish(ctx, Message{Subject: "glyphflow.deadletter." + message.Subject(), Data: []byte(boundedError(err))}); publishErr != nil {
-					_ = message.Nak()
-					return publishErr
-				}
-			}
-			if j.deadLetterSink != nil {
-				notice, marshalErr := json.Marshal(map[string]any{"messageId": record.MessageID, "subject": record.Subject, "state": "OPEN"})
-				if marshalErr != nil {
-					_ = message.Nak()
-					return marshalErr
-				}
-				if publishErr := j.Publish(ctx, Message{Subject: "glyphflow.deadletter." + message.Subject(), Data: notice}); publishErr != nil {
-					_ = message.Nak()
-					return publishErr
-				}
-			}
-			return message.Ack()
+	} else if handled, handleErr := j.handleFailedMessage(ctx, message, queueMessage, err); handled {
+		if handleErr != nil {
+			_ = message.Nak()
+			return handleErr
 		}
-		return message.Nak()
+		return message.Ack()
 	}
+	return message.Nak()
+}
+
+func (j *JetStream) handleFailedMessage(ctx context.Context, message jetstream.Msg, queueMessage Message, handlerErr error) (bool, error) {
+	metadata, metadataErr := message.Metadata()
+	if metadataErr != nil || metadata.NumDelivered < 5 {
+		return false, nil
+	}
+	now := time.Now().UTC()
+	failedAt := now
+	stream, consumer := "", ""
+	attempts := metadata.NumDelivered
+	if metadata != nil {
+		stream, consumer, attempts = metadata.Stream, metadata.Consumer, metadata.NumDelivered
+		if !metadata.Timestamp.IsZero() {
+			failedAt = metadata.Timestamp.UTC()
+		}
+	}
+	messageID := queueMessage.ID
+	if messageID == "" && metadata != nil {
+		messageID = fmt.Sprintf("%s:%d", stream, metadata.Sequence.Stream)
+	}
+	record := DeadLetter{
+		Stream: stream, Consumer: consumer, Subject: message.Subject(), MessageID: messageID,
+		RunnerID: runnerIDFromSubject(message.Subject()), CorrelationID: correlationID(message.Headers()),
+		Payload: append([]byte(nil), message.Data()...), Error: boundedError(handlerErr), Attempts: attempts,
+		FirstFailedAt: failedAt, LastFailedAt: now,
+	}
+	if j.deadLetterSink != nil {
+		if err := j.deadLetterSink(ctx, record); err != nil {
+			return true, err
+		}
+	} else if err := j.Publish(ctx, Message{Subject: "glyphflow.deadletter." + message.Subject(), Data: []byte(boundedError(handlerErr))}); err != nil {
+		return true, err
+	}
+	if j.deadLetterSink == nil {
+		return true, nil
+	}
+	notice, err := json.Marshal(map[string]any{"messageId": record.MessageID, "subject": record.Subject, "state": "OPEN"})
+	if err != nil {
+		return true, err
+	}
+	return true, j.Publish(ctx, Message{Subject: "glyphflow.deadletter." + message.Subject(), Data: notice})
 }
 
 func boundedError(err error) string {

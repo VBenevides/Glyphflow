@@ -72,15 +72,37 @@ func VerifyOIDCIDToken(token, jwks, issuer, audience, nonce string, now time.Tim
 	if len(parts) != 3 {
 		return OIDCClaims{}, errors.New("OIDC ID token is malformed")
 	}
-	headerBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
+	header, err := decodeOIDCHeader(parts[0])
 	if err != nil {
-		return OIDCClaims{}, errors.New("OIDC ID token header is malformed")
+		return OIDCClaims{}, err
+	}
+	claims, err := decodeOIDCClaims(parts[1], now)
+	if err != nil {
+		return OIDCClaims{}, err
+	}
+	if err := ValidateOIDCClaims(claims, issuer, audience, nonce, now); err != nil {
+		return OIDCClaims{}, err
+	}
+	if err := verifyOIDCSignature(parts[0]+"."+parts[1], parts[2], header.Alg, header.Kid, jwks); err != nil {
+		return OIDCClaims{}, err
+	}
+	return claims, nil
+}
+
+func decodeOIDCHeader(encoded string) (struct{ Alg, Kid string }, error) {
+	headerBytes, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil {
+		return struct{ Alg, Kid string }{}, errors.New("OIDC ID token header is malformed")
 	}
 	var header struct{ Alg, Kid string }
 	if err := json.Unmarshal(headerBytes, &header); err != nil || header.Kid == "" {
-		return OIDCClaims{}, errors.New("OIDC ID token header is invalid")
+		return struct{ Alg, Kid string }{}, errors.New("OIDC ID token header is invalid")
 	}
-	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
+	return header, nil
+}
+
+func decodeOIDCClaims(encoded string, now time.Time) (OIDCClaims, error) {
+	payloadBytes, err := base64.RawURLEncoding.DecodeString(encoded)
 	if err != nil {
 		return OIDCClaims{}, errors.New("OIDC ID token claims are malformed")
 	}
@@ -113,14 +135,7 @@ func VerifyOIDCIDToken(token, jwks, issuer, audience, nonce string, now time.Tim
 	if err != nil || expires <= float64(now.Unix()) {
 		return OIDCClaims{}, errors.New("OIDC token has expired")
 	}
-	claims := OIDCClaims{Issuer: payload.Issuer, Subject: payload.Subject, Audience: audiences, Nonce: payload.Nonce, Expires: time.Unix(int64(expires), 0), Username: payload.Username, Email: payload.Email, Groups: append([]string(nil), payload.Groups...)}
-	if err := ValidateOIDCClaims(claims, issuer, audience, nonce, now); err != nil {
-		return OIDCClaims{}, err
-	}
-	if err := verifyOIDCSignature(parts[0]+"."+parts[1], parts[2], header.Alg, header.Kid, jwks); err != nil {
-		return OIDCClaims{}, err
-	}
-	return claims, nil
+	return OIDCClaims{Issuer: payload.Issuer, Subject: payload.Subject, Audience: audiences, Nonce: payload.Nonce, Expires: time.Unix(int64(expires), 0), Username: payload.Username, Email: payload.Email, Groups: append([]string(nil), payload.Groups...)}, nil
 }
 
 func verifyOIDCSignature(signingInput, encodedSignature, algorithm, keyID, jwks string) error {

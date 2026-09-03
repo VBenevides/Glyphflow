@@ -90,51 +90,16 @@ func BuildScheduleProjection(inputs []store.ScheduleProjectionInput, now time.Ti
 	byResource := make(map[string][]ProjectionOccurrence)
 	resourceNames := make(map[string]string)
 	for _, input := range inputs {
-		if input.ScheduleID == "" || input.TaskID == "" || input.TaskVersionID == "" || input.Expression == "" {
-			return ProjectionReport{}, errors.New("projection input is incomplete")
+		projected, err := projectScheduleInput(input, start, end)
+		if err != nil {
+			return ProjectionReport{}, err
 		}
-		if input.DurationSeconds <= 0 {
-			return ProjectionReport{}, fmt.Errorf("schedule %q has invalid task duration", input.ScheduleID)
-		}
-		laneID, laneLabel := projectionLane(input)
-		cursor := start
-		for cursor.Before(end) {
-			next, err := NextFire(input.Expression, input.Timezone, cursor)
-			if err != nil {
-				return ProjectionReport{}, fmt.Errorf("schedule %q: %w", input.ScheduleID, err)
-			}
-			if !next.After(cursor) {
-				return ProjectionReport{}, fmt.Errorf("schedule %q produced a non-increasing occurrence", input.ScheduleID)
-			}
-			if !next.Before(end) {
-				break
-			}
-			duration := time.Duration(input.DurationSeconds) * time.Second
-			finish := next.Add(duration)
-			if !finish.After(next) {
-				return ProjectionReport{}, fmt.Errorf("schedule %q has an invalid task duration", input.ScheduleID)
-			}
-			occurrence := ProjectionOccurrence{
-				ID:                input.ScheduleID + "@" + next.UTC().Format(time.RFC3339Nano),
-				ScheduleID:        input.ScheduleID,
-				ScheduleName:      fallbackName(input.ScheduleName, input.ScheduleID),
-				ScheduleVersionID: input.ScheduleVersionID,
-				TaskID:            input.TaskID,
-				TaskName:          fallbackName(input.TaskName, input.TaskID),
-				TaskVersionID:     input.TaskVersionID,
-				Timezone:          input.Timezone,
-				LaneID:            laneID,
-				LaneLabel:         laneLabel,
-				StartAt:           next.UTC(),
-				EndAt:             finish.UTC(),
-			}
-			resources := exclusiveResources(input.Resources)
-			windows = append(windows, projectionWindow{occurrence: occurrence, resources: resources})
-			for _, resource := range resources {
-				byResource[resource.ID] = append(byResource[resource.ID], occurrence)
+		for _, window := range projected {
+			windows = append(windows, window)
+			for _, resource := range window.resources {
+				byResource[resource.ID] = append(byResource[resource.ID], window.occurrence)
 				resourceNames[resource.ID] = resource.Name
 			}
-			cursor = next
 		}
 	}
 	conflicts := projectionConflicts(byResource, resourceNames)
@@ -154,6 +119,43 @@ func BuildScheduleProjection(inputs []store.ScheduleProjectionInput, now time.Ti
 		Segments:       segments,
 		Conflicts:      conflicts,
 	}, nil
+}
+
+func projectScheduleInput(input store.ScheduleProjectionInput, start, end time.Time) ([]projectionWindow, error) {
+	if input.ScheduleID == "" || input.TaskID == "" || input.TaskVersionID == "" || input.Expression == "" {
+		return nil, errors.New("projection input is incomplete")
+	}
+	if input.DurationSeconds <= 0 {
+		return nil, fmt.Errorf("schedule %q has invalid task duration", input.ScheduleID)
+	}
+	laneID, laneLabel := projectionLane(input)
+	resources := exclusiveResources(input.Resources)
+	windows := make([]projectionWindow, 0)
+	for cursor := start; cursor.Before(end); {
+		next, err := NextFire(input.Expression, input.Timezone, cursor)
+		if err != nil {
+			return nil, fmt.Errorf("schedule %q: %w", input.ScheduleID, err)
+		}
+		if !next.After(cursor) {
+			return nil, fmt.Errorf("schedule %q produced a non-increasing occurrence", input.ScheduleID)
+		}
+		if !next.Before(end) {
+			break
+		}
+		finish := next.Add(time.Duration(input.DurationSeconds) * time.Second)
+		if !finish.After(next) {
+			return nil, fmt.Errorf("schedule %q has an invalid task duration", input.ScheduleID)
+		}
+		occurrence := ProjectionOccurrence{
+			ID: input.ScheduleID + "@" + next.UTC().Format(time.RFC3339Nano), ScheduleID: input.ScheduleID,
+			ScheduleName: fallbackName(input.ScheduleName, input.ScheduleID), ScheduleVersionID: input.ScheduleVersionID,
+			TaskID: input.TaskID, TaskName: fallbackName(input.TaskName, input.TaskID), TaskVersionID: input.TaskVersionID,
+			Timezone: input.Timezone, LaneID: laneID, LaneLabel: laneLabel, StartAt: next.UTC(), EndAt: finish.UTC(),
+		}
+		windows = append(windows, projectionWindow{occurrence: occurrence, resources: resources})
+		cursor = next
+	}
+	return windows, nil
 }
 
 func projectionLane(input store.ScheduleProjectionInput) (string, string) {
@@ -225,61 +227,7 @@ func projectionSegments(windows []projectionWindow, conflicted map[string]bool) 
 func projectionConflicts(byResource map[string][]ProjectionOccurrence, names map[string]string) []ProjectionConflict {
 	result := make([]ProjectionConflict, 0)
 	for resourceID, occurrences := range byResource {
-		events := make([]projectionEvent, 0, len(occurrences)*2)
-		for _, occurrence := range occurrences {
-			events = append(events, projectionEvent{at: occurrence.StartAt, start: true, occurrence: occurrence}, projectionEvent{at: occurrence.EndAt, start: false, occurrence: occurrence})
-		}
-		sort.Slice(events, func(i, j int) bool {
-			if events[i].at != events[j].at {
-				return events[i].at.Before(events[j].at)
-			}
-			if events[i].start != events[j].start {
-				return !events[i].start
-			}
-			return events[i].occurrence.ID < events[j].occurrence.ID
-		})
-		active := make(map[string]ProjectionOccurrence)
-		var current *ProjectionConflict
-		for i := 0; i < len(events); {
-			j := i + 1
-			for j < len(events) && events[j].at.Equal(events[i].at) {
-				j++
-			}
-			for _, event := range events[i:j] {
-				if !event.start {
-					delete(active, event.occurrence.ID)
-				}
-			}
-			for _, event := range events[i:j] {
-				if event.start {
-					active[event.occurrence.ID] = event.occurrence
-				}
-			}
-			if j == len(events) || !events[j].at.After(events[i].at) || len(active) < 2 {
-				if current != nil {
-					result = append(result, *current)
-					current = nil
-				}
-				i = j
-				continue
-			}
-			spanEnd := events[j].at
-			if current == nil {
-				current = &ProjectionConflict{ID: resourceID + "@" + events[i].at.UTC().Format(time.RFC3339Nano), ResourceID: resourceID, ResourceName: fallbackName(names[resourceID], resourceID), StartAt: events[i].at.UTC()}
-			}
-			current.EndAt = spanEnd.UTC()
-			seen := make(map[string]bool, len(current.Occurrences))
-			for _, occurrence := range current.Occurrences {
-				seen[occurrence.ID] = true
-			}
-			for _, occurrence := range active {
-				if !seen[occurrence.ID] {
-					current.Occurrences = append(current.Occurrences, occurrence)
-				}
-			}
-			sort.Slice(current.Occurrences, func(a, b int) bool { return current.Occurrences[a].StartAt.Before(current.Occurrences[b].StartAt) })
-			i = j
-		}
+		result = append(result, conflictsForResource(resourceID, occurrences, names[resourceID])...)
 	}
 	sort.Slice(result, func(i, j int) bool {
 		if !result[i].StartAt.Equal(result[j].StartAt) {
@@ -291,4 +239,71 @@ func projectionConflicts(byResource map[string][]ProjectionOccurrence, names map
 		return result[i].ResourceID < result[j].ResourceID
 	})
 	return result
+}
+
+func conflictsForResource(resourceID string, occurrences []ProjectionOccurrence, resourceName string) []ProjectionConflict {
+	events := make([]projectionEvent, 0, len(occurrences)*2)
+	for _, occurrence := range occurrences {
+		events = append(events, projectionEvent{at: occurrence.StartAt, start: true, occurrence: occurrence}, projectionEvent{at: occurrence.EndAt, start: false, occurrence: occurrence})
+	}
+	sort.Slice(events, func(i, j int) bool {
+		if events[i].at != events[j].at {
+			return events[i].at.Before(events[j].at)
+		}
+		if events[i].start != events[j].start {
+			return !events[i].start
+		}
+		return events[i].occurrence.ID < events[j].occurrence.ID
+	})
+	active := make(map[string]ProjectionOccurrence)
+	var current *ProjectionConflict
+	result := make([]ProjectionConflict, 0)
+	for i := 0; i < len(events); {
+		j := i + 1
+		for j < len(events) && events[j].at.Equal(events[i].at) {
+			j++
+		}
+		updateActiveOccurrences(active, events[i:j])
+		if j == len(events) || !events[j].at.After(events[i].at) || len(active) < 2 {
+			if current != nil {
+				result = append(result, *current)
+				current = nil
+			}
+			i = j
+			continue
+		}
+		if current == nil {
+			current = &ProjectionConflict{ID: resourceID + "@" + events[i].at.UTC().Format(time.RFC3339Nano), ResourceID: resourceID, ResourceName: fallbackName(resourceName, resourceID), StartAt: events[i].at.UTC()}
+		}
+		current.EndAt = events[j].at.UTC()
+		addActiveOccurrences(current, active)
+		i = j
+	}
+	return result
+}
+
+func updateActiveOccurrences(active map[string]ProjectionOccurrence, events []projectionEvent) {
+	for _, event := range events {
+		if !event.start {
+			delete(active, event.occurrence.ID)
+		}
+	}
+	for _, event := range events {
+		if event.start {
+			active[event.occurrence.ID] = event.occurrence
+		}
+	}
+}
+
+func addActiveOccurrences(conflict *ProjectionConflict, active map[string]ProjectionOccurrence) {
+	seen := make(map[string]bool, len(conflict.Occurrences))
+	for _, occurrence := range conflict.Occurrences {
+		seen[occurrence.ID] = true
+	}
+	for _, occurrence := range active {
+		if !seen[occurrence.ID] {
+			conflict.Occurrences = append(conflict.Occurrences, occurrence)
+		}
+	}
+	sort.Slice(conflict.Occurrences, func(a, b int) bool { return conflict.Occurrences[a].StartAt.Before(conflict.Occurrences[b].StartAt) })
 }

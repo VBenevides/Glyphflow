@@ -42,67 +42,85 @@ type AssignmentChange struct {
 }
 
 func SyncSSORoles(userID, providerID string, existing []RoleAssignment, groups []string, groupRoles map[string]string, audit func(AssignmentChange)) ([]RoleAssignment, []AssignmentChange) {
-	before := map[string]RoleAssignment{}
-	for _, assignment := range existing {
-		if assignment.UserID == "" {
-			assignment.UserID = userID
-		}
-		before[assignment.UserID+"\x00"+assignment.RoleID+"\x00"+assignment.SourceType+"\x00"+assignment.SourceKey] = assignment
-	}
+	before := assignmentMap(userID, existing)
 	next := ReconcileSSOAssignments(existing, providerID, groups, groupRoles)
-	changes := []AssignmentChange{}
-	after := map[string]RoleAssignment{}
-	for _, assignment := range next {
+	after := assignmentMap(userID, next)
+	changes := assignmentChanges(before, after, providerID, audit)
+	return next, changes
+}
+
+func assignmentMap(userID string, assignments []RoleAssignment) map[string]RoleAssignment {
+	result := make(map[string]RoleAssignment, len(assignments))
+	for _, assignment := range assignments {
 		if assignment.UserID == "" {
 			assignment.UserID = userID
 		}
-		key := assignment.UserID + "\x00" + assignment.RoleID + "\x00" + assignment.SourceType + "\x00" + assignment.SourceKey
-		after[key] = assignment
+		result[assignmentIdentity(assignment)] = assignment
+	}
+	return result
+}
+
+func assignmentIdentity(assignment RoleAssignment) string {
+	return assignment.UserID + "\x00" + assignment.RoleID + "\x00" + assignment.SourceType + "\x00" + assignment.SourceKey
+}
+
+func assignmentChanges(before, after map[string]RoleAssignment, providerID string, audit func(AssignmentChange)) []AssignmentChange {
+	changes := make([]AssignmentChange, 0)
+	for key, assignment := range after {
 		if _, ok := before[key]; !ok && assignment.SourceType == "sso" && assignment.ProviderID == providerID {
-			change := AssignmentChange{Action: "added", Assignment: assignment}
-			changes = append(changes, change)
-			if audit != nil {
-				audit(change)
-			}
+			changes = appendAssignmentChange(changes, AssignmentChange{Action: "added", Assignment: assignment}, audit)
 		}
 	}
 	for key, assignment := range before {
 		if _, ok := after[key]; !ok && assignment.SourceType == "sso" && assignment.ProviderID == providerID {
-			change := AssignmentChange{Action: "removed", Assignment: assignment}
-			changes = append(changes, change)
-			if audit != nil {
-				audit(change)
-			}
+			changes = appendAssignmentChange(changes, AssignmentChange{Action: "removed", Assignment: assignment}, audit)
 		}
 	}
-	return next, changes
+	return changes
+}
+
+func appendAssignmentChange(changes []AssignmentChange, change AssignmentChange, audit func(AssignmentChange)) []AssignmentChange {
+	if audit != nil {
+		audit(change)
+	}
+	return append(changes, change)
 }
 
 func ExtractSSOGroups(claims map[string]any, paths []string) []string {
 	seen := map[string]bool{}
 	var groups []string
 	for _, path := range paths {
-		var value any = claims
-		for _, part := range strings.Split(path, ".") {
-			object, ok := value.(map[string]any)
-			if !ok {
-				value = nil
-				break
-			}
-			value = object[part]
+		groups = appendSSOGroups(groups, seen, claimValue(claims, path))
+	}
+	return groups
+}
+
+func claimValue(claims map[string]any, path string) any {
+	var value any = claims
+	for _, part := range strings.Split(path, ".") {
+		object, ok := value.(map[string]any)
+		if !ok {
+			return nil
 		}
-		switch values := value.(type) {
-		case string:
-			if values != "" && !seen[values] {
-				seen[values] = true
-				groups = append(groups, values)
-			}
-		case []any:
-			for _, item := range values {
-				if group, ok := item.(string); ok && group != "" && !seen[group] {
-					seen[group] = true
-					groups = append(groups, group)
-				}
+		value = object[part]
+	}
+	return value
+}
+
+func appendSSOGroups(groups []string, seen map[string]bool, value any) []string {
+	add := func(group string) {
+		if group != "" && !seen[group] {
+			seen[group] = true
+			groups = append(groups, group)
+		}
+	}
+	switch values := value.(type) {
+	case string:
+		add(values)
+	case []any:
+		for _, item := range values {
+			if group, ok := item.(string); ok {
+				add(group)
 			}
 		}
 	}

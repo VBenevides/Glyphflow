@@ -267,18 +267,30 @@ func (s *ScheduleStore) CreateDueRun(ctx context.Context, now time.Time, next fu
 	if next == nil {
 		return "", false, errors.New("schedule next-fire function is required")
 	}
-	if s.storagePressure != nil {
-		pressure, err := s.storagePressure(ctx)
-		if err != nil {
-			return "", false, err
-		}
-		if pressure.State == platform.StorageUnavailable {
-			return "", false, ErrStorageUnavailable
-		}
-		if pressure.RejectNewRuns() {
-			return "", false, ErrStorageExhausted
-		}
+	if err := s.checkStoragePressure(ctx); err != nil {
+		return "", false, err
 	}
+	return s.createDueRun(ctx, now, next)
+}
+
+func (s *ScheduleStore) checkStoragePressure(ctx context.Context) error {
+	if s.storagePressure == nil {
+		return nil
+	}
+	pressure, err := s.storagePressure(ctx)
+	if err != nil {
+		return err
+	}
+	if pressure.State == platform.StorageUnavailable {
+		return ErrStorageUnavailable
+	}
+	if pressure.RejectNewRuns() {
+		return ErrStorageExhausted
+	}
+	return nil
+}
+
+func (s *ScheduleStore) createDueRun(ctx context.Context, now time.Time, next func(DueScheduleRecord) (time.Time, error)) (string, bool, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return "", false, err

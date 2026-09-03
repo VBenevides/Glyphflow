@@ -6,20 +6,28 @@ import (
 	"errors"
 )
 
+const (
+	permissionTasksRead     = "tasks.read"
+	permissionRunsExecute   = "runs.execute"
+	permissionRunsRead      = "runs.read"
+	permissionResourcesRead = "resources.read"
+	permissionRunnersRead   = "runners.read"
+)
+
 var PermissionCatalog = []string{
 	"users.read", "users.manage", "roles.read", "roles.manage", "sso.read", "sso.manage", "secrets.read", "secrets.manage",
-	"auth.settings.manage", "tasks.read", "tasks.manage", "runs.read", "runs.execute", "runs.cancel",
-	"runs.retry", "logs.read", "resources.read", "resources.manage", "runners.read", "runners.manage", "audit.read", "system.metrics.read", "system.deadletter.read", "system.deadletter.manage",
+	"auth.settings.manage", permissionTasksRead, "tasks.manage", permissionRunsRead, permissionRunsExecute, "runs.cancel",
+	"runs.retry", "logs.read", permissionResourcesRead, "resources.manage", permissionRunnersRead, "runners.manage", "audit.read", "system.metrics.read", "system.deadletter.read", "system.deadletter.manage",
 }
 
 var UserPermissionCatalog = []string{
-	"tasks.read", "runs.read", "runs.execute",
-	"resources.read", "runners.read",
+	permissionTasksRead, permissionRunsRead, permissionRunsExecute,
+	permissionResourcesRead, permissionRunnersRead,
 }
 
 var OperatorPermissionCatalog = []string{
-	"tasks.read", "tasks.manage", "runs.read", "runs.execute",
-	"resources.read", "resources.manage", "runners.read", "runners.manage",
+	permissionTasksRead, "tasks.manage", permissionRunsRead, permissionRunsExecute,
+	permissionResourcesRead, "resources.manage", permissionRunnersRead, "runners.manage",
 	"system.metrics.read", "system.deadletter.read", "system.deadletter.manage",
 }
 

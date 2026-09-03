@@ -215,62 +215,74 @@ func (c Config) Validate() error {
 		return errors.New("DATABASE_STORAGE_CAPACITY_BYTES must not be negative")
 	}
 	if c.Role == ControlPlane {
-		if c.Environment != "development" && databaseMode == "sqlite" {
-			return errors.New("GLYPHFLOW_DATABASE=sqlite is supported only in development")
-		}
-		if c.Environment == "production" && natsMode == "embedded" {
-			return errors.New("GLYPHFLOW_NATS=embed is not supported in production")
-		}
-		if len([]byte(c.AccessTokenSecret)) < 32 {
-			return errors.New("ACCESS_TOKEN_SECRET must contain at least 32 bytes")
-		}
-		if c.PasswordLoginEnabled && len([]byte(c.PasswordPepper)) < 16 {
-			return errors.New("PASSWORD_PEPPER must contain at least 16 bytes when password login is enabled")
-		}
-		if err := requireURL("WEB_ORIGIN", c.WebOrigin, "http", "https"); err != nil {
+		return c.validateControlPlane(databaseMode, natsMode)
+	}
+	return c.validateWorker(natsMode)
+}
+
+func (c Config) validateControlPlane(databaseMode, natsMode string) error {
+	if c.Environment != "development" && databaseMode == "sqlite" {
+		return errors.New("GLYPHFLOW_DATABASE=sqlite is supported only in development")
+	}
+	if c.Environment == "production" && natsMode == "embedded" {
+		return errors.New("GLYPHFLOW_NATS=embed is not supported in production")
+	}
+	if len([]byte(c.AccessTokenSecret)) < 32 {
+		return errors.New("ACCESS_TOKEN_SECRET must contain at least 32 bytes")
+	}
+	if c.PasswordLoginEnabled && len([]byte(c.PasswordPepper)) < 16 {
+		return errors.New("PASSWORD_PEPPER must contain at least 16 bytes when password login is enabled")
+	}
+	if err := requireURL("WEB_ORIGIN", c.WebOrigin, "http", "https"); err != nil {
+		return err
+	}
+	if !c.AllowInsecureTransport || (c.Environment != "local" && c.Environment != "development") {
+		if err := requireURL("WEB_ORIGIN", c.WebOrigin, "https"); err != nil {
 			return err
 		}
-		if !c.AllowInsecureTransport || (c.Environment != "local" && c.Environment != "development") {
-			if err := requireURL("WEB_ORIGIN", c.WebOrigin, "https"); err != nil {
-				return err
-			}
-			if natsMode != "remote" || !strings.HasPrefix(c.NATSURL, "tls://") {
-				return errors.New("NATS_URL must use TLS outside development")
-			}
+		if natsMode != "remote" || !strings.HasPrefix(c.NATSURL, "tls://") {
+			return errors.New("NATS_URL must use TLS outside development")
 		}
-		if c.Environment != "development" && c.ControlPlaneSigningPrivateKey == "" {
-			return errors.New("CONTROL_PLANE_SIGNING_PRIVATE_KEY is required outside development")
+	}
+	if c.Environment != "development" && c.ControlPlaneSigningPrivateKey == "" {
+		return errors.New("CONTROL_PLANE_SIGNING_PRIVATE_KEY is required outside development")
+	}
+	if c.Environment != "development" && c.DatabaseStorageCapacityBytes <= 0 {
+		return errors.New("DATABASE_STORAGE_CAPACITY_BYTES must be greater than zero outside development")
+	}
+	if c.ControlPlaneSigningPrivateKey != "" {
+		raw, err := base64.RawStdEncoding.DecodeString(c.ControlPlaneSigningPrivateKey)
+		if err != nil || len(raw) != ed25519.PrivateKeySize {
+			return errors.New("CONTROL_PLANE_SIGNING_PRIVATE_KEY is invalid")
 		}
-		if c.Environment != "development" && c.DatabaseStorageCapacityBytes <= 0 {
-			return errors.New("DATABASE_STORAGE_CAPACITY_BYTES must be greater than zero outside development")
+	}
+	if c.Environment == "production" && (c.NATSCertFile == "" || c.NATSKeyFile == "" || c.NATSCAFile == "") {
+		return errors.New("production requires NATS client certificate, key, and CA files")
+	}
+	return c.validateDatabase(databaseMode)
+}
+
+func (c Config) validateDatabase(databaseMode string) error {
+	if databaseMode == "postgresql" {
+		if err := requireURL("DATABASE_URL", c.DatabaseURL, "postgres", "postgresql"); err != nil {
+			return err
 		}
-		if c.ControlPlaneSigningPrivateKey != "" {
-			raw, err := base64.RawStdEncoding.DecodeString(c.ControlPlaneSigningPrivateKey)
-			if err != nil || len(raw) != ed25519.PrivateKeySize {
-				return errors.New("CONTROL_PLANE_SIGNING_PRIVATE_KEY is invalid")
-			}
-		}
-		if c.Environment == "production" && (c.NATSCertFile == "" || c.NATSKeyFile == "" || c.NATSCAFile == "") {
-			return errors.New("production requires NATS client certificate, key, and CA files")
-		}
-		if databaseMode == "postgresql" {
-			if err := requireURL("DATABASE_URL", c.DatabaseURL, "postgres", "postgresql"); err != nil {
-				return err
-			}
-			if c.Environment != "development" && databaseSSLMode(c.DatabaseURL) != "verify-full" {
-				return errors.New("DATABASE_URL must use sslmode=verify-full outside development")
-			}
-		} else {
-			path := strings.TrimSpace(c.DatabaseURL)
-			if path == "" {
-				return errors.New("DATABASE_URL must contain the SQLite database path")
-			}
-			if strings.Contains(path, "://") && !strings.HasPrefix(strings.ToLower(path), "file://") {
-				return errors.New("DATABASE_URL must contain a SQLite database path")
-			}
+		if c.Environment != "development" && databaseSSLMode(c.DatabaseURL) != "verify-full" {
+			return errors.New("DATABASE_URL must use sslmode=verify-full outside development")
 		}
 		return nil
 	}
+	path := strings.TrimSpace(c.DatabaseURL)
+	if path == "" {
+		return errors.New("DATABASE_URL must contain the SQLite database path")
+	}
+	if strings.Contains(path, "://") && !strings.HasPrefix(strings.ToLower(path), "file://") {
+		return errors.New("DATABASE_URL must contain a SQLite database path")
+	}
+	return nil
+}
+
+func (c Config) validateWorker(natsMode string) error {
 	if !runnerIDPattern.MatchString(c.RunnerID) {
 		return errors.New("RUNNER_ID must contain only letters, digits, dot, underscore, or hyphen")
 	}

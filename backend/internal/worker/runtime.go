@@ -35,6 +35,16 @@ type OrderRuntime struct {
 	Writer           io.Writer
 }
 
+type eventRecord struct {
+	typeName  protocol.EventType
+	sequence  uint64
+	result    string
+	errorText string
+	exitCode  *int
+	channel   string
+	metrics   map[string]int64
+}
+
 func (r OrderRuntime) logf(format string, args ...any) {
 	writer := r.Writer
 	if writer == nil {
@@ -122,6 +132,10 @@ func (r OrderRuntime) Handle(ctx context.Context, message queue.Message) error {
 		}
 		return nil
 	}
+	return r.handleExecution(ctx, message, order, keyring)
+}
+
+func (r OrderRuntime) handleExecution(ctx context.Context, message queue.Message, order protocol.OrderPayload, keyring protocol.Keyring) error {
 	payload, err := protocol.VerifyOrder(message.Data, keyring, time.Now().UTC(), r.RunnerID, order.RunID, order.Attempt, order.LeaseToken, time.Second, nil)
 	if err != nil {
 		return err
@@ -153,7 +167,7 @@ func (r OrderRuntime) Handle(ctx context.Context, message queue.Message) error {
 	if err := r.Store.ClaimOrder(payload.OrderID, r.ExecutorBootID, r.ProcessID); err != nil {
 		return nil
 	}
-	if err := r.publishEvent(ctx, payload, protocol.EventAccepted, 1, "", "", nil, nil); err != nil {
+	if err := r.publishEvent(ctx, payload, eventRecord{typeName: protocol.EventAccepted, sequence: 1, channel: "state"}); err != nil {
 		return err
 	}
 	if err := r.Store.MarkProcessStarted(payload.OrderID); err != nil {
@@ -164,7 +178,7 @@ func (r OrderRuntime) Handle(ctx context.Context, message queue.Message) error {
 		taskName = payload.TaskID
 	}
 	r.logf("> %s - Started Task %q v%d - ID %q - Run %q\n", time.Now().UTC().Format("2006-01-02 15:04 MST"), taskName, payload.TaskVersion, payload.TaskID, payload.RunID)
-	if err := r.publishEvent(ctx, payload, protocol.EventStarted, 2, "", "", nil, nil); err != nil {
+	if err := r.publishEvent(ctx, payload, eventRecord{typeName: protocol.EventStarted, sequence: 2, channel: "state"}); err != nil {
 		return err
 	}
 	executionContext, cancel := context.WithTimeout(ctx, time.Duration(payload.DurationSeconds)*time.Second)
@@ -200,7 +214,7 @@ func (r OrderRuntime) Handle(ctx context.Context, message queue.Message) error {
 				size = maxEventLogChunkBytes
 			}
 			logSequences[stream]++
-			if err := r.persistEvent(payload, protocol.EventLogChunk, logSequences[stream], string(chunk[:size]), "", nil, stream, nil); err != nil {
+			if err := r.persistEvent(payload, eventRecord{typeName: protocol.EventLogChunk, sequence: logSequences[stream], result: string(chunk[:size]), channel: stream}); err != nil {
 				return err
 			}
 			_ = PublishPendingEvents(ctx, r.Store, r.Publisher, r.RunnerID)
@@ -249,7 +263,7 @@ func (r OrderRuntime) Handle(ctx context.Context, message queue.Message) error {
 		terminalOutput = string(output)
 	}
 	metrics := map[string]int64{"max_memory_bytes": int64(memory.MaxBytes), "average_memory_bytes": int64(memory.AverageBytes)}
-	if err := r.publishEvent(ctx, payload, eventType, 3, terminalOutput, errorText, exitCode, metrics); err != nil {
+	if err := r.publishEvent(ctx, payload, eventRecord{typeName: eventType, sequence: 3, result: terminalOutput, errorText: errorText, exitCode: exitCode, channel: "state", metrics: metrics}); err != nil {
 		return err
 	}
 	state := "COMPLETED"
@@ -262,8 +276,8 @@ func (r OrderRuntime) Handle(ctx context.Context, message queue.Message) error {
 	return r.Store.FinishOrder(payload.OrderID, state, errorText)
 }
 
-func (r OrderRuntime) publishEvent(ctx context.Context, order protocol.OrderPayload, eventType protocol.EventType, sequence uint64, result, eventError string, exitCode *int, metrics map[string]int64) error {
-	if err := r.persistEvent(order, eventType, sequence, result, eventError, exitCode, "state", metrics); err != nil {
+func (r OrderRuntime) publishEvent(ctx context.Context, order protocol.OrderPayload, event eventRecord) error {
+	if err := r.persistEvent(order, event); err != nil {
 		return err
 	}
 	// The event is durable locally; the background publisher retries transient broker failures.
@@ -271,13 +285,12 @@ func (r OrderRuntime) publishEvent(ctx context.Context, order protocol.OrderPayl
 	return nil
 }
 
-func (r OrderRuntime) persistEvent(order protocol.OrderPayload, eventType protocol.EventType, sequence uint64, result, eventError string, exitCode *int, eventChannel string, metrics map[string]int64) error {
-	eventID := order.OrderID + ":" + string(eventType)
-	if eventType == protocol.EventLogChunk {
-		eventID = order.OrderID + ":" + eventChannel + ":" + strconv.FormatUint(sequence, 10)
+func (r OrderRuntime) persistEvent(order protocol.OrderPayload, event eventRecord) error {
+	eventID := order.OrderID + ":" + string(event.typeName)
+	if event.typeName == protocol.EventLogChunk {
+		eventID = order.OrderID + ":" + event.channel + ":" + strconv.FormatUint(event.sequence, 10)
 	}
-	event := protocol.EventPayload{Version: protocol.ProtocolVersion, EventID: eventID, OrderID: order.OrderID, RunID: order.RunID, TaskID: order.TaskID, Attempt: order.Attempt, LeaseToken: order.LeaseToken, RunnerID: order.RunnerID, Sequence: sequence, ObservedAt: time.Now().UTC(), Type: eventType, Result: result, Metrics: metrics, Error: eventError, ExitCode: exitCode, RunnerSessionID: order.RunnerSessionID, FencingToken: order.FencingToken, EventChannel: eventChannel}
-	payload, err := protocol.EncodeEventPayload(event)
+	payload, err := protocol.EncodeEventPayload(protocol.EventPayload{Version: protocol.ProtocolVersion, EventID: eventID, OrderID: order.OrderID, RunID: order.RunID, TaskID: order.TaskID, Attempt: order.Attempt, LeaseToken: order.LeaseToken, RunnerID: order.RunnerID, Sequence: event.sequence, ObservedAt: time.Now().UTC(), Type: event.typeName, Result: event.result, Metrics: event.metrics, Error: event.errorText, ExitCode: event.exitCode, RunnerSessionID: order.RunnerSessionID, FencingToken: order.FencingToken, EventChannel: event.channel})
 	if err != nil {
 		return err
 	}
@@ -289,7 +302,7 @@ func (r OrderRuntime) persistEvent(order protocol.OrderPayload, eventType protoc
 	if err != nil {
 		return err
 	}
-	if err := r.Store.PutEvent(OutboxEvent{EventID: event.EventID, OrderID: order.OrderID, Channel: eventChannel, Sequence: int64(sequence), EventType: string(eventType), Envelope: string(raw)}); err != nil {
+	if err := r.Store.PutEvent(OutboxEvent{EventID: eventID, OrderID: order.OrderID, Channel: event.channel, Sequence: int64(event.sequence), EventType: string(event.typeName), Envelope: string(raw)}); err != nil {
 		return err
 	}
 	return nil

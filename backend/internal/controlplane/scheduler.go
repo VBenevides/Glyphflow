@@ -46,27 +46,7 @@ func (s Schedule) Next(now time.Time) (time.Time, error) {
 }
 
 func nextCronMinute(now time.Time, expression string) (time.Time, error) {
-	fields := splitFields(expression)
-	if len(fields) != 5 {
-		return time.Time{}, errors.New("cron requires five fields")
-	}
-	minute, err := parseCronField(fields[0], 0, 59)
-	if err != nil {
-		return time.Time{}, err
-	}
-	hour, err := parseCronField(fields[1], 0, 23)
-	if err != nil {
-		return time.Time{}, err
-	}
-	dom, err := parseCronField(fields[2], 1, 31)
-	if err != nil {
-		return time.Time{}, err
-	}
-	month, err := parseCronField(fields[3], 1, 12)
-	if err != nil {
-		return time.Time{}, err
-	}
-	dow, err := parseCronField(fields[4], 0, 6)
+	minute, hour, dom, month, dow, err := parseCronFields(expression)
 	if err != nil {
 		return time.Time{}, err
 	}
@@ -77,20 +57,52 @@ func nextCronMinute(now time.Time, expression string) (time.Time, error) {
 	}
 	for i := 1; i <= 24*60*366*8; i++ {
 		candidate := now.Truncate(time.Minute).Add(time.Duration(i) * time.Minute)
-		dayMatch := dom[candidate.Day()] || dow[int(candidate.Weekday())]
-		switch {
-		case domAny && dowAny:
-			dayMatch = true
-		case domAny:
-			dayMatch = dow[int(candidate.Weekday())]
-		case dowAny:
-			dayMatch = dom[candidate.Day()]
-		}
-		if minute[candidate.Minute()] && hour[candidate.Hour()] && dayMatch && month[int(candidate.Month())] {
+		if cronMinuteMatches(candidate, minute, hour, dom, month, dow, domAny, dowAny) {
 			return candidate, nil
 		}
 	}
 	return time.Time{}, errors.New("cron has no occurrence in search window")
+}
+
+func parseCronFields(expression string) (map[int]bool, map[int]bool, map[int]bool, map[int]bool, map[int]bool, error) {
+	fields := splitFields(expression)
+	if len(fields) != 5 {
+		return nil, nil, nil, nil, nil, errors.New("cron requires five fields")
+	}
+	minute, err := parseCronField(fields[0], 0, 59)
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+	hour, err := parseCronField(fields[1], 0, 23)
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+	dom, err := parseCronField(fields[2], 1, 31)
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+	month, err := parseCronField(fields[3], 1, 12)
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+	dow, err := parseCronField(fields[4], 0, 6)
+	return minute, hour, dom, month, dow, err
+}
+
+func cronMinuteMatches(candidate time.Time, minute, hour, dom, month, dow map[int]bool, domAny, dowAny bool) bool {
+	if !minute[candidate.Minute()] || !hour[candidate.Hour()] || !month[int(candidate.Month())] {
+		return false
+	}
+	if domAny && dowAny {
+		return true
+	}
+	if domAny {
+		return dow[int(candidate.Weekday())]
+	}
+	if dowAny {
+		return dom[candidate.Day()]
+	}
+	return dom[candidate.Day()] || dow[int(candidate.Weekday())]
 }
 
 func cronFieldIsAny(values map[int]bool, min, max int) bool {
