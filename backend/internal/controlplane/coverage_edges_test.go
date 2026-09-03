@@ -124,7 +124,7 @@ func testProjectionEdges(t *testing.T, now time.Time) {
 	if _, err := BuildScheduleProjection([]store.ScheduleProjectionInput{{ScheduleID: "s", TaskID: "t", TaskVersionID: "v", Expression: "invalid", DurationSeconds: 1}}, now); err == nil {
 		t.Fatal("invalid projection schedule accepted")
 	}
-	if raw := signSecretDeliveryResponse(protocol.SecretDeliveryResponse{Version: protocol.ProtocolVersion}, protocol.SigningKey{ID: "invalid"}); raw != nil {
+	if signSecretDeliveryResponse(protocol.SecretDeliveryResponse{Version: protocol.ProtocolVersion}, protocol.SigningKey{ID: "invalid"}) != nil {
 		t.Fatal("response signed with invalid key")
 	}
 	if raw := secretDeliveryResponse(context.Background(), nil, nil, nil, protocol.SigningKey{ID: "invalid"}, nil, []byte("invalid")); raw != nil {
