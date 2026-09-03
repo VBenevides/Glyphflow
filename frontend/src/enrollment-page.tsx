@@ -18,7 +18,7 @@ export function enrollmentPayload(runnerName: string, platform: string, architec
 }
 
 export function downloadArtifact(value: string, name: string) {
-  const bytes = Uint8Array.from(atob(value), (character) => character.charCodeAt(0)); const blob = new Blob([bytes], { type: 'application/octet-stream' }); const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = name; anchor.click(); URL.revokeObjectURL(url)
+  const bytes = Uint8Array.from(atob(value), (character) => character.codePointAt(0) ?? 0); const blob = new Blob([bytes], { type: 'application/octet-stream' }); const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = name; anchor.click(); URL.revokeObjectURL(url)
 }
 
 export function EnrollmentPage() {
