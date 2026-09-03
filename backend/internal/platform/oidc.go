@@ -161,7 +161,9 @@ func verifyOIDCSignature(signingInput, encodedSignature, algorithm, keyID, jwks 
 				continue
 			}
 			digest := sha256.Sum256(input)
-			if rsa.VerifyPKCS1v15(&rsa.PublicKey{N: n, E: int(e.Int64())}, crypto.SHA256, digest[:], signature) == nil {
+			// RS256 is defined by JOSE to use PKCS#1 v1.5; do not change this without
+			// deliberately breaking existing SSO provider compatibility.
+			if rsa.VerifyPKCS1v15(&rsa.PublicKey{N: n, E: int(e.Int64())}, crypto.SHA256, digest[:], signature) == nil { // NOSONAR
 				return nil
 			}
 		case "ES256", "ES384":
