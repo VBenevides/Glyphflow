@@ -112,6 +112,12 @@ type coverageScanner func(...any) error
 
 func (s coverageScanner) Scan(dest ...any) error { return s(dest...) }
 
+type runClaimStartScan struct {
+	runState, attemptState, runnerID, sessionID, lease, digest string
+	fencing                                                    int64
+	leaseUntil, deadline                                       time.Time
+}
+
 type coverageScanSequence struct {
 	scans []coverageScanner
 	index int
@@ -924,17 +930,17 @@ func TestRunClaimStartBranches(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 	input := StartClaimInput{RunID: "run", RunnerID: "runner", RunnerSessionID: "session", LeaseToken: "lease", Attempt: 1, FencingToken: 7, ExecutionSpecDigest: "digest"}
-	scan := func(runState, attemptState, runnerID, sessionID, lease, digest string, fencing int64, leaseUntil, deadline time.Time) coverageScanner {
+	scan := func(values runClaimStartScan) coverageScanner {
 		return func(dest ...any) error {
-			*(dest[0].(*string)) = runState
-			*(dest[1].(*string)) = attemptState
-			*(dest[2].(*string)) = runnerID
-			*(dest[3].(*string)) = sessionID
-			*(dest[4].(*string)) = lease
-			*(dest[5].(*int64)) = fencing
-			*(dest[6].(*string)) = digest
-			*(dest[7].(*time.Time)) = leaseUntil
-			*(dest[8].(*time.Time)) = deadline
+			*(dest[0].(*string)) = values.runState
+			*(dest[1].(*string)) = values.attemptState
+			*(dest[2].(*string)) = values.runnerID
+			*(dest[3].(*string)) = values.sessionID
+			*(dest[4].(*string)) = values.lease
+			*(dest[5].(*int64)) = values.fencing
+			*(dest[6].(*string)) = values.digest
+			*(dest[7].(*time.Time)) = values.leaseUntil
+			*(dest[8].(*time.Time)) = values.deadline
 			*(dest[9].(*time.Time)) = now
 			return nil
 		}
@@ -942,30 +948,30 @@ func TestRunClaimStartBranches(t *testing.T) {
 	future := now.Add(time.Minute)
 	valid := func(tx coverageTx) *RunStore {
 		if tx.row == nil {
-			tx.row = scan("DISPATCHED", "ACCEPTED", "runner", "session", "lease", "digest", 7, future, future)
+			tx.row = scan(runClaimStartScan{"DISPATCHED", "ACCEPTED", "runner", "session", "lease", "digest", 7, future, future})
 		}
 		return &RunStore{pool: coverageDatabase{tx: tx}}
 	}
 	testRunClaimStartResults(t, ctx, input, valid, scan, future)
 }
 
-func testRunClaimStartResults(t *testing.T, ctx context.Context, input StartClaimInput, valid func(coverageTx) *RunStore, scan func(string, string, string, string, string, string, int64, time.Time, time.Time) coverageScanner, future time.Time) {
+func testRunClaimStartResults(t *testing.T, ctx context.Context, input StartClaimInput, valid func(coverageTx) *RunStore, scan func(runClaimStartScan) coverageScanner, future time.Time) {
 	if _, claimed, err := (&RunStore{pool: coverageDatabase{beginErr: errors.New("begin")}}).ClaimStart(ctx, input); err == nil || claimed {
 		t.Fatal("begin failure was ignored")
 	}
 	if _, claimed, err := valid(coverageTx{row: coverageScanner(func(...any) error { return pgx.ErrNoRows })}).ClaimStart(ctx, input); err != nil || claimed {
 		t.Fatalf("missing claim = claimed %v err %v", claimed, err)
 	}
-	if _, claimed, err := valid(coverageTx{row: scan("DISPATCHED", "ACCEPTED", "other", "session", "lease", "digest", 7, future, future)}).ClaimStart(ctx, input); err != nil || claimed {
+	if _, claimed, err := valid(coverageTx{row: scan(runClaimStartScan{"DISPATCHED", "ACCEPTED", "other", "session", "lease", "digest", 7, future, future})}).ClaimStart(ctx, input); err != nil || claimed {
 		t.Fatalf("mismatched claim = claimed %v err %v", claimed, err)
 	}
-	if claimedAt, claimed, err := valid(coverageTx{row: scan("RUNNING", "RUNNING", "runner", "session", "lease", "digest", 7, future, future)}).ClaimStart(ctx, input); err != nil || !claimed || claimedAt.IsZero() {
+	if claimedAt, claimed, err := valid(coverageTx{row: scan(runClaimStartScan{"RUNNING", "RUNNING", "runner", "session", "lease", "digest", 7, future, future})}).ClaimStart(ctx, input); err != nil || !claimed || claimedAt.IsZero() {
 		t.Fatalf("already-running claim = %v claimed=%v err=%v", claimedAt, claimed, err)
 	}
-	if _, claimed, err := valid(coverageTx{row: scan("WAITING", "DISPATCHED", "runner", "session", "lease", "digest", 7, future, future)}).ClaimStart(ctx, input); err != nil || claimed {
+	if _, claimed, err := valid(coverageTx{row: scan(runClaimStartScan{"WAITING", "DISPATCHED", "runner", "session", "lease", "digest", 7, future, future})}).ClaimStart(ctx, input); err != nil || claimed {
 		t.Fatalf("invalid state claim = claimed %v err %v", claimed, err)
 	}
-	if claimedAt, claimed, err := valid(coverageTx{result: coverageRowsAffected(1), row: scan("DISPATCHED", "ACCEPTED", "runner", "session", "lease", "digest", 7, future, future)}).ClaimStart(ctx, input); err != nil || !claimed || claimedAt.IsZero() {
+	if claimedAt, claimed, err := valid(coverageTx{result: coverageRowsAffected(1), row: scan(runClaimStartScan{"DISPATCHED", "ACCEPTED", "runner", "session", "lease", "digest", 7, future, future})}).ClaimStart(ctx, input); err != nil || !claimed || claimedAt.IsZero() {
 		t.Fatalf("valid claim = %v claimed=%v err=%v", claimedAt, claimed, err)
 	}
 	if _, claimed, err := valid(coverageTx{err: errors.New("update")}).ClaimStart(ctx, input); err == nil || claimed {
