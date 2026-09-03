@@ -263,7 +263,7 @@ a {
 .gf-nav-group-button, .gf-nav-link { display: flex; align-items: center; gap: 0.6rem; width: 100%; min-height: 2.25rem; padding: 0.45rem 0.55rem; color: #bdc9de; background: transparent; border: 0; border-radius: 0.45rem; text-align: left; text-decoration: none; cursor: pointer; }
 .gf-nav-group-button { color: #f2f5ff; font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
 .gf-nav-group-button svg:last-child { margin-left: auto; }
-.gf-nav-link:hover, .gf-nav-link.is-active { color: #fff; background: rgb(137 165 255 / 18%); }
+.gf-nav-link:hover, .gf-nav-link.is-active { color: var(--gf-sidebar-text); background: var(--gf-sidebar-accent); }
 .gf-sidebar-footer { display: grid; gap: 0.6rem; margin-top: auto; padding-top: 0.75rem; border-top: 1px solid rgb(255 255 255 / 14%); }
 .gf-user-card { display: flex; align-items: center; gap: 0.55rem; min-width: 0; padding: 0.35rem; }
 .gf-user-card span { display: grid; min-width: 0; }
