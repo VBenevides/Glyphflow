@@ -27,6 +27,16 @@ import (
 	natsserver "github.com/nats-io/nats-server/v2/server"
 )
 
+const (
+	healthSessionCleanup   = "session-cleanup"
+	healthHeartbeat        = "heartbeat"
+	healthDispatcher       = "dispatcher"
+	healthStartClaim       = "start-claim"
+	healthSecretDelivery   = "secret-delivery"
+	healthScheduler        = "scheduler"
+	retentionCleanupFailed = "retention.cleanup_failed"
+)
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -249,7 +259,7 @@ func run() error {
 		metrics.AuditAppendErrors.Add(1)
 		_ = logger.Event("audit.append_failed", map[string]string{"id": event.ID, "actor": event.Actor, "error": err.Error(), "count": strconv.FormatUint(metrics.AuditAppendErrors.Load(), 10)})
 	})
-	health := controlplane.NewHealth("session-cleanup", "heartbeat", "dispatcher", "start-claim", "secret-delivery", "scheduler")
+	health := controlplane.NewHealth(healthSessionCleanup, healthHeartbeat, healthDispatcher, healthStartClaim, healthSecretDelivery, healthScheduler)
 	deadLetterRepository := store.NewDeadLetterRepository(db, cfg.InstallationEncryptionKey)
 	application := api.Server{AuthService: authService, AuthAdmin: &api.AuthAdminService{Auth: authService, OIDC: oidcService, Sessions: authService.SessionManager()}, Sessions: authService.SessionManager(), OIDC: oidcService, Roles: roles, Auth: authService.Authenticator(), Permissions: authService.Permissions, Metrics: metrics, Logger: logger, CSRFOrigin: cfg.WebOrigin, CSRFOrigins: cfg.CSRFOrigins, CORSOrigins: cfg.CORSOrigins, Operations: operations, Runs: runs, Infrastructure: infrastructure, AuditQuery: audit, ExitCodes: store.NewExitCodeRepository(db), GlobalVariables: globalVariables, Secrets: api.NewSecretAdminService(encryptedSecretRepository, cfg.InstallationEncryptionKey), DeadLetters: api.NewDeadLetterService(deadLetterRepository, nil), Ready: func(ctx context.Context) error {
 		if err := pingDatabase(ctx); err != nil {
@@ -298,11 +308,11 @@ func run() error {
 		const sessionRetention = 14 * 24 * time.Hour
 		cleanup := func() {
 			if err := sessionRepository.DeleteOlderThan(ctx, time.Now().UTC().Add(-sessionRetention)); err != nil && ctx.Err() == nil {
-				health.MarkFailed("session-cleanup", err)
+				health.MarkFailed(healthSessionCleanup, err)
 				fmt.Fprintln(os.Stderr, "session cleanup:", err)
 				return
 			}
-			health.MarkHealthy("session-cleanup")
+			health.MarkHealthy(healthSessionCleanup)
 		}
 		cleanup()
 		ticker := time.NewTicker(24 * time.Hour)
@@ -320,12 +330,12 @@ func run() error {
 		policy := store.RetentionPolicy{LogMonthsKeep: cfg.LogMonthsKeep, AuditMonthsKeep: cfg.AuditMonthsKeep, RunnerMetricsMonthsKeep: cfg.RunnerMetricsMonthsKeep}
 		cleanup := func() {
 			if _, err := retentionRepository.Purge(ctx, time.Now().UTC(), policy, 100); err != nil && ctx.Err() == nil {
-				logger.Event("retention.cleanup_failed", map[string]string{"error": err.Error()})
+				logger.Event(retentionCleanupFailed, map[string]string{"error": err.Error()})
 				return
 			}
 			pressure, err := storagePressure(ctx)
 			if err != nil {
-				logger.Event("retention.cleanup_failed", map[string]string{"error": err.Error()})
+				logger.Event(retentionCleanupFailed, map[string]string{"error": err.Error()})
 				return
 			}
 			if pressure.State != platform.StorageCritical && pressure.State != platform.StorageEmergency {
@@ -341,7 +351,7 @@ func run() error {
 				}
 				return current.FreePercent, nil
 			}, 100); err != nil && ctx.Err() == nil {
-				logger.Event("retention.cleanup_failed", map[string]string{"error": err.Error()})
+				logger.Event(retentionCleanupFailed, map[string]string{"error": err.Error()})
 			}
 		}
 		cleanup()

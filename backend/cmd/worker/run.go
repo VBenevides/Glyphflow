@@ -27,6 +27,8 @@ import (
 	"github.com/shirou/gopsutil/v4/mem"
 )
 
+const runnerKeyPrefix = "runner:"
+
 func runWorker(ctx context.Context, stdout, stderr io.Writer, status StatusSink) error {
 	if stdout == nil {
 		stdout = io.Discard
@@ -72,7 +74,7 @@ func runWorker(ctx context.Context, stdout, stderr io.Writer, status StatusSink)
 			return fmt.Errorf("worker control-plane endpoint: %w", err)
 		}
 		enrollmentKey := storedKey
-		enrollmentKey, err = protocol.GenerateSigningKey("runner:"+bootstrap.RunnerID, time.Now().UTC(), 365*24*time.Hour)
+		enrollmentKey, err = protocol.GenerateSigningKey(runnerKeyPrefix+bootstrap.RunnerID, time.Now().UTC(), 365*24*time.Hour)
 		if err != nil {
 			return fmt.Errorf("generate enrollment signing key: %w", err)
 		}
@@ -138,8 +140,8 @@ func runWorker(ctx context.Context, stdout, stderr io.Writer, status StatusSink)
 	}
 	activeOrders := &worker.ActiveOrders{}
 	workerKey := storedKey
-	if !foundKey || workerKey.ID != "runner:"+cfg.RunnerID || time.Now().UTC().After(workerKey.Public.NotAfter) {
-		workerKey, err = protocol.GenerateSigningKey("runner:"+cfg.RunnerID, time.Now().UTC(), 365*24*time.Hour)
+	if !foundKey || workerKey.ID != runnerKeyPrefix+cfg.RunnerID || time.Now().UTC().After(workerKey.Public.NotAfter) {
+		workerKey, err = protocol.GenerateSigningKey(runnerKeyPrefix+cfg.RunnerID, time.Now().UTC(), 365*24*time.Hour)
 		if err != nil {
 			return fmt.Errorf("generate worker signing key: %w", err)
 		}
@@ -403,5 +405,5 @@ func workerHeartbeat(ctx context.Context, jetstream *queue.JetStream, runnerID, 
 }
 
 func needsRunnerEnrollment(bootstrap *worker.Bootstrap, connectionFound, keyFound bool, key protocol.SigningKey) bool {
-	return bootstrap != nil && (!connectionFound || !keyFound || key.ID != "runner:"+bootstrap.RunnerID || time.Now().UTC().After(key.Public.NotAfter))
+	return bootstrap != nil && (!connectionFound || !keyFound || key.ID != runnerKeyPrefix+bootstrap.RunnerID || time.Now().UTC().After(key.Public.NotAfter))
 }
