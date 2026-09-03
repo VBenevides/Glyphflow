@@ -156,7 +156,7 @@ const swaggerHTML = `<!doctype html>
 
 func swaggerUI(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -165,7 +165,7 @@ func swaggerUI(w http.ResponseWriter, r *http.Request) {
 
 func openAPI(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -174,7 +174,7 @@ func openAPI(w http.ResponseWriter, r *http.Request) {
 
 func (s Server) docsLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
 		return
 	}
 	var in passwordRequest

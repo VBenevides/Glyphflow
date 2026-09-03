@@ -167,7 +167,7 @@ func (s *AuthService) SetSystemAdminEmails(emails []string) error {
 		return errors.New("admin role is not configured")
 	}
 	if found {
-		if err := s.roles.ReplaceSourceAssignments(context.Background(), adminRole.ID, "system-admin", systemAdminUsers); err != nil {
+		if err := s.roles.ReplaceSourceAssignments(context.Background(), adminRole.ID, systemAdminSource, systemAdminUsers); err != nil {
 			return err
 		}
 	}
@@ -186,7 +186,7 @@ func hasSystemAdminAssignment(roles []store.RoleRecord, assignments []store.Role
 		}
 	}
 	for _, assignment := range assignments {
-		if assignment.SourceType == "system-admin" && adminRoles[assignment.RoleID] {
+		if assignment.SourceType == systemAdminSource && adminRoles[assignment.RoleID] {
 			return true
 		}
 	}
@@ -389,7 +389,7 @@ func (s *AuthService) Grant(userID, role string) error {
 	if err != nil {
 		return err
 	} else if !ok {
-		return errors.New("user not found")
+		return errors.New(errorUserNotFound)
 	}
 	definition, ok, err := s.roles.FindByName(context.Background(), role)
 	if err != nil {
@@ -485,7 +485,7 @@ func (s *AuthService) registerWithStatus(email, password string, requireRegistra
 			return AuthUser{}, err
 		}
 		if adminRoleID != "" {
-			if err := s.roles.Assign(context.Background(), id, adminRoleID, "system-admin", id); err != nil {
+			if err := s.roles.Assign(context.Background(), id, adminRoleID, systemAdminSource, id); err != nil {
 				return AuthUser{}, err
 			}
 		}
@@ -623,7 +623,7 @@ func (s *AuthService) loginOIDC(provider, subject, username, email string, autoP
 				return AuthTokens{}, err
 			}
 			if adminRoleID != "" {
-				if err := s.roles.Assign(context.Background(), userID, adminRoleID, "system-admin", userID); err != nil {
+				if err := s.roles.Assign(context.Background(), userID, adminRoleID, systemAdminSource, userID); err != nil {
 					return AuthTokens{}, err
 				}
 			}
@@ -691,7 +691,7 @@ func (s *AuthService) LinkOIDC(userID, provider, subject string) error {
 	if _, ok, err := s.userByID(userID); err != nil {
 		return err
 	} else if !ok {
-		return errors.New("user not found")
+		return errors.New(errorUserNotFound)
 	}
 	key := provider + "\x00" + subject
 	s.mu.RLock()
@@ -748,7 +748,7 @@ func (s *AuthService) UpdateProfile(userID, displayName string) error {
 	if _, ok, err := s.userByID(userID); err != nil {
 		return err
 	} else if !ok {
-		return errors.New("user not found")
+		return errors.New(errorUserNotFound)
 	}
 	return s.users.UpdateDisplayName(context.Background(), userID, strings.TrimSpace(displayName))
 }
@@ -1048,7 +1048,7 @@ func (s *AuthService) DisableUser(userID string) error {
 		return err
 	}
 	if !ok {
-		return errors.New("user not found")
+		return errors.New(errorUserNotFound)
 	}
 	userRoles, assignments, err := s.roles.UserRoles(context.Background(), userID)
 	if err != nil {
@@ -1085,7 +1085,7 @@ func (s *AuthService) ApproveUser(userID string) error {
 		return err
 	}
 	if !ok {
-		return errors.New("user not found")
+		return errors.New(errorUserNotFound)
 	}
 	if user.Status == store.StatusActive {
 		return nil
@@ -1115,7 +1115,7 @@ func (s *AuthService) Revoke(userID, role string) error {
 		return err
 	}
 	if !ok {
-		return errors.New("user not found")
+		return errors.New(errorUserNotFound)
 	}
 	definition, roleFound, err := s.roles.FindByName(context.Background(), role)
 	if err != nil {
@@ -1205,7 +1205,7 @@ func (s *AuthService) Profile(claims Claims) (map[string]any, error) {
 			source = "assigned"
 		}
 		if role.Name == "admin" && systemAdmin {
-			source = "system-admin"
+			source = systemAdminSource
 		} else if role.System {
 			source = "system"
 		}

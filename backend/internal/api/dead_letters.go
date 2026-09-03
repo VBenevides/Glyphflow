@@ -65,7 +65,7 @@ func deadLetterView(item store.DeadLetterSummary) DeadLetterView {
 
 func (s *DeadLetterService) collection(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
 		return
 	}
 	state := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("state")))
@@ -86,13 +86,13 @@ func (s *DeadLetterService) collection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s == nil || s.repository == nil {
-		writeError(w, http.StatusServiceUnavailable, "dead-letter storage unavailable", nil)
+		writeError(w, http.StatusServiceUnavailable, errorDeadLetterStorage, nil)
 		return
 	}
 	items, total, err := s.repository.List(r.Context(), store.DeadLetterFilter{State: state, RunnerID: strings.TrimSpace(r.URL.Query().Get("runnerId")), Subject: strings.TrimSpace(r.URL.Query().Get("subject")), Page: page, Limit: limit})
 	if err != nil {
 		recordRequestError(r, err)
-		writeError(w, http.StatusServiceUnavailable, "dead-letter storage unavailable", err)
+		writeError(w, http.StatusServiceUnavailable, errorDeadLetterStorage, err)
 		return
 	}
 	views := make([]DeadLetterView, 0, len(items))
@@ -109,7 +109,7 @@ func (s *DeadLetterService) collection(w http.ResponseWriter, r *http.Request) {
 func (s *DeadLetterService) path(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/admin/dead-letters/"), "/"), "/")
 	if len(parts) == 0 || parts[0] == "" {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "dead letter not found"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": errorDeadLetterNotFound})
 		return
 	}
 	id := parts[0]
@@ -118,7 +118,7 @@ func (s *DeadLetterService) path(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(parts) != 2 || r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
 		return
 	}
 	switch parts[1] {
@@ -133,17 +133,17 @@ func (s *DeadLetterService) path(w http.ResponseWriter, r *http.Request) {
 
 func (s *DeadLetterService) detail(w http.ResponseWriter, r *http.Request, id string) {
 	if s == nil || s.repository == nil {
-		writeError(w, http.StatusServiceUnavailable, "dead-letter storage unavailable", nil)
+		writeError(w, http.StatusServiceUnavailable, errorDeadLetterStorage, nil)
 		return
 	}
 	item, found, err := s.repository.Find(r.Context(), id)
 	if err != nil {
 		recordRequestError(r, err)
-		writeError(w, http.StatusServiceUnavailable, "dead-letter storage unavailable", err)
+		writeError(w, http.StatusServiceUnavailable, errorDeadLetterStorage, err)
 		return
 	}
 	if !found {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "dead letter not found"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": errorDeadLetterNotFound})
 		return
 	}
 	writeJSON(w, http.StatusOK, deadLetterView(item))
@@ -175,7 +175,7 @@ func (e *deadLetterActionError) Error() string { return e.message }
 
 func (s *DeadLetterService) retry(w http.ResponseWriter, r *http.Request, id string) {
 	if s == nil || s.repository == nil || s.publisher == nil {
-		writeError(w, http.StatusServiceUnavailable, "dead-letter recovery unavailable", nil)
+		writeError(w, http.StatusServiceUnavailable, errorDeadLetterRecovery, nil)
 		return
 	}
 	recordRequestAuditField(r, "deadLetterId", id)
@@ -187,7 +187,7 @@ func (s *DeadLetterService) retry(w http.ResponseWriter, r *http.Request, id str
 	retry, claimed, err := s.repository.BeginRetry(r.Context(), id)
 	if err != nil {
 		recordRequestError(r, err)
-		writeError(w, http.StatusServiceUnavailable, "dead-letter recovery unavailable", err)
+		writeError(w, http.StatusServiceUnavailable, errorDeadLetterRecovery, err)
 		return
 	}
 	if !claimed {
@@ -203,7 +203,7 @@ func (s *DeadLetterService) retry(w http.ResponseWriter, r *http.Request, id str
 		deliveryID, err = randomID()
 		if err != nil {
 			recordRequestError(r, err)
-			writeError(w, http.StatusServiceUnavailable, "dead-letter recovery unavailable", err)
+			writeError(w, http.StatusServiceUnavailable, errorDeadLetterRecovery, err)
 			return
 		}
 	}
@@ -229,7 +229,7 @@ func (s *DeadLetterService) retry(w http.ResponseWriter, r *http.Request, id str
 
 func (s *DeadLetterService) reconcile(w http.ResponseWriter, r *http.Request, id string) {
 	if s == nil || s.repository == nil {
-		writeError(w, http.StatusServiceUnavailable, "dead-letter storage unavailable", nil)
+		writeError(w, http.StatusServiceUnavailable, errorDeadLetterStorage, nil)
 		return
 	}
 	recordRequestAuditField(r, "deadLetterId", id)
@@ -250,7 +250,7 @@ func (s *DeadLetterService) reconcile(w http.ResponseWriter, r *http.Request, id
 		return
 	}
 	if !found {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "dead letter not found"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": errorDeadLetterNotFound})
 		return
 	}
 	recordRequestAuditField(r, "messageId", item.MessageID)
@@ -270,11 +270,11 @@ func (s *DeadLetterService) reconcile(w http.ResponseWriter, r *http.Request, id
 func (s *DeadLetterService) writeTransitionConflict(w http.ResponseWriter, r *http.Request, id string) {
 	if s.repository != nil {
 		if item, found, err := s.repository.Find(r.Context(), id); err == nil && !found {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "dead letter not found"})
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": errorDeadLetterNotFound})
 			return
 		} else if err != nil {
 			recordRequestError(r, err)
-			writeError(w, http.StatusServiceUnavailable, "dead-letter storage unavailable", err)
+			writeError(w, http.StatusServiceUnavailable, errorDeadLetterStorage, err)
 			return
 		} else if found {
 			writeJSON(w, http.StatusConflict, map[string]any{"error": "dead letter is not actionable", "state": item.State})

@@ -50,11 +50,11 @@ func (s Server) currentUserRoutes(mux routeRegistrar) {
 			writeJSON(w, http.StatusOK, profile)
 			return
 		}
-		writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+		writeJSON(w, 405, map[string]string{"error": errorMethodNotAllowed})
 	})))
 	mux.Handle("/api/v1/me/password", s.requireAuthenticated(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || s.AuthService == nil {
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
 			return
 		}
 		claims, _ := s.authenticator()(r)
@@ -74,7 +74,7 @@ func (s Server) currentUserRoutes(mux routeRegistrar) {
 	})))
 	mux.Handle("/api/v1/me/identities/", s.requireAuthenticated(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodDelete || s.AuthService == nil {
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
 			return
 		}
 		claims, _ := s.authenticator()(r)
@@ -87,7 +87,7 @@ func (s Server) currentUserRoutes(mux routeRegistrar) {
 	})))
 	mux.Handle("/api/v1/me/sessions/revoke", s.requireAuthenticated(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
-			writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+			writeJSON(w, 405, map[string]string{"error": errorMethodNotAllowed})
 			return
 		}
 		claims, _ := s.authenticator()(r)

@@ -208,7 +208,7 @@ func (s *InfrastructureService) poolCollection(w http.ResponseWriter, r *http.Re
 		return
 	}
 	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
 		return
 	}
 	var input struct {
@@ -250,7 +250,7 @@ func (s *InfrastructureService) poolCollection(w http.ResponseWriter, r *http.Re
 func (s *InfrastructureService) poolPath(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	if len(parts) != 5 || parts[4] == "" {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "runner pool not found"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": errorRunnerPoolNotFound})
 		return
 	}
 	id := parts[4]
@@ -263,7 +263,7 @@ func (s *InfrastructureService) poolPath(w http.ResponseWriter, r *http.Request)
 			if err != nil {
 				writeError(w, http.StatusServiceUnavailable, "runner pool storage unavailable", err)
 			} else if !found {
-				writeJSON(w, http.StatusNotFound, map[string]string{"error": "runner pool not found"})
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": errorRunnerPoolNotFound})
 			} else {
 				writeJSON(w, http.StatusOK, runnerPoolRecordFromStore(item))
 			}
@@ -273,7 +273,7 @@ func (s *InfrastructureService) poolPath(w http.ResponseWriter, r *http.Request)
 		item, found := s.pools[id]
 		s.mu.RUnlock()
 		if !found {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "runner pool not found"})
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": errorRunnerPoolNotFound})
 			return
 		}
 		writeJSON(w, http.StatusOK, item)
@@ -295,7 +295,7 @@ func (s *InfrastructureService) poolPath(w http.ResponseWriter, r *http.Request)
 		s.mu.Lock()
 		if _, found := s.pools[id]; !found {
 			s.mu.Unlock()
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "runner pool not found"})
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": errorRunnerPoolNotFound})
 			return
 		}
 		for runnerID, runner := range s.runners {
@@ -316,7 +316,7 @@ func (s *InfrastructureService) poolPath(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if r.Method != http.MethodPut {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
 		return
 	}
 	var input struct {
@@ -334,7 +334,7 @@ func (s *InfrastructureService) poolPath(w http.ResponseWriter, r *http.Request)
 		if err != nil {
 			writeError(w, http.StatusConflict, "runner pool update failed", err)
 		} else if !found {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "runner pool not found"})
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": errorRunnerPoolNotFound})
 		} else {
 			writeJSON(w, http.StatusOK, runnerPoolRecordFromStore(updated))
 		}
@@ -343,7 +343,7 @@ func (s *InfrastructureService) poolPath(w http.ResponseWriter, r *http.Request)
 	s.mu.Lock()
 	if _, found := s.pools[id]; !found {
 		s.mu.Unlock()
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "runner pool not found"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": errorRunnerPoolNotFound})
 		return
 	}
 	s.pools[id] = item
@@ -361,7 +361,7 @@ func resourceRecordFromStore(resource store.ResourceRecord) ResourceRecord {
 
 func (s *InfrastructureService) runnerCollection(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
 		return
 	}
 	s.mu.RLock()
@@ -429,7 +429,7 @@ func filterRunners(items []RunnerRecord, state string, searchValues ...string) [
 func (s *InfrastructureService) runnerPath(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	if len(parts) < 4 {
-		writeJSON(w, 404, map[string]string{"error": "runner not found"})
+		writeJSON(w, 404, map[string]string{"error": errorRunnerNotFound})
 		return
 	}
 	if len(parts) == 4 && r.Method == http.MethodPost && parts[3] == "enrollments" {
@@ -449,7 +449,7 @@ func (s *InfrastructureService) runnerPath(w http.ResponseWriter, r *http.Reques
 			if err != nil {
 				writeError(w, http.StatusServiceUnavailable, "runner storage unavailable", err)
 			} else if !found {
-				writeJSON(w, http.StatusNotFound, map[string]string{"error": "runner not found"})
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": errorRunnerNotFound})
 			} else {
 				writeJSON(w, http.StatusOK, runnerRecordFromStore(item))
 			}
@@ -462,7 +462,7 @@ func (s *InfrastructureService) runnerPath(w http.ResponseWriter, r *http.Reques
 		}
 		s.mu.RUnlock()
 		if !ok {
-			writeJSON(w, 404, map[string]string{"error": "runner not found"})
+			writeJSON(w, 404, map[string]string{"error": errorRunnerNotFound})
 			return
 		}
 		writeJSON(w, 200, item)
@@ -528,7 +528,7 @@ func (s *InfrastructureService) runnerPath(w http.ResponseWriter, r *http.Reques
 				item, found = runnerRecordFromStore(updated), exists
 			}
 			if !found {
-				writeJSON(w, http.StatusNotFound, map[string]string{"error": "runner not found"})
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": errorRunnerNotFound})
 				return
 			}
 		} else {
@@ -552,7 +552,7 @@ func (s *InfrastructureService) runnerPath(w http.ResponseWriter, r *http.Reques
 			}
 			s.mu.Unlock()
 			if !found {
-				writeJSON(w, http.StatusNotFound, map[string]string{"error": "runner not found"})
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": errorRunnerNotFound})
 				return
 			}
 		}
@@ -598,7 +598,7 @@ func (s *InfrastructureService) runnerPath(w http.ResponseWriter, r *http.Reques
 			if err != nil {
 				writeError(w, http.StatusConflict, "runner state update failed", err)
 			} else if !found {
-				writeJSON(w, http.StatusNotFound, map[string]string{"error": "runner not found"})
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": errorRunnerNotFound})
 			} else {
 				writeJSON(w, http.StatusOK, runnerRecordFromStore(item))
 			}
@@ -622,7 +622,7 @@ func (s *InfrastructureService) runnerPath(w http.ResponseWriter, r *http.Reques
 		if !valid {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "runner action not found"})
 		} else if !ok {
-			writeJSON(w, 404, map[string]string{"error": "runner not found"})
+			writeJSON(w, 404, map[string]string{"error": errorRunnerNotFound})
 		} else {
 			writeJSON(w, 200, item)
 		}
@@ -633,7 +633,7 @@ func (s *InfrastructureService) runnerPath(w http.ResponseWriter, r *http.Reques
 
 func (s *InfrastructureService) enrollRunner(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
 		return
 	}
 	s.mu.RLock()
@@ -718,7 +718,7 @@ func (s *InfrastructureService) deleteRunner(w http.ResponseWriter, r *http.Requ
 			return
 		}
 		if !archived {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "runner not found"})
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": errorRunnerNotFound})
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -728,7 +728,7 @@ func (s *InfrastructureService) deleteRunner(w http.ResponseWriter, r *http.Requ
 	runner, ok := s.runners[id]
 	if !ok {
 		s.mu.Unlock()
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "runner not found"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": errorRunnerNotFound})
 		return
 	}
 	runner.IsArchived, runner.IsDeleted = true, true
@@ -745,7 +745,7 @@ func (s *InfrastructureService) deleteRunner(w http.ResponseWriter, r *http.Requ
 }
 func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+		writeJSON(w, 405, map[string]string{"error": errorMethodNotAllowed})
 		return
 	}
 	s.mu.RLock()
@@ -1024,13 +1024,13 @@ func (s *InfrastructureService) resourceCollection(w http.ResponseWriter, r *htt
 		repository := s.resourceRepository
 		s.mu.RUnlock()
 		if repository != nil {
-			if err := repository.Create(r.Context(), "resource-"+id, strings.TrimSpace(input.Name), strings.TrimSpace(input.Kind)); err != nil {
+			if err := repository.Create(r.Context(), resourceIDPrefix+id, strings.TrimSpace(input.Name), strings.TrimSpace(input.Kind)); err != nil {
 				writeError(w, http.StatusBadRequest, "resource creation failed", err)
 				return
 			}
-			item, found, err := repository.Find(r.Context(), "resource-"+id)
+			item, found, err := repository.Find(r.Context(), resourceIDPrefix+id)
 			if err != nil {
-				writeError(w, http.StatusServiceUnavailable, "resource storage unavailable", err)
+				writeError(w, http.StatusServiceUnavailable, errorResourceStorage, err)
 				return
 			}
 			if !found {
@@ -1040,7 +1040,7 @@ func (s *InfrastructureService) resourceCollection(w http.ResponseWriter, r *htt
 			writeJSON(w, http.StatusCreated, resourceRecordFromStore(item))
 			return
 		}
-		item := ResourceRecord{ID: "resource-" + id, Name: strings.TrimSpace(input.Name), Kind: strings.TrimSpace(input.Kind), Enabled: true}
+		item := ResourceRecord{ID: resourceIDPrefix + id, Name: strings.TrimSpace(input.Name), Kind: strings.TrimSpace(input.Kind), Enabled: true}
 		s.mu.Lock()
 		s.resources[item.ID] = item
 		s.mu.Unlock()
@@ -1048,7 +1048,7 @@ func (s *InfrastructureService) resourceCollection(w http.ResponseWriter, r *htt
 		return
 	}
 	if r.Method != http.MethodGet {
-		writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+		writeJSON(w, 405, map[string]string{"error": errorMethodNotAllowed})
 		return
 	}
 	s.mu.RLock()
@@ -1057,7 +1057,7 @@ func (s *InfrastructureService) resourceCollection(w http.ResponseWriter, r *htt
 	if repository != nil {
 		items, err := repository.List(r.Context())
 		if err != nil {
-			writeError(w, http.StatusServiceUnavailable, "resource storage unavailable", err)
+			writeError(w, http.StatusServiceUnavailable, errorResourceStorage, err)
 			return
 		}
 		result := make([]ResourceRecord, 0, len(items))
@@ -1162,7 +1162,7 @@ func (s *InfrastructureService) resourcePath(w http.ResponseWriter, r *http.Requ
 		}
 	}
 	if len(parts) != 4 {
-		writeJSON(w, 404, map[string]string{"error": "resource not found"})
+		writeJSON(w, 404, map[string]string{"error": errorResourceNotFound})
 		return
 	}
 	id := parts[3]
@@ -1172,11 +1172,11 @@ func (s *InfrastructureService) resourcePath(w http.ResponseWriter, r *http.Requ
 	if repository != nil {
 		item, found, err := repository.Find(r.Context(), id)
 		if err != nil {
-			writeError(w, http.StatusServiceUnavailable, "resource storage unavailable", err)
+			writeError(w, http.StatusServiceUnavailable, errorResourceStorage, err)
 			return
 		}
 		if !found {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "resource not found"})
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": errorResourceNotFound})
 			return
 		}
 		if r.Method == http.MethodGet {
@@ -1188,7 +1188,7 @@ func (s *InfrastructureService) resourcePath(w http.ResponseWriter, r *http.Requ
 			}
 			w.WriteHeader(http.StatusNoContent)
 		} else {
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
 		}
 		return
 	}
@@ -1204,7 +1204,7 @@ func (s *InfrastructureService) resourcePath(w http.ResponseWriter, r *http.Requ
 	}
 	s.mu.Unlock()
 	if !ok {
-		writeJSON(w, 404, map[string]string{"error": "resource not found"})
+		writeJSON(w, 404, map[string]string{"error": errorResourceNotFound})
 		return
 	}
 	if r.Method == http.MethodGet {
@@ -1212,7 +1212,7 @@ func (s *InfrastructureService) resourcePath(w http.ResponseWriter, r *http.Requ
 	} else if r.Method == http.MethodDelete {
 		writeJSON(w, 204, nil)
 	} else {
-		writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+		writeJSON(w, 405, map[string]string{"error": errorMethodNotAllowed})
 	}
 }
 
@@ -1220,7 +1220,7 @@ var (
 	errEnrollmentNotFound = errors.New("enrollment not found")
 	errEnrollmentExpired  = errors.New("enrollment expired")
 	errEnrollmentUsed     = errors.New("enrollment already used")
-	errResourceNotFound   = errors.New("resource not found")
+	errResourceNotFound   = errors.New(errorResourceNotFound)
 	errInvalidLease       = errors.New("invalid lease")
 	errLeaseConflict      = errors.New("resource lease is active")
 	errLeaseOwner         = errors.New("lease owner or fencing token does not match")

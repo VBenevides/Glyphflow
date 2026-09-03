@@ -773,14 +773,14 @@ func (s Server) oidcRoutes(mux routeRegistrar) {
 	}
 	mux.HandleFunc("/api/v1/auth/oidc/providers", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
-			writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+			writeJSON(w, 405, map[string]string{"error": errorMethodNotAllowed})
 			return
 		}
 		writeJSON(w, 200, s.OIDC.Providers())
 	})
 	mux.HandleFunc("/api/v1/auth/oidc/login", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
-			writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+			writeJSON(w, 405, map[string]string{"error": errorMethodNotAllowed})
 			return
 		}
 		if !s.allowAuth(w, r, "oidc-challenge|"+platform.NormalizeIdentityKey(r.URL.Query().Get("provider"))) {
@@ -795,7 +795,7 @@ func (s Server) oidcRoutes(mux routeRegistrar) {
 	})
 	mux.Handle("/api/v1/auth/oidc/link", s.requireAuthenticated(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
 			return
 		}
 		claims, _ := s.authenticator()(r)
@@ -808,7 +808,7 @@ func (s Server) oidcRoutes(mux routeRegistrar) {
 	})))
 	mux.HandleFunc("/api/v1/auth/oidc/callback", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
-			writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+			writeJSON(w, 405, map[string]string{"error": errorMethodNotAllowed})
 			return
 		}
 		if !s.allowAuth(w, r, "oidc-callback") {

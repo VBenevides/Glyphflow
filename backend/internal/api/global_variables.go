@@ -59,7 +59,7 @@ func (s *GlobalVariableService) collection(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
 		return
 	}
 	var input globalVariableInput
@@ -103,7 +103,7 @@ func (s *GlobalVariableService) collection(w http.ResponseWriter, r *http.Reques
 func (s *GlobalVariableService) path(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(strings.Trim(r.URL.Path, "/"), "api/v1/global-variables/")
 	if id == "" || strings.Contains(id, "/") {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "global variable not found"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": errorGlobalVariableNotFound})
 		return
 	}
 	s.mu.RLock()
@@ -115,7 +115,7 @@ func (s *GlobalVariableService) path(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				writeError(w, http.StatusServiceUnavailable, "global variable storage unavailable", err)
 			} else if !found {
-				writeJSON(w, http.StatusNotFound, map[string]string{"error": "global variable not found"})
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": errorGlobalVariableNotFound})
 			} else {
 				writeJSON(w, http.StatusOK, item)
 			}
@@ -125,7 +125,7 @@ func (s *GlobalVariableService) path(w http.ResponseWriter, r *http.Request) {
 		item, found := s.items[id]
 		s.mu.RUnlock()
 		if !found {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "global variable not found"})
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": errorGlobalVariableNotFound})
 			return
 		}
 		writeJSON(w, http.StatusOK, item)
@@ -143,7 +143,7 @@ func (s *GlobalVariableService) path(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		if _, found := s.items[id]; !found {
 			s.mu.Unlock()
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "global variable not found"})
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": errorGlobalVariableNotFound})
 			return
 		}
 		delete(s.items, id)
@@ -152,7 +152,7 @@ func (s *GlobalVariableService) path(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodPut {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
 		return
 	}
 	var input globalVariableInput
@@ -177,7 +177,7 @@ func (s *GlobalVariableService) path(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Unlock()
 	if !found {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "global variable not found"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": errorGlobalVariableNotFound})
 		return
 	}
 	writeJSON(w, http.StatusOK, item)

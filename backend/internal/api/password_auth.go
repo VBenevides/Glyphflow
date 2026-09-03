@@ -83,7 +83,7 @@ func (s Server) passwordRoutes(mux routeRegistrar) {
 	if s.AuthService != nil {
 		mux.HandleFunc("/api/v1/auth/register", func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost {
-				writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+				writeJSON(w, 405, map[string]string{"error": errorMethodNotAllowed})
 				return
 			}
 			var in passwordRequest
@@ -103,12 +103,12 @@ func (s Server) passwordRoutes(mux routeRegistrar) {
 		})
 		mux.HandleFunc("/api/v1/auth/login", func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost {
-				writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+				writeJSON(w, 405, map[string]string{"error": errorMethodNotAllowed})
 				return
 			}
 			var in passwordRequest
 			if json.NewDecoder(r.Body).Decode(&in) != nil {
-				writeJSON(w, 401, map[string]string{"error": "invalid credentials"})
+				writeJSON(w, 401, map[string]string{"error": errorInvalidCredentials})
 				return
 			}
 			if !s.allowAuth(w, r, "password-login|"+platform.NormalizeIdentityKey(in.Email)) {
@@ -120,7 +120,7 @@ func (s Server) passwordRoutes(mux routeRegistrar) {
 					writeJSON(w, http.StatusForbidden, map[string]string{"error": err.Error()})
 					return
 				}
-				writeJSON(w, 401, map[string]string{"error": "invalid credentials"})
+				writeJSON(w, 401, map[string]string{"error": errorInvalidCredentials})
 				return
 			}
 			s.setSessionCookies(w, tokens)
@@ -128,7 +128,7 @@ func (s Server) passwordRoutes(mux routeRegistrar) {
 		})
 		mux.HandleFunc("/api/v1/auth/refresh", func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost {
-				writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+				writeJSON(w, 405, map[string]string{"error": errorMethodNotAllowed})
 				return
 			}
 			var in struct{ SessionID, RefreshToken string }
@@ -155,7 +155,7 @@ func (s Server) passwordRoutes(mux routeRegistrar) {
 		})
 		mux.HandleFunc("/api/v1/auth/logout", func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost {
-				writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+				writeJSON(w, 405, map[string]string{"error": errorMethodNotAllowed})
 				return
 			}
 			var in struct{ SessionID string }
@@ -172,7 +172,7 @@ func (s Server) passwordRoutes(mux routeRegistrar) {
 		})
 		mux.HandleFunc("/api/v1/auth/logout-all", func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost {
-				writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+				writeJSON(w, 405, map[string]string{"error": errorMethodNotAllowed})
 				return
 			}
 			claims, ok := s.AuthService.Authenticator()(r)
@@ -193,7 +193,7 @@ func (s Server) passwordRoutes(mux routeRegistrar) {
 	}
 	mux.HandleFunc("/api/v1/auth/register", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
-			writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+			writeJSON(w, 405, map[string]string{"error": errorMethodNotAllowed})
 			return
 		}
 		var in passwordRequest
@@ -212,24 +212,24 @@ func (s Server) passwordRoutes(mux routeRegistrar) {
 	})
 	mux.HandleFunc("/api/v1/auth/login", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
-			writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+			writeJSON(w, 405, map[string]string{"error": errorMethodNotAllowed})
 			return
 		}
 		var in passwordRequest
 		if json.NewDecoder(r.Body).Decode(&in) != nil {
-			writeJSON(w, 401, map[string]string{"error": "invalid credentials"})
+			writeJSON(w, 401, map[string]string{"error": errorInvalidCredentials})
 			return
 		}
 		if !s.allowAuth(w, r, "password-login|"+platform.NormalizeIdentityKey(in.Email)) {
 			return
 		}
 		if !s.PasswordAuth.Verify(in.Email, in.Password) || s.Sessions == nil {
-			writeJSON(w, 401, map[string]string{"error": "invalid credentials"})
+			writeJSON(w, 401, map[string]string{"error": errorInvalidCredentials})
 			return
 		}
 		email, err := platform.NormalizeEmail(in.Email)
 		if err != nil {
-			writeJSON(w, 401, map[string]string{"error": "invalid credentials"})
+			writeJSON(w, 401, map[string]string{"error": errorInvalidCredentials})
 			return
 		}
 		token, _, err := s.Sessions.Issue(email, time.Hour)

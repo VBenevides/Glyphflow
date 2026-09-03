@@ -11,8 +11,8 @@ func (s Server) setSessionCookies(w http.ResponseWriter, tokens AuthTokens) {
 		http.SetCookie(w, &http.Cookie{Name: name, Value: value, Path: path, HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode}) // NOSONAR -- HTTP remains supported for local/development SSO compatibility.
 	}
 	set(accessCookie, tokens.AccessToken, "/")
-	set(refreshCookie, tokens.RefreshToken, "/api/v1/auth")
-	set(sessionCookie, tokens.SessionID, "/api/v1/auth")
+	set(refreshCookie, tokens.RefreshToken, authCookiePath)
+	set(sessionCookie, tokens.SessionID, authCookiePath)
 }
 
 func (s Server) setAccessCookie(w http.ResponseWriter, token string) {
@@ -27,8 +27,8 @@ func clearCookie(w http.ResponseWriter, name, path string, secure bool) {
 func (s Server) clearSessionCookies(w http.ResponseWriter) {
 	secure := secureCookies(s.CSRFOrigin)
 	clearCookie(w, accessCookie, "/", secure)
-	clearCookie(w, refreshCookie, "/api/v1/auth", secure)
-	clearCookie(w, sessionCookie, "/api/v1/auth", secure)
+	clearCookie(w, refreshCookie, authCookiePath, secure)
+	clearCookie(w, sessionCookie, authCookiePath, secure)
 	// The CSRF cookie must remain readable by the frontend for double-submit validation.
 	http.SetCookie(w, &http.Cookie{Name: "glyphflow_csrf", Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode}) // NOSONAR -- deletion must use the same HTTP/HTTPS policy as the CSRF cookie.
 }

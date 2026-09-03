@@ -40,7 +40,7 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 	}
 	mux.Handle("/api/v1/admin/auth/settings", s.require("auth.settings.manage", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || (s.AuthAdmin.Password == nil && s.AuthAdmin.Auth == nil) {
-			writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+			writeJSON(w, 405, map[string]string{"error": errorMethodNotAllowed})
 			return
 		}
 		var in struct {
@@ -134,9 +134,9 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 		}
 		writeJSON(w, 200, response)
 	})))
-	mux.Handle("/api/v1/admin/auth/sessions/revoke", s.require("users.manage", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/api/v1/admin/auth/sessions/revoke", s.require(permissionUsersManage, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || (s.AuthAdmin.Sessions == nil && s.AuthAdmin.Auth == nil) {
-			writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+			writeJSON(w, 405, map[string]string{"error": errorMethodNotAllowed})
 			return
 		}
 		var err error
@@ -152,10 +152,10 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 		writeJSON(w, 204, nil)
 	})))
 	mux.Handle("/api/v1/admin/auth/sessions", s.requireMethodRole(func(r *http.Request) string {
-		return "users.read|users.manage"
+		return permissionUsersReadManage
 	}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || s.AuthAdmin.Auth == nil {
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
 			return
 		}
 		email := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("email")))
@@ -217,12 +217,12 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 			}
 			writeJSON(w, 201, map[string]string{"key": provider.Key})
 		default:
-			writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+			writeJSON(w, 405, map[string]string{"error": errorMethodNotAllowed})
 		}
 	})))
-	mux.Handle("/api/v1/admin/auth/users/", s.require("users.manage", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/api/v1/admin/auth/users/", s.require(permissionUsersManage, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s.AuthAdmin.Auth == nil {
-			writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+			writeJSON(w, 405, map[string]string{"error": errorMethodNotAllowed})
 			return
 		}
 		path := strings.TrimPrefix(r.URL.Path, "/api/v1/admin/auth/users/")
@@ -234,15 +234,15 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 					writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 					return
 				}
-				writeJSON(w, 404, map[string]string{"error": "user not found"})
+				writeJSON(w, 404, map[string]string{"error": errorUserNotFound})
 				return
 			}
 			writeJSON(w, 204, nil)
 		case r.Method == http.MethodPost && strings.HasSuffix(path, "/approve"):
 			userID := strings.TrimSuffix(path, "/approve")
 			if err := s.AuthAdmin.Auth.ApproveUser(userID); err != nil {
-				if strings.Contains(err.Error(), "not found") {
-					writeJSON(w, http.StatusNotFound, map[string]string{"error": "user not found"})
+				if strings.Contains(err.Error(), errorNotFound) {
+					writeJSON(w, http.StatusNotFound, map[string]string{"error": errorUserNotFound})
 					return
 				}
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -259,7 +259,7 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 				return
 			}
 			if err := s.AuthAdmin.Auth.Grant(userID, input.Role); err != nil {
-				if strings.Contains(err.Error(), "not found") {
+				if strings.Contains(err.Error(), errorNotFound) {
 					writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 				} else {
 					writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -276,7 +276,7 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 			if err := s.AuthAdmin.Auth.Revoke(parts[0], parts[1]); err != nil {
 				if errors.Is(err, platform.ErrLastAdministrator) || errors.Is(err, platform.ErrSystemAdministrator) {
 					writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
-				} else if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "not assigned") {
+				} else if strings.Contains(err.Error(), errorNotFound) || strings.Contains(err.Error(), "not assigned") {
 					writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 				} else {
 					writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -287,7 +287,7 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 		case r.Method == http.MethodPost && strings.HasSuffix(path, "/sessions/revoke-all"):
 			userID := strings.TrimSuffix(path, "/sessions/revoke-all")
 			if _, ok := s.AuthAdmin.Auth.User(userID); !ok {
-				writeJSON(w, http.StatusNotFound, map[string]string{"error": "user not found"})
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": errorUserNotFound})
 				return
 			}
 			if err := s.AuthAdmin.Auth.LogoutAll(userID); err != nil {
@@ -296,14 +296,14 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 			}
 			writeJSON(w, http.StatusNoContent, nil)
 		default:
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
 		}
 	})))
 	mux.Handle("/api/v1/users", s.requireMethodRole(func(r *http.Request) string {
 		if r.Method == http.MethodGet {
-			return "users.read|users.manage"
+			return permissionUsersReadManage
 		}
-		return "users.manage"
+		return permissionUsersManage
 	}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s.AuthAdmin.Auth == nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "user administration unavailable"})
@@ -354,7 +354,7 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 			return
 		}
 		if r.Method != http.MethodPost {
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
 			return
 		}
 		var input passwordRequest
@@ -371,7 +371,7 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 	})))
 	mux.Handle("/api/v1/users/", s.requireAuthenticated(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
 			return
 		}
 		if s.AuthAdmin.Auth == nil {
@@ -381,10 +381,10 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 		claims, _ := s.authenticator()(r)
 		userID := strings.TrimPrefix(r.URL.Path, "/api/v1/users/")
 		if userID == "" {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "user not found"})
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": errorUserNotFound})
 			return
 		}
-		if userID != claims.UserID && !hasPermission(s.effectivePermissions(claims), "users.read|users.manage") {
+		if userID != claims.UserID && !hasPermission(s.effectivePermissions(claims), permissionUsersReadManage) {
 			writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
 			return
 		}
@@ -394,7 +394,7 @@ func (s Server) authAdminRoutes(mux routeRegistrar) {
 			return
 		}
 		if !ok {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "user not found"})
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": errorUserNotFound})
 			return
 		}
 		writeJSON(w, http.StatusOK, profile)

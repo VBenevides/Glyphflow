@@ -350,7 +350,7 @@ func (o *OperationsService) taskCollection(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
 		return
 	}
 	var input taskInput
@@ -396,7 +396,7 @@ func (o *OperationsService) taskCollection(w http.ResponseWriter, r *http.Reques
 func (o *OperationsService) taskPath(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	if len(parts) < 4 || parts[0] != "api" || parts[1] != "v1" || parts[2] != "tasks" {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": errorTaskNotFound})
 		return
 	}
 	id := parts[3]
@@ -418,7 +418,7 @@ func (o *OperationsService) taskPath(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if _, ok := o.task(id); !ok {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": errorTaskNotFound})
 			return
 		}
 		writeJSON(w, http.StatusOK, []TaskVersionRecord{})
@@ -433,7 +433,7 @@ func (o *OperationsService) taskPath(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				writeError(w, http.StatusServiceUnavailable, "task storage unavailable", err)
 			} else if !found {
-				writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": errorTaskNotFound})
 			} else {
 				writeJSON(w, http.StatusOK, taskRecordFromStore(task))
 			}
@@ -442,7 +442,7 @@ func (o *OperationsService) taskPath(w http.ResponseWriter, r *http.Request) {
 		if task, ok := o.task(id); ok {
 			writeJSON(w, http.StatusOK, task)
 		} else {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": errorTaskNotFound})
 		}
 		return
 	}
@@ -458,7 +458,7 @@ func (o *OperationsService) taskPath(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if !deleted {
-				writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": errorTaskNotFound})
 				return
 			}
 			o.refreshScheduleProjection(r.Context())
@@ -466,7 +466,7 @@ func (o *OperationsService) taskPath(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !o.deleteTask(id) {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": errorTaskNotFound})
 			return
 		}
 		o.refreshScheduleProjection(r.Context())
@@ -502,7 +502,7 @@ func (o *OperationsService) taskPath(w http.ResponseWriter, r *http.Request) {
 		}
 		updated, ok := o.addTaskVersion(id, input)
 		if !ok {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": errorTaskNotFound})
 			return
 		}
 		o.refreshScheduleProjection(r.Context())
@@ -543,7 +543,7 @@ func (o *OperationsService) scheduleCollection(w http.ResponseWriter, r *http.Re
 		return
 	}
 	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
 		return
 	}
 	var input scheduleInput
@@ -610,7 +610,7 @@ func (o *OperationsService) schedulePath(w http.ResponseWriter, r *http.Request)
 					return
 				}
 				if !found {
-					writeJSON(w, http.StatusNotFound, map[string]string{"error": "schedule not found"})
+					writeJSON(w, http.StatusNotFound, map[string]string{"error": errorScheduleNotFound})
 					return
 				}
 				o.refreshScheduleProjection(r.Context())
@@ -625,14 +625,14 @@ func (o *OperationsService) schedulePath(w http.ResponseWriter, r *http.Request)
 			}
 			o.mu.Unlock()
 			if !found {
-				writeJSON(w, http.StatusNotFound, map[string]string{"error": "schedule not found"})
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": errorScheduleNotFound})
 				return
 			}
 			o.refreshScheduleProjection(r.Context())
 			writeJSON(w, http.StatusOK, item)
 			return
 		}
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "schedule not found"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": errorScheduleNotFound})
 		return
 	}
 	id := parts[3]
@@ -645,7 +645,7 @@ func (o *OperationsService) schedulePath(w http.ResponseWriter, r *http.Request)
 			if err != nil {
 				writeError(w, http.StatusServiceUnavailable, "schedule storage unavailable", err)
 			} else if !found {
-				writeJSON(w, http.StatusNotFound, map[string]string{"error": "schedule not found"})
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": errorScheduleNotFound})
 			} else {
 				writeJSON(w, http.StatusOK, scheduleRecordFromStore(schedule))
 			}
@@ -654,7 +654,7 @@ func (o *OperationsService) schedulePath(w http.ResponseWriter, r *http.Request)
 		if schedule, ok := o.schedule(id); ok {
 			writeJSON(w, http.StatusOK, schedule)
 		} else {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "schedule not found"})
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": errorScheduleNotFound})
 		}
 		return
 	}
@@ -667,7 +667,7 @@ func (o *OperationsService) schedulePath(w http.ResponseWriter, r *http.Request)
 				return
 			}
 			if !deleted {
-				writeJSON(w, http.StatusNotFound, map[string]string{"error": "schedule not found"})
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": errorScheduleNotFound})
 				return
 			}
 			o.refreshScheduleProjection(r.Context())
@@ -675,7 +675,7 @@ func (o *OperationsService) schedulePath(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		if !o.deleteSchedule(id) {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "schedule not found"})
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": errorScheduleNotFound})
 			return
 		}
 		o.refreshScheduleProjection(r.Context())
@@ -683,7 +683,7 @@ func (o *OperationsService) schedulePath(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
 		return
 	}
 	var input scheduleInput
@@ -728,7 +728,7 @@ func (o *OperationsService) schedulePath(w http.ResponseWriter, r *http.Request)
 
 func (o *OperationsService) preview(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
 		return
 	}
 	var input scheduleInput
