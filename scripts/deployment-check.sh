@@ -22,7 +22,7 @@ worker_pid=""
 deployment_check_postgres_password=${DEPLOYMENT_CHECK_POSTGRES_PASSWORD:-$(openssl rand -hex 16)}
 
 cleanup() {
-  if [ -n "$worker_pid" ]; then
+  if [[ -n "$worker_pid" ]]; then
     kill "$worker_pid" >/dev/null 2>&1 || true
     wait "$worker_pid" >/dev/null 2>&1 || true
   fi
@@ -44,7 +44,7 @@ command -v base64 >/dev/null || { echo "deployment check: base64 is required" >&
 wait_for_url() {
   local url=$1
   local attempt=0
-  while [ "$attempt" -lt 60 ]; do
+  while [[ "$attempt" -lt 60 ]]; do
     if curl --fail --silent "$url" >/dev/null 2>&1; then
       return 0
     fi
@@ -128,7 +128,7 @@ run_dispatch_check() {
 
   curl --fail --silent --show-error -c "$cookie_jar" "$base_url/api/v1/config" >/dev/null
   csrf=$(awk '$6 == "glyphflow_csrf" {print $7}' "$cookie_jar")
-  [ -n "$csrf" ] || { echo "deployment check: CSRF token was not issued" >&2; return 1; }
+  [[ -n "$csrf" ]] || { echo "deployment check: CSRF token was not issued" >&2; return 1; }
   login_payload=$(jq -nc --arg email admin@example.com --arg password "$DEPLOYMENT_CHECK_PASSWORD" '{email:$email,password:$password}')
   curl --fail --silent --show-error -b "$cookie_jar" -c "$cookie_jar" \
     -H 'Content-Type: application/json' -H "Origin: $origin" -H "X-CSRF-Token: $csrf" \
@@ -142,7 +142,7 @@ run_dispatch_check() {
     --data "$enrollment_payload" "$base_url/api/v1/runners/enrollments" > "$enrollment_json"
   artifact=$(jq -r '.artifact // empty' "$enrollment_json")
   runner_id=$(jq -r '.runner_id // empty' "$enrollment_json")
-  [ -n "$artifact" ] && [ -n "$runner_id" ] || { echo "deployment check: runner artifact was not returned" >&2; return 1; }
+  [[ -n "$artifact" && -n "$runner_id" ]] || { echo "deployment check: runner artifact was not returned" >&2; return 1; }
   runner_path="$dispatch_dir/runner"
   printf '%s' "$artifact" | base64 -d > "$runner_path"
   chmod 700 "$runner_path"
@@ -160,7 +160,7 @@ run_dispatch_check() {
       break
     fi
     attempt=$((attempt + 1))
-    [ "$attempt" -lt 60 ] || { echo "deployment check: worker did not become online" >&2; return 1; }
+    [[ "$attempt" -lt 60 ]] || { echo "deployment check: worker did not become online" >&2; return 1; }
     sleep 1
   done
 
@@ -170,13 +170,13 @@ run_dispatch_check() {
     --data '{"name":"deployment-check","command":["printf","deployment-check"],"runner_pool":"default","duration_seconds":30,"max_output_bytes":1024}' \
     "$base_url/api/v1/tasks" > "$task_json"
   task_id=$(jq -r '.id // empty' "$task_json")
-  [ -n "$task_id" ] || { echo "deployment check: task was not created" >&2; return 1; }
+  [[ -n "$task_id" ]] || { echo "deployment check: task was not created" >&2; return 1; }
   run_json="$dispatch_dir/run.json"
   curl --fail --silent --show-error -b "$cookie_jar" \
     -H 'Content-Type: application/json' -H "Origin: $origin" -H "X-CSRF-Token: $csrf" \
     --data "$(jq -nc --arg id "$task_id" '{task_id:$id}')" "$base_url/api/v1/runs/execute" > "$run_json"
   run_id=$(jq -r '.id // empty' "$run_json")
-  [ -n "$run_id" ] || { echo "deployment check: run was not created" >&2; return 1; }
+  [[ -n "$run_id" ]] || { echo "deployment check: run was not created" >&2; return 1; }
 
   attempt=0
   while :; do
@@ -194,7 +194,7 @@ run_dispatch_check() {
         ;;
     esac
     attempt=$((attempt + 1))
-    [ "$attempt" -lt 60 ] || { echo "deployment check: run did not finish" >&2; return 1; }
+    [[ "$attempt" -lt 60 ]] || { echo "deployment check: run did not finish" >&2; return 1; }
     sleep 1
   done
   printf '%s' "$run_json" | jq -e --arg runner "$runner_id" '.runner == $runner and .exitCode == 0' >/dev/null
@@ -283,13 +283,13 @@ docker run -d --name "$partial_postgres" --network "$network" --network-alias po
 attempt=0
 while ! docker exec "$partial_postgres" pg_isready -U glyphflow -d glyphflow >/dev/null 2>&1; do
   attempt=$((attempt + 1))
-  [ "$attempt" -lt 60 ] || { echo "deployment check: PostgreSQL did not become ready" >&2; exit 1; }
+  [[ "$attempt" -lt 60 ]] || { echo "deployment check: PostgreSQL did not become ready" >&2; exit 1; }
   sleep 1
 done
 attempt=0
 while ! docker exec "$partial_nats" wget -q -O - http://127.0.0.1:8222/healthz >/dev/null 2>&1; do
   attempt=$((attempt + 1))
-  [ "$attempt" -lt 60 ] || { echo "deployment check: NATS did not become ready" >&2; exit 1; }
+  [[ "$attempt" -lt 60 ]] || { echo "deployment check: NATS did not become ready" >&2; exit 1; }
   sleep 1
 done
 docker run -d --name "$partial_controlplane" --network "$network" -p "${partial_port}:8080" \
