@@ -159,7 +159,17 @@ func (e Executor) runCommand(ctx context.Context, args []string, clean string, f
 				code := cmd.ProcessState.ExitCode()
 				exitCode = &code
 			}
-			return drainExecutorChunks(chunks, &output, buffers, stopped, cancel, &callbackErr, onChunk, exitCode, err)
+			return drainExecutorChunks(executorDrainState{
+				chunks:      chunks,
+				output:      &output,
+				buffers:     buffers,
+				stopped:     stopped,
+				cancel:      cancel,
+				callbackErr: &callbackErr,
+				onChunk:     onChunk,
+				exitCode:    exitCode,
+				waitErr:     err,
+			})
 		}
 	}
 }
@@ -229,20 +239,32 @@ func processExecutorChunk(chunk executorOutput, output *boundedBuffer, buffers m
 	buffers[chunk.stream] = append(buffers[chunk.stream], accepted...)
 }
 
-func drainExecutorChunks(chunks <-chan executorOutput, output *boundedBuffer, buffers map[string][]byte, stopped *atomic.Bool, cancel context.CancelFunc, callbackErr *error, onChunk func(string, []byte) error, exitCode *int, waitErr error) ([]byte, *int, error) {
+type executorDrainState struct {
+	chunks      <-chan executorOutput
+	output      *boundedBuffer
+	buffers     map[string][]byte
+	stopped     *atomic.Bool
+	cancel      context.CancelFunc
+	callbackErr *error
+	onChunk     func(string, []byte) error
+	exitCode    *int
+	waitErr     error
+}
+
+func drainExecutorChunks(state executorDrainState) ([]byte, *int, error) {
 	for {
 		select {
-		case chunk := <-chunks:
-			processExecutorChunk(chunk, output, buffers, stopped, cancel)
+		case chunk := <-state.chunks:
+			processExecutorChunk(chunk, state.output, state.buffers, state.stopped, state.cancel)
 		default:
-			flushExecutorBuffers(buffers, callbackErr, stopped, cancel, onChunk)
-			if *callbackErr != nil {
-				return output.Bytes(), exitCode, *callbackErr
+			flushExecutorBuffers(state.buffers, state.callbackErr, state.stopped, state.cancel, state.onChunk)
+			if *state.callbackErr != nil {
+				return state.output.Bytes(), state.exitCode, *state.callbackErr
 			}
-			if output.exceeded {
-				return output.Bytes(), exitCode, ErrOutputLimit
+			if state.output.exceeded {
+				return state.output.Bytes(), state.exitCode, ErrOutputLimit
 			}
-			return output.Bytes(), exitCode, waitErr
+			return state.output.Bytes(), state.exitCode, state.waitErr
 		}
 	}
 }
