@@ -908,7 +908,7 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 	}
 	token := base64.RawURLEncoding.EncodeToString(raw)
 	expiry := time.Now().Add(15 * time.Minute)
-	artifact, filename, err := s.buildRunnerArtifact(r, input.Platform, input.Architecture, input.RunnerID, token, input.ControlPlaneURL, input.EmbeddedNATSEndpoint, input.UI)
+	artifact, filename, err := s.buildRunnerArtifact(r, input, token)
 	if err != nil {
 		recordRequestError(r, err)
 		writeError(w, http.StatusServiceUnavailable, "runner binary is unavailable", err)
@@ -999,22 +999,23 @@ func (s *InfrastructureService) saveInMemoryEnrollment(input runnerEnrollmentInp
 	return false
 }
 
-func (s *InfrastructureService) buildRunnerArtifact(r *http.Request, platformName, architecture, runnerID, token, controlPlaneURL, embeddedNATSEndpoint, ui string) ([]byte, string, error) {
-	if filepath.IsAbs(platformName) || filepath.IsAbs(architecture) || filepath.IsAbs(ui) ||
-		strings.ContainsAny(platformName, `/\`) || strings.ContainsAny(architecture, `/\`) || strings.ContainsAny(ui, `/\`) ||
-		(platformName != "linux" && platformName != "windows") || architecture != "amd64" ||
-		(ui != "gui" && ui != "tui" && ui != "headless") {
+func (s *InfrastructureService) buildRunnerArtifact(r *http.Request, input runnerEnrollmentInput, token string) ([]byte, string, error) {
+	if filepath.IsAbs(input.Platform) || filepath.IsAbs(input.Architecture) || filepath.IsAbs(input.UI) ||
+		strings.ContainsAny(input.Platform, `/\`) || strings.ContainsAny(input.Architecture, `/\`) || strings.ContainsAny(input.UI, `/\`) ||
+		(input.Platform != "linux" && input.Platform != "windows") || input.Architecture != "amd64" ||
+		(input.UI != "gui" && input.UI != "tui" && input.UI != "headless") {
 		return nil, "", errors.New("runner artifact target is invalid")
 	}
+	controlPlaneURL := input.ControlPlaneURL
 	s.mu.RLock()
 	directory, defaultControlPlaneURL, maxMessageBytes, controlPlanePublicKey, repository := s.runnerBinaryDir, s.runnerControlPlaneURL, s.runnerMaxMessageBytes, s.controlPlanePublicKey, s.runnerRepository
 	approvedNATSEndpoint, allowInsecure := s.runnerNATSURL, s.allowInsecureTransport
 	if controlPlaneURL == "" {
-		controlPlaneURL = s.runners[runnerID].ControlPlaneURL
+		controlPlaneURL = s.runners[input.RunnerID].ControlPlaneURL
 	}
 	s.mu.RUnlock()
 	if controlPlaneURL == "" && repository != nil {
-		item, found, err := repository.Find(r.Context(), runnerID)
+		item, found, err := repository.Find(r.Context(), input.RunnerID)
 		if err != nil {
 			return nil, "", err
 		}
@@ -1022,12 +1023,12 @@ func (s *InfrastructureService) buildRunnerArtifact(r *http.Request, platformNam
 			controlPlaneURL = item.ControlPlaneURL
 		}
 	}
-	binaryName := "glyphflow-runner-" + platformName + "-" + architecture
-	if ui != "gui" {
-		binaryName += "-" + ui
+	binaryName := "glyphflow-runner-" + input.Platform + "-" + input.Architecture
+	if input.UI != "gui" {
+		binaryName += "-" + input.UI
 	}
-	filename := runnerID + "-" + binaryName
-	if platformName == "windows" {
+	filename := input.RunnerID + "-" + binaryName
+	if input.Platform == "windows" {
 		binaryName += ".exe"
 		filename += ".exe"
 	}
@@ -1046,13 +1047,13 @@ func (s *InfrastructureService) buildRunnerArtifact(r *http.Request, platformNam
 	if controlPlaneURL == "" {
 		controlPlaneURL = requestBaseURL(r)
 	}
-	if embeddedNATSEndpoint == "" {
-		embeddedNATSEndpoint = approvedNATSEndpoint
+	if input.EmbeddedNATSEndpoint == "" {
+		input.EmbeddedNATSEndpoint = approvedNATSEndpoint
 	}
-	if err := validateRunnerEndpoints(controlPlaneURL, embeddedNATSEndpoint, defaultControlPlaneURL, approvedNATSEndpoint, allowInsecure); err != nil {
+	if err := validateRunnerEndpoints(controlPlaneURL, input.EmbeddedNATSEndpoint, defaultControlPlaneURL, approvedNATSEndpoint, allowInsecure); err != nil {
 		return nil, "", err
 	}
-	packed, err := worker.PackBootstrap(raw, worker.Bootstrap{Token: token, RunnerID: runnerID, ControlPlaneURL: controlPlaneURL, ControlPublicKey: controlPlanePublicKey, NATSURL: strings.TrimSpace(embeddedNATSEndpoint), MaxMessageBytes: maxMessageBytes, AllowInsecureTransport: allowInsecure})
+	packed, err := worker.PackBootstrap(raw, worker.Bootstrap{Token: token, RunnerID: input.RunnerID, ControlPlaneURL: controlPlaneURL, ControlPublicKey: controlPlanePublicKey, NATSURL: strings.TrimSpace(input.EmbeddedNATSEndpoint), MaxMessageBytes: maxMessageBytes, AllowInsecureTransport: allowInsecure})
 	return packed, filename, err
 }
 

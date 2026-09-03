@@ -106,7 +106,7 @@ func TestRunnerArtifactRejectsUnsafeTargetComponents(t *testing.T) {
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
-			_, _, err := s.buildRunnerArtifact(request, test.platform, test.architecture, "runner-1", "token", "", "", "gui")
+			_, _, err := s.buildRunnerArtifact(request, runnerEnrollmentInput{Platform: test.platform, Architecture: test.architecture, RunnerID: "runner-1", UI: "gui"}, "token")
 			if err == nil || err.Error() != "runner artifact target is invalid" {
 				t.Fatalf("buildRunnerArtifact() error = %v", err)
 			}
@@ -131,7 +131,7 @@ func TestRunnerArtifactAcceptsSupportedTargets(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(directory, test.filename), []byte("runner-binary"), 0o700); err != nil {
 				t.Fatal(err)
 			}
-			_, filename, err := s.buildRunnerArtifact(request, test.platform, "amd64", "runner-1", "token", "http://control.example", "nats://localhost:4222", "gui")
+			_, filename, err := s.buildRunnerArtifact(request, runnerEnrollmentInput{Platform: test.platform, Architecture: "amd64", RunnerID: "runner-1", ControlPlaneURL: "http://control.example", EmbeddedNATSEndpoint: "nats://localhost:4222", UI: "gui"}, "token")
 			if err != nil || filename != "runner-1-"+test.filename {
 				t.Fatalf("buildRunnerArtifact() = %q, %v", filename, err)
 			}
