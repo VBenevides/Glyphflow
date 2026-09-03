@@ -10,12 +10,13 @@ describe('shared components', () => {
     const html = renderToStaticMarkup(
       <>
         <StatusPill status="UNKNOWN" />
-        <DataTable className="gf-audit-table" caption="Runs" columns={[{ key: 'name', label: 'Name', className: 'gf-cell-nowrap' }]} rows={[{ id: 'r1', name: 'Nightly' }]} />
+        <DataTable className="gf-audit-table" caption="Runs" columns={[{ key: 'name', label: 'Name', className: 'gf-cell-nowrap' }, { key: 'metadata', label: 'Metadata' }]} rows={[{ id: 'r1', name: 'Nightly', metadata: { owner: 'ops' } }]} />
       </>,
     )
     expect(html).toContain('UNKNOWN')
     expect(html).toContain('scope="col"')
     expect(html).toContain('Nightly')
+    expect(html).toContain('{&quot;owner&quot;:&quot;ops&quot;}')
     expect(html).toContain('gf-audit-table')
     expect(html).toContain('gf-cell-nowrap')
   })

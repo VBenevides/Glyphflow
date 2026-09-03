@@ -43,7 +43,7 @@ describe('run inventory', () => {
       cancellation: { state: 'REQUESTED', reason: 'operator stop', requestedAt: '2026-08-14T12:00:02Z' },
       logGaps: [{ stream: 'stdout', fromSequence: 3, toSequence: 4 }],
     } }))
-    for (const value of ['Attempt timeline', 'runner-1', 'started', 'session-1', 'ACTIVE', 'operator stop', 'stdout', '3–4']) expect(markup).toContain(value)
+    for (const value of ['Attempt timeline', 'runner-1', 'started', 'session-1', 'ACTIVE', 'operator stop', 'stdout', '3–4', '{&quot;pid&quot;:7}']) expect(markup).toContain(value)
   })
 
   it('renders a placement blocker for waiting runs', () => {
