@@ -116,7 +116,9 @@ export type Column<T> = { key: string; label: string; className?: string; render
 function tableValue(value: unknown): ReactNode {
   if (value === undefined || value === null) return '—'
   if (typeof value === 'object') return JSON.stringify(value) ?? '—'
-  return String(value)
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint' || typeof value === 'symbol') return value.toString()
+  return '—'
 }
 
 export function DataTable<T extends { id?: string | number }>({ columns, rows, caption, className }: Readonly<{ columns: Column<T>[]; rows: T[]; caption: string; className?: string }>) {

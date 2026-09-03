@@ -1000,10 +1000,8 @@ func (s *InfrastructureService) saveInMemoryEnrollment(input runnerEnrollmentInp
 }
 
 func (s *InfrastructureService) buildRunnerArtifact(r *http.Request, input runnerEnrollmentInput, token string) ([]byte, string, error) {
-	if filepath.IsAbs(input.Platform) || filepath.IsAbs(input.Architecture) || filepath.IsAbs(input.UI) ||
-		strings.ContainsAny(input.Platform, `/\`) || strings.ContainsAny(input.Architecture, `/\`) || strings.ContainsAny(input.UI, `/\`) ||
-		(input.Platform != "linux" && input.Platform != "windows") || input.Architecture != "amd64" ||
-		(input.UI != "gui" && input.UI != "tui" && input.UI != "headless") {
+	binaryName, valid := runnerArtifactBinaryName(input.Platform, input.Architecture, input.UI)
+	if !valid {
 		return nil, "", errors.New("runner artifact target is invalid")
 	}
 	controlPlaneURL := input.ControlPlaneURL
@@ -1023,15 +1021,7 @@ func (s *InfrastructureService) buildRunnerArtifact(r *http.Request, input runne
 			controlPlaneURL = item.ControlPlaneURL
 		}
 	}
-	binaryName := "glyphflow-runner-" + input.Platform + "-" + input.Architecture
-	if input.UI != "gui" {
-		binaryName += "-" + input.UI
-	}
 	filename := input.RunnerID + "-" + binaryName
-	if input.Platform == "windows" {
-		binaryName += ".exe"
-		filename += ".exe"
-	}
 	artifactPath := filepath.Join(directory, binaryName)
 	relativePath, err := filepath.Rel(directory, artifactPath)
 	if err != nil || relativePath == ".." || strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) {
@@ -1055,6 +1045,33 @@ func (s *InfrastructureService) buildRunnerArtifact(r *http.Request, input runne
 	}
 	packed, err := worker.PackBootstrap(raw, worker.Bootstrap{Token: token, RunnerID: input.RunnerID, ControlPlaneURL: controlPlaneURL, ControlPublicKey: controlPlanePublicKey, NATSURL: strings.TrimSpace(input.EmbeddedNATSEndpoint), MaxMessageBytes: maxMessageBytes, AllowInsecureTransport: allowInsecure})
 	return packed, filename, err
+}
+
+func runnerArtifactBinaryName(platformName, architecture, ui string) (string, bool) {
+	if architecture != "amd64" {
+		return "", false
+	}
+	switch platformName {
+	case "linux":
+		switch ui {
+		case "gui":
+			return "glyphflow-runner-linux-amd64", true
+		case "tui":
+			return "glyphflow-runner-linux-amd64-tui", true
+		case "headless":
+			return "glyphflow-runner-linux-amd64-headless", true
+		}
+	case "windows":
+		switch ui {
+		case "gui":
+			return "glyphflow-runner-windows-amd64.exe", true
+		case "tui":
+			return "glyphflow-runner-windows-amd64-tui.exe", true
+		case "headless":
+			return "glyphflow-runner-windows-amd64-headless.exe", true
+		}
+	}
+	return "", false
 }
 
 func validateRunnerEndpoints(controlPlaneURL, natsEndpoint, approvedControlPlaneURL, approvedNATSEndpoint string, allowInsecure bool) error {
