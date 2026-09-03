@@ -66,8 +66,7 @@ function VersionComparison({ versions, version }: { versions: TaskVersion[]; ver
   if (!current) return null
   const previous = versions.find((item) => item.version === version - 1)
   let content = <p className="gf-muted">Previous version is not available.</p>
-  if (!previous) content = <p className="gf-muted">Previous version is not available.</p>
-  else {
+  if (previous) {
     const changes = taskVersionDiff(previous, current)
     content = changes.length ? <DataTable caption={`Changes from version ${version - 1} to ${version}`} rows={changes} columns={[{ key: 'field', label: 'Field' }, { key: 'previous', label: `v${version - 1}` }, { key: 'current', label: `v${version}` }]} /> : <p className="gf-muted">No changes detected.</p>
   }
