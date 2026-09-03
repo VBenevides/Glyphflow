@@ -1145,6 +1145,11 @@ func TestRunReconciliationErrors(t *testing.T) {
 
 func TestRunnerArchiveAndDeleteBranches(t *testing.T) {
 	ctx := context.Background()
+	testRunnerDeleteBranches(t, ctx)
+	testRunnerArchiveBranches(t, ctx)
+}
+
+func testRunnerDeleteBranches(t *testing.T, ctx context.Context) {
 	pgError := &pgconn.PgError{Code: "23503", Message: "history"}
 	if deleted, err := (&RunnerStore{pool: coverageDatabase{result: coverageRowsAffected(0), err: pgError}}).Delete(ctx, "runner"); err != ErrRunnerHasExecutionHistory || deleted {
 		t.Fatalf("history delete = deleted=%v err=%v", deleted, err)
@@ -1152,6 +1157,9 @@ func TestRunnerArchiveAndDeleteBranches(t *testing.T) {
 	if deleted, err := (&RunnerStore{pool: coverageDatabase{result: coverageRowsAffected(0), err: errors.New("delete")}}).Delete(ctx, "runner"); err == nil || deleted {
 		t.Fatal("runner delete failure was ignored")
 	}
+}
+
+func testRunnerArchiveBranches(t *testing.T, ctx context.Context) {
 	newStore := func(tx coverageTx) *RunnerStore { return &RunnerStore{pool: coverageDatabase{tx: tx}} }
 	if archived, err := (&RunnerStore{pool: coverageDatabase{beginErr: errors.New("begin")}}).Archive(ctx, "runner"); err == nil || archived {
 		t.Fatal("archive begin failure was ignored")
