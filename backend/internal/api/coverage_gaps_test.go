@@ -264,6 +264,12 @@ func testCoverageOIDCService(t *testing.T, provider OIDCProvider) {
 }
 
 func TestCoverageInfrastructureAndAuthHelpers(t *testing.T) {
+	testCoverageInfrastructureHelpers(t)
+	testCoverageAuthHelpers(t)
+}
+
+func testCoverageInfrastructureHelpers(t *testing.T) {
+	t.Helper()
 	items := []RunnerRecord{{ID: "runner-1", Name: "Build", Pool: "Default", ObservedState: "RUNNING", DesiredState: "ACTIVE"}, {ID: "runner-2", Name: "Test", Pool: "CI", ObservedState: "STOPPED", DesiredState: "DRAIN"}}
 	if len(filterRunners(items, "running", "build", "active")) != 1 || len(filterRunners(items, "", "missing")) != 0 || len(filterRunners(items, "", "", "drain")) != 1 {
 		t.Fatalf("runner filters = %#v", items)
@@ -290,7 +296,10 @@ func TestCoverageInfrastructureAndAuthHelpers(t *testing.T) {
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("missing runner = %d", response.Code)
 	}
+}
 
+func testCoverageAuthHelpers(t *testing.T) {
+	t.Helper()
 	auth, err := NewAuthService(strings.Repeat("x", 32), true, true, nil)
 	if err != nil {
 		t.Fatal(err)
