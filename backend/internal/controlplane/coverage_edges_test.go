@@ -127,7 +127,7 @@ func testProjectionEdges(t *testing.T, now time.Time) {
 	if signSecretDeliveryResponse(protocol.SecretDeliveryResponse{Version: protocol.ProtocolVersion}, protocol.SigningKey{ID: "invalid"}) != nil {
 		t.Fatal("response signed with invalid key")
 	}
-	if raw := secretDeliveryResponse(context.Background(), nil, nil, nil, protocol.SigningKey{ID: "invalid"}, nil, []byte("invalid")); raw != nil {
+	if secretDeliveryResponse(context.Background(), nil, nil, nil, protocol.SigningKey{ID: "invalid"}, nil, []byte("invalid")) != nil {
 		t.Fatal("rejected response signed with invalid key")
 	}
 }
