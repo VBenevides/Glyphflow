@@ -69,6 +69,10 @@ type enrollment struct {
 	Expires  time.Time
 	Used     bool
 }
+type runnerArtifact struct {
+	data     []byte
+	filename string
+}
 type runnerKey struct {
 	ID     string
 	Public ed25519.PublicKey
@@ -914,13 +918,13 @@ func (s *InfrastructureService) enroll(w http.ResponseWriter, r *http.Request) {
 	repository := s.runnerRepository
 	s.mu.RUnlock()
 	if repository != nil {
-		s.enrollDurable(w, r, input, token, expiry, artifact, filename, repository)
+		s.enrollDurable(w, r, input, token, expiry, runnerArtifact{data: artifact, filename: filename}, repository)
 		return
 	}
 	s.enrollInMemory(w, input, token, expiry, artifact, filename)
 }
 
-func (s *InfrastructureService) enrollDurable(w http.ResponseWriter, r *http.Request, input runnerEnrollmentInput, token string, expiry time.Time, artifact []byte, filename string, repository store.RunnerRepository) {
+func (s *InfrastructureService) enrollDurable(w http.ResponseWriter, r *http.Request, input runnerEnrollmentInput, token string, expiry time.Time, artifact runnerArtifact, repository store.RunnerRepository) {
 	pool, found, err := repository.FindPool(r.Context(), input.PoolID)
 	if err != nil {
 		writeError(w, http.StatusServiceUnavailable, "runner pool lookup failed", err)
@@ -944,7 +948,7 @@ func (s *InfrastructureService) enrollDurable(w http.ResponseWriter, r *http.Req
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusCreated, map[string]string{"artifact": base64.StdEncoding.EncodeToString(artifact), "expires_at": expiry.UTC().Format(time.RFC3339), "filename": filename, "runner_id": input.RunnerID, "runner_name": input.RunnerName})
+	writeJSON(w, http.StatusCreated, map[string]string{"artifact": base64.StdEncoding.EncodeToString(artifact.data), "expires_at": expiry.UTC().Format(time.RFC3339), "filename": artifact.filename, "runner_id": input.RunnerID, "runner_name": input.RunnerName})
 }
 
 func (s *InfrastructureService) enrollInMemory(w http.ResponseWriter, input runnerEnrollmentInput, token string, expiry time.Time, artifact []byte, filename string) {
