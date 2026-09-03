@@ -81,7 +81,7 @@ export function ganttRange(view: GanttView, report: ScheduleProjection, dayOffse
 }
 
 export function projectionIsStale(calculatedAt?: string, now = Date.now()) {
-  const timestamp = calculatedAt ? Date.parse(calculatedAt) : NaN
+  const timestamp = calculatedAt ? Date.parse(calculatedAt) : Number.NaN
   return Number.isFinite(timestamp) && now - timestamp > 60 * 60 * 1000
 }
 
