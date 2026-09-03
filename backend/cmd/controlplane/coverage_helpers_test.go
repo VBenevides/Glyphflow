@@ -547,6 +547,7 @@ func TestRunSystemMetricsEvaluationLogsEvaluationFailure(t *testing.T) {
 		return platform.OperationalSignals{}, errors.New("signals unavailable")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	go func() {
 		time.Sleep(10 * time.Millisecond)
 		cancel()
