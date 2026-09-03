@@ -22,7 +22,7 @@ func (t *EventTracker) Accept(eventID, attemptID string, sequence uint64) (bool,
 	if _, ok := t.seen[eventID]; ok {
 		return false, nil
 	}
-	if previous := t.sequence[attemptID]; sequence <= previous {
+	if sequence <= t.sequence[attemptID] {
 		return false, ErrOutOfOrderEvent
 	}
 	t.seen[eventID] = struct{}{}
@@ -40,7 +40,7 @@ func (t *EventTracker) AcceptChannel(eventID, attemptID, channel string, sequenc
 		return false, nil
 	}
 	key := attemptID + "\x00" + channel
-	if previous := t.channels[key]; sequence <= previous {
+	if sequence <= t.channels[key] {
 		return false, ErrOutOfOrderEvent
 	}
 	t.seen[eventID] = struct{}{}
