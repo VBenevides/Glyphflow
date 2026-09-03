@@ -368,6 +368,7 @@ func TestSessionCleanupRecordsRepositoryFailure(t *testing.T) {
 	database.closeDatabase()
 	health := controlplane.NewHealth(healthSessionCleanup)
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	go func() {
 		time.Sleep(10 * time.Millisecond)
 		cancel()
