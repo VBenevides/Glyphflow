@@ -305,6 +305,7 @@ func renderGioLogs(entries []LogEntry, stderrOnly bool) string {
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	var capacity atomic.Int64
 	logs := NewLogBuffer(&capacity)
 	stdout := logs.Writer("stdout", os.Stdout)
