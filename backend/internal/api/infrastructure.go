@@ -994,6 +994,12 @@ func (s *InfrastructureService) enrollInMemory(w http.ResponseWriter, input runn
 }
 
 func (s *InfrastructureService) buildRunnerArtifact(r *http.Request, platformName, architecture, runnerID, token, controlPlaneURL, embeddedNATSEndpoint, ui string) ([]byte, string, error) {
+	if filepath.IsAbs(platformName) || filepath.IsAbs(architecture) || filepath.IsAbs(ui) ||
+		strings.ContainsAny(platformName, `/\`) || strings.ContainsAny(architecture, `/\`) || strings.ContainsAny(ui, `/\`) ||
+		(platformName != "linux" && platformName != "windows") || architecture != "amd64" ||
+		(ui != "gui" && ui != "tui" && ui != "headless") {
+		return nil, "", errors.New("runner artifact target is invalid")
+	}
 	s.mu.RLock()
 	directory, defaultControlPlaneURL, maxMessageBytes, controlPlanePublicKey, repository := s.runnerBinaryDir, s.runnerControlPlaneURL, s.runnerMaxMessageBytes, s.controlPlanePublicKey, s.runnerRepository
 	approvedNATSEndpoint, allowInsecure := s.runnerNATSURL, s.allowInsecureTransport
@@ -1019,7 +1025,12 @@ func (s *InfrastructureService) buildRunnerArtifact(r *http.Request, platformNam
 		binaryName += ".exe"
 		filename += ".exe"
 	}
-	raw, err := os.ReadFile(filepath.Join(directory, binaryName))
+	artifactPath := filepath.Join(directory, binaryName)
+	relativePath, err := filepath.Rel(directory, artifactPath)
+	if err != nil || relativePath == ".." || strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) {
+		return nil, "", errors.New("runner artifact path is outside the configured runner binary directory")
+	}
+	raw, err := os.ReadFile(artifactPath)
 	if err != nil {
 		return nil, "", err
 	}
