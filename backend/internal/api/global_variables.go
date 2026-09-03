@@ -109,52 +109,63 @@ func (s *GlobalVariableService) path(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	repository := s.repository
 	s.mu.RUnlock()
-	if r.Method == http.MethodGet {
-		if repository != nil {
-			item, found, err := repository.Find(r.Context(), id)
-			if err != nil {
-				writeError(w, http.StatusServiceUnavailable, "global variable storage unavailable", err)
-			} else if !found {
-				writeJSON(w, http.StatusNotFound, map[string]string{"error": errorGlobalVariableNotFound})
-			} else {
-				writeJSON(w, http.StatusOK, item)
-			}
-			return
-		}
-		s.mu.RLock()
-		item, found := s.items[id]
-		s.mu.RUnlock()
-		if !found {
+	switch r.Method {
+	case http.MethodGet:
+		s.getPath(w, r, id, repository)
+	case http.MethodDelete:
+		s.deletePath(w, r, id, repository)
+	case http.MethodPut:
+		s.updatePath(w, r, id, repository)
+	default:
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
+	}
+}
+
+func (s *GlobalVariableService) getPath(w http.ResponseWriter, r *http.Request, id string, repository store.GlobalVariableRepository) {
+	if repository != nil {
+		item, found, err := repository.Find(r.Context(), id)
+		if err != nil {
+			writeError(w, http.StatusServiceUnavailable, "global variable storage unavailable", err)
+		} else if !found {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": errorGlobalVariableNotFound})
-			return
+		} else {
+			writeJSON(w, http.StatusOK, item)
 		}
-		writeJSON(w, http.StatusOK, item)
 		return
 	}
-	if r.Method == http.MethodDelete {
-		if repository != nil {
-			if err := repository.Delete(r.Context(), id); err != nil {
-				writeError(w, http.StatusConflict, "global variable cannot be deleted", err)
-				return
-			}
-			w.WriteHeader(http.StatusNoContent)
+	s.mu.RLock()
+	item, found := s.items[id]
+	s.mu.RUnlock()
+	if !found {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": errorGlobalVariableNotFound})
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *GlobalVariableService) deletePath(w http.ResponseWriter, r *http.Request, id string, repository store.GlobalVariableRepository) {
+	if repository != nil {
+		if err := repository.Delete(r.Context(), id); err != nil {
+			writeError(w, http.StatusConflict, "global variable cannot be deleted", err)
 			return
 		}
-		s.mu.Lock()
-		if _, found := s.items[id]; !found {
-			s.mu.Unlock()
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": errorGlobalVariableNotFound})
-			return
-		}
-		delete(s.items, id)
-		s.mu.Unlock()
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	if r.Method != http.MethodPut {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
+	s.mu.Lock()
+	_, found := s.items[id]
+	if found {
+		delete(s.items, id)
+	}
+	s.mu.Unlock()
+	if !found {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": errorGlobalVariableNotFound})
 		return
 	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *GlobalVariableService) updatePath(w http.ResponseWriter, r *http.Request, id string, repository store.GlobalVariableRepository) {
 	var input globalVariableInput
 	if json.NewDecoder(r.Body).Decode(&input) != nil || !platform.GlobalVariableName(strings.TrimSpace(input.Name)) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "valid variable name is required"})

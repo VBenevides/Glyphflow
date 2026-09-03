@@ -400,116 +400,123 @@ func (o *OperationsService) taskPath(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := parts[3]
-	if len(parts) == 5 && parts[4] == "versions" && r.Method == http.MethodGet {
-		o.mu.RLock()
-		repository := o.repository
-		o.mu.RUnlock()
-		if repository != nil {
-			versions, err := repository.ListVersions(r.Context(), id)
-			if err != nil {
-				writeError(w, http.StatusServiceUnavailable, "task version storage unavailable", err)
-				return
-			}
-			result := make([]TaskVersionRecord, 0, len(versions))
-			for _, version := range versions {
-				result = append(result, taskVersionRecordFromStore(version))
-			}
-			writeJSON(w, http.StatusOK, result)
+	switch {
+	case len(parts) == 5 && parts[4] == "versions" && r.Method == http.MethodGet:
+		o.taskVersionsPath(w, r, id)
+	case len(parts) == 4 && r.Method == http.MethodGet:
+		o.taskGetPath(w, r, id)
+	case len(parts) == 4 && r.Method == http.MethodDelete:
+		o.taskDeletePath(w, r, id)
+	case len(parts) == 5 && parts[4] == "versions" && r.Method == http.MethodPost:
+		o.taskVersionPath(w, r, id)
+	default:
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "task route not found"})
+	}
+}
+
+func (o *OperationsService) taskVersionsPath(w http.ResponseWriter, r *http.Request, id string) {
+	o.mu.RLock()
+	repository := o.repository
+	o.mu.RUnlock()
+	if repository != nil {
+		versions, err := repository.ListVersions(r.Context(), id)
+		if err != nil {
+			writeError(w, http.StatusServiceUnavailable, "task version storage unavailable", err)
 			return
 		}
-		if _, ok := o.task(id); !ok {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": errorTaskNotFound})
-			return
+		result := make([]TaskVersionRecord, 0, len(versions))
+		for _, version := range versions {
+			result = append(result, taskVersionRecordFromStore(version))
 		}
-		writeJSON(w, http.StatusOK, []TaskVersionRecord{})
+		writeJSON(w, http.StatusOK, result)
 		return
 	}
-	if len(parts) == 4 && r.Method == http.MethodGet {
-		o.mu.RLock()
-		repository := o.repository
-		o.mu.RUnlock()
-		if repository != nil {
-			task, found, err := repository.Find(r.Context(), id)
-			if err != nil {
-				writeError(w, http.StatusServiceUnavailable, "task storage unavailable", err)
-			} else if !found {
-				writeJSON(w, http.StatusNotFound, map[string]string{"error": errorTaskNotFound})
-			} else {
-				writeJSON(w, http.StatusOK, taskRecordFromStore(task))
-			}
-			return
-		}
-		if task, ok := o.task(id); ok {
-			writeJSON(w, http.StatusOK, task)
+	if _, ok := o.task(id); !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": errorTaskNotFound})
+		return
+	}
+	writeJSON(w, http.StatusOK, []TaskVersionRecord{})
+}
+
+func (o *OperationsService) taskGetPath(w http.ResponseWriter, r *http.Request, id string) {
+	o.mu.RLock()
+	repository := o.repository
+	o.mu.RUnlock()
+	if repository != nil {
+		task, found, err := repository.Find(r.Context(), id)
+		if err != nil {
+			writeError(w, http.StatusServiceUnavailable, "task storage unavailable", err)
+		} else if !found {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": errorTaskNotFound})
 		} else {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": errorTaskNotFound})
+			writeJSON(w, http.StatusOK, taskRecordFromStore(task))
 		}
 		return
 	}
-	if len(parts) == 4 && r.Method == http.MethodDelete {
-		o.mu.RLock()
-		repository := o.repository
-		o.mu.RUnlock()
-		if repository != nil {
-			deleted, err := repository.Delete(r.Context(), id)
-			if err != nil {
-				recordRequestError(r, err)
-				writeJSON(w, http.StatusConflict, map[string]string{"error": "task cannot be deleted"})
-				return
-			}
-			if !deleted {
-				writeJSON(w, http.StatusNotFound, map[string]string{"error": errorTaskNotFound})
-				return
-			}
-			o.refreshScheduleProjection(r.Context())
-			w.WriteHeader(http.StatusNoContent)
+	if task, ok := o.task(id); ok {
+		writeJSON(w, http.StatusOK, task)
+		return
+	}
+	writeJSON(w, http.StatusNotFound, map[string]string{"error": errorTaskNotFound})
+}
+
+func (o *OperationsService) taskDeletePath(w http.ResponseWriter, r *http.Request, id string) {
+	o.mu.RLock()
+	repository := o.repository
+	o.mu.RUnlock()
+	if repository != nil {
+		deleted, err := repository.Delete(r.Context(), id)
+		if err != nil {
+			recordRequestError(r, err)
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "task cannot be deleted"})
 			return
 		}
-		if !o.deleteTask(id) {
+		if !deleted {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": errorTaskNotFound})
+			return
+		}
+	} else if !o.deleteTask(id) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": errorTaskNotFound})
+		return
+	}
+	o.refreshScheduleProjection(r.Context())
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (o *OperationsService) taskVersionPath(w http.ResponseWriter, r *http.Request, id string) {
+	var input taskInput
+	if json.NewDecoder(r.Body).Decode(&input) != nil || len(input.Command) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "command is required"})
+		return
+	}
+	if err := validateTaskSecrets(input); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := o.validateTaskSecretIDs(r.Context(), input); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	o.mu.RLock()
+	repository := o.repository
+	o.mu.RUnlock()
+	if repository != nil {
+		updated, err := repository.CreateVersion(r.Context(), id, taskDefinition("", input))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "task version creation failed", err)
 			return
 		}
 		o.refreshScheduleProjection(r.Context())
-		w.WriteHeader(http.StatusNoContent)
+		writeJSON(w, http.StatusCreated, taskRecordFromStore(updated))
 		return
 	}
-	if len(parts) == 5 && parts[4] == "versions" && r.Method == http.MethodPost {
-		var input taskInput
-		if json.NewDecoder(r.Body).Decode(&input) != nil || len(input.Command) == 0 {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "command is required"})
-			return
-		}
-		if err := validateTaskSecrets(input); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-			return
-		}
-		if err := o.validateTaskSecretIDs(r.Context(), input); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-			return
-		}
-		o.mu.RLock()
-		repository := o.repository
-		o.mu.RUnlock()
-		if repository != nil {
-			updated, err := repository.CreateVersion(r.Context(), id, taskDefinition("", input))
-			if err != nil {
-				writeError(w, http.StatusBadRequest, "task version creation failed", err)
-				return
-			}
-			o.refreshScheduleProjection(r.Context())
-			writeJSON(w, http.StatusCreated, taskRecordFromStore(updated))
-			return
-		}
-		updated, ok := o.addTaskVersion(id, input)
-		if !ok {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": errorTaskNotFound})
-			return
-		}
-		o.refreshScheduleProjection(r.Context())
-		writeJSON(w, http.StatusCreated, updated)
+	updated, ok := o.addTaskVersion(id, input)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": errorTaskNotFound})
 		return
 	}
-	writeJSON(w, http.StatusNotFound, map[string]string{"error": "task route not found"})
+	o.refreshScheduleProjection(r.Context())
+	writeJSON(w, http.StatusCreated, updated)
 }
 
 func (o *OperationsService) scheduleCollection(w http.ResponseWriter, r *http.Request) {
@@ -596,96 +603,106 @@ func (o *OperationsService) scheduleCollection(w http.ResponseWriter, r *http.Re
 
 func (o *OperationsService) schedulePath(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(parts) == 5 && (parts[4] == "enable" || parts[4] == "disable") && r.Method == http.MethodPost {
+		o.scheduleStatePath(w, r, parts[3], parts[4] == "enable")
+		return
+	}
 	if len(parts) != 4 {
-		if len(parts) == 5 && (parts[4] == "enable" || parts[4] == "disable") && r.Method == http.MethodPost {
-			id := parts[3]
-			enabled := parts[4] == "enable"
-			o.mu.RLock()
-			repository := o.scheduleRepository
-			o.mu.RUnlock()
-			if repository != nil {
-				item, found, err := repository.SetEnabled(r.Context(), id, enabled)
-				if err != nil {
-					writeError(w, http.StatusConflict, "schedule state update failed", err)
-					return
-				}
-				if !found {
-					writeJSON(w, http.StatusNotFound, map[string]string{"error": errorScheduleNotFound})
-					return
-				}
-				o.refreshScheduleProjection(r.Context())
-				writeJSON(w, http.StatusOK, scheduleRecordFromStore(item))
-				return
-			}
-			o.mu.Lock()
-			item, found := o.schedules[id]
-			if found {
-				item.Enabled, item.State = enabled, map[bool]string{true: "ACTIVE", false: "DISABLED"}[enabled]
-				o.schedules[id] = item
-			}
-			o.mu.Unlock()
-			if !found {
-				writeJSON(w, http.StatusNotFound, map[string]string{"error": errorScheduleNotFound})
-				return
-			}
-			o.refreshScheduleProjection(r.Context())
-			writeJSON(w, http.StatusOK, item)
-			return
-		}
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": errorScheduleNotFound})
 		return
 	}
 	id := parts[3]
+	switch r.Method {
+	case http.MethodGet:
+		o.scheduleGetPath(w, r, id)
+	case http.MethodDelete:
+		o.scheduleDeletePath(w, r, id)
+	case http.MethodPost:
+		o.scheduleUpdatePath(w, r, id)
+	default:
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
+	}
+}
+
+func (o *OperationsService) scheduleStatePath(w http.ResponseWriter, r *http.Request, id string, enabled bool) {
 	o.mu.RLock()
 	repository := o.scheduleRepository
 	o.mu.RUnlock()
-	if r.Method == http.MethodGet {
-		if repository != nil {
-			schedule, found, err := repository.Find(r.Context(), id)
-			if err != nil {
-				writeError(w, http.StatusServiceUnavailable, "schedule storage unavailable", err)
-			} else if !found {
-				writeJSON(w, http.StatusNotFound, map[string]string{"error": errorScheduleNotFound})
-			} else {
-				writeJSON(w, http.StatusOK, scheduleRecordFromStore(schedule))
-			}
+	if repository != nil {
+		item, found, err := repository.SetEnabled(r.Context(), id, enabled)
+		if err != nil {
+			writeError(w, http.StatusConflict, "schedule state update failed", err)
 			return
 		}
-		if schedule, ok := o.schedule(id); ok {
-			writeJSON(w, http.StatusOK, schedule)
-		} else {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": errorScheduleNotFound})
-		}
-		return
-	}
-	if r.Method == http.MethodDelete {
-		if repository != nil {
-			deleted, err := repository.Delete(r.Context(), id)
-			if err != nil {
-				recordRequestError(r, err)
-				writeJSON(w, http.StatusConflict, map[string]string{"error": "schedule cannot be deleted"})
-				return
-			}
-			if !deleted {
-				writeJSON(w, http.StatusNotFound, map[string]string{"error": errorScheduleNotFound})
-				return
-			}
-			o.refreshScheduleProjection(r.Context())
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		if !o.deleteSchedule(id) {
+		if !found {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": errorScheduleNotFound})
 			return
 		}
 		o.refreshScheduleProjection(r.Context())
-		w.WriteHeader(http.StatusNoContent)
+		writeJSON(w, http.StatusOK, scheduleRecordFromStore(item))
 		return
 	}
-	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
+	o.mu.Lock()
+	item, found := o.schedules[id]
+	if found {
+		item.Enabled, item.State = enabled, map[bool]string{true: "ACTIVE", false: "DISABLED"}[enabled]
+		o.schedules[id] = item
+	}
+	o.mu.Unlock()
+	if !found {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": errorScheduleNotFound})
 		return
 	}
+	o.refreshScheduleProjection(r.Context())
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (o *OperationsService) scheduleGetPath(w http.ResponseWriter, r *http.Request, id string) {
+	o.mu.RLock()
+	repository := o.scheduleRepository
+	o.mu.RUnlock()
+	if repository != nil {
+		schedule, found, err := repository.Find(r.Context(), id)
+		if err != nil {
+			writeError(w, http.StatusServiceUnavailable, "schedule storage unavailable", err)
+		} else if !found {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": errorScheduleNotFound})
+		} else {
+			writeJSON(w, http.StatusOK, scheduleRecordFromStore(schedule))
+		}
+		return
+	}
+	if schedule, ok := o.schedule(id); ok {
+		writeJSON(w, http.StatusOK, schedule)
+		return
+	}
+	writeJSON(w, http.StatusNotFound, map[string]string{"error": errorScheduleNotFound})
+}
+
+func (o *OperationsService) scheduleDeletePath(w http.ResponseWriter, r *http.Request, id string) {
+	o.mu.RLock()
+	repository := o.scheduleRepository
+	o.mu.RUnlock()
+	if repository != nil {
+		deleted, err := repository.Delete(r.Context(), id)
+		if err != nil {
+			recordRequestError(r, err)
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "schedule cannot be deleted"})
+			return
+		}
+		if !deleted {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": errorScheduleNotFound})
+			return
+		}
+	} else if !o.deleteSchedule(id) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": errorScheduleNotFound})
+		return
+	}
+	o.refreshScheduleProjection(r.Context())
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (o *OperationsService) scheduleUpdatePath(w http.ResponseWriter, r *http.Request, id string) {
 	var input scheduleInput
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
@@ -693,6 +710,9 @@ func (o *OperationsService) schedulePath(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid schedule"})
 		return
 	}
+	o.mu.RLock()
+	repository := o.scheduleRepository
+	o.mu.RUnlock()
 	if repository != nil {
 		definition, err := scheduleDefinition(id, input)
 		if err != nil {
@@ -890,33 +910,40 @@ func filterTasks(items []TaskRecord, query url.Values) []TaskRecord {
 
 func filterSchedules(items []ScheduleRecord, query url.Values) []ScheduleRecord {
 	task, due := strings.TrimSpace(query.Get("task")), strings.EqualFold(query.Get("due"), "true")
-	enabled, enabledFilter := false, false
-	if value := strings.TrimSpace(query.Get("enabled")); value != "" {
-		if parsed, err := strconv.ParseBool(value); err == nil {
-			enabled, enabledFilter = parsed, true
-		}
-	}
+	enabled, enabledFilter := scheduleEnabledFilter(query.Get("enabled"))
 	if task == "" && !due && !enabledFilter {
 		return items
 	}
 	filtered := items[:0]
 	now := time.Now().UTC()
 	for _, item := range items {
-		if task != "" && !strings.Contains(strings.ToLower(item.TaskID), strings.ToLower(task)) {
-			continue
+		if scheduleMatches(item, task, due, enabled, enabledFilter, now) {
+			filtered = append(filtered, item)
 		}
-		if enabledFilter && item.Enabled != enabled {
-			continue
-		}
-		if due {
-			at, err := time.Parse(time.RFC3339, item.NextFireAt)
-			if err != nil || at.After(now) {
-				continue
-			}
-		}
-		filtered = append(filtered, item)
 	}
 	return filtered
+}
+
+func scheduleEnabledFilter(value string) (bool, bool) {
+	if value == "" {
+		return false, false
+	}
+	enabled, err := strconv.ParseBool(strings.TrimSpace(value))
+	return enabled, err == nil
+}
+
+func scheduleMatches(item ScheduleRecord, task string, due, enabled, enabledFilter bool, now time.Time) bool {
+	if task != "" && !strings.Contains(strings.ToLower(item.TaskID), strings.ToLower(task)) {
+		return false
+	}
+	if enabledFilter && item.Enabled != enabled {
+		return false
+	}
+	if !due {
+		return true
+	}
+	at, err := time.Parse(time.RFC3339, item.NextFireAt)
+	return err == nil && !at.After(now)
 }
 
 func (o *OperationsService) deleteSchedule(id string) bool {
