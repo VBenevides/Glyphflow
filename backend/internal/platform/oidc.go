@@ -42,8 +42,16 @@ func ValidateOIDCClaims(claims OIDCClaims, issuer, audience, nonce string, now t
 }
 
 func ValidateOIDCCallback(callback, configured string) error {
+	return validateOIDCCallback(callback, configured, false)
+}
+
+func ValidateOIDCCallbackWithHTTP(callback, configured string) error {
+	return validateOIDCCallback(callback, configured, true)
+}
+
+func validateOIDCCallback(callback, configured string, allowHTTP bool) error {
 	got, err := url.Parse(callback)
-	if err != nil || got.Scheme != "https" || got.Host == "" {
+	if err != nil || got.Host == "" || (got.Scheme != "https" && (!allowHTTP || got.Scheme != "http")) {
 		return errors.New("OIDC callback must use HTTPS")
 	}
 	for _, allowed := range strings.Split(configured, ",") {

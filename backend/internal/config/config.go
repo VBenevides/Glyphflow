@@ -230,7 +230,7 @@ func (c Config) Validate() error {
 		if err := requireURL("WEB_ORIGIN", c.WebOrigin, "http", "https"); err != nil {
 			return err
 		}
-		if !c.AllowInsecureTransport || c.Environment != "development" {
+		if !c.AllowInsecureTransport || (c.Environment != "local" && c.Environment != "development") {
 			if err := requireURL("WEB_ORIGIN", c.WebOrigin, "https"); err != nil {
 				return err
 			}

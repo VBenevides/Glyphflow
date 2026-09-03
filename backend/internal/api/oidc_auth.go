@@ -42,17 +42,18 @@ type OIDCProviderPublic struct {
 	Icon string `json:"icon,omitempty"`
 }
 type OIDCService struct {
-	mu               sync.RWMutex
-	providers        map[string]OIDCProvider
-	repository       store.OIDCProviderRepository
-	states           *platform.AuthorizationStateStore
-	stateRepo        store.OIDCAuthorizationStateRepository
-	stateKey         []byte
-	defaultCallback  string
-	httpClient       *http.Client
-	secretRepository store.EncryptedSecretRepository
-	secretKey        []byte
-	linkTargets      map[string]string
+	mu                 sync.RWMutex
+	providers          map[string]OIDCProvider
+	repository         store.OIDCProviderRepository
+	states             *platform.AuthorizationStateStore
+	stateRepo          store.OIDCAuthorizationStateRepository
+	stateKey           []byte
+	defaultCallback    string
+	allowHTTPCallbacks bool
+	httpClient         *http.Client
+	secretRepository   store.EncryptedSecretRepository
+	secretKey          []byte
+	linkTargets        map[string]string
 }
 
 const maxOIDCResponseBytes = 1 << 20
@@ -103,6 +104,12 @@ func (s *OIDCService) SetStateRepository(repository store.OIDCAuthorizationState
 func (s *OIDCService) SetDefaultCallback(callback string) {
 	s.mu.Lock()
 	s.defaultCallback = strings.TrimSpace(callback)
+	s.mu.Unlock()
+}
+
+func (s *OIDCService) SetAllowHTTPCallbacks(allow bool) {
+	s.mu.Lock()
+	s.allowHTTPCallbacks = allow
 	s.mu.Unlock()
 }
 
@@ -180,12 +187,20 @@ func (s *OIDCService) AddProvider(provider OIDCProvider) error {
 	if _, err := secureURL(provider.Issuer); err != nil {
 		return err
 	}
+	s.mu.RLock()
+	allowHTTPCallbacks := s.allowHTTPCallbacks
+	s.mu.RUnlock()
+	// Explicitly preserve compatibility with SSO providers; only local/development callback transport is relaxed.
+	validateCallback := platform.ValidateOIDCCallback
+	if allowHTTPCallbacks {
+		validateCallback = platform.ValidateOIDCCallbackWithHTTP
+	}
 	callbacks := provider.Callbacks
 	if len(callbacks) == 0 {
 		callbacks = []string{provider.Callback}
 	}
 	for _, callback := range callbacks {
-		if err := platform.ValidateOIDCCallback(callback, callback); err != nil {
+		if err := validateCallback(callback, callback); err != nil {
 			return err
 		}
 	}

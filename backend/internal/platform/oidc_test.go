@@ -24,6 +24,9 @@ func TestOIDCValidationRequiresIssuerAudienceNonceAndHTTPSCallback(t *testing.T)
 	if err := ValidateOIDCCallback("http://issuer.example/callback", "https://issuer.example/callback"); err == nil {
 		t.Fatal("HTTP callback accepted")
 	}
+	if err := ValidateOIDCCallbackWithHTTP("http://issuer.example/callback", "http://issuer.example/callback"); err != nil {
+		t.Fatalf("local HTTP callback rejected: %v", err)
+	}
 	if err := ValidateOIDCCallback("https://issuer.example/callback", "https://issuer.example/callback"); err != nil {
 		t.Fatal(err)
 	}

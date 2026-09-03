@@ -181,6 +181,7 @@ func run() error {
 		return err
 	}
 	oidcService := api.NewOIDCService()
+	oidcService.SetAllowHTTPCallbacks(cfg.AllowInsecureTransport && (cfg.Environment == "local" || cfg.Environment == "development"))
 	oidcService.SetDefaultCallback(strings.TrimRight(cfg.WebOrigin, "/") + "/api/v1/auth/oidc/callback")
 	oidcService.SetRepository(ssoRepository)
 	oidcService.SetSecretRepository(encryptedSecretRepository, cfg.InstallationEncryptionKey)
