@@ -194,13 +194,8 @@ func (c Config) Validate() error {
 	if natsMode == "" {
 		return errors.New("GLYPHFLOW_NATS must be embed or remote")
 	}
-	if natsMode == "remote" || c.Role == Worker {
-		if err := requireURL("NATS_URL", c.NATSURL, "nats", "tls"); err != nil {
-			return err
-		}
-	}
-	if c.Role == Worker && natsMode == "embedded" && c.Environment != "development" {
-		return errors.New("GLYPHFLOW_NATS=embed for workers is supported only in development")
+	if err := c.validateNATS(natsMode); err != nil {
+		return err
 	}
 	if !filepath.IsAbs(c.DataDir) {
 		return errors.New("DATA_DIR must be an absolute path")
@@ -218,6 +213,18 @@ func (c Config) Validate() error {
 		return c.validateControlPlane(databaseMode, natsMode)
 	}
 	return c.validateWorker(natsMode)
+}
+
+func (c Config) validateNATS(natsMode string) error {
+	if natsMode == "remote" || c.Role == Worker {
+		if err := requireURL("NATS_URL", c.NATSURL, "nats", "tls"); err != nil {
+			return err
+		}
+	}
+	if c.Role == Worker && natsMode == "embedded" && c.Environment != "development" {
+		return errors.New("GLYPHFLOW_NATS=embed for workers is supported only in development")
+	}
+	return nil
 }
 
 func (c Config) validateControlPlane(databaseMode, natsMode string) error {
