@@ -1696,6 +1696,12 @@ func testCoverageDurableAuthTokenFailures(t *testing.T, session store.SessionRec
 }
 
 func TestCoverageSessionManagerRepositoryAndAuthenticatorBranches(t *testing.T) {
+	t.Run("memory", testCoverageSessionMemoryBranches)
+	t.Run("repository", testCoverageSessionRepositoryBranches)
+	t.Run("authenticator", testCoverageSessionAuthenticatorBranches)
+}
+
+func testCoverageSessionMemoryBranches(t *testing.T) {
 	manager, err := NewSessionManager(strings.Repeat("x", 32))
 	if err != nil {
 		t.Fatal(err)
@@ -1712,7 +1718,13 @@ func TestCoverageSessionManagerRepositoryAndAuthenticatorBranches(t *testing.T) 
 	if _, _, handled, err := manager.AdminPage("", 10, 0); err != nil || handled {
 		t.Fatalf("unpaged admin sessions = handled=%t err=%v", handled, err)
 	}
+}
 
+func testCoverageSessionRepositoryBranches(t *testing.T) {
+	manager, err := NewSessionManager(strings.Repeat("x", 32))
+	if err != nil {
+		t.Fatal(err)
+	}
 	now := time.Now().UTC()
 	repository := &coverageSessionRepository{
 		found:        true,
@@ -1737,7 +1749,14 @@ func TestCoverageSessionManagerRepositoryAndAuthenticatorBranches(t *testing.T) 
 	if manager.Owns("user-1", "session-1") {
 		t.Fatal("session repository error reported ownership")
 	}
+}
+
+func testCoverageSessionAuthenticatorBranches(t *testing.T) {
 	authenticatorRepository := &coverageSessionRepository{active: true}
+	manager, err := NewSessionManager(strings.Repeat("x", 32))
+	if err != nil {
+		t.Fatal(err)
+	}
 	manager.SetRepository(authenticatorRepository)
 	token, _, err := manager.IssueForSession("user-1", "session-1", time.Hour)
 	if err != nil {
