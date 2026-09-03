@@ -240,6 +240,13 @@ func (c Config) validateControlPlane(databaseMode, natsMode string) error {
 	if c.PasswordLoginEnabled && len([]byte(c.PasswordPepper)) < 16 {
 		return errors.New("PASSWORD_PEPPER must contain at least 16 bytes when password login is enabled")
 	}
+	if err := c.validateControlPlaneSecurity(natsMode); err != nil {
+		return err
+	}
+	return c.validateDatabase(databaseMode)
+}
+
+func (c Config) validateControlPlaneSecurity(natsMode string) error {
 	if err := requireURL("WEB_ORIGIN", c.WebOrigin, "http", "https"); err != nil {
 		return err
 	}
@@ -266,7 +273,7 @@ func (c Config) validateControlPlane(databaseMode, natsMode string) error {
 	if c.Environment == "production" && (c.NATSCertFile == "" || c.NATSKeyFile == "" || c.NATSCAFile == "") {
 		return errors.New("production requires NATS client certificate, key, and CA files")
 	}
-	return c.validateDatabase(databaseMode)
+	return nil
 }
 
 func (c Config) validateDatabase(databaseMode string) error {
