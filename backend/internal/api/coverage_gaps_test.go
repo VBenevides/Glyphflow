@@ -1371,6 +1371,13 @@ func TestCoverageSecretRepositoryAndHandlerBranches(t *testing.T) {
 		t.Fatal(err)
 	}
 	validRecord := store.EncryptedSecretRecord{ID: "secret-1", Name: "Secret", EncryptedValue: validCiphertext}
+	testCoverageSecretRepositoryBranches(t, key, validRecord)
+	testCoverageSecretCollectionBranches(t, key)
+	testCoverageSecretPathBranches(t, key)
+	testCoverageSecretAttentionBranches(t, key)
+}
+
+func testCoverageSecretRepositoryBranches(t *testing.T, key []byte, validRecord store.EncryptedSecretRecord) {
 	for _, test := range []struct {
 		name string
 		repo coverageSecretRepository
@@ -1413,7 +1420,9 @@ func TestCoverageSecretRepositoryAndHandlerBranches(t *testing.T) {
 	if err := service.Delete(context.Background(), ""); err == nil {
 		t.Fatal("empty secret ID deleted")
 	}
+}
 
+func testCoverageSecretCollectionBranches(t *testing.T, key []byte) {
 	server := Server{Secrets: NewSecretAdminService(&coverageSecretRepository{listErr: errors.New("down")}, key)}
 	response := httptest.NewRecorder()
 	server.secretCollection(response, httptest.NewRequest(http.MethodGet, "/", nil))
@@ -1437,6 +1446,11 @@ func TestCoverageSecretRepositoryAndHandlerBranches(t *testing.T) {
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("secret create error = %d", response.Code)
 	}
+}
+
+func testCoverageSecretPathBranches(t *testing.T, key []byte) {
+	server := Server{Secrets: NewSecretAdminService(&memoryEncryptedSecretRepository{}, key)}
+	response := httptest.NewRecorder()
 	for _, test := range []struct {
 		name string
 		err  error
@@ -1469,9 +1483,11 @@ func TestCoverageSecretRepositoryAndHandlerBranches(t *testing.T) {
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("secret malformed path = %d", response.Code)
 	}
+}
 
-	server.Secrets = NewSecretAdminService(&coverageSecretRepository{}, key)
-	response = httptest.NewRecorder()
+func testCoverageSecretAttentionBranches(t *testing.T, key []byte) {
+	server := Server{Secrets: NewSecretAdminService(&coverageSecretRepository{}, key)}
+	response := httptest.NewRecorder()
 	server.secretAttention(response, httptest.NewRequest(http.MethodGet, "/", nil))
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "secret-1") {
 		t.Fatalf("secret attention = %d %s", response.Code, response.Body.String())
