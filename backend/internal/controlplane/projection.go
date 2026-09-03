@@ -242,19 +242,7 @@ func projectionConflicts(byResource map[string][]ProjectionOccurrence, names map
 }
 
 func conflictsForResource(resourceID string, occurrences []ProjectionOccurrence, resourceName string) []ProjectionConflict {
-	events := make([]projectionEvent, 0, len(occurrences)*2)
-	for _, occurrence := range occurrences {
-		events = append(events, projectionEvent{at: occurrence.StartAt, start: true, occurrence: occurrence}, projectionEvent{at: occurrence.EndAt, start: false, occurrence: occurrence})
-	}
-	sort.Slice(events, func(i, j int) bool {
-		if events[i].at != events[j].at {
-			return events[i].at.Before(events[j].at)
-		}
-		if events[i].start != events[j].start {
-			return !events[i].start
-		}
-		return events[i].occurrence.ID < events[j].occurrence.ID
-	})
+	events := projectionEvents(occurrences)
 	active := make(map[string]ProjectionOccurrence)
 	var current *ProjectionConflict
 	result := make([]ProjectionConflict, 0)
@@ -280,6 +268,23 @@ func conflictsForResource(resourceID string, occurrences []ProjectionOccurrence,
 		i = j
 	}
 	return result
+}
+
+func projectionEvents(occurrences []ProjectionOccurrence) []projectionEvent {
+	events := make([]projectionEvent, 0, len(occurrences)*2)
+	for _, occurrence := range occurrences {
+		events = append(events, projectionEvent{at: occurrence.StartAt, start: true, occurrence: occurrence}, projectionEvent{at: occurrence.EndAt, start: false, occurrence: occurrence})
+	}
+	sort.Slice(events, func(i, j int) bool {
+		if events[i].at != events[j].at {
+			return events[i].at.Before(events[j].at)
+		}
+		if events[i].start != events[j].start {
+			return !events[i].start
+		}
+		return events[i].occurrence.ID < events[j].occurrence.ID
+	})
+	return events
 }
 
 func updateActiveOccurrences(active map[string]ProjectionOccurrence, events []projectionEvent) {
