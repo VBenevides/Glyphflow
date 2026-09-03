@@ -1063,6 +1063,10 @@ func TestRunClaimCancellingBranches(t *testing.T) {
 	}
 	build := func(CancellationCandidate) ([]byte, error) { return []byte("order"), nil }
 	newStore := func(tx coverageTx) *RunStore { return &RunStore{pool: coverageDatabase{tx: tx}} }
+	testRunClaimCancellingResults(t, ctx, input, build, newStore)
+}
+
+func testRunClaimCancellingResults(t *testing.T, ctx context.Context, input func(...any) error, build func(CancellationCandidate) ([]byte, error), newStore func(coverageTx) *RunStore) {
 	if _, claimed, err := (&RunStore{pool: coverageDatabase{beginErr: errors.New("begin")}}).ClaimCancelling(ctx, build); err == nil || claimed {
 		t.Fatal("begin failure was ignored")
 	}
