@@ -452,6 +452,7 @@ func TestControlPlaneRetryLoopRecordsFailureAndStops(t *testing.T) {
 func TestControlPlaneRetryLoopStopsAfterSuccessfulRunCancellation(t *testing.T) {
 	health := controlplane.NewHealth("retry")
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	runControlPlaneRetryLoop(ctx, health, "retry", "retry test", func(context.Context) error {
 		cancel()
 		return nil
