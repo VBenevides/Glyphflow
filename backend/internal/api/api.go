@@ -952,7 +952,7 @@ func (s Server) requireMethodRole(role func(*http.Request) string, next http.Han
 }
 func (s Server) withCorrelation(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		correlationID := strings.TrimSpace(r.Header.Get("X-Correlation-ID"))
+		correlationID := strings.TrimSpace(r.Header.Get(headerCorrelationID))
 		if correlationID == "" {
 			if generated, err := randomID(); err == nil {
 				correlationID = generated
@@ -961,8 +961,8 @@ func (s Server) withCorrelation(next http.Handler) http.Handler {
 			}
 		}
 		request := r.Clone(r.Context())
-		request.Header.Set("X-Correlation-ID", correlationID)
-		w.Header().Set("X-Correlation-ID", correlationID)
+		request.Header.Set(headerCorrelationID, correlationID)
+		w.Header().Set(headerCorrelationID, correlationID)
 		next.ServeHTTP(w, request)
 	})
 }
