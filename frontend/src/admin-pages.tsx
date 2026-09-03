@@ -106,7 +106,7 @@ export function UserManagementPage({ view = 'users' }: { view?: IdentityView } =
   const pendingUsersQuery = useQuery({ queryKey: ['admin-pending-users'], queryFn: ({ signal }) => api.get<Page<UserRecord> | UserRecord[]>('/api/v1/users', { page: 1, limit: 1, status: 'pending' }, signal).then((value) => asPage(value, 1, 1)) })
   const rolesQuery = useQuery({ queryKey: ['admin-user-role-options'], queryFn: ({ signal }) => api.get<RoleDefinition[]>('/api/v1/admin/roles', undefined, signal), enabled: manage })
   const filterUsers = optionsQuery.data?.items ?? query.data?.items ?? []
-  const roleOptions = [...new Set([...filterUsers.flatMap((user) => user.roles ?? []), ...(rolesQuery.data ?? []).map((role) => role.name), ...(roleFilter ? [roleFilter] : [])])].sort()
+  const roleOptions = [...new Set([...filterUsers.flatMap((user) => user.roles ?? []), ...(rolesQuery.data ?? []).map((role) => role.name), ...(roleFilter ? [roleFilter] : [])])].sort((left, right) => left.localeCompare(right))
   const totalUsers = optionsQuery.data?.total
   const pendingUsers = pendingUsersQuery.data?.total ?? pendingUsersQuery.data?.items.length
   const registeredUsers = totalUsers !== undefined && pendingUsers !== undefined ? totalUsers - pendingUsers : '—'

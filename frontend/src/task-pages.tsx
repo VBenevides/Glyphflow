@@ -53,7 +53,7 @@ export function taskVersionDiff(previous: TaskVersion, current: TaskVersion): Ta
     { id: 'pool', field: 'Runner pool', previous: previous.pool ?? '—', current: current.pool ?? '—' },
     { id: 'pinned-runner', field: 'Pinned runner', previous: previous.pinnedRunner || 'Any', current: current.pinnedRunner || 'Any' },
     { id: 'working-directory', field: 'Working directory', previous: previous.workingDirectory ?? '—', current: current.workingDirectory ?? '—' },
-    { id: 'resources', field: 'Resources', previous: [...(previous.resources ?? [])].sort().join(', ') || 'None', current: [...(current.resources ?? [])].sort().join(', ') || 'None' },
+    { id: 'resources', field: 'Resources', previous: [...(previous.resources ?? [])].sort((left, right) => left.localeCompare(right)).join(', ') || 'None', current: [...(current.resources ?? [])].sort((left, right) => left.localeCompare(right)).join(', ') || 'None' },
     { id: 'duration', field: 'Task Duration in Seconds', previous: previous.durationSeconds === undefined ? '—' : `${previous.durationSeconds}s`, current: current.durationSeconds === undefined ? '—' : `${current.durationSeconds}s` },
     { id: 'maximum-attempts', field: 'Maximum attempts', previous: previous.maxAttempts === undefined ? '—' : String(previous.maxAttempts), current: current.maxAttempts === undefined ? '—' : String(current.maxAttempts) },
     { id: 'ambiguity-policy', field: 'Ambiguity policy', previous: previous.ambiguityPolicy ?? '—', current: current.ambiguityPolicy ?? '—' },
