@@ -39,6 +39,24 @@ func TestPayloadDecodeAndEnvelopeEdges(t *testing.T) {
 	if err := request.Validate(); err != nil {
 		t.Fatal(err)
 	}
+	requestRaw, err := EncodeSecretDeliveryRequest(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded, err := DecodeSecretDeliveryRequest(requestRaw); err != nil || decoded.RequestID != request.RequestID {
+		t.Fatalf("decoded secret request = %#v, %v", decoded, err)
+	}
+	response := SecretDeliveryResponse{Version: ProtocolVersion, RequestID: request.RequestID, Values: map[string]string{"TOKEN": "value"}, RespondedAt: time.Now().UTC()}
+	responseRaw, err := EncodeSecretDeliveryResponse(response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded, err := DecodeSecretDeliveryResponse(responseRaw); err != nil || decoded.Values["TOKEN"] != "value" {
+		t.Fatalf("decoded secret response = %#v, %v", decoded, err)
+	}
+	if err := (SecretDeliveryResponse{Version: ProtocolVersion, RequestID: request.RequestID, Error: "rejected", RespondedAt: time.Now().UTC()}).Validate(); err != nil {
+		t.Fatal(err)
+	}
 	for _, response := range []SecretDeliveryResponse{{}, {Version: ProtocolVersion, RequestID: "request", RespondedAt: time.Now().UTC(), Error: "error", Values: map[string]string{"TOKEN": "value"}}, {Version: ProtocolVersion, RequestID: "request", RespondedAt: time.Now().UTC()}} {
 		if err := response.Validate(); err == nil {
 			t.Fatalf("invalid secret response accepted: %#v", response)
