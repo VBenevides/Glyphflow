@@ -147,7 +147,7 @@ func TestRunWorkerProcessStopsBeforeNetworkListener(t *testing.T) {
 				}
 			}
 			cfg := config.Config{RunnerID: "runner-1", NATSURL: test.natsURL, DataDir: t.TempDir(), MaxOutputBytes: 1024}
-			err = runWorkerProcess(context.Background(), io.Discard, io.Discard, nil, localStore, cfg, worker.RunnerConnection{}, test.stored, test.foundKey, nil)
+			err = runWorkerProcess(context.Background(), io.Discard, io.Discard, nil, localStore, workerProcessOptions{cfg: cfg, connection: worker.RunnerConnection{}, storedKey: test.stored, foundKey: test.foundKey})
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("runWorkerProcess() error = %v; want %q", err, test.want)
 			}
@@ -168,7 +168,7 @@ func TestRunWorkerProcessReportsStoreFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := config.Config{RunnerID: "runner-1", NATSURL: "http://invalid", DataDir: t.TempDir(), MaxOutputBytes: 1024}
-	if err := runWorkerProcess(context.Background(), io.Discard, io.Discard, nil, closedStore, cfg, worker.RunnerConnection{}, protocol.SigningKey{}, false, nil); err == nil || !strings.Contains(err.Error(), "save worker signing key") {
+	if err := runWorkerProcess(context.Background(), io.Discard, io.Discard, nil, closedStore, workerProcessOptions{cfg: cfg}); err == nil || !strings.Contains(err.Error(), "save worker signing key") {
 		t.Fatalf("closed store signing-key error = %v", err)
 	}
 
@@ -179,7 +179,7 @@ func TestRunWorkerProcessReportsStoreFailures(t *testing.T) {
 	if err := closedStore.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := runWorkerProcess(context.Background(), io.Discard, io.Discard, nil, closedStore, cfg, worker.RunnerConnection{}, key, true, nil); err == nil || !strings.Contains(err.Error(), "read worker boot metadata") {
+	if err := runWorkerProcess(context.Background(), io.Discard, io.Discard, nil, closedStore, workerProcessOptions{cfg: cfg, storedKey: key, foundKey: true}); err == nil || !strings.Contains(err.Error(), "read worker boot metadata") {
 		t.Fatalf("closed store boot error = %v", err)
 	}
 }
@@ -216,7 +216,7 @@ func TestRunWorkerProcessReportsRecoveryFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := config.Config{RunnerID: "runner-1", NATSURL: "nats://unused", DataDir: t.TempDir(), MaxOutputBytes: 1024}
-	if err := runWorkerProcess(context.Background(), io.Discard, io.Discard, nil, localStore, cfg, worker.RunnerConnection{}, key, true, nil); err == nil || !strings.Contains(err.Error(), "recover durable worker events") {
+	if err := runWorkerProcess(context.Background(), io.Discard, io.Discard, nil, localStore, workerProcessOptions{cfg: cfg, storedKey: key, foundKey: true}); err == nil || !strings.Contains(err.Error(), "recover durable worker events") {
 		t.Fatalf("recovery error = %v", err)
 	}
 }
@@ -492,7 +492,7 @@ func TestRunWorkerProcessReportsBootWriteFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := config.Config{RunnerID: "runner-1", NATSURL: "nats://unused", DataDir: t.TempDir(), MaxOutputBytes: 1024}
-	if err := runWorkerProcess(context.Background(), io.Discard, io.Discard, nil, store, cfg, worker.RunnerConnection{}, key, true, nil); err == nil || !strings.Contains(err.Error(), "save worker boot id") {
+	if err := runWorkerProcess(context.Background(), io.Discard, io.Discard, nil, store, workerProcessOptions{cfg: cfg, storedKey: key, foundKey: true}); err == nil || !strings.Contains(err.Error(), "save worker boot id") {
 		t.Fatalf("boot write error = %v", err)
 	}
 }
@@ -529,7 +529,7 @@ func TestRunWorkerProcessInitializesRuntimeBeforeConsumerFailure(t *testing.T) {
 			defer localStore.Close()
 			status := &coverageStatusSink{}
 			cfg := config.Config{RunnerID: "runner-1", NATSURL: test.connect, DataDir: t.TempDir(), MaxOutputBytes: 1024}
-			err = runWorkerProcess(context.Background(), io.Discard, io.Discard, status, localStore, cfg, worker.RunnerConnection{Capacity: test.capacity}, key, true, make([]byte, ed25519.PublicKeySize))
+			err = runWorkerProcess(context.Background(), io.Discard, io.Discard, status, localStore, workerProcessOptions{cfg: cfg, connection: worker.RunnerConnection{Capacity: test.capacity}, storedKey: key, foundKey: true, controlPublicKey: make([]byte, ed25519.PublicKeySize)})
 			if err == nil || !strings.Contains(err.Error(), "create order consumer") {
 				t.Fatalf("consumer setup error = %v", err)
 			}
@@ -569,7 +569,7 @@ func TestRunWorkerProcessRunsBackgroundLoopsWithoutListener(t *testing.T) {
 	time.AfterFunc(20*time.Millisecond, cancel)
 	var stdout bytes.Buffer
 	cfg := config.Config{RunnerID: "runner-1", NATSURL: "nats://runtime", DataDir: t.TempDir(), MaxOutputBytes: 1024}
-	if err := runWorkerProcess(ctx, &stdout, io.Discard, nil, localStore, cfg, worker.RunnerConnection{}, key, true, make([]byte, ed25519.PublicKeySize)); err != nil {
+	if err := runWorkerProcess(ctx, &stdout, io.Discard, nil, localStore, workerProcessOptions{cfg: cfg, storedKey: key, foundKey: true, controlPublicKey: make([]byte, ed25519.PublicKeySize)}); err != nil {
 		t.Fatalf("runtime shutdown error = %v", err)
 	}
 	if !strings.Contains(stdout.String(), "Glyphflow worker v") {

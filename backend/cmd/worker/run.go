@@ -73,7 +73,7 @@ func runWorker(ctx context.Context, stdout, stderr io.Writer, status StatusSink)
 		return fmt.Errorf("load worker configuration: %w", err)
 	}
 	setWorkerStatus(status, cfg, stderr)
-	return runWorkerProcess(ctx, stdout, stderr, status, localStore, cfg, connection, storedKey, foundKey, controlPublicKey)
+	return runWorkerProcess(ctx, stdout, stderr, status, localStore, workerProcessOptions{cfg: cfg, connection: connection, storedKey: storedKey, foundKey: foundKey, controlPublicKey: controlPublicKey})
 }
 
 func prepareWorkerDataDir(bootstrap *worker.Bootstrap) error {
@@ -178,7 +178,20 @@ func setWorkerStatus(status StatusSink, cfg config.Config, stderr io.Writer) {
 	status.SetNATSEndpoint(endpoint)
 }
 
-func runWorkerProcess(ctx context.Context, stdout, stderr io.Writer, status StatusSink, localStore *worker.LocalStore, cfg config.Config, connection worker.RunnerConnection, storedKey protocol.SigningKey, foundKey bool, controlPublicKey []byte) error {
+type workerProcessOptions struct {
+	cfg              config.Config
+	connection       worker.RunnerConnection
+	storedKey        protocol.SigningKey
+	foundKey         bool
+	controlPublicKey []byte
+}
+
+func runWorkerProcess(ctx context.Context, stdout, stderr io.Writer, status StatusSink, localStore *worker.LocalStore, options workerProcessOptions) error {
+	cfg := options.cfg
+	connection := options.connection
+	storedKey := options.storedKey
+	foundKey := options.foundKey
+	controlPublicKey := options.controlPublicKey
 	activeOrders := &worker.ActiveOrders{}
 	workerKey, err := ensureWorkerSigningKey(localStore, cfg.RunnerID, storedKey, foundKey)
 	if err != nil {
