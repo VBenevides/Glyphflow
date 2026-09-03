@@ -532,6 +532,13 @@ func TestCoverageRunnerMetricsBranches(t *testing.T) {
 }
 
 func TestCoverageOperationsHelpers(t *testing.T) {
+	testCoverageOperationsTasks(t)
+	testCoverageOperationFilters(t)
+	testCoverageOperationPagination(t)
+}
+
+func testCoverageOperationsTasks(t *testing.T) {
+	t.Helper()
 	operations := NewOperationsService()
 	created := operations.createTask(" Build ", []string{"echo", "ok"}, " default ", " runner-1 ", 30, []string{"resource-1"})
 	if created.Name != "Build" || created.Pool != "default" || created.PinnedRunner != "runner-1" {
@@ -564,7 +571,10 @@ func TestCoverageOperationsHelpers(t *testing.T) {
 	if operations.deleteSchedule("missing") {
 		t.Fatal("missing schedule deleted")
 	}
+}
 
+func testCoverageOperationFilters(t *testing.T) {
+	t.Helper()
 	tasks := []TaskRecord{{ID: "task-1", Name: "Build", Pool: "default", Enabled: true}, {ID: "task-2", Name: "Test", Pool: "ci", Enabled: false}}
 	if len(filterTasks(tasks, url.Values{"search": {"build"}, "state": {"enabled"}})) != 1 || len(filterTasks(tasks, url.Values{"state": {"disabled"}})) != 1 || len(filterTasks(tasks, url.Values{"search": {"missing"}})) != 0 {
 		t.Fatalf("task filters = %#v", tasks)
@@ -588,6 +598,10 @@ func TestCoverageOperationsHelpers(t *testing.T) {
 	if pageStart(1, 10, 100) != 0 || pageStart(20, 10, 100) != 100 || pageStart(2, 10, 100) != 10 || pageOffset(2, 10) != 10 {
 		t.Fatal("page helpers returned unexpected offsets")
 	}
+}
+
+func testCoverageOperationPagination(t *testing.T) {
+	t.Helper()
 	response := httptest.NewRecorder()
 	writePage(response, httptest.NewRequest(http.MethodGet, "/?page=2&limit=1", nil), []string{"a", "b"})
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"items":["b"]`) {
