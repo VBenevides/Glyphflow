@@ -2,6 +2,27 @@
 
 All notable changes to Glyphflow are documented here.
 
+## [0.3.2] - 2026-09-03
+
+### Features
+
+- Added selectable local/development SQLite or PostgreSQL control-plane storage with embedded or remote NATS JetStream operation, canonical migrations, legacy timestamp compatibility, and storage-pressure handling.
+- Added schedule start-deadline policy with validation, persistence, preview support, and documentation.
+- Added SonarQube analysis with repository-relative Go and frontend coverage reports, plus broad backend and frontend coverage suites.
+
+### Bugfixes
+
+- Enforced HTTPS outside local/development modes while retaining local SSO callback support and existing SSO provider signature compatibility.
+- Removed hard-coded PostgreSQL passwords from Compose, deployment checks, and release checks, and disabled npm lifecycle scripts in CI.
+- Hardened runner artifact target validation, worker cleanup, deployment-state handling, session cleanup, and NATS/control-plane startup behavior.
+- Corrected SQLite migration and timestamp handling, transaction rollback paths, deterministic UI sorting and status rendering, editor row identity, and explicit object/primitive display formatting.
+
+### Other
+
+- Added platform-specific desktop, TUI, tray, worker, control-plane, protocol, queue, store, and API edge-case coverage.
+- Split complex backend/frontend handlers, removed the unused SQLite CLI importer, consolidated repeated constants and messages, and documented local transport and platform no-op behavior.
+- Pinned security/toolchain inputs and aligned CI, release, deployment, and validation checks with the backend module layout.
+
 ## [0.3.1] - 2026-08-30
 
 ### Features
