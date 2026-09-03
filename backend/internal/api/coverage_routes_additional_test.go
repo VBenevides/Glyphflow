@@ -519,11 +519,7 @@ func TestOperationsInvalidRoutesCoverage(t *testing.T) {
 		httptest.NewRequest(http.MethodGet, "/api/v1/tasks?archived=true", nil),
 	} {
 		response := httptest.NewRecorder()
-		if request.Method == http.MethodGet {
-			o.taskCollection(response, request)
-		} else {
-			o.taskCollection(response, request)
-		}
+		o.taskCollection(response, request)
 	}
 	for _, request := range []*http.Request{
 		httptest.NewRequest(http.MethodGet, "/wrong", nil),
