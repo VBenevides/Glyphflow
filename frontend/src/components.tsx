@@ -119,7 +119,7 @@ export function DataTable<T extends { id?: string | number }>({ columns, rows, c
       <table className={`gf-table${className ? ` ${className}` : ''}`}>
         <caption className="gf-visually-hidden">{caption}</caption>
         <thead><tr>{columns.map((column) => <th className={column.className} key={column.key} scope="col">{column.label}</th>)}</tr></thead>
-        <tbody>{rows.map((row, index) => <tr key={row.id ?? index}>{columns.map((column) => <td className={column.className} key={column.key}>{column.render ? column.render(row) : String((row as Record<string, unknown>)[column.key] ?? '—')}</td>)}</tr>)}</tbody>
+        <tbody>{rows.map((row, index) => <tr key={row.id ?? index}>{columns.map((column) => { const value = (row as Record<string, unknown>)[column.key]; return <td className={column.className} key={column.key}>{column.render ? column.render(row) : value === undefined || value === null ? '—' : typeof value === 'object' ? JSON.stringify(value) ?? '—' : value.toString()}</td> })}</tr>)}</tbody>
       </table>
     </div>
   )

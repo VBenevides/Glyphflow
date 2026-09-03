@@ -69,7 +69,7 @@ export function runImmutableLinks(run: Pick<Run, 'taskId' | 'taskVersionId' | 's
 function timelineValue(value: unknown) {
   if (value === undefined || value === null || value === '') return '—'
   if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value)) return formatDateTime(value)
-  return typeof value === 'object' ? JSON.stringify(value) : String(value)
+  return typeof value === 'object' ? JSON.stringify(value) ?? '—' : value.toString()
 }
 
 export function RunTimeline({ run }: { run: Run }) {
