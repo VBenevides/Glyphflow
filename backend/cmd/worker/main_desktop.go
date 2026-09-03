@@ -5,7 +5,7 @@ package main
 import (
 	"bytes"
 	"context"
-	_ "embed"
+	_ "embed" // Registers go:embed support for the bundled worker icon.
 	"fmt"
 	"image"
 	"image/color"

@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	_ "modernc.org/sqlite"
+	_ "modernc.org/sqlite" // Registers the SQLite database/sql driver.
 )
 
 // OpenSQLite opens the control-plane database. Worker recovery uses its own

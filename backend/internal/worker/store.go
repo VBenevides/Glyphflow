@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/VBenevides/Glyphflow/backend/internal/protocol"
-	_ "modernc.org/sqlite"
+	_ "modernc.org/sqlite" // Registers the SQLite database/sql driver.
 )
 
 type LocalStore struct{ db *sql.DB }
