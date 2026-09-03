@@ -31,74 +31,73 @@ type AuditEvent struct {
 	After         map[string]any `json:"after,omitempty"`
 }
 
+var auditDescriptionByRequest = map[string]string{
+	http.MethodGet + " /api/v1/admin/auth/providers": "List SSO providers",
+	http.MethodGet + " /api/v1/admin/roles":          "List roles",
+	http.MethodGet + " /api/v1/roles":                "List roles",
+	http.MethodGet + " /api/v1/sso":                  "View SSO configuration",
+	http.MethodGet + " /api/v1/users":                "List users",
+	http.MethodGet + " /api/v1/me":                   "View own profile",
+	http.MethodGet + " /api/v1/tasks":                "List tasks",
+	http.MethodGet + " /api/v1/schedules":            "List schedules",
+	http.MethodGet + " /api/v1/resources":            "List resources",
+}
+
+var auditDescriptionByPath = map[string]string{
+	"/api/v1/admin/auth/settings":        "Update authentication settings",
+	"/api/v1/admin/auth/sessions/revoke": "Revoke user session",
+	"/api/v1/admin/auth/providers":       "Update SSO provider",
+	"/api/v1/admin/roles":                "Create role",
+	"/api/v1/roles":                      "Manage roles",
+	"/api/v1/sso":                        "Update SSO configuration",
+	"/api/v1/logs":                       "List logs",
+	"/api/v1/events":                     "List events",
+	"/api/v1/users":                      "Create user",
+	"/api/v1/audit":                      "View audit events",
+	"/api/v1/me":                         "Update own profile",
+	"/api/v1/me/password":                "Change own password",
+	"/api/v1/tasks":                      "Create task",
+	"/api/v1/schedules":                  "Create schedule",
+	"/api/v1/schedules/preview":          "Preview schedule occurrences",
+	"/api/v1/resources":                  "Create resource",
+	"/api/v1/runners":                    "List runners",
+	"/api/v1/runs":                       "List runs",
+	"/api/v1/runs/execute":               "Start task run",
+	"/api/v1/runs/retry":                 "Retry run",
+	"/api/v1/runs/cancel":                "Cancel run",
+}
+
+var auditRunnerActions = map[string]string{
+	"enable":  "Enable runner",
+	"disable": "Disable runner",
+	"drain":   "Drain runner",
+	"reset":   "Reset runner",
+	"revoke":  "Revoke runner",
+}
+
 func auditDescription(method, path string) string {
-	switch {
-	case path == "/api/v1/admin/auth/settings":
-		return "Update authentication settings"
-	case path == "/api/v1/admin/auth/sessions/revoke":
-		return "Revoke user session"
-	case path == "/api/v1/admin/auth/providers":
-		if method == http.MethodGet {
-			return "List SSO providers"
-		}
-		return "Update SSO provider"
-	case strings.HasPrefix(path, "/api/v1/admin/auth/users/"):
+	if description, ok := auditDescriptionByRequest[method+" "+path]; ok {
+		return description
+	}
+	if description, ok := auditDescriptionByPath[path]; ok {
+		return description
+	}
+	if strings.HasPrefix(path, "/api/v1/admin/auth/users/") {
 		return "Disable user"
-	case path == "/api/v1/admin/roles":
-		if method == http.MethodGet {
-			return "List roles"
-		}
-		return "Create role"
-	case strings.HasPrefix(path, "/api/v1/admin/roles/"):
+	}
+	if strings.HasPrefix(path, "/api/v1/admin/roles/") {
 		if method == http.MethodDelete {
 			return "Delete role"
 		}
 		return "Update role"
-	case path == "/api/v1/roles":
-		if method == http.MethodGet {
-			return "List roles"
-		}
-		return "Manage roles"
-	case path == "/api/v1/sso":
-		if method == http.MethodGet {
-			return "View SSO configuration"
-		}
-		return "Update SSO configuration"
-	case path == "/api/v1/logs":
-		return "List logs"
-	case path == "/api/v1/events":
-		return "List events"
-	case path == "/api/v1/users":
-		if method == http.MethodGet {
-			return "List users"
-		}
-		return "Create user"
-	case strings.HasPrefix(path, "/api/v1/users/"):
+	}
+	if strings.HasPrefix(path, "/api/v1/users/") {
 		return "View user details"
-	case path == "/api/v1/audit":
-		return "View audit events"
-	case path == "/api/v1/me":
-		if method == http.MethodGet {
-			return "View own profile"
-		}
-		return "Update own profile"
-	case path == "/api/v1/me/password":
-		return "Change own password"
-	case strings.HasPrefix(path, "/api/v1/me/"):
+	}
+	if strings.HasPrefix(path, "/api/v1/me/") {
 		return "Manage own account"
-	case path == "/api/v1/tasks":
-		if method == http.MethodGet {
-			return "List tasks"
-		}
-		return "Create task"
-	case path == "/api/v1/schedules":
-		if method == http.MethodGet {
-			return "List schedules"
-		}
-		return "Create schedule"
-	case path == "/api/v1/schedules/preview":
-		return "Preview schedule occurrences"
-	case strings.HasPrefix(path, "/api/v1/schedules/"):
+	}
+	if strings.HasPrefix(path, "/api/v1/schedules/") {
 		if method == http.MethodDelete {
 			return "Delete schedule"
 		}
@@ -106,7 +105,8 @@ func auditDescription(method, path string) string {
 			return "View schedule"
 		}
 		return "Update schedule"
-	case strings.HasPrefix(path, "/api/v1/tasks/"):
+	}
+	if strings.HasPrefix(path, "/api/v1/tasks/") {
 		if strings.HasSuffix(path, "/versions") {
 			return "Publish task version"
 		}
@@ -123,12 +123,8 @@ func auditDescription(method, path string) string {
 			return "View task"
 		}
 		return "Update task"
-	case path == "/api/v1/resources":
-		if method == http.MethodGet {
-			return "List resources"
-		}
-		return "Create resource"
-	case strings.HasPrefix(path, "/api/v1/resources/"):
+	}
+	if strings.HasPrefix(path, "/api/v1/resources/") {
 		if strings.HasSuffix(path, "/lease") {
 			if method == http.MethodPost {
 				return "Acquire resource lease"
@@ -142,16 +138,15 @@ func auditDescription(method, path string) string {
 			return "Delete resource"
 		}
 		return "Update resource"
-	case path == "/api/v1/runners":
-		return "List runners"
-	case strings.HasPrefix(path, "/api/v1/runners/"):
+	}
+	if strings.HasPrefix(path, "/api/v1/runners/") {
 		if strings.HasSuffix(path, "/enrollments") {
 			return "Create runner enrollment"
 		}
 		if method == http.MethodDelete {
 			return "Delete runner"
 		}
-		for action, description := range map[string]string{"enable": "Enable runner", "disable": "Disable runner", "drain": "Drain runner", "reset": "Reset runner", "revoke": "Revoke runner"} {
+		for action, description := range auditRunnerActions {
 			if strings.HasSuffix(path, "/"+action) {
 				return description
 			}
@@ -160,15 +155,8 @@ func auditDescription(method, path string) string {
 			return "View runner"
 		}
 		return "Update runner"
-	case path == "/api/v1/runs":
-		return "List runs"
-	case path == "/api/v1/runs/execute":
-		return "Start task run"
-	case path == "/api/v1/runs/retry":
-		return "Retry run"
-	case path == "/api/v1/runs/cancel":
-		return "Cancel run"
-	case strings.HasPrefix(path, "/api/v1/runs/"):
+	}
+	if strings.HasPrefix(path, "/api/v1/runs/") {
 		if strings.HasSuffix(path, "/logs/download") {
 			return "Download run logs"
 		}
@@ -191,9 +179,8 @@ func auditDescription(method, path string) string {
 			return "View run"
 		}
 		return "Manage run"
-	default:
-		return strings.TrimSpace(method + " " + path)
 	}
+	return strings.TrimSpace(method + " " + path)
 }
 
 type AuditQueryService struct {
