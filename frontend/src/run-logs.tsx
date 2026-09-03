@@ -60,5 +60,8 @@ export function useLogStream(runId: string, stream: 'stdout' | 'stderr', enabled
 export function LiveLogPanel({ runId, stream, terminal = false }: { runId: string; stream: 'stdout' | 'stderr'; terminal?: boolean }) {
   const log = useLogStream(runId, stream, true, terminal)
   const stopped = terminal || log.stopped
-  return <section className="gf-card-panel"><div className="gf-log-toolbar"><h2>{stream}</h2><output>{stopped ? 'Stopped' : log.gap ? 'Gap detected' : 'Live View'}</output><Button variant="secondary" disabled={stopped} onClick={log.paused ? log.resume : log.pause}>{log.paused ? 'Resume' : 'Pause'}</Button><Button variant="secondary" disabled={stopped} onClick={log.reconnect}>Reconnect</Button><a className="gf-button gf-button-secondary" title="Download the complete log file" href={logDownloadUrl(runId, stream)} download={`${runId}-${stream}.log`}>Download source</a></div>{log.error && <p className="gf-form-error" role="alert">{log.error}</p>}<LogOutput stream={stream} value={log.text} /></section>
+  let statusLabel = 'Live View'
+  if (log.gap) statusLabel = 'Gap detected'
+  if (stopped) statusLabel = 'Stopped'
+  return <section className="gf-card-panel"><div className="gf-log-toolbar"><h2>{stream}</h2><output>{statusLabel}</output><Button variant="secondary" disabled={stopped} onClick={log.paused ? log.resume : log.pause}>{log.paused ? 'Resume' : 'Pause'}</Button><Button variant="secondary" disabled={stopped} onClick={log.reconnect}>Reconnect</Button><a className="gf-button gf-button-secondary" title="Download the complete log file" href={logDownloadUrl(runId, stream)} download={`${runId}-${stream}.log`}>Download source</a></div>{log.error && <p className="gf-form-error" role="alert">{log.error}</p>}<LogOutput stream={stream} value={log.text} /></section>
 }

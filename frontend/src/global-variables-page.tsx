@@ -13,9 +13,9 @@ export function validGlobalVariableName(value: string): boolean {
 
 export function globalVariableDeleteWarning(item: Pick<GlobalVariable, 'name' | 'references'>): string {
   const references = item.references ?? 0
-  return references
-    ? `${item.name} is referenced by ${references} task or schedule definition${references === 1 ? '' : 's'}. Deleting it may affect those definitions and will be blocked until the references are removed.`
-    : `${item.name} is not referenced by any task or schedule definitions. Delete it?`
+  if (!references) return `${item.name} is not referenced by any task or schedule definitions. Delete it?`
+  const plural = references === 1 ? '' : 's'
+  return `${item.name} is referenced by ${references} task or schedule definition${plural}. Deleting it may affect those definitions and will be blocked until the references are removed.`
 }
 
 export function GlobalVariablesPage() {

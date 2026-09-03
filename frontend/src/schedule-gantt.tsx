@@ -251,8 +251,9 @@ export function SchedulingGantt({ report }: { report: ScheduleProjection }) {
           const position = projectionSegmentPercent({ startAt: division.at, endAt: division.at, id: division.at } as ScheduleProjectionSegment, report, range)
           const x = timelineLeft + (position.left / 100) * timelineWidth
           const atEnd = x >= timelineLeft + timelineWidth - 1
-          const labelX = view === 'daily' ? x : (atEnd ? x - 4 : x + 4)
-          const textAnchor = view === 'daily' ? 'middle' : (atEnd ? 'end' : undefined)
+          let labelX = atEnd ? x - 4 : x + 4
+          let textAnchor: 'middle' | 'end' | undefined = atEnd ? 'end' : undefined
+          if (view === 'daily') { labelX = x; textAnchor = 'middle' }
           return <g key={division.at}><line x1={x} y1={chartTop - 8} x2={x} y2={height - 6} className="gf-gantt-day-line" /><text x={labelX} y={chartTop - 12} textAnchor={textAnchor} className="gf-gantt-day-label">{division.label}</text></g>
         })}
         {lanes.map((lane, laneIndex) => {

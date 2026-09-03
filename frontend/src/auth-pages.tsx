@@ -65,6 +65,12 @@ export function LoginPage() {
   </form></AuthFrame>
 }
 
+function registrationError(cause: unknown) {
+  if (cause instanceof ApiError && cause.status === 403) return 'Your account is awaiting administrator approval.'
+  if (cause instanceof Error) return cause.message
+  return 'Unable to register'
+}
+
 export function RegistrationPage() {
   const { config, restore } = useAuth()
   const navigate = useNavigate()
@@ -76,7 +82,7 @@ export function RegistrationPage() {
   if (!config.passwordLogin || !config.registration) return <AuthFrame title="Registration unavailable"><p className="gf-muted">Registration is disabled.</p><Button onClick={() => navigate('/login')}>Back to sign in</Button></AuthFrame>
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setBusy(true); setError('')
-    try { await api.post('/api/v1/auth/register', { email, password }); await api.post('/api/v1/auth/login', { email, password }); restore(); navigate(redirect, { replace: true }) } catch (cause) { setError(cause instanceof ApiError && cause.status === 403 ? 'Your account is awaiting administrator approval.' : cause instanceof Error ? cause.message : 'Unable to register') } finally { setBusy(false) }
+    try { await api.post('/api/v1/auth/register', { email, password }); await api.post('/api/v1/auth/login', { email, password }); restore(); navigate(redirect, { replace: true }) } catch (cause) { setError(registrationError(cause)) } finally { setBusy(false) }
   }
   return <AuthFrame title="Create account"><form className="gf-form" onSubmit={submit}><label htmlFor="register-email">Email</label><Input id="register-email" type="text" inputMode="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /><label htmlFor="register-password">Password</label><Input id="register-password" type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={8} required />{error && <p className="gf-form-error" role="alert">{error}</p>}<Button type="submit" busy={busy}>Register</Button><Button type="button" variant="ghost" onClick={() => navigate('/login')}>Back to sign in</Button></form></AuthFrame>
 }

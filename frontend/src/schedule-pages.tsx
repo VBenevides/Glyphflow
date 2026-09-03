@@ -21,7 +21,9 @@ const globalTimezoneReference = /^\$ENV:[A-Z_][A-Z0-9_]*$/
 export function utcOffsetFromTimezone(value: string) {
   if (value === 'UTC') return '0'
   const match = /^UTC([+-])(\d{1,2})(?::00)?$/.exec(value)
-  return match ? `${match[1] === '-' ? '-' : ''}${Number(match[2])}` : value
+  if (!match) return value
+  const sign = match[1] === '-' ? '-' : ''
+  return `${sign}${Number(match[2])}`
 }
 
 export function timezoneFromUTCOffset(value: string) {

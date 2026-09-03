@@ -23,12 +23,16 @@ export function groupedRoutes(routes: RouteRule[]): Array<{ group: Group; routes
 }
 
 export function activeGroupName(path: string): string | undefined {
-  const menuPath = path === '/admin/sso' ? '/admin/users' : path === '/runners/pools' ? '/runners' : path
+  let menuPath = path
+  if (path === '/admin/sso') menuPath = '/admin/users'
+  else if (path === '/runners/pools') menuPath = '/runners'
   return NAVIGATION_GROUPS.find((group) => group.paths.includes(menuPath) || (menuPath !== '/' && group.paths.some((candidate) => menuPath.startsWith(`${candidate}/`))))?.name
 }
 
 export function activeRoutePath(path: string, routes: RouteRule[]): string | undefined {
-  const menuPath = path === '/admin/sso' ? '/admin/users' : path === '/runners/pools' ? '/runners' : path
+  let menuPath = path
+  if (path === '/admin/sso') menuPath = '/admin/users'
+  else if (path === '/runners/pools') menuPath = '/runners'
   return routes.filter((route) => route.path === '/' ? menuPath === '/' : menuPath === route.path || menuPath.startsWith(`${route.path}/`)).sort((left, right) => right.path.length - left.path.length)[0]?.path
 }
 

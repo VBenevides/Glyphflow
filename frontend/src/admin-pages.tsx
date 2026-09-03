@@ -49,7 +49,9 @@ export function filterAndSortRoles(roles: RoleDefinition[], search: string): Rol
 
 function UserActionsMenu({ user, manage, onAccess, onDisable, onApprove }: { user: UserRecord; manage: boolean; onAccess: () => void; onDisable: () => void; onApprove: () => void }) {
   const userLabel = user.displayName ?? user.email ?? user.username
-  const statusAction = user.status === 'pending' ? 'Approve' : user.status === 'disabled' ? 'Enable' : 'Disable'
+  let statusAction = 'Disable'
+  if (user.status === 'pending') statusAction = 'Approve'
+  else if (user.status === 'disabled') statusAction = 'Enable'
   const statusChange = user.status === 'active' ? onDisable : onApprove
   return <DropdownMenu><DropdownMenuTrigger asChild><Button type="button" variant="ghost" aria-label={`Actions for ${userLabel}`}><MoreHorizontal size={18} /></Button></DropdownMenuTrigger><DropdownMenuPortal><DropdownMenuContent align="end">{manage && <DropdownMenuItem onSelect={onAccess}>Manage access</DropdownMenuItem>}{manage && !user.systemAdmin && <><DropdownMenuSeparator /><DangerousAction label={statusAction} title={`${statusAction} user`} onConfirm={statusChange} renderTrigger={(open) => <DropdownMenuItem onSelect={(event) => { event.preventDefault(); open() }}>{statusAction}</DropdownMenuItem>} /></>}<DropdownMenuSeparator /><DropdownMenuItem asChild><Link to={`/admin/users/${encodeURIComponent(user.id)}`}>Details</Link></DropdownMenuItem></DropdownMenuContent></DropdownMenuPortal></DropdownMenu>
 }
@@ -58,7 +60,8 @@ type IdentityView = 'users' | 'sessions' | 'sso' | 'secrets'
 
 function IdentityAdminLayout({ view, title, description, refresh, children }: { view: IdentityView; title: string; description: string; refresh?: ReactNode; children: ReactNode }) {
   const navigate = useNavigate()
-  return <main className="gf-content"><PageHeader title={title} description={description} refresh={refresh} /><Tabs value={view} onValueChange={(next) => navigate(next === 'sso' ? '/admin/sso' : next === 'secrets' ? '/admin/secrets' : next === 'sessions' ? '/admin/users/sessions' : '/admin/users')}><TabsList aria-label="Identity administration"><TabsTrigger value="users">Users</TabsTrigger><TabsTrigger value="sessions">Sessions</TabsTrigger><TabsTrigger value="sso">SSO</TabsTrigger><TabsTrigger value="secrets">Secrets</TabsTrigger></TabsList></Tabs>{children}</main>
+  const paths: Record<IdentityView, string> = { users: '/admin/users', sessions: '/admin/users/sessions', sso: '/admin/sso', secrets: '/admin/secrets' }
+  return <main className="gf-content"><PageHeader title={title} description={description} refresh={refresh} /><Tabs value={view} onValueChange={(next) => navigate(paths[next as IdentityView])}><TabsList aria-label="Identity administration"><TabsTrigger value="users">Users</TabsTrigger><TabsTrigger value="sessions">Sessions</TabsTrigger><TabsTrigger value="sso">SSO</TabsTrigger><TabsTrigger value="secrets">Secrets</TabsTrigger></TabsList></Tabs>{children}</main>
 }
 
 export function UserCreationForm({ onCreated }: { onCreated: (userID: string) => Promise<void> }) {
@@ -229,6 +232,12 @@ function secretStatusLabel(status: string) {
   return { UNKNOWN: 'Unknown', VALID: 'Valid', INTEGRITY_FAILED: 'Integrity failed', KEY_UNAVAILABLE: 'Key unavailable', DECRYPTION_FAILED: 'Decryption failed' }[status] ?? status
 }
 
+function secretTaskUsage(secret: SecretMetadata): ReactNode {
+  if (secret.tasks.length) return <span>{secret.tasks.map((task, index) => <span key={task.id}>{index > 0 && ', '}<Link to={`/tasks/${encodeURIComponent(task.id)}`}>{task.name}</Link></span>)}</span>
+  if (secret.canDelete) return <span className="gf-muted">No tasks</span>
+  return <span className="gf-muted">SSO configuration</span>
+}
+
 function SecretEditor({ secret, onDone }: { secret?: SecretMetadata; onDone: () => Promise<void> }) {
   const [name, setName] = useState(secret?.name ?? '')
   const [value, setValue] = useState('')
@@ -257,7 +266,7 @@ export function SecretsPage() {
   return <IdentityAdminLayout view="secrets" title="Secrets" description="Manage named encrypted values. Integrity status is separate from whether an external credential is still accepted." refresh={<QueryRefresh query={query} />}>
     {manage && editing === undefined && <div className="gf-table-toolbar"><Button onClick={() => setEditing(null)}>Create secret</Button></div>}
     {editing !== undefined && <Dialog open title={editing ? `Replace ${editing.name}` : 'Create secret'} onClose={() => setEditing(undefined)}><SecretEditor secret={editing ?? undefined} onDone={done} /></Dialog>}
-    <QueryState query={query} empty="No named secrets are configured.">{(secrets) => secrets.length ? <DataTable caption="Named secrets" rows={secrets} columns={[{ key: 'name', label: 'Secret', render: (secret) => <strong>{secret.name}</strong> }, { key: 'tasks', label: 'Used by tasks', render: (secret) => secret.tasks.length ? <span>{secret.tasks.map((task, index) => <span key={task.id}>{index > 0 && ', '}<Link to={`/tasks/${encodeURIComponent(task.id)}`}>{task.name}</Link></span>)}</span> : secret.canDelete ? <span className="gf-muted">No tasks</span> : <span className="gf-muted">SSO configuration</span> }, { key: 'status', label: 'Encryption status', render: (secret) => <StatusPill status={secretStatusLabel(secret.status)} /> }, { key: 'lastValidatedAt', label: 'Last validated', render: (secret) => secret.lastValidatedAt ? <time dateTime={secret.lastValidatedAt}>{formatDateTime(secret.lastValidatedAt)}</time> : 'Not yet validated' }, { key: 'actions', label: 'Actions', render: (secret) => manage && <TableActions label={`Actions for ${secret.name}`}><DropdownMenuItem onSelect={() => setEditing(secret)}>Replace value</DropdownMenuItem>{secret.canDelete && <><DropdownMenuSeparator /><DangerousAction label="Delete" title={`Delete ${secret.name}`} warning="Permanently removes this secret. Secrets used by a task or SSO configuration cannot be deleted." onConfirm={() => deleteSecret(secret)} renderTrigger={(open) => <DropdownMenuItem onSelect={(event) => { event.preventDefault(); open() }}>Delete</DropdownMenuItem>} /></>}</TableActions> }]} /> : <EmptyState title="No named secrets">Create a named secret for use by a task.</EmptyState>}</QueryState>
+    <QueryState query={query} empty="No named secrets are configured.">{(secrets) => secrets.length ? <DataTable caption="Named secrets" rows={secrets} columns={[{ key: 'name', label: 'Secret', render: (secret) => <strong>{secret.name}</strong> }, { key: 'tasks', label: 'Used by tasks', render: (secret) => secretTaskUsage(secret) }, { key: 'status', label: 'Encryption status', render: (secret) => <StatusPill status={secretStatusLabel(secret.status)} /> }, { key: 'lastValidatedAt', label: 'Last validated', render: (secret) => secret.lastValidatedAt ? <time dateTime={secret.lastValidatedAt}>{formatDateTime(secret.lastValidatedAt)}</time> : 'Not yet validated' }, { key: 'actions', label: 'Actions', render: (secret) => manage && <TableActions label={`Actions for ${secret.name}`}><DropdownMenuItem onSelect={() => setEditing(secret)}>Replace value</DropdownMenuItem>{secret.canDelete && <><DropdownMenuSeparator /><DangerousAction label="Delete" title={`Delete ${secret.name}`} warning="Permanently removes this secret. Secrets used by a task or SSO configuration cannot be deleted." onConfirm={() => deleteSecret(secret)} renderTrigger={(open) => <DropdownMenuItem onSelect={(event) => { event.preventDefault(); open() }}>Delete</DropdownMenuItem>} /></>}</TableActions> }]} /> : <EmptyState title="No named secrets">Create a named secret for use by a task.</EmptyState>}</QueryState>
   </IdentityAdminLayout>
 }
 

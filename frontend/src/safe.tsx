@@ -14,7 +14,11 @@ export function prefixLogLines(value: string): string {
   if (!value) return value
   const lines = value.split('\n')
   const last = lines.length - 1
-  return lines.map((line, index) => index === last && line === '' ? line : `${index % 50 === 0 ? `${index} ` : ''}$ ${line}`).join('\n')
+  return lines.map((line, index) => {
+    if (index === last && line === '') return line
+    const prefix = index % 50 === 0 ? `${index} ` : ''
+    return `${prefix}$ ${line}`
+  }).join('\n')
 }
 
 export function LogOutput({ stream, value }: { stream: 'stdout' | 'stderr'; value: string }) {
