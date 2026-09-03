@@ -188,6 +188,10 @@ run_dispatch_check() {
         printf '%s\n' "$run_json" >&2
         return 1
         ;;
+      *)
+        printf 'deployment check: unexpected run state: %s\n' "$run_state" >&2
+        return 1
+        ;;
     esac
     attempt=$((attempt + 1))
     [ "$attempt" -lt 60 ] || { echo "deployment check: run did not finish" >&2; return 1; }
