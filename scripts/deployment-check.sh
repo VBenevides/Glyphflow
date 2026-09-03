@@ -294,7 +294,7 @@ while ! docker exec "$partial_nats" wget -q -O - http://127.0.0.1:8222/healthz >
 done
 docker run -d --name "$partial_controlplane" --network "$network" -p "${partial_port}:8080" \
   --tmpfs /data \
-  -e DATABASE_URL='postgres://glyphflow:glyphflow@postgres:5432/glyphflow?sslmode=disable' \
+  -e DATABASE_URL="postgres://glyphflow:${deployment_check_postgres_password}@postgres:5432/glyphflow?sslmode=disable" \
   -e NATS_URL='nats://nats:4222' \
   -e ACCESS_TOKEN_SECRET='deployment-check-secret-012345678901234567' \
   -e PASSWORD_PEPPER='deployment-check-pepper' \
