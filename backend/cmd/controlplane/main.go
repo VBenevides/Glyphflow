@@ -22,6 +22,7 @@ import (
 	"github.com/VBenevides/Glyphflow/backend/internal/config"
 	"github.com/VBenevides/Glyphflow/backend/internal/controlplane"
 	"github.com/VBenevides/Glyphflow/backend/internal/platform"
+	"github.com/VBenevides/Glyphflow/backend/internal/protocol"
 	"github.com/VBenevides/Glyphflow/backend/internal/queue"
 	"github.com/VBenevides/Glyphflow/backend/internal/store"
 	natsserver "github.com/nats-io/nats-server/v2/server"
@@ -44,55 +45,66 @@ func main() {
 	}
 }
 
+type controlPlaneDatabase struct {
+	db            any
+	pingDatabase  func(context.Context) error
+	closeDatabase func()
+}
+
+type controlPlaneAuth struct {
+	authService               *api.AuthService
+	oidcService               *api.OIDCService
+	roles                     *api.RoleAdminService
+	roleRepository            store.RoleRepository
+	sessionRepository         store.SessionRepository
+	ssoRepository             store.OIDCProviderRepository
+	encryptedSecretRepository store.EncryptedSecretRepository
+}
+
+type controlPlaneServices struct {
+	operations                *api.OperationsService
+	runs                      *api.RunService
+	infrastructure            *api.InfrastructureService
+	audit                     *api.AuditQueryService
+	globalVariables           *api.GlobalVariableService
+	scheduleRepository        *store.ScheduleStore
+	retentionRepository       *store.RetentionStore
+	storagePressure           func(context.Context) (platform.StoragePressure, error)
+	runRepository             *store.RunStore
+	runnerRepository          *store.RunnerStore
+	projectionService         *controlplane.ProjectionService
+	metrics                   *platform.Metrics
+	logger                    *platform.Logger
+	health                    *controlplane.Health
+	deadLetterRepository      *store.DeadLetterStore
+	sessionRepository         store.SessionRepository
+	encryptedSecretRepository store.EncryptedSecretRepository
+}
+
+type controlPlaneRuntime struct {
+	application  api.Server
+	signingKey   protocol.SigningKey
+	pingDatabase func(context.Context) error
+	auth         controlPlaneAuth
+	services     controlPlaneServices
+}
+
 func run() error {
 	cfg, err := config.FromEnv(config.ControlPlane)
 	if err != nil {
 		return err
 	}
-	for _, origin := range cfg.CORSOrigins {
-		if origin != "*" {
-			continue
-		}
-		fmt.Fprintln(os.Stderr, `WARNING: CORS set to "*", this is NOT RECOMMENDED for production environments`)
-		break
-	}
+	warnOnWildcardCORS(cfg.CORSOrigins)
 	ctx, stop := notifyContext()
 	defer stop()
-	var db any
-	var pingDatabase func(context.Context) error
-	var closeDatabase func()
-	if cfg.DatabaseMode == "sqlite" {
-		sqliteDB, err := store.OpenSQLite(cfg.DatabaseURL)
-		if err != nil {
-			return err
-		}
-		db = sqliteDB
-		pingDatabase = sqliteDB.PingContext
-		closeDatabase = func() { _ = sqliteDB.Close() }
-		if err := store.ApplySQLiteMigrations(ctx, sqliteDB, "migrations"); err != nil {
-			closeDatabase()
-			return err
-		}
-	} else {
-		postgresDB, err := pgxpool.New(ctx, cfg.DatabaseURL)
-		if err != nil {
-			return err
-		}
-		db = postgresDB
-		pingDatabase = postgresDB.Ping
-		closeDatabase = func() { closeControlPlaneDB(postgresDB) }
-		if err := waitForDatabase(ctx, postgresDB.Ping, time.Second); err != nil {
-			closeDatabase()
-			return err
-		}
-		if err := store.ApplyMigrations(ctx, postgresDB, "migrations"); err != nil {
-			closeDatabase()
-			return err
-		}
+
+	database, err := openControlPlaneDatabase(ctx, cfg)
+	if err != nil {
+		return err
 	}
-	defer closeDatabase()
+	defer database.closeDatabase()
 	if cfg.DatabaseMode == "sqlite" {
-		if err := waitForDatabase(ctx, pingDatabase, time.Second); err != nil {
+		if err := waitForDatabase(ctx, database.pingDatabase, time.Second); err != nil {
 			return err
 		}
 	}
@@ -104,7 +116,102 @@ func run() error {
 		defer server.Shutdown()
 		cfg.NATSURL = server.ClientURL()
 	}
+
+	runtime, err := initializeControlPlaneRuntime(ctx, &cfg, database)
+	if err != nil {
+		return err
+	}
+	jetstream, err := connectControlPlaneJetStream(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer jetstream.Close()
+	deadLetterSignals := configureControlPlaneJetStream(&runtime, jetstream)
+	startControlPlaneWorkers(ctx, cfg, &runtime, jetstream)
+	configureControlPlaneSystemMetrics(ctx, &runtime, jetstream, deadLetterSignals)
+	return serveControlPlane(ctx, runtime.application)
+}
+
+func warnOnWildcardCORS(origins []string) {
+	for _, origin := range origins {
+		if origin != "*" {
+			continue
+		}
+		fmt.Fprintln(os.Stderr, "WARNING: CORS set to \"*\", this is NOT RECOMMENDED for production environments")
+		break
+	}
+}
+
+func openControlPlaneDatabase(ctx context.Context, cfg config.Config) (controlPlaneDatabase, error) {
+	if cfg.DatabaseMode == "sqlite" {
+		sqliteDB, err := store.OpenSQLite(cfg.DatabaseURL)
+		if err != nil {
+			return controlPlaneDatabase{}, err
+		}
+		closeDatabase := func() { _ = sqliteDB.Close() }
+		if err := store.ApplySQLiteMigrations(ctx, sqliteDB, "migrations"); err != nil {
+			closeDatabase()
+			return controlPlaneDatabase{}, err
+		}
+		return controlPlaneDatabase{db: sqliteDB, pingDatabase: sqliteDB.PingContext, closeDatabase: closeDatabase}, nil
+	}
+
+	postgresDB, err := pgxpool.New(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return controlPlaneDatabase{}, err
+	}
+	closeDatabase := func() { closeControlPlaneDB(postgresDB) }
+	if err := waitForDatabase(ctx, postgresDB.Ping, time.Second); err != nil {
+		closeDatabase()
+		return controlPlaneDatabase{}, err
+	}
+	if err := store.ApplyMigrations(ctx, postgresDB, "migrations"); err != nil {
+		closeDatabase()
+		return controlPlaneDatabase{}, err
+	}
+	return controlPlaneDatabase{db: postgresDB, pingDatabase: postgresDB.Ping, closeDatabase: closeDatabase}, nil
+}
+
+func initializeControlPlaneRuntime(ctx context.Context, cfg *config.Config, database controlPlaneDatabase) (controlPlaneRuntime, error) {
+	configStore, signingKey, err := initializeControlPlaneConfig(ctx, cfg, database.db)
+	if err != nil {
+		return controlPlaneRuntime{}, err
+	}
+	auth, err := initializeControlPlaneAuth(*cfg, database.db, configStore)
+	if err != nil {
+		return controlPlaneRuntime{}, err
+	}
+	services, err := initializeControlPlaneServices(ctx, *cfg, database.db, auth, signingKey)
+	if err != nil {
+		return controlPlaneRuntime{}, err
+	}
+	application, err := buildControlPlaneApplication(*cfg, database, auth, services)
+	if err != nil {
+		return controlPlaneRuntime{}, err
+	}
+	return controlPlaneRuntime{application: application, signingKey: signingKey, pingDatabase: database.pingDatabase, auth: auth, services: services}, nil
+}
+
+func initializeControlPlaneConfig(ctx context.Context, cfg *config.Config, db any) (*store.ConfigStore, protocol.SigningKey, error) {
 	configStore := store.NewConfigStore(db)
+	if err := seedControlPlaneConfig(ctx, cfg, configStore); err != nil {
+		return nil, protocol.SigningKey{}, err
+	}
+	signingKeyPath := ""
+	if cfg.Environment == "development" && cfg.ControlPlaneSigningPrivateKey == "" {
+		signingKeyPath = filepath.Join(cfg.DataDir, "control-plane-signing.key")
+	}
+	signingKey, err := loadControlPlaneSigningKey(cfg.ControlPlaneSigningPrivateKey, signingKeyPath)
+	if err != nil {
+		return nil, protocol.SigningKey{}, err
+	}
+	if err := loadStoredControlPlaneConfig(ctx, cfg, configStore); err != nil {
+		return nil, protocol.SigningKey{}, err
+	}
+	return configStore, signingKey, nil
+}
+
+func seedControlPlaneConfig(ctx context.Context, cfg *config.Config, configStore *store.ConfigStore) error {
 	for name, value := range map[string]any{
 		"WEB_ORIGIN":                   cfg.WebOrigin,
 		"MAX_MESSAGE_BYTES":            cfg.MaxMessageBytes,
@@ -120,52 +227,64 @@ func run() error {
 			return err
 		}
 	}
-	signingKeyPath := ""
-	if cfg.Environment == "development" && cfg.ControlPlaneSigningPrivateKey == "" {
-		signingKeyPath = filepath.Join(cfg.DataDir, "control-plane-signing.key")
-	}
-	signingKey, err := loadControlPlaneSigningKey(cfg.ControlPlaneSigningPrivateKey, signingKeyPath)
-	if err != nil {
-		return err
-	}
+	return nil
+}
+
+func loadStoredControlPlaneConfig(ctx context.Context, cfg *config.Config, configStore *store.ConfigStore) error {
 	if len(cfg.SystemAdminEmails) == 0 {
 		var storedSystemAdminEmails []string
-		if found, err := configStore.Get(ctx, "GLYPHFLOW_SYSTEM_ADMINS", &storedSystemAdminEmails); err != nil {
+		found, err := configStore.Get(ctx, "GLYPHFLOW_SYSTEM_ADMINS", &storedSystemAdminEmails)
+		if err != nil {
 			return err
-		} else if found {
+		}
+		if found {
 			cfg.SystemAdminEmails = storedSystemAdminEmails
 		}
 	}
 	var storedPasswordLogin, storedPasswordRegistration, storedUserApproval, storedLockdownScheduler bool
 	var storedDefaultRoleID string
-	if found, err := configStore.Get(ctx, "ENABLE_PASSWORD_LOGIN", &storedPasswordLogin); err != nil {
-		return err
-	} else if found {
-		cfg.PasswordLoginEnabled = storedPasswordLogin
-	}
-	if found, err := configStore.Get(ctx, "ENABLE_PASSWORD_REGISTRATION", &storedPasswordRegistration); err != nil {
-		return err
-	} else if found {
-		cfg.PasswordRegistrationEnabled = storedPasswordRegistration
-	}
-	if found, err := configStore.Get(ctx, "REQUIRE_USER_APPROVAL", &storedUserApproval); err != nil {
-		return err
-	} else if found {
-		cfg.RequireUserApproval = storedUserApproval
-	}
-	if found, err := configStore.Get(ctx, "DEFAULT_ROLE_ID", &storedDefaultRoleID); err != nil {
-		return err
-	} else if found && strings.TrimSpace(storedDefaultRoleID) != "" {
-		cfg.DefaultRoleID = storedDefaultRoleID
-	}
-	if found, err := configStore.Get(ctx, "LOCKDOWN_SCHEDULER", &storedLockdownScheduler); err != nil {
-		return err
-	} else if found {
-		cfg.LockdownScheduler = storedLockdownScheduler
-	}
-	authService, err := api.NewAuthService(cfg.AccessTokenSecret, cfg.PasswordLoginEnabled, cfg.PasswordRegistrationEnabled, []byte(cfg.PasswordPepper))
+	found, err := configStore.Get(ctx, "ENABLE_PASSWORD_LOGIN", &storedPasswordLogin)
 	if err != nil {
 		return err
+	}
+	if found {
+		cfg.PasswordLoginEnabled = storedPasswordLogin
+	}
+	found, err = configStore.Get(ctx, "ENABLE_PASSWORD_REGISTRATION", &storedPasswordRegistration)
+	if err != nil {
+		return err
+	}
+	if found {
+		cfg.PasswordRegistrationEnabled = storedPasswordRegistration
+	}
+	found, err = configStore.Get(ctx, "REQUIRE_USER_APPROVAL", &storedUserApproval)
+	if err != nil {
+		return err
+	}
+	if found {
+		cfg.RequireUserApproval = storedUserApproval
+	}
+	found, err = configStore.Get(ctx, "DEFAULT_ROLE_ID", &storedDefaultRoleID)
+	if err != nil {
+		return err
+	}
+	if found && strings.TrimSpace(storedDefaultRoleID) != "" {
+		cfg.DefaultRoleID = storedDefaultRoleID
+	}
+	found, err = configStore.Get(ctx, "LOCKDOWN_SCHEDULER", &storedLockdownScheduler)
+	if err != nil {
+		return err
+	}
+	if found {
+		cfg.LockdownScheduler = storedLockdownScheduler
+	}
+	return nil
+}
+
+func initializeControlPlaneAuth(cfg config.Config, db any, configStore *store.ConfigStore) (controlPlaneAuth, error) {
+	authService, err := api.NewAuthService(cfg.AccessTokenSecret, cfg.PasswordLoginEnabled, cfg.PasswordRegistrationEnabled, []byte(cfg.PasswordPepper))
+	if err != nil {
+		return controlPlaneAuth{}, err
 	}
 	authService.SetUserRepository(store.NewUserRepository(db))
 	roleRepository := store.NewRoleRepository(db)
@@ -178,17 +297,11 @@ func run() error {
 	ssoRepository := store.NewOIDCProviderRepository(db)
 	encryptedSecretRepository := store.NewEncryptedSecretRepository(db)
 	authService.SetSSORepository(ssoRepository)
-	if err := authService.AddRole("admin", platform.PermissionCatalog...); err != nil {
-		return err
-	}
-	if err := authService.AddRole("user", platform.UserPermissionCatalog...); err != nil {
-		return err
-	}
-	if err := authService.AddRole("operator", platform.OperatorPermissionCatalog...); err != nil {
-		return err
+	if err := seedControlPlaneAuthRoles(authService); err != nil {
+		return controlPlaneAuth{}, err
 	}
 	if err := authService.SetDefaultRoleID(cfg.DefaultRoleID); err != nil {
-		return err
+		return controlPlaneAuth{}, err
 	}
 	oidcService := api.NewOIDCService()
 	oidcService.SetAllowHTTPCallbacks(cfg.AllowInsecureTransport && (cfg.Environment == "local" || cfg.Environment == "development"))
@@ -198,19 +311,37 @@ func run() error {
 	oidcService.SetStateRepository(store.NewOIDCAuthorizationStateRepository(db), cfg.InstallationEncryptionKey)
 	roles := api.NewRoleAdminService()
 	roles.SetRepository(roleRepository)
+	if err := seedControlPlaneRoleAdmin(roles); err != nil {
+		return controlPlaneAuth{}, err
+	}
+	return controlPlaneAuth{authService: authService, oidcService: oidcService, roles: roles, roleRepository: roleRepository, sessionRepository: sessionRepository, ssoRepository: ssoRepository, encryptedSecretRepository: encryptedSecretRepository}, nil
+}
+
+func seedControlPlaneAuthRoles(authService *api.AuthService) error {
+	if err := authService.AddRole("admin", platform.PermissionCatalog...); err != nil {
+		return err
+	}
+	if err := authService.AddRole("user", platform.UserPermissionCatalog...); err != nil {
+		return err
+	}
+	return authService.AddRole("operator", platform.OperatorPermissionCatalog...)
+}
+
+func seedControlPlaneRoleAdmin(roles *api.RoleAdminService) error {
 	if err := roles.Seed("admin", platform.PermissionCatalog); err != nil {
 		return err
 	}
 	if err := roles.Seed("user", platform.UserPermissionCatalog); err != nil {
 		return err
 	}
-	if err := roles.Seed("operator", platform.OperatorPermissionCatalog); err != nil {
-		return err
-	}
+	return roles.Seed("operator", platform.OperatorPermissionCatalog)
+}
+
+func initializeControlPlaneServices(ctx context.Context, cfg config.Config, db any, auth controlPlaneAuth, signingKey protocol.SigningKey) (controlPlaneServices, error) {
 	operations := api.NewOperationsService()
 	taskRepository := store.NewTaskRepository(db)
 	operations.SetTaskRepository(taskRepository)
-	operations.SetSecretRepository(encryptedSecretRepository)
+	operations.SetSecretRepository(auth.encryptedSecretRepository)
 	scheduleRepository := store.NewScheduleRepository(db)
 	retentionRepository := store.NewRetentionRepository(db)
 	var storagePressure func(context.Context) (platform.StoragePressure, error)
@@ -229,7 +360,7 @@ func run() error {
 	runs.SetRepository(runRepository)
 	runnerRepository := store.NewRunnerRepository(db)
 	if err := runnerRepository.EnsurePool(ctx, "default", "default"); err != nil {
-		return err
+		return controlPlaneServices{}, err
 	}
 	infrastructure := api.NewInfrastructureService()
 	infrastructure.SetRunnerRepository(runnerRepository)
@@ -261,32 +392,39 @@ func run() error {
 	})
 	health := controlplane.NewHealth(healthSessionCleanup, healthHeartbeat, healthDispatcher, healthStartClaim, healthSecretDelivery, healthScheduler)
 	deadLetterRepository := store.NewDeadLetterRepository(db, cfg.InstallationEncryptionKey)
-	application := api.Server{AuthService: authService, AuthAdmin: &api.AuthAdminService{Auth: authService, OIDC: oidcService, Sessions: authService.SessionManager()}, Sessions: authService.SessionManager(), OIDC: oidcService, Roles: roles, Auth: authService.Authenticator(), Permissions: authService.Permissions, Metrics: metrics, Logger: logger, CSRFOrigin: cfg.WebOrigin, CSRFOrigins: cfg.CSRFOrigins, CORSOrigins: cfg.CORSOrigins, Operations: operations, Runs: runs, Infrastructure: infrastructure, AuditQuery: audit, ExitCodes: store.NewExitCodeRepository(db), GlobalVariables: globalVariables, Secrets: api.NewSecretAdminService(encryptedSecretRepository, cfg.InstallationEncryptionKey), DeadLetters: api.NewDeadLetterService(deadLetterRepository, nil), Ready: func(ctx context.Context) error {
-		if err := pingDatabase(ctx); err != nil {
+	return controlPlaneServices{operations: operations, runs: runs, infrastructure: infrastructure, audit: audit, globalVariables: globalVariables, scheduleRepository: scheduleRepository, retentionRepository: retentionRepository, storagePressure: storagePressure, runRepository: runRepository, runnerRepository: runnerRepository, projectionService: projectionService, metrics: metrics, logger: logger, health: health, deadLetterRepository: deadLetterRepository, sessionRepository: auth.sessionRepository, encryptedSecretRepository: auth.encryptedSecretRepository}, nil
+}
+
+func buildControlPlaneApplication(cfg config.Config, database controlPlaneDatabase, auth controlPlaneAuth, services controlPlaneServices) (api.Server, error) {
+	application := api.Server{AuthService: auth.authService, AuthAdmin: &api.AuthAdminService{Auth: auth.authService, OIDC: auth.oidcService, Sessions: auth.authService.SessionManager()}, Sessions: auth.authService.SessionManager(), OIDC: auth.oidcService, Roles: auth.roles, Auth: auth.authService.Authenticator(), Permissions: auth.authService.Permissions, Metrics: services.metrics, Logger: services.logger, CSRFOrigin: cfg.WebOrigin, CSRFOrigins: cfg.CSRFOrigins, CORSOrigins: cfg.CORSOrigins, Operations: services.operations, Runs: services.runs, Infrastructure: services.infrastructure, AuditQuery: services.audit, ExitCodes: store.NewExitCodeRepository(database.db), GlobalVariables: services.globalVariables, Secrets: api.NewSecretAdminService(auth.encryptedSecretRepository, cfg.InstallationEncryptionKey), DeadLetters: api.NewDeadLetterService(services.deadLetterRepository, nil), Ready: func(ctx context.Context) error {
+		if err := database.pingDatabase(ctx); err != nil {
 			return err
 		}
 		return nil
-	}, ScheduleProjection: projectionService, RequireDurableRepositories: true}
+	}, ScheduleProjection: services.projectionService, RequireDurableRepositories: true}
 	if err := application.ValidateDurableRepositories(); err != nil {
-		return err
+		return api.Server{}, err
 	}
-	if err := authService.SetSystemAdminEmails(cfg.SystemAdminEmails); err != nil {
-		return err
+	if err := auth.authService.SetSystemAdminEmails(cfg.SystemAdminEmails); err != nil {
+		return api.Server{}, err
 	}
 	if cfg.BootstrapUsername != "" && cfg.BootstrapPassword != "" {
-		if _, err := authService.EnsureBootstrap(cfg.BootstrapUsername, cfg.BootstrapPassword, "", ""); err != nil {
-			return err
+		if _, err := auth.authService.EnsureBootstrap(cfg.BootstrapUsername, cfg.BootstrapPassword, "", ""); err != nil {
+			return api.Server{}, err
 		}
 	}
-	var jetstream *queue.JetStream
+	return application, nil
+}
+
+func connectControlPlaneJetStream(ctx context.Context, cfg config.Config) (*queue.JetStream, error) {
 	if strings.HasPrefix(cfg.NATSURL, "tls://") {
-		jetstream, err = queue.ConnectJetStreamTLSWithContext(ctx, cfg.NATSURL, queue.TLSConfig{CertificateFile: cfg.NATSCertFile, KeyFile: cfg.NATSKeyFile, CAFile: cfg.NATSCAFile})
-	} else {
-		jetstream, err = queue.ConnectJetStreamPlainWithContext(ctx, cfg.NATSURL)
+		return queue.ConnectJetStreamTLSWithContext(ctx, cfg.NATSURL, queue.TLSConfig{CertificateFile: cfg.NATSCertFile, KeyFile: cfg.NATSKeyFile, CAFile: cfg.NATSCAFile})
 	}
-	if err != nil {
-		return err
-	}
+	return queue.ConnectJetStreamPlainWithContext(ctx, cfg.NATSURL)
+}
+
+func configureControlPlaneJetStream(runtime *controlPlaneRuntime, jetstream *queue.JetStream) func(context.Context) (platform.OperationalSignals, error) {
+	deadLetterRepository := runtime.services.deadLetterRepository
 	jetstream.SetDeadLetterSink(func(ctx context.Context, record queue.DeadLetter) error {
 		return deadLetterRepository.Persist(ctx, store.DeadLetterRecord{
 			RunnerID: record.RunnerID, Stream: record.Stream, Consumer: record.Consumer, Subject: record.Subject,
@@ -294,7 +432,7 @@ func run() error {
 			FirstFailedAt: record.FirstFailedAt, LastFailedAt: record.LastFailedAt, CorrelationID: record.CorrelationID,
 		})
 	})
-	application.DeadLetters.SetPublisher(jetstream)
+	runtime.application.DeadLetters.SetPublisher(jetstream)
 	deadLetterSignals := func(ctx context.Context) (platform.OperationalSignals, error) {
 		stats, err := deadLetterRepository.Stats(ctx)
 		if err != nil {
@@ -302,168 +440,160 @@ func run() error {
 		}
 		return platform.OperationalSignals{DeadLetters: platform.DeadLetterSignals{Open: stats.Open, OldestAgeSeconds: stats.OldestAgeSeconds}}, nil
 	}
-	infrastructure.SetRunnerCapacityPublisher(jetstream, signingKey)
-	defer jetstream.Close()
-	go func() {
-		const sessionRetention = 14 * 24 * time.Hour
-		cleanup := func() {
-			if err := sessionRepository.DeleteOlderThan(ctx, time.Now().UTC().Add(-sessionRetention)); err != nil && ctx.Err() == nil {
-				health.MarkFailed(healthSessionCleanup, err)
-				fmt.Fprintln(os.Stderr, "session cleanup:", err)
-				return
-			}
-			health.MarkHealthy(healthSessionCleanup)
+	runtime.services.infrastructure.SetRunnerCapacityPublisher(jetstream, runtime.signingKey)
+	return deadLetterSignals
+}
+
+func startControlPlaneWorkers(ctx context.Context, cfg config.Config, runtime *controlPlaneRuntime, jetstream *queue.JetStream) {
+	go runSessionCleanup(ctx, runtime.services.sessionRepository, runtime.services.health)
+	go runRetentionCleanup(ctx, cfg, runtime.services)
+	go runControlPlaneHeartbeat(ctx, runtime.services.health, jetstream, runtime.services.runnerRepository)
+	go runControlPlaneRetryLoop(ctx, runtime.services.health, "dispatcher", "run dispatcher", func(ctx context.Context) error {
+		return controlplane.RunDispatcher(ctx, jetstream, runtime.services.runRepository, runtime.services.runnerRepository, runtime.signingKey, 500*time.Millisecond)
+	})
+	go runControlPlaneRetryLoop(ctx, runtime.services.health, "start-claim", "start claim server", func(ctx context.Context) error {
+		return controlplane.RunStartClaimServer(ctx, jetstream, runtime.services.runRepository, runtime.services.runnerRepository, runtime.signingKey)
+	})
+	go runControlPlaneRetryLoop(ctx, runtime.services.health, "secret-delivery", "secret delivery server", func(ctx context.Context) error {
+		return controlplane.RunSecretDeliveryServer(ctx, jetstream, runtime.services.runRepository, runtime.services.encryptedSecretRepository, runtime.services.runnerRepository, runtime.signingKey, cfg.InstallationEncryptionKey)
+	})
+	go runControlPlaneRetryLoop(ctx, runtime.services.health, "scheduler", "schedule runner", func(ctx context.Context) error {
+		return controlplane.RunScheduler(ctx, runtime.services.scheduleRepository, 500*time.Millisecond)
+	})
+	go runtime.services.projectionService.Run(ctx, 30*time.Minute)
+}
+
+func runSessionCleanup(ctx context.Context, repository store.SessionRepository, health *controlplane.Health) {
+	const sessionRetention = 14 * 24 * time.Hour
+	cleanup := func() {
+		if err := repository.DeleteOlderThan(ctx, time.Now().UTC().Add(-sessionRetention)); err != nil && ctx.Err() == nil {
+			health.MarkFailed(healthSessionCleanup, err)
+			fmt.Fprintln(os.Stderr, "session cleanup:", err)
+			return
 		}
-		cleanup()
-		ticker := time.NewTicker(24 * time.Hour)
-		defer ticker.Stop()
-		for {
+		health.MarkHealthy(healthSessionCleanup)
+	}
+	cleanup()
+	ticker := time.NewTicker(24 * time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			cleanup()
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func runRetentionCleanup(ctx context.Context, cfg config.Config, services controlPlaneServices) {
+	policy := store.RetentionPolicy{LogMonthsKeep: cfg.LogMonthsKeep, AuditMonthsKeep: cfg.AuditMonthsKeep, RunnerMetricsMonthsKeep: cfg.RunnerMetricsMonthsKeep}
+	cleanup := func() {
+		purgeControlPlaneRetention(ctx, policy, services.retentionRepository, services.storagePressure, services.logger)
+	}
+	cleanup()
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			cleanup()
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func purgeControlPlaneRetention(ctx context.Context, policy store.RetentionPolicy, retentionRepository *store.RetentionStore, storagePressure func(context.Context) (platform.StoragePressure, error), logger *platform.Logger) {
+	if _, err := retentionRepository.Purge(ctx, time.Now().UTC(), policy, 100); err != nil && ctx.Err() == nil {
+		logger.Event(retentionCleanupFailed, map[string]string{"error": err.Error()})
+		return
+	}
+	pressure, err := storagePressure(ctx)
+	if err != nil {
+		logger.Event(retentionCleanupFailed, map[string]string{"error": err.Error()})
+		return
+	}
+	if pressure.State != platform.StorageCritical && pressure.State != platform.StorageEmergency {
+		return
+	}
+	if _, err := retentionRepository.PurgeCriticalRuns(ctx, time.Now().UTC(), func() (float64, error) {
+		current, err := storagePressure(ctx)
+		if err != nil {
+			return 0, err
+		}
+		if current.State == platform.StorageUnavailable {
+			return 0, fmt.Errorf("database storage capacity unavailable")
+		}
+		return current.FreePercent, nil
+	}, 100); err != nil && ctx.Err() == nil {
+		logger.Event(retentionCleanupFailed, map[string]string{"error": err.Error()})
+	}
+}
+
+func runControlPlaneHeartbeat(ctx context.Context, health *controlplane.Health, jetstream *queue.JetStream, runnerRepository *store.RunnerStore) {
+	for ctx.Err() == nil {
+		health.MarkHealthy(healthHeartbeat)
+		if err := controlplane.RunRunnerHeartbeatMonitor(ctx, jetstream, runnerRepository, 30*time.Second, 10*time.Second); err != nil && ctx.Err() == nil {
+			health.MarkFailed(healthHeartbeat, err)
+			fmt.Fprintln(os.Stderr, "runner heartbeat monitor:", err)
+			time.Sleep(time.Second)
+		}
+	}
+}
+
+func runControlPlaneRetryLoop(ctx context.Context, health *controlplane.Health, name, description string, run func(context.Context) error) {
+	for ctx.Err() == nil {
+		health.MarkHealthy(name)
+		if err := run(ctx); err != nil && ctx.Err() == nil {
+			health.MarkFailed(name, err)
+			fmt.Fprintln(os.Stderr, description+":", err)
 			select {
-			case <-ticker.C:
-				cleanup()
+			case <-time.After(time.Second):
 			case <-ctx.Done():
 				return
 			}
 		}
-	}()
-	go func() {
-		policy := store.RetentionPolicy{LogMonthsKeep: cfg.LogMonthsKeep, AuditMonthsKeep: cfg.AuditMonthsKeep, RunnerMetricsMonthsKeep: cfg.RunnerMetricsMonthsKeep}
-		cleanup := func() {
-			if _, err := retentionRepository.Purge(ctx, time.Now().UTC(), policy, 100); err != nil && ctx.Err() == nil {
-				logger.Event(retentionCleanupFailed, map[string]string{"error": err.Error()})
-				return
-			}
-			pressure, err := storagePressure(ctx)
-			if err != nil {
-				logger.Event(retentionCleanupFailed, map[string]string{"error": err.Error()})
-				return
-			}
-			if pressure.State != platform.StorageCritical && pressure.State != platform.StorageEmergency {
-				return
-			}
-			if _, err := retentionRepository.PurgeCriticalRuns(ctx, time.Now().UTC(), func() (float64, error) {
-				current, err := storagePressure(ctx)
-				if err != nil {
-					return 0, err
-				}
-				if current.State == platform.StorageUnavailable {
-					return 0, fmt.Errorf("database storage capacity unavailable")
-				}
-				return current.FreePercent, nil
-			}, 100); err != nil && ctx.Err() == nil {
-				logger.Event(retentionCleanupFailed, map[string]string{"error": err.Error()})
-			}
-		}
-		cleanup()
-		ticker := time.NewTicker(time.Hour)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				cleanup()
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-	go func() {
-		for ctx.Err() == nil {
-			health.MarkHealthy("heartbeat")
-			if err := controlplane.RunRunnerHeartbeatMonitor(ctx, jetstream, runnerRepository, 30*time.Second, 10*time.Second); err != nil && ctx.Err() == nil {
-				health.MarkFailed("heartbeat", err)
-				fmt.Fprintln(os.Stderr, "runner heartbeat monitor:", err)
-				time.Sleep(time.Second)
-			}
-		}
-	}()
-	go func() {
-		for ctx.Err() == nil {
-			health.MarkHealthy("dispatcher")
-			if err := controlplane.RunDispatcher(ctx, jetstream, runRepository, runnerRepository, signingKey, 500*time.Millisecond); err != nil && ctx.Err() == nil {
-				health.MarkFailed("dispatcher", err)
-				fmt.Fprintln(os.Stderr, "run dispatcher:", err)
-				select {
-				case <-time.After(time.Second):
-				case <-ctx.Done():
-					return
-				}
-			}
-		}
-	}()
-	go func() {
-		for ctx.Err() == nil {
-			health.MarkHealthy("start-claim")
-			if err := controlplane.RunStartClaimServer(ctx, jetstream, runRepository, runnerRepository, signingKey); err != nil && ctx.Err() == nil {
-				health.MarkFailed("start-claim", err)
-				fmt.Fprintln(os.Stderr, "start claim server:", err)
-				select {
-				case <-time.After(time.Second):
-				case <-ctx.Done():
-					return
-				}
-			}
-		}
-	}()
-	go func() {
-		for ctx.Err() == nil {
-			health.MarkHealthy("secret-delivery")
-			if err := controlplane.RunSecretDeliveryServer(ctx, jetstream, runRepository, encryptedSecretRepository, runnerRepository, signingKey, cfg.InstallationEncryptionKey); err != nil && ctx.Err() == nil {
-				health.MarkFailed("secret-delivery", err)
-				fmt.Fprintln(os.Stderr, "secret delivery server:", err)
-				select {
-				case <-time.After(time.Second):
-				case <-ctx.Done():
-					return
-				}
-			}
-		}
-	}()
-	go func() {
-		for ctx.Err() == nil {
-			health.MarkHealthy("scheduler")
-			if err := controlplane.RunScheduler(ctx, scheduleRepository, 500*time.Millisecond); err != nil && ctx.Err() == nil {
-				health.MarkFailed("scheduler", err)
-				fmt.Fprintln(os.Stderr, "schedule runner:", err)
-				select {
-				case <-time.After(time.Second):
-				case <-ctx.Done():
-					return
-				}
-			}
-		}
-	}()
-	go projectionService.Run(ctx, 30*time.Minute)
-	application.Ready = func(ctx context.Context) error {
-		if err := pingDatabase(ctx); err != nil {
+	}
+}
+
+func configureControlPlaneSystemMetrics(ctx context.Context, runtime *controlPlaneRuntime, jetstream *queue.JetStream, deadLetterSignals func(context.Context) (platform.OperationalSignals, error)) {
+	runtime.application.Ready = func(ctx context.Context) error {
+		if err := runtime.pingDatabase(ctx); err != nil {
 			return err
 		}
 		if jetstream == nil {
 			return fmt.Errorf("NATS is not connected")
 		}
-		return health.Ready()
+		return runtime.services.health.Ready()
 	}
-	systemMetrics := api.NewSystemMetricsService(metrics, application.Ready, logger)
-	systemMetrics.Storage = storagePressure
+	systemMetrics := api.NewSystemMetricsService(runtime.services.metrics, runtime.application.Ready, runtime.services.logger)
+	systemMetrics.Storage = runtime.services.storagePressure
 	systemMetrics.Signals = deadLetterSignals
-	application.SystemMetrics = systemMetrics
-	go func() {
-		evaluate := func() {
-			if err := systemMetrics.Evaluate(ctx); err != nil && ctx.Err() == nil {
-				_ = logger.Event("system.alert_evaluation_failed", map[string]string{"error": err.Error()})
-			}
+	runtime.application.SystemMetrics = systemMetrics
+	go runSystemMetricsEvaluation(ctx, systemMetrics, runtime.services.logger)
+}
+
+func runSystemMetricsEvaluation(ctx context.Context, systemMetrics *api.SystemMetricsService, logger *platform.Logger) {
+	evaluate := func() {
+		if err := systemMetrics.Evaluate(ctx); err != nil && ctx.Err() == nil {
+			_ = logger.Event("system.alert_evaluation_failed", map[string]string{"error": err.Error()})
 		}
-		evaluate()
-		ticker := time.NewTicker(time.Minute)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				evaluate()
-			case <-ctx.Done():
-				return
-			}
+	}
+	evaluate()
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			evaluate()
+		case <-ctx.Done():
+			return
 		}
-	}()
+	}
+}
+
+func serveControlPlane(ctx context.Context, application api.Server) error {
 	server := &http.Server{
 		Addr:              ":8080",
 		Handler:           application.Handler(),
