@@ -132,6 +132,12 @@ func testAuditRedactionHelpers(t *testing.T) {
 }
 
 func TestAPIResponseAndRequestHelpers(t *testing.T) {
+	testAPIPermissionAndSnapshotHelpers(t)
+	testAPIRequestAuditHelpers(t)
+	testAPIResponseHelpers(t)
+}
+
+func testAPIPermissionAndSnapshotHelpers(t *testing.T) {
 	if !hasPermission(map[string]bool{"tasks.read": true}, "task.read") ||
 		!hasPermission(map[string]bool{"runs.retry": true}, "runs.read|run.retry") ||
 		hasPermission(nil, "users.manage") {
@@ -146,7 +152,9 @@ func TestAPIResponseAndRequestHelpers(t *testing.T) {
 	if got := auditSnapshot(func() {}); got["value"] == nil || auditFind(nil, false) != nil {
 		t.Fatal("audit snapshot fallback was not used")
 	}
+}
 
+func testAPIRequestAuditHelpers(t *testing.T) {
 	details := &requestAuditDetails{Input: map[string]any{}}
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", strings.NewReader(`{"name":"task"}`))
 	request = request.WithContext(context.WithValue(request.Context(), requestAuditContextKey{}, details))
@@ -165,7 +173,9 @@ func TestAPIResponseAndRequestHelpers(t *testing.T) {
 	if body := captureAuditInput(httptest.NewRequest(http.MethodGet, "/healthz", strings.NewReader("not-json"))); body["body"] != "not-json" {
 		t.Fatalf("invalid audit body = %#v", body)
 	}
+}
 
+func testAPIResponseHelpers(t *testing.T) {
 	for _, test := range []struct {
 		body, want string
 	}{
