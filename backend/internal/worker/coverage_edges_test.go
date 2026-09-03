@@ -120,21 +120,22 @@ func TestExecutorValidationAndStartEdges(t *testing.T) {
 	for _, test := range []struct {
 		name     string
 		executor Executor
-		ctx      context.Context
 		args     []string
 		dir      string
 	}{
-		{name: "command", executor: Executor{Roots: []string{"/tmp"}, MaxOutputBytes: 1}, ctx: deadline, dir: "/tmp"},
-		{name: "deadline", executor: Executor{Roots: []string{"/tmp"}, MaxOutputBytes: 1}, ctx: context.Background(), args: []string{"printf"}, dir: "/tmp"},
-		{name: "output", executor: Executor{Roots: []string{"/tmp"}}, ctx: deadline, args: []string{"printf"}, dir: "/tmp"},
-		{name: "command policy", executor: Executor{Roots: []string{"/tmp"}, AllowedCommands: map[string]bool{"echo": true}, MaxOutputBytes: 1}, ctx: deadline, args: []string{"printf"}, dir: "/tmp"},
-		{name: "root", executor: Executor{Roots: []string{"/srv/tasks"}, MaxOutputBytes: 1}, ctx: deadline, args: []string{"printf"}, dir: "/tmp"},
+		{name: "command", executor: Executor{Roots: []string{"/tmp"}, MaxOutputBytes: 1}, dir: "/tmp"},
+		{name: "output", executor: Executor{Roots: []string{"/tmp"}}, args: []string{"printf"}, dir: "/tmp"},
+		{name: "command policy", executor: Executor{Roots: []string{"/tmp"}, AllowedCommands: map[string]bool{"echo": true}, MaxOutputBytes: 1}, args: []string{"printf"}, dir: "/tmp"},
+		{name: "root", executor: Executor{Roots: []string{"/srv/tasks"}, MaxOutputBytes: 1}, args: []string{"printf"}, dir: "/tmp"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := test.executor.Run(test.ctx, test.args, test.dir); err == nil {
+			if _, err := test.executor.Run(deadline, test.args, test.dir); err == nil {
 				t.Fatal("invalid execution accepted")
 			}
 		})
+	}
+	if _, err := (Executor{Roots: []string{"/tmp"}, MaxOutputBytes: 1}).Run(context.Background(), []string{"printf"}, "/tmp"); err == nil {
+		t.Fatal("execution without deadline accepted")
 	}
 	if _, err := (Executor{Roots: []string{"/tmp"}, AllowedCommands: map[string]bool{"missing-command": true}, MaxOutputBytes: 1}).Run(deadline, []string{"missing-command"}, "/tmp"); err == nil {
 		t.Fatal("missing executable started")
