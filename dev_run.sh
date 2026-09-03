@@ -18,7 +18,7 @@ cd "$project_root"
 version="$(tr -d '[:space:]' < "$project_root/VERSION")"
 
 if [[ ! -d "$project_root/frontend/node_modules" ]]; then
-  (cd "$project_root/frontend" && npm ci)
+  (cd "$project_root/frontend" && npm ci --ignore-scripts)
 fi
 
 mkdir -p "$data_dir"
