@@ -425,6 +425,7 @@ func TestRetentionCleanupHandlesCanceledStorageCheck(t *testing.T) {
 func TestControlPlaneHeartbeatStopsAfterConfigurationFailure(t *testing.T) {
 	database, _ := newSQLiteControlPlaneDatabase(t)
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	go func() {
 		time.Sleep(10 * time.Millisecond)
 		cancel()
