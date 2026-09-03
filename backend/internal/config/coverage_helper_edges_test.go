@@ -3,6 +3,11 @@ package config
 import "testing"
 
 func TestConfigHelperEdges(t *testing.T) {
+	testConfigModeAndDatabaseHelpers(t)
+	testConfigEnvironmentHelpers(t)
+}
+
+func testConfigModeAndDatabaseHelpers(t *testing.T) {
 	if got := normalizeDatabaseMode("psql", ""); got != "postgresql" {
 		t.Fatalf("database mode = %q", got)
 	}
@@ -30,6 +35,9 @@ func TestConfigHelperEdges(t *testing.T) {
 	if _, err := loadInstallationEncryptionKey(""); err == nil {
 		t.Fatal("empty encryption-key path accepted")
 	}
+}
+
+func testConfigEnvironmentHelpers(t *testing.T) {
 	t.Setenv("GLYPHFLOW_TEST_INT", "bad")
 	if _, err := envInt("GLYPHFLOW_TEST_INT"); err == nil {
 		t.Fatal("invalid integer accepted")
