@@ -78,6 +78,16 @@ func TestSessionCookiesUseSecureFlagForHTTPSOrigin(t *testing.T) {
 	}
 }
 
+func TestSessionCookieDeletionUsesSecureFlagsForHTTPSOrigin(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	(Server{CSRFOrigin: "https://console.example"}).clearSessionCookies(recorder)
+	for _, cookie := range recorder.Result().Cookies() {
+		if !cookie.Secure || !cookie.HttpOnly || cookie.MaxAge >= 0 {
+			t.Fatalf("insecure cookie deletion: %#v", cookie)
+		}
+	}
+}
+
 func TestDisabledUserCannotUseExistingCookieSession(t *testing.T) {
 	auth, err := NewAuthService("01234567890123456789012345678901", true, true, nil)
 	if err != nil {

@@ -36,6 +36,7 @@ func (s Server) runtimeConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func setCSRFCookie(w http.ResponseWriter, origin, token string) {
-	secure := len(origin) >= len("https://") && origin[:len("https://")] == "https://"
+	secure := secureCookies(origin)
+	// The CSRF cookie must remain readable by the frontend for double-submit validation.
 	http.SetCookie(w, &http.Cookie{Name: "glyphflow_csrf", Value: token, Path: "/", Secure: secure, SameSite: http.SameSiteLaxMode})
 }
