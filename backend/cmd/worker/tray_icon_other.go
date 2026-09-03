@@ -9,7 +9,10 @@ import (
 
 var gioTrayIcon = gioWorkerIcon
 
-func handleGioNativeEvent(any) {}
+// handleGioNativeEvent is only needed for Windows window-handle integration.
+func handleGioNativeEvent(any) {
+	// Non-Windows builds do not expose a native window handle.
+}
 
 func raiseGioWindow(window *app.Window) {
 	window.Perform(system.ActionRaise)

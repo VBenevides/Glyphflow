@@ -12,7 +12,7 @@ import (
 	"github.com/VBenevides/Glyphflow/backend/internal/store"
 )
 
-func TestPendingApprovalLifecycleAndSettings(t *testing.T) {
+func TestPendingApprovalLifecycleAndSettings(t *testing.T) { // NOSONAR -- this scenario test intentionally covers the complete approval lifecycle.
 	auth, err := NewAuthService("01234567890123456789012345678901", true, true, nil)
 	if err != nil {
 		t.Fatal(err)

@@ -72,6 +72,18 @@ func TestOIDCProviderChallengeIsSingleUse(t *testing.T) {
 	_ = httptest.NewRecorder()
 }
 
+func TestOIDCProviderAllowsHTTPCallbacksOnlyWhenConfigured(t *testing.T) {
+	provider := OIDCProvider{Key: "corp", Issuer: "https://id.example", Callback: "http://localhost/callback", Enabled: true}
+	service := NewOIDCService()
+	if err := service.AddProvider(provider); err == nil {
+		t.Fatal("HTTP callback accepted by default")
+	}
+	service.SetAllowHTTPCallbacks(true)
+	if err := service.AddProvider(provider); err != nil {
+		t.Fatalf("local HTTP callback rejected: %v", err)
+	}
+}
+
 func TestOIDCProviderPublicProjectionExposesNoConfiguration(t *testing.T) {
 	s := NewOIDCService()
 	if err := s.AddProvider(OIDCProvider{Key: "corp", Issuer: "https://id.example", ClientID: "client", ClientSecret: "client-secret", Callback: "https://app.example/callback", Enabled: true}); err == nil {

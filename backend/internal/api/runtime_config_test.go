@@ -42,6 +42,18 @@ func TestRuntimeConfigPublishesFlagsAndIssuesCSRF(t *testing.T) {
 	}
 }
 
+func TestRuntimeConfigKeepsCSRFReadableForHTTPDevelopmentOrigin(t *testing.T) {
+	response := httptest.NewRecorder()
+	(Server{CSRFOrigin: "http://localhost:5173"}).Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/config", nil))
+	cookies := response.Result().Cookies()
+	if response.Code != http.StatusOK || len(cookies) != 1 {
+		t.Fatalf("config response: %d cookies=%#v", response.Code, cookies)
+	}
+	if cookies[0].HttpOnly || cookies[0].Secure {
+		t.Fatalf("HTTP development CSRF cookie flags: %#v", cookies[0])
+	}
+}
+
 func TestLockdownBlocksWritesButAllowsReadAndSettingsControl(t *testing.T) {
 	handler := (Server{Config: RuntimeConfig{LockdownScheduler: true}}).withLockdown(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)

@@ -73,7 +73,7 @@ func (s *InfrastructureService) runnerMetricsPath(w http.ResponseWriter, r *http
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "runner not found"})
 			return
 		}
-		metricsRepository, ok := repository.(store.RunnerMetricsRepository)
+		metricsRepository, ok := repository.(store.RunnerMetricsLister)
 		if !ok {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "runner metrics storage unavailable"})
 			return

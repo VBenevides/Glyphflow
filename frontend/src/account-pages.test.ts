@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { accountDirty, sessionMetadata } from './account-pages'
+import { accountDirty, oidcLinkUrl, sessionMetadata } from './account-pages'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
@@ -31,5 +31,9 @@ describe('account dirty baseline', () => {
     expect(metadata.find((item) => item.label === 'Last seen')?.value).toContain('2026')
     expect(metadata.find((item) => item.label === 'Expires')?.value).toContain('2026')
     expect(sessionMetadata({ id: 'session-2' })).toEqual(expect.arrayContaining([{ label: 'Device', value: 'Unknown device' }, { label: 'IP address', value: 'Unknown' }, { label: 'Last seen', value: '—' }, { label: 'Created', value: '—' }, { label: 'Expires', value: '—' }]))
+  })
+
+  it('builds the OIDC identity-link URL for the current origin', () => {
+    expect(oidcLinkUrl()).toBe('/api/v1/auth/oidc/link?redirect=http%3A%2F%2Flocalhost%2Faccount%2Fidentities')
   })
 })

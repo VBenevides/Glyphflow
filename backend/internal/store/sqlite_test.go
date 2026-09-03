@@ -9,7 +9,7 @@ import (
 	"github.com/VBenevides/Glyphflow/backend/internal/platform"
 )
 
-func TestSQLiteControlPlaneRepositoriesShareOneDatabase(t *testing.T) {
+func TestSQLiteControlPlaneRepositoriesShareOneDatabase(t *testing.T) { // NOSONAR: this integration-style SQLite scenario intentionally verifies shared control-plane repository state in one fixture.
 	db, err := OpenSQLite(t.TempDir() + "/controlplane.sqlite")
 	if err != nil {
 		t.Fatal(err)
@@ -92,7 +92,7 @@ func TestSQLiteControlPlaneRepositoriesShareOneDatabase(t *testing.T) {
 	if versions, err := NewTaskRepository(db).ListVersions(ctx, task.ID); err != nil || len(versions) != 1 {
 		t.Fatalf("versions = %#v, err=%v", versions, err)
 	}
-	nextFire := time.Now().UTC().Add(time.Minute)
+	nextFire := time.Now().In(time.FixedZone("UTC+00:00", 0)).Add(time.Minute)
 	scheduleRepository := NewScheduleRepository(db)
 	schedule, err := scheduleRepository.Create(ctx, ScheduleDefinition{ID: "schedule-1", Name: "Schedule", TaskID: task.ID, Expression: "* * * * *", NextFireAt: &nextFire})
 	if err != nil {
@@ -124,6 +124,16 @@ func TestSQLiteControlPlaneRepositoriesShareOneDatabase(t *testing.T) {
 	}
 	if statuses, err := secrets.ListStatuses(ctx); err != nil || len(statuses) != 1 || statuses[0].CanDelete || len(statuses[0].Tasks) != 1 {
 		t.Fatalf("secret statuses = %#v, err=%v", statuses, err)
+	}
+}
+
+func TestSQLiteTimeAcceptsLegacyGoString(t *testing.T) {
+	got, err := sqliteTime("2026-09-02 02:00:00.468807012 +0000 UTC+00:00")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "2026-09-02T02:00:00.468807012Z"; got.UTC().Format(time.RFC3339Nano) != want {
+		t.Fatalf("SQLite time = %s, want %s", got.UTC().Format(time.RFC3339Nano), want)
 	}
 }
 

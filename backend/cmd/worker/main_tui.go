@@ -49,62 +49,77 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 	case tuiTick:
-		snapshot := m.logs.Snapshot(m.after)
-		if snapshot.Reset {
-			m.entries = append([]LogEntry(nil), snapshot.Entries...)
-		} else {
-			m.entries = append(m.entries, snapshot.Entries...)
-		}
-		if len(m.entries) > maxWorkerLogEntries {
-			m.entries = m.entries[len(m.entries)-maxWorkerLogEntries:]
-		}
-		if len(snapshot.Entries) > 0 {
-			m.after = snapshot.Entries[len(snapshot.Entries)-1].Sequence
-		}
-		m.snapshot = snapshot
-		setTUITrayTooltip(snapshot)
-		m.offset = min(m.offset, m.maxScroll())
-		return m, tuiPoll()
+		return m.updateTick()
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "q", "ctrl+c":
-			if m.cancel != nil {
-				m.cancel()
-			}
-			return m, tea.Quit
-		case "a":
-			m.stderr = false
-			m.offset = 0
-		case "tab":
-			m.stderr = !m.stderr
-			m.offset = 0
-		case "e":
-			m.stderr = true
-			m.offset = 0
-		case "up", "k":
-			m.offset = min(m.offset+1, m.maxScroll())
-		case "down", "j":
-			m.offset = max(m.offset-1, 0)
-		case "pgup":
-			m.offset = min(m.offset+m.logHeight(), m.maxScroll())
-		case "pgdown":
-			m.offset = max(m.offset-m.logHeight(), 0)
-		case "home":
-			m.offset = m.maxScroll()
-		case "end":
-			m.offset = 0
+		if cmd := m.updateKey(msg); cmd != nil {
+			return m, cmd
 		}
 	case tea.MouseMsg:
-		if msg.Button == tea.MouseButtonWheelUp {
-			m.offset = min(m.offset+3, m.maxScroll())
-		} else if msg.Button == tea.MouseButtonWheelDown {
-			m.offset = max(m.offset-3, 0)
-		} else if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft && msg.Y == tuiFilterRow {
-			m.stderr = msg.X >= 20
-			m.offset = 0
-		}
+		m.updateMouse(msg)
 	}
 	return m, nil
+}
+
+func (m tuiModel) updateTick() (tea.Model, tea.Cmd) {
+	snapshot := m.logs.Snapshot(m.after)
+	if snapshot.Reset {
+		m.entries = append([]LogEntry(nil), snapshot.Entries...)
+	} else {
+		m.entries = append(m.entries, snapshot.Entries...)
+	}
+	if len(m.entries) > maxWorkerLogEntries {
+		m.entries = m.entries[len(m.entries)-maxWorkerLogEntries:]
+	}
+	if len(snapshot.Entries) > 0 {
+		m.after = snapshot.Entries[len(snapshot.Entries)-1].Sequence
+	}
+	m.snapshot = snapshot
+	setTUITrayTooltip(snapshot)
+	m.offset = min(m.offset, m.maxScroll())
+	return m, tuiPoll()
+}
+
+func (m *tuiModel) updateKey(msg tea.KeyMsg) tea.Cmd {
+	switch msg.String() {
+	case "q", "ctrl+c":
+		if m.cancel != nil {
+			m.cancel()
+		}
+		return tea.Quit
+	case "a":
+		m.stderr = false
+		m.offset = 0
+	case "tab":
+		m.stderr = !m.stderr
+		m.offset = 0
+	case "e":
+		m.stderr = true
+		m.offset = 0
+	case "up", "k":
+		m.offset = min(m.offset+1, m.maxScroll())
+	case "down", "j":
+		m.offset = max(m.offset-1, 0)
+	case "pgup":
+		m.offset = min(m.offset+m.logHeight(), m.maxScroll())
+	case "pgdown":
+		m.offset = max(m.offset-m.logHeight(), 0)
+	case "home":
+		m.offset = m.maxScroll()
+	case "end":
+		m.offset = 0
+	}
+	return nil
+}
+
+func (m *tuiModel) updateMouse(msg tea.MouseMsg) {
+	if msg.Button == tea.MouseButtonWheelUp {
+		m.offset = min(m.offset+3, m.maxScroll())
+	} else if msg.Button == tea.MouseButtonWheelDown {
+		m.offset = max(m.offset-3, 0)
+	} else if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft && msg.Y == tuiFilterRow {
+		m.stderr = msg.X >= 20
+		m.offset = 0
+	}
 }
 
 func (m tuiModel) View() string {

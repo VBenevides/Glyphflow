@@ -6,7 +6,7 @@ export function safeOutput(value: string, maxChars = 200_000): string {
   return value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '�').slice(0, maxChars)
 }
 
-export function SafeText({ value }: { value: string }) {
+export function SafeText({ value }: Readonly<{ value: string }>) {
   return <span>{safeOutput(value)}</span>
 }
 
@@ -14,14 +14,18 @@ export function prefixLogLines(value: string): string {
   if (!value) return value
   const lines = value.split('\n')
   const last = lines.length - 1
-  return lines.map((line, index) => index === last && line === '' ? line : `${index % 50 === 0 ? `${index} ` : ''}$ ${line}`).join('\n')
+  return lines.map((line, index) => {
+    if (index === last && line === '') return line
+    const prefix = index % 50 === 0 ? `${index} ` : ''
+    return `${prefix}$ ${line}`
+  }).join('\n')
 }
 
-export function LogOutput({ stream, value }: { stream: 'stdout' | 'stderr'; value: string }) {
+export function LogOutput({ stream, value }: Readonly<{ stream: 'stdout' | 'stderr'; value: string }>) {
   return <pre className={`gf-log gf-log-${stream}`} aria-label={`${stream} output`}><SafeText value={prefixLogLines(safeOutput(value))} /></pre>
 }
 
-export function SecretReference({ value }: { value: string }) {
+export function SecretReference({ value }: Readonly<{ value: string }>) {
   return <span className="gf-secret-reference" title="The secret value is never displayed">Secret reference: {value}</span>
 }
 
@@ -31,7 +35,7 @@ export function redactAuditValue(value: unknown): unknown {
   return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, secretKey.test(key) && key.toLowerCase() !== 'passwordloginenabled' ? '[REDACTED]' : redactAuditValue(entry)]))
 }
 
-export function AuditValue({ value }: { value: unknown }) {
+export function AuditValue({ value }: Readonly<{ value: unknown }>) {
   return <pre className="gf-audit-value"><SafeText value={JSON.stringify(redactAuditValue(value), null, 2) ?? '—'} /></pre>
 }
 

@@ -19,7 +19,7 @@ export async function bootstrapSession(client: BootstrapClient = api, signal?: A
 type AuthContextValue = BootstrapResult & { loading: boolean; error: Error | null; restore: () => void; setProfile: (profile: Profile | null, permissions?: PermissionSnapshot) => void; setConfig: (config: RuntimeConfig) => void }
 const AuthContext = createContext<AuthContextValue | null>(null)
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
   const [state, setState] = useState<BootstrapResult>({ config: { brand: 'Glyphflow', passwordLogin: false, registration: false, requireUserApproval: true, oidc: false, csrfCookie: 'glyphflow_csrf', lockdownScheduler: false }, profile: null, permissions: [] })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<Error | null>(null)

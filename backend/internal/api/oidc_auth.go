@@ -42,17 +42,18 @@ type OIDCProviderPublic struct {
 	Icon string `json:"icon,omitempty"`
 }
 type OIDCService struct {
-	mu               sync.RWMutex
-	providers        map[string]OIDCProvider
-	repository       store.OIDCProviderRepository
-	states           *platform.AuthorizationStateStore
-	stateRepo        store.OIDCAuthorizationStateRepository
-	stateKey         []byte
-	defaultCallback  string
-	httpClient       *http.Client
-	secretRepository store.EncryptedSecretRepository
-	secretKey        []byte
-	linkTargets      map[string]string
+	mu                 sync.RWMutex
+	providers          map[string]OIDCProvider
+	repository         store.OIDCProviderRepository
+	states             *platform.AuthorizationStateStore
+	stateRepo          store.OIDCAuthorizationStateRepository
+	stateKey           []byte
+	defaultCallback    string
+	allowHTTPCallbacks bool
+	httpClient         *http.Client
+	secretRepository   store.EncryptedSecretRepository
+	secretKey          []byte
+	linkTargets        map[string]string
 }
 
 const maxOIDCResponseBytes = 1 << 20
@@ -106,6 +107,12 @@ func (s *OIDCService) SetDefaultCallback(callback string) {
 	s.mu.Unlock()
 }
 
+func (s *OIDCService) SetAllowHTTPCallbacks(allow bool) {
+	s.mu.Lock()
+	s.allowHTTPCallbacks = allow
+	s.mu.Unlock()
+}
+
 func authorizationValueHash(value string) string {
 	digest := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(digest[:])
@@ -141,7 +148,7 @@ func (s *OIDCService) consumePersistentState(state, nonce, provider, purpose, ca
 	repository := s.stateRepo
 	s.mu.RUnlock()
 	if purpose == "" {
-		if anyRepository, ok := repository.(store.OIDCAuthorizationStateAnyRepository); ok {
+		if anyRepository, ok := repository.(store.OIDCAuthorizationStateAnyConsumer); ok {
 			return anyRepository.ConsumeAny(context.Background(), authorizationValueHash(state), authorizationValueHash(nonce), provider, callback, now)
 		}
 	}
@@ -180,18 +187,41 @@ func (s *OIDCService) AddProvider(provider OIDCProvider) error {
 	if _, err := secureURL(provider.Issuer); err != nil {
 		return err
 	}
+	if err := s.validateProviderCallbacks(provider); err != nil {
+		return err
+	}
+	s.mu.RLock()
+	repository, secretRepository, secretKey := s.repository, s.secretRepository, append([]byte(nil), s.secretKey...)
+	s.mu.RUnlock()
+	if err := saveOIDCClientSecret(provider, secretRepository, secretKey); err != nil {
+		return err
+	}
+	provider.ClientSecret = ""
+	return s.saveProvider(provider, repository)
+}
+
+func (s *OIDCService) validateProviderCallbacks(provider OIDCProvider) error {
+	s.mu.RLock()
+	allowHTTPCallbacks := s.allowHTTPCallbacks
+	s.mu.RUnlock()
+	// Explicitly preserve compatibility with SSO providers; only local/development callback transport is relaxed.
+	validateCallback := platform.ValidateOIDCCallback
+	if allowHTTPCallbacks {
+		validateCallback = platform.ValidateOIDCCallbackWithHTTP
+	}
 	callbacks := provider.Callbacks
 	if len(callbacks) == 0 {
 		callbacks = []string{provider.Callback}
 	}
 	for _, callback := range callbacks {
-		if err := platform.ValidateOIDCCallback(callback, callback); err != nil {
+		if err := validateCallback(callback, callback); err != nil {
 			return err
 		}
 	}
-	s.mu.RLock()
-	repository, secretRepository, secretKey := s.repository, s.secretRepository, append([]byte(nil), s.secretKey...)
-	s.mu.RUnlock()
+	return nil
+}
+
+func saveOIDCClientSecret(provider OIDCProvider, secretRepository store.EncryptedSecretRepository, secretKey []byte) error {
 	if provider.ClientSecret != "" {
 		if secretRepository == nil || len(secretKey) != 32 {
 			return errors.New("OIDC secret storage is unavailable")
@@ -211,7 +241,10 @@ func (s *OIDCService) AddProvider(provider OIDCProvider) error {
 			return errors.New("OIDC client secret validation failed")
 		}
 	}
-	provider.ClientSecret = ""
+	return nil
+}
+
+func (s *OIDCService) saveProvider(provider OIDCProvider, repository store.OIDCProviderRepository) error {
 	if repository != nil {
 		if err := repository.Upsert(context.Background(), providerRecord(provider)); err != nil {
 			return err
@@ -756,79 +789,94 @@ func (s Server) oidcRoutes(mux routeRegistrar) {
 	if s.OIDC == nil {
 		return
 	}
-	mux.HandleFunc("/api/v1/auth/oidc/providers", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+	mux.HandleFunc("/api/v1/auth/oidc/providers", s.oidcProviders)
+	mux.HandleFunc("/api/v1/auth/oidc/login", s.oidcLogin)
+	mux.Handle("/api/v1/auth/oidc/link", s.requireAuthenticated(http.HandlerFunc(s.oidcLink)))
+	mux.HandleFunc("/api/v1/auth/oidc/callback", s.oidcCallback)
+}
+
+func (s Server) oidcProviders(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.OIDC.Providers())
+}
+
+func (s Server) oidcLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
+		return
+	}
+	if !s.allowAuth(w, r, "oidc-challenge|"+platform.NormalizeIdentityKey(r.URL.Query().Get("provider"))) {
+		return
+	}
+	redirect, err := s.OIDC.Challenge(r.URL.Query().Get("provider"), r.URL.Query().Get("redirect_uri"), time.Now())
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "OIDC challenge failed", err)
+		return
+	}
+	http.Redirect(w, r, redirect, http.StatusFound)
+}
+
+func (s Server) oidcLink(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
+		return
+	}
+	claims, _ := s.authenticator()(r)
+	challenge, err := s.OIDC.LinkChallenge(r.URL.Query().Get("provider"), claims.UserID, time.Now())
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "OIDC link failed", err)
+		return
+	}
+	http.Redirect(w, r, challenge.URL, http.StatusFound)
+}
+
+func (s Server) oidcCallback(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
+		return
+	}
+	if !s.allowAuth(w, r, "oidc-callback") {
+		return
+	}
+	if s.AuthService == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "authentication unavailable"})
+		return
+	}
+	provider, claims, purpose, userID, err := s.OIDC.CompleteAuthorizationCodeDetails(r.URL.Query().Get("state"), r.URL.Query().Get("nonce"), r.URL.Query().Get("code"), time.Now())
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "OIDC callback failed", err)
+		return
+	}
+	if purpose == "link" {
+		s.completeOIDCLink(w, provider, claims, userID)
+		return
+	}
+	s.completeOIDCLogin(w, provider, claims)
+}
+
+func (s Server) completeOIDCLink(w http.ResponseWriter, provider OIDCProvider, claims platform.OIDCClaims, userID string) {
+	if userID == "" || s.AuthService.LinkOIDC(userID, provider.Key, claims.Subject) != nil {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "OIDC identity is already linked"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "linked"})
+}
+
+func (s Server) completeOIDCLogin(w http.ResponseWriter, provider OIDCProvider, claims platform.OIDCClaims) {
+	tokens, err := s.AuthService.LoginOIDCWithGroups(provider.Key, claims.Subject, claims.Username, claims.Email, provider.AutoProvision, claims.Groups)
+	if err != nil {
+		if errors.Is(err, ErrPendingUser) {
+			writeError(w, http.StatusForbidden, "OIDC login pending approval", err)
 			return
 		}
-		writeJSON(w, 200, s.OIDC.Providers())
-	})
-	mux.HandleFunc("/api/v1/auth/oidc/login", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			writeJSON(w, 405, map[string]string{"error": "method not allowed"})
-			return
-		}
-		if !s.allowAuth(w, r, "oidc-challenge|"+platform.NormalizeIdentityKey(r.URL.Query().Get("provider"))) {
-			return
-		}
-		redirect, err := s.OIDC.Challenge(r.URL.Query().Get("provider"), r.URL.Query().Get("redirect_uri"), time.Now())
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "OIDC challenge failed", err)
-			return
-		}
-		http.Redirect(w, r, redirect, http.StatusFound)
-	})
-	mux.Handle("/api/v1/auth/oidc/link", s.requireAuthenticated(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
-			return
-		}
-		claims, _ := s.authenticator()(r)
-		challenge, err := s.OIDC.LinkChallenge(r.URL.Query().Get("provider"), claims.UserID, time.Now())
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "OIDC link failed", err)
-			return
-		}
-		http.Redirect(w, r, challenge.URL, http.StatusFound)
-	})))
-	mux.HandleFunc("/api/v1/auth/oidc/callback", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			writeJSON(w, 405, map[string]string{"error": "method not allowed"})
-			return
-		}
-		if !s.allowAuth(w, r, "oidc-callback") {
-			return
-		}
-		if s.AuthService == nil {
-			writeJSON(w, 503, map[string]string{"error": "authentication unavailable"})
-			return
-		}
-		now := time.Now()
-		provider, claims, purpose, userID, err := s.OIDC.CompleteAuthorizationCodeDetails(r.URL.Query().Get("state"), r.URL.Query().Get("nonce"), r.URL.Query().Get("code"), now)
-		if err != nil {
-			writeError(w, http.StatusUnauthorized, "OIDC callback failed", err)
-			return
-		}
-		if purpose == "link" {
-			if userID == "" || s.AuthService.LinkOIDC(userID, provider.Key, claims.Subject) != nil {
-				writeJSON(w, http.StatusConflict, map[string]string{"error": "OIDC identity is already linked"})
-				return
-			}
-			writeJSON(w, http.StatusOK, map[string]string{"status": "linked"})
-			return
-		}
-		tokens, err := s.AuthService.LoginOIDCWithGroups(provider.Key, claims.Subject, claims.Username, claims.Email, provider.AutoProvision, claims.Groups)
-		if err != nil {
-			if errors.Is(err, ErrPendingUser) {
-				writeError(w, http.StatusForbidden, "OIDC login pending approval", err)
-				return
-			}
-			writeError(w, http.StatusUnauthorized, "OIDC login failed", err)
-			return
-		}
-		s.setSessionCookies(w, tokens)
-		writeJSON(w, 200, map[string]string{"status": "authenticated"})
-	})
+		writeError(w, http.StatusUnauthorized, "OIDC login failed", err)
+		return
+	}
+	s.setSessionCookies(w, tokens)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "authenticated"})
 }
 
 func (s *OIDCService) provider(key string) (OIDCProvider, bool) {

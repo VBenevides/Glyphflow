@@ -14,7 +14,7 @@ import (
 
 const secretDeliveryClockTolerance = 5 * time.Second
 
-func RunSecretDeliveryServer(ctx context.Context, requests queue.RequestServer, runs store.SecretRequestRepository, secrets store.EncryptedSecretRepository, keys RunnerKeyRepository, signingKey protocol.SigningKey, encryptionKey []byte) error {
+func RunSecretDeliveryServer(ctx context.Context, requests queue.RequestServer, runs store.SecretRequestAuthorizer, secrets store.EncryptedSecretRepository, keys RunnerKeyFinder, signingKey protocol.SigningKey, encryptionKey []byte) error {
 	if requests == nil || runs == nil || secrets == nil || keys == nil || len(signingKey.Private) != ed25519.PrivateKeySize || len(encryptionKey) != 32 {
 		return errors.New("secret delivery server is not configured")
 	}
@@ -23,7 +23,7 @@ func RunSecretDeliveryServer(ctx context.Context, requests queue.RequestServer, 
 	})
 }
 
-func secretDeliveryResponse(ctx context.Context, runs store.SecretRequestRepository, secrets store.EncryptedSecretRepository, keys RunnerKeyRepository, signingKey protocol.SigningKey, encryptionKey []byte, raw []byte) []byte {
+func secretDeliveryResponse(ctx context.Context, runs store.SecretRequestAuthorizer, secrets store.EncryptedSecretRepository, keys RunnerKeyFinder, signingKey protocol.SigningKey, encryptionKey []byte, raw []byte) []byte {
 	reply := protocol.SecretDeliveryResponse{Version: protocol.ProtocolVersion, Error: "secret delivery rejected", RespondedAt: time.Now().UTC()}
 	envelope, err := protocol.DecodeEnvelope(raw)
 	if err != nil {

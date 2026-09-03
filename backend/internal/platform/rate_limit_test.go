@@ -8,7 +8,9 @@ import (
 func TestRateLimiterBoundsAuthenticationAttempts(t *testing.T) {
 	limiter := NewRateLimiter(2, time.Minute)
 	now := time.Now()
-	if !limiter.Allow("user|address", now) || !limiter.Allow("user|address", now) {
+	first := limiter.Allow("user|address", now)
+	second := limiter.Allow("user|address", now)
+	if !first || !second {
 		t.Fatal("allowed attempts were rejected")
 	}
 	if limiter.Allow("user|address", now) {

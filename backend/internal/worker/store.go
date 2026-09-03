@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/VBenevides/Glyphflow/backend/internal/protocol"
-	_ "modernc.org/sqlite"
+	_ "modernc.org/sqlite" // Registers the SQLite database/sql driver.
 )
 
 type LocalStore struct{ db *sql.DB }
@@ -345,7 +345,7 @@ func (s *LocalStore) Get(id string) (json.RawMessage, error) {
 
 // AcceptOrder verifies freshness, identity, execution fields, and replay
 // before writing the order to durable local state.
-func (s *LocalStore) AcceptOrder(raw []byte, keys protocol.Keyring, now time.Time, runnerID, runID string, attempt uint32, leaseToken string, tolerance time.Duration) (protocol.OrderPayload, error) {
+func (s *LocalStore) AcceptOrder(raw []byte, keys protocol.Keyring, now time.Time, runnerID, runID string, attempt uint32, leaseToken string, tolerance time.Duration) (protocol.OrderPayload, error) { // NOSONAR: preserve the worker entrypoint while its parameters mirror the established protocol verifier contract.
 	payload, err := protocol.VerifyOrder(raw, keys, now, runnerID, runID, attempt, leaseToken, tolerance, nil)
 	if err != nil {
 		return protocol.OrderPayload{}, err

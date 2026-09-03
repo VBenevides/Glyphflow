@@ -42,8 +42,16 @@ func ValidateOIDCClaims(claims OIDCClaims, issuer, audience, nonce string, now t
 }
 
 func ValidateOIDCCallback(callback, configured string) error {
+	return validateOIDCCallback(callback, configured, false)
+}
+
+func ValidateOIDCCallbackWithHTTP(callback, configured string) error {
+	return validateOIDCCallback(callback, configured, true)
+}
+
+func validateOIDCCallback(callback, configured string, allowHTTP bool) error {
 	got, err := url.Parse(callback)
-	if err != nil || got.Scheme != "https" || got.Host == "" {
+	if err != nil || got.Host == "" || (got.Scheme != "https" && (!allowHTTP || got.Scheme != "http")) {
 		return errors.New("OIDC callback must use HTTPS")
 	}
 	for _, allowed := range strings.Split(configured, ",") {
@@ -64,15 +72,37 @@ func VerifyOIDCIDToken(token, jwks, issuer, audience, nonce string, now time.Tim
 	if len(parts) != 3 {
 		return OIDCClaims{}, errors.New("OIDC ID token is malformed")
 	}
-	headerBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
+	header, err := decodeOIDCHeader(parts[0])
 	if err != nil {
-		return OIDCClaims{}, errors.New("OIDC ID token header is malformed")
+		return OIDCClaims{}, err
+	}
+	claims, err := decodeOIDCClaims(parts[1], now)
+	if err != nil {
+		return OIDCClaims{}, err
+	}
+	if err := ValidateOIDCClaims(claims, issuer, audience, nonce, now); err != nil {
+		return OIDCClaims{}, err
+	}
+	if err := verifyOIDCSignature(parts[0]+"."+parts[1], parts[2], header.Alg, header.Kid, jwks); err != nil {
+		return OIDCClaims{}, err
+	}
+	return claims, nil
+}
+
+func decodeOIDCHeader(encoded string) (struct{ Alg, Kid string }, error) {
+	headerBytes, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil {
+		return struct{ Alg, Kid string }{}, errors.New("OIDC ID token header is malformed")
 	}
 	var header struct{ Alg, Kid string }
 	if err := json.Unmarshal(headerBytes, &header); err != nil || header.Kid == "" {
-		return OIDCClaims{}, errors.New("OIDC ID token header is invalid")
+		return struct{ Alg, Kid string }{}, errors.New("OIDC ID token header is invalid")
 	}
-	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
+	return header, nil
+}
+
+func decodeOIDCClaims(encoded string, now time.Time) (OIDCClaims, error) {
+	payloadBytes, err := base64.RawURLEncoding.DecodeString(encoded)
 	if err != nil {
 		return OIDCClaims{}, errors.New("OIDC ID token claims are malformed")
 	}
@@ -105,14 +135,7 @@ func VerifyOIDCIDToken(token, jwks, issuer, audience, nonce string, now time.Tim
 	if err != nil || expires <= float64(now.Unix()) {
 		return OIDCClaims{}, errors.New("OIDC token has expired")
 	}
-	claims := OIDCClaims{Issuer: payload.Issuer, Subject: payload.Subject, Audience: audiences, Nonce: payload.Nonce, Expires: time.Unix(int64(expires), 0), Username: payload.Username, Email: payload.Email, Groups: append([]string(nil), payload.Groups...)}
-	if err := ValidateOIDCClaims(claims, issuer, audience, nonce, now); err != nil {
-		return OIDCClaims{}, err
-	}
-	if err := verifyOIDCSignature(parts[0]+"."+parts[1], parts[2], header.Alg, header.Kid, jwks); err != nil {
-		return OIDCClaims{}, err
-	}
-	return claims, nil
+	return OIDCClaims{Issuer: payload.Issuer, Subject: payload.Subject, Audience: audiences, Nonce: payload.Nonce, Expires: time.Unix(int64(expires), 0), Username: payload.Username, Email: payload.Email, Groups: append([]string(nil), payload.Groups...)}, nil
 }
 
 func verifyOIDCSignature(signingInput, encodedSignature, algorithm, keyID, jwks string) error {
@@ -127,64 +150,90 @@ func verifyOIDCSignature(signingInput, encodedSignature, algorithm, keyID, jwks 
 		return errors.New("OIDC JWKS is invalid")
 	}
 	for _, rawKey := range document.Keys {
-		var key struct {
-			KTY string `json:"kty"`
-			Kid string `json:"kid"`
-			Alg string `json:"alg"`
-			Use string `json:"use"`
-			N   string `json:"n"`
-			E   string `json:"e"`
-			Crv string `json:"crv"`
-			X   string `json:"x"`
-			Y   string `json:"y"`
+		verified, err := verifyOIDCKey(signingInput, signature, algorithm, keyID, rawKey)
+		if err != nil {
+			return err
 		}
-		if json.Unmarshal(rawKey, &key) != nil || key.Kid != keyID || (key.Alg != "" && key.Alg != algorithm) || (key.Use != "" && key.Use != "sig") {
-			continue
-		}
-		input := []byte(signingInput)
-		switch algorithm {
-		case "RS256":
-			if key.KTY != "RSA" {
-				continue
-			}
-			n, nErr := decodeBigInt(key.N)
-			e, eErr := decodeBigInt(key.E)
-			if nErr != nil || eErr != nil || !e.IsInt64() {
-				continue
-			}
-			digest := sha256.Sum256(input)
-			if rsa.VerifyPKCS1v15(&rsa.PublicKey{N: n, E: int(e.Int64())}, crypto.SHA256, digest[:], signature) == nil {
-				return nil
-			}
-		case "ES256", "ES384":
-			curve, size := elliptic.P256(), 32
-			if algorithm == "ES384" {
-				curve, size = elliptic.P384(), 48
-			}
-			if key.KTY != "EC" || key.Crv != curve.Params().Name || len(signature) != size*2 {
-				continue
-			}
-			x, xErr := decodeBigInt(key.X)
-			y, yErr := decodeBigInt(key.Y)
-			if xErr != nil || yErr != nil || !curve.IsOnCurve(x, y) {
-				continue
-			}
-			var digest []byte
-			if algorithm == "ES256" {
-				hashValue := sha256.Sum256(input)
-				digest = hashValue[:]
-			} else {
-				hashValue := sha512.Sum384(input)
-				digest = hashValue[:]
-			}
-			if ecdsa.Verify(&ecdsa.PublicKey{Curve: curve, X: x, Y: y}, digest, new(big.Int).SetBytes(signature[:size]), new(big.Int).SetBytes(signature[size:])) {
-				return nil
-			}
-		default:
-			return errors.New("OIDC signing algorithm is not supported")
+		if verified {
+			return nil
 		}
 	}
 	return errors.New("OIDC ID token signature is invalid")
+}
+
+func verifyOIDCKey(signingInput string, signature []byte, algorithm, keyID string, rawKey json.RawMessage) (bool, error) {
+	key, ok := decodeOIDCKey(rawKey, algorithm, keyID)
+	if !ok {
+		return false, nil
+	}
+	input := []byte(signingInput)
+	switch algorithm {
+	case "RS256":
+		return verifyOIDCRSAKey(input, signature, key), nil
+	case "ES256", "ES384":
+		return verifyOIDCECKey(input, signature, algorithm, key), nil
+	default:
+		return false, errors.New("OIDC signing algorithm is not supported")
+	}
+}
+
+type oidcJWK struct {
+	KTY string `json:"kty"`
+	Kid string `json:"kid"`
+	Alg string `json:"alg"`
+	Use string `json:"use"`
+	N   string `json:"n"`
+	E   string `json:"e"`
+	Crv string `json:"crv"`
+	X   string `json:"x"`
+	Y   string `json:"y"`
+}
+
+func decodeOIDCKey(rawKey json.RawMessage, algorithm, keyID string) (oidcJWK, bool) {
+	var key oidcJWK
+	if json.Unmarshal(rawKey, &key) != nil || key.Kid != keyID || (key.Alg != "" && key.Alg != algorithm) || (key.Use != "" && key.Use != "sig") {
+		return oidcJWK{}, false
+	}
+	return key, true
+}
+
+func verifyOIDCRSAKey(input, signature []byte, key oidcJWK) bool {
+	if key.KTY != "RSA" {
+		return false
+	}
+	n, nErr := decodeBigInt(key.N)
+	e, eErr := decodeBigInt(key.E)
+	if nErr != nil || eErr != nil || !e.IsInt64() {
+		return false
+	}
+	digest := sha256.Sum256(input)
+	// RS256 is defined by JOSE to use PKCS#1 v1.5; do not change this without
+	// deliberately breaking existing SSO provider compatibility.
+	return rsa.VerifyPKCS1v15(&rsa.PublicKey{N: n, E: int(e.Int64())}, crypto.SHA256, digest[:], signature) == nil // NOSONAR
+}
+
+func verifyOIDCECKey(input, signature []byte, algorithm string, key oidcJWK) bool {
+	curve, size := elliptic.P256(), 32
+	if algorithm == "ES384" {
+		curve, size = elliptic.P384(), 48
+	}
+	if key.KTY != "EC" || key.Crv != curve.Params().Name || len(signature) != size*2 {
+		return false
+	}
+	x, xErr := decodeBigInt(key.X)
+	y, yErr := decodeBigInt(key.Y)
+	if xErr != nil || yErr != nil || !curve.IsOnCurve(x, y) {
+		return false
+	}
+	var digest []byte
+	if algorithm == "ES256" {
+		hashValue := sha256.Sum256(input)
+		digest = hashValue[:]
+	} else {
+		hashValue := sha512.Sum384(input)
+		digest = hashValue[:]
+	}
+	return ecdsa.Verify(&ecdsa.PublicKey{Curve: curve, X: x, Y: y}, digest, new(big.Int).SetBytes(signature[:size]), new(big.Int).SetBytes(signature[size:]))
 }
 
 func decodeBigInt(value string) (*big.Int, error) {

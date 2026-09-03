@@ -8,7 +8,7 @@ export function taskOptionLabel(task: Pick<Task, 'id' | 'name'>) {
   return `${task.name} (${task.id})`
 }
 
-export function TaskPicker({ id = 'task-picker', value, onChange, error, label = 'Task', required = false, info }: { id?: string; value: string; onChange: (value: string) => void; error?: string; label?: string; required?: boolean; info?: string }) {
+export function TaskPicker({ id = 'task-picker', value, onChange, error, label = 'Task', required = false, info }: Readonly<{ id?: string; value: string; onChange: (value: string) => void; error?: string; label?: string; required?: boolean; info?: string }>) {
   const [filter, setFilter] = useState('')
   const [open, setOpen] = useState(false)
   const query = useQuery({ queryKey: ['task-picker'], queryFn: ({ signal }) => api.get<Page<Task>>('/api/v1/tasks', { all: true }, signal) })

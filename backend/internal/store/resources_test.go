@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func TestResourceRepositoryFencesTransactionalLeases(t *testing.T) {
+func TestResourceRepositoryFencesTransactionalLeases(t *testing.T) { // NOSONAR: this repository scenario intentionally covers setup, transactional fencing, stale release rejection, and cleanup together.
 	url := os.Getenv("DATABASE_URL")
 	if url == "" {
 		t.Skip("set DATABASE_URL to run PostgreSQL repository tests")

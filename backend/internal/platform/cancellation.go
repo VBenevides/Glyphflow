@@ -10,7 +10,7 @@ type Cancellation struct {
 	Fencing    uint64
 }
 
-func ValidateCancellation(c Cancellation, active Cancellation) error {
+func ValidateCancellation(c, active Cancellation) error {
 	if c.RunID == "" || c.AttemptID == "" || c.SessionID == "" || c.LeaseToken == "" || c.Fencing == 0 {
 		return errors.New("cancellation identity is incomplete")
 	}

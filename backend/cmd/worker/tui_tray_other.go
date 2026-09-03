@@ -2,8 +2,14 @@
 
 package main
 
+// startTUITray has no platform tray implementation outside Windows.
 func startTUITray(func()) func() {
-	return func() {}
+	return func() {
+		// TUI builds outside Windows have no tray lifecycle to stop.
+	}
 }
 
-func setTUITrayTooltip(Snapshot) {}
+// setTUITrayTooltip has no platform tray implementation outside Windows.
+func setTUITrayTooltip(Snapshot) {
+	// TUI builds outside Windows have no tray tooltip.
+}

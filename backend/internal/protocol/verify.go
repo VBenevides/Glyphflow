@@ -6,7 +6,7 @@ type ReplayAcceptor interface {
 	Accept(string) error
 }
 
-func VerifyOrder(raw []byte, keys Keyring, now time.Time, runnerID, runID string, attempt uint32, leaseToken string, tolerance time.Duration, replay ReplayAcceptor) (OrderPayload, error) {
+func VerifyOrder(raw []byte, keys Keyring, now time.Time, runnerID, runID string, attempt uint32, leaseToken string, tolerance time.Duration, replay ReplayAcceptor) (OrderPayload, error) { // NOSONAR: preserve the exported verifier signature used by existing runner integrations.
 	envelope, err := DecodeEnvelope(raw)
 	if err != nil {
 		return OrderPayload{}, err
@@ -35,7 +35,7 @@ func VerifyOrder(raw []byte, keys Keyring, now time.Time, runnerID, runID string
 	return payload, nil
 }
 
-func VerifyEvent(raw []byte, keys Keyring, now time.Time, runnerID, runID string, attempt uint32, leaseToken string, expectedSequence uint64, tolerance time.Duration, replay ReplayAcceptor) (EventPayload, error) {
+func VerifyEvent(raw []byte, keys Keyring, now time.Time, runnerID, runID string, attempt uint32, leaseToken string, expectedSequence uint64, tolerance time.Duration, replay ReplayAcceptor) (EventPayload, error) { // NOSONAR: preserve the exported verifier signature used by existing runner integrations.
 	envelope, err := DecodeEnvelope(raw)
 	if err != nil {
 		return EventPayload{}, err

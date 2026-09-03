@@ -139,8 +139,7 @@ export class ApiClient {
   }
 
   private refresh(): Promise<boolean> {
-    if (!this.refreshPromise) {
-      this.refreshPromise = this.request<unknown>('/api/v1/auth/refresh', { method: 'POST' }, undefined, true)
+    this.refreshPromise ??= this.request<unknown>('/api/v1/auth/refresh', { method: 'POST' }, undefined, true)
         .then(() => true)
         .catch(() => false)
         .then((refreshed) => {
@@ -148,7 +147,6 @@ export class ApiClient {
           return refreshed
         })
         .finally(() => { this.refreshPromise = null })
-    }
     return this.refreshPromise
   }
 }

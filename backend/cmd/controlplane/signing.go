@@ -12,6 +12,8 @@ import (
 	"github.com/VBenevides/Glyphflow/backend/internal/protocol"
 )
 
+const controlPlaneKeyID = "control-plane"
+
 func loadControlPlaneSigningKey(encoded string, paths ...string) (protocol.SigningKey, error) {
 	keyPath := ""
 	if len(paths) > 0 {
@@ -25,7 +27,7 @@ func loadControlPlaneSigningKey(encoded string, paths ...string) (protocol.Signi
 		}
 	}
 	if encoded == "" {
-		generated, err := protocol.GenerateSigningKey("control-plane", time.Now().UTC(), 365*24*time.Hour)
+		generated, err := protocol.GenerateSigningKey(controlPlaneKeyID, time.Now().UTC(), 365*24*time.Hour)
 		if err != nil {
 			return protocol.SigningKey{}, err
 		}
@@ -46,5 +48,5 @@ func loadControlPlaneSigningKey(encoded string, paths ...string) (protocol.Signi
 	privateKey := ed25519.PrivateKey(raw)
 	publicKey := privateKey.Public().(ed25519.PublicKey)
 	now := time.Now().UTC()
-	return protocol.SigningKey{ID: "control-plane", Private: privateKey, Public: protocol.VerificationKey{ID: "control-plane", PublicKey: publicKey, NotBefore: now.Add(-time.Minute), NotAfter: now.Add(365 * 24 * time.Hour)}}, nil
+	return protocol.SigningKey{ID: controlPlaneKeyID, Private: privateKey, Public: protocol.VerificationKey{ID: controlPlaneKeyID, PublicKey: publicKey, NotBefore: now.Add(-time.Minute), NotAfter: now.Add(365 * 24 * time.Hour)}}, nil
 }

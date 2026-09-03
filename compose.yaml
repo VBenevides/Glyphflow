@@ -5,7 +5,7 @@ services:
     command: ["/usr/local/bin/glyphflow-controlplane"]
     environment:
       GLYPHFLOW_DATABASE: postgresql
-      DATABASE_URL: postgres://glyphflow:glyphflow@postgres:5432/glyphflow?sslmode=disable
+      DATABASE_URL: postgres://glyphflow:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/glyphflow?sslmode=disable
       DATABASE_STORAGE_CAPACITY_BYTES: ${DATABASE_STORAGE_CAPACITY_BYTES:-10737418240}
       GLYPHFLOW_NATS: remote
       NATS_URL: ${NATS_URL:-nats://nats:4222}
@@ -55,7 +55,7 @@ services:
     environment:
       POSTGRES_DB: glyphflow
       POSTGRES_USER: glyphflow
-      POSTGRES_PASSWORD: glyphflow
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
     ports:
       - "${POSTGRES_HOST_PORT:-127.0.0.1:5432}:5432"
     volumes:

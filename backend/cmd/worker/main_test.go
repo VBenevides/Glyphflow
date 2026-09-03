@@ -180,28 +180,33 @@ func TestLoadPreviousBootID(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			store, err := worker.OpenStore(t.TempDir() + "/runner.sqlite")
-			if err != nil {
-				t.Fatal(err)
-			}
-			if test.prepare != nil {
-				if err := test.prepare(store); err != nil && test.name != "read failure" {
-					t.Fatal(err)
-				}
-			} else {
-				defer store.Close()
-			}
-			got, err := loadPreviousBootID(store)
-			if test.wantErr == "" {
-				if err != nil || got != test.want {
-					t.Fatalf("loadPreviousBootID() = %q, %v; want %q, nil", got, err, test.want)
-				}
-				return
-			}
-			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
-				t.Fatalf("loadPreviousBootID() error = %v; want substring %q", err, test.wantErr)
-			}
+			assertPreviousBootID(t, test.prepare, test.name, test.want, test.wantErr)
 		})
+	}
+}
+
+func assertPreviousBootID(t *testing.T, prepare func(*worker.LocalStore) error, name, want, wantErr string) {
+	t.Helper()
+	store, err := worker.OpenStore(t.TempDir() + "/runner.sqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prepare != nil {
+		if err := prepare(store); err != nil && name != "read failure" {
+			t.Fatal(err)
+		}
+	} else {
+		defer store.Close()
+	}
+	got, err := loadPreviousBootID(store)
+	if wantErr == "" {
+		if err != nil || got != want {
+			t.Fatalf("loadPreviousBootID() = %q, %v; want %q, nil", got, err, want)
+		}
+		return
+	}
+	if err == nil || !strings.Contains(err.Error(), wantErr) {
+		t.Fatalf("loadPreviousBootID() error = %v; want substring %q", err, wantErr)
 	}
 }
 

@@ -20,7 +20,7 @@ import { UserDetailsPage } from './user-details-page'
 import { GlobalVariablesPage } from './global-variables-page'
 import { SystemMetricsPage } from './system-metrics-page'
 
-function Placeholder({ title }: { title: string }) {
+function Placeholder({ title }: Readonly<{ title: string }>) {
   return <section className="gf-content"><PageHeader title={title} description="This workspace is ready for its data view." /></section>
 }
 
@@ -34,7 +34,7 @@ export function placeholderRoutes(routes: typeof ROUTES = ROUTES) {
   return routes.filter((route) => !IMPLEMENTED_ROUTE_PATHS.has(route.path))
 }
 
-function PermissionRoute({ permission, children }: { permission?: string; children: ReactNode }) {
+function PermissionRoute({ permission, children }: Readonly<{ permission?: string; children: ReactNode }>) {
   const { profile, permissions } = useAuth()
   if (!profile) return <LoginRequiredPage onLogin={() => undefined} />
   return permission && !hasPermission(permissions, permission) ? <ForbiddenPage /> : <>{children}</>

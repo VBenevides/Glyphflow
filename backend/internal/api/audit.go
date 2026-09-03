@@ -31,169 +31,212 @@ type AuditEvent struct {
 	After         map[string]any `json:"after,omitempty"`
 }
 
+var auditDescriptionByRequest = map[string]string{
+	http.MethodGet + " /api/v1/admin/auth/providers": "List SSO providers",
+	http.MethodGet + " /api/v1/admin/roles":          "List roles",
+	http.MethodGet + " /api/v1/roles":                "List roles",
+	http.MethodGet + " /api/v1/sso":                  "View SSO configuration",
+	http.MethodGet + " /api/v1/users":                "List users",
+	http.MethodGet + " /api/v1/me":                   "View own profile",
+	http.MethodGet + " /api/v1/tasks":                "List tasks",
+	http.MethodGet + " /api/v1/schedules":            "List schedules",
+	http.MethodGet + " /api/v1/resources":            "List resources",
+}
+
+var auditDescriptionByPath = map[string]string{
+	"/api/v1/admin/auth/settings":        "Update authentication settings",
+	"/api/v1/admin/auth/sessions/revoke": "Revoke user session",
+	"/api/v1/admin/auth/providers":       "Update SSO provider",
+	"/api/v1/admin/roles":                "Create role",
+	"/api/v1/roles":                      "Manage roles",
+	"/api/v1/sso":                        "Update SSO configuration",
+	"/api/v1/logs":                       "List logs",
+	"/api/v1/events":                     "List events",
+	"/api/v1/users":                      "Create user",
+	"/api/v1/audit":                      "View audit events",
+	"/api/v1/me":                         "Update own profile",
+	"/api/v1/me/password":                "Change own password",
+	"/api/v1/tasks":                      "Create task",
+	"/api/v1/schedules":                  "Create schedule",
+	"/api/v1/schedules/preview":          "Preview schedule occurrences",
+	"/api/v1/resources":                  "Create resource",
+	"/api/v1/runners":                    "List runners",
+	"/api/v1/runs":                       "List runs",
+	"/api/v1/runs/execute":               "Start task run",
+	"/api/v1/runs/retry":                 "Retry run",
+	"/api/v1/runs/cancel":                "Cancel run",
+}
+
+var auditRunnerActions = map[string]string{
+	"enable":  "Enable runner",
+	"disable": "Disable runner",
+	"drain":   "Drain runner",
+	"reset":   "Reset runner",
+	"revoke":  "Revoke runner",
+}
+
 func auditDescription(method, path string) string {
-	switch {
-	case path == "/api/v1/admin/auth/settings":
-		return "Update authentication settings"
-	case path == "/api/v1/admin/auth/sessions/revoke":
-		return "Revoke user session"
-	case path == "/api/v1/admin/auth/providers":
-		if method == http.MethodGet {
-			return "List SSO providers"
-		}
-		return "Update SSO provider"
-	case strings.HasPrefix(path, "/api/v1/admin/auth/users/"):
-		return "Disable user"
-	case path == "/api/v1/admin/roles":
-		if method == http.MethodGet {
-			return "List roles"
-		}
-		return "Create role"
-	case strings.HasPrefix(path, "/api/v1/admin/roles/"):
+	if description, ok := auditDescriptionByRequest[method+" "+path]; ok {
+		return description
+	}
+	if description, ok := auditDescriptionByPath[path]; ok {
+		return description
+	}
+	if description, ok := auditUserDescription(path); ok {
+		return description
+	}
+	if description, ok := auditRoleDescription(method, path); ok {
+		return description
+	}
+	if description, ok := auditAccountDescription(path); ok {
+		return description
+	}
+	if description, ok := auditScheduleDescription(method, path); ok {
+		return description
+	}
+	if description, ok := auditTaskDescription(method, path); ok {
+		return description
+	}
+	if description, ok := auditResourceDescription(method, path); ok {
+		return description
+	}
+	if description, ok := auditRunnerDescription(method, path); ok {
+		return description
+	}
+	if description, ok := auditRunDescription(method, path); ok {
+		return description
+	}
+	return strings.TrimSpace(method + " " + path)
+}
+
+func auditUserDescription(path string) (string, bool) {
+	if strings.HasPrefix(path, "/api/v1/admin/auth/users/") {
+		return "Disable user", true
+	}
+	return "", false
+}
+
+func auditRoleDescription(method, path string) (string, bool) {
+	if strings.HasPrefix(path, "/api/v1/admin/roles/") {
 		if method == http.MethodDelete {
-			return "Delete role"
+			return "Delete role", true
 		}
-		return "Update role"
-	case path == "/api/v1/roles":
-		if method == http.MethodGet {
-			return "List roles"
-		}
-		return "Manage roles"
-	case path == "/api/v1/sso":
-		if method == http.MethodGet {
-			return "View SSO configuration"
-		}
-		return "Update SSO configuration"
-	case path == "/api/v1/logs":
-		return "List logs"
-	case path == "/api/v1/events":
-		return "List events"
-	case path == "/api/v1/users":
-		if method == http.MethodGet {
-			return "List users"
-		}
-		return "Create user"
-	case strings.HasPrefix(path, "/api/v1/users/"):
-		return "View user details"
-	case path == "/api/v1/audit":
-		return "View audit events"
-	case path == "/api/v1/me":
-		if method == http.MethodGet {
-			return "View own profile"
-		}
-		return "Update own profile"
-	case path == "/api/v1/me/password":
-		return "Change own password"
-	case strings.HasPrefix(path, "/api/v1/me/"):
-		return "Manage own account"
-	case path == "/api/v1/tasks":
-		if method == http.MethodGet {
-			return "List tasks"
-		}
-		return "Create task"
-	case path == "/api/v1/schedules":
-		if method == http.MethodGet {
-			return "List schedules"
-		}
-		return "Create schedule"
-	case path == "/api/v1/schedules/preview":
-		return "Preview schedule occurrences"
-	case strings.HasPrefix(path, "/api/v1/schedules/"):
+		return "Update role", true
+	}
+	return "", false
+}
+
+func auditAccountDescription(path string) (string, bool) {
+	if strings.HasPrefix(path, "/api/v1/users/") {
+		return "View user details", true
+	}
+	if strings.HasPrefix(path, "/api/v1/me/") {
+		return "Manage own account", true
+	}
+	return "", false
+}
+
+func auditScheduleDescription(method, path string) (string, bool) {
+	if strings.HasPrefix(path, "/api/v1/schedules/") {
 		if method == http.MethodDelete {
-			return "Delete schedule"
+			return "Delete schedule", true
 		}
 		if method == http.MethodGet {
-			return "View schedule"
+			return "View schedule", true
 		}
-		return "Update schedule"
-	case strings.HasPrefix(path, "/api/v1/tasks/"):
+		return "Update schedule", true
+	}
+	return "", false
+}
+
+func auditTaskDescription(method, path string) (string, bool) {
+	if strings.HasPrefix(path, "/api/v1/tasks/") {
 		if strings.HasSuffix(path, "/versions") {
-			return "Publish task version"
+			return "Publish task version", true
 		}
 		if strings.HasSuffix(path, "/cancel") {
-			return "Cancel task run"
+			return "Cancel task run", true
 		}
 		if strings.HasSuffix(path, "/retry") {
-			return "Retry task run"
+			return "Retry task run", true
 		}
 		if method == http.MethodDelete {
-			return "Delete task"
+			return "Delete task", true
 		}
 		if method == http.MethodGet {
-			return "View task"
+			return "View task", true
 		}
-		return "Update task"
-	case path == "/api/v1/resources":
-		if method == http.MethodGet {
-			return "List resources"
-		}
-		return "Create resource"
-	case strings.HasPrefix(path, "/api/v1/resources/"):
+		return "Update task", true
+	}
+	return "", false
+}
+
+func auditResourceDescription(method, path string) (string, bool) {
+	if strings.HasPrefix(path, "/api/v1/resources/") {
 		if strings.HasSuffix(path, "/lease") {
 			if method == http.MethodPost {
-				return "Acquire resource lease"
+				return "Acquire resource lease", true
 			}
-			return "Release resource lease"
+			return "Release resource lease", true
 		}
 		if method == http.MethodGet {
-			return "View resource"
+			return "View resource", true
 		}
 		if method == http.MethodDelete {
-			return "Delete resource"
+			return "Delete resource", true
 		}
-		return "Update resource"
-	case path == "/api/v1/runners":
-		return "List runners"
-	case strings.HasPrefix(path, "/api/v1/runners/"):
+		return "Update resource", true
+	}
+	return "", false
+}
+
+func auditRunnerDescription(method, path string) (string, bool) {
+	if strings.HasPrefix(path, "/api/v1/runners/") {
 		if strings.HasSuffix(path, "/enrollments") {
-			return "Create runner enrollment"
+			return "Create runner enrollment", true
 		}
 		if method == http.MethodDelete {
-			return "Delete runner"
+			return "Delete runner", true
 		}
-		for action, description := range map[string]string{"enable": "Enable runner", "disable": "Disable runner", "drain": "Drain runner", "reset": "Reset runner", "revoke": "Revoke runner"} {
+		for action, description := range auditRunnerActions {
 			if strings.HasSuffix(path, "/"+action) {
-				return description
+				return description, true
 			}
 		}
 		if method == http.MethodGet {
-			return "View runner"
+			return "View runner", true
 		}
-		return "Update runner"
-	case path == "/api/v1/runs":
-		return "List runs"
-	case path == "/api/v1/runs/execute":
-		return "Start task run"
-	case path == "/api/v1/runs/retry":
-		return "Retry run"
-	case path == "/api/v1/runs/cancel":
-		return "Cancel run"
-	case strings.HasPrefix(path, "/api/v1/runs/"):
+		return "Update runner", true
+	}
+	return "", false
+}
+
+func auditRunDescription(method, path string) (string, bool) {
+	if strings.HasPrefix(path, "/api/v1/runs/") {
 		if strings.HasSuffix(path, "/logs/download") {
-			return "Download run logs"
+			return "Download run logs", true
 		}
 		if strings.HasSuffix(path, "/logs") {
-			return "Stream run logs"
+			return "Stream run logs", true
 		}
 		if strings.HasSuffix(path, "/events") {
-			return "List run events"
+			return "List run events", true
 		}
 		if strings.HasSuffix(path, "/cancel") {
-			return "Cancel run"
+			return "Cancel run", true
 		}
 		if strings.HasSuffix(path, "/retry") {
-			return "Retry run"
+			return "Retry run", true
 		}
 		if strings.HasSuffix(path, "/reconcile") {
-			return "Reconcile run"
+			return "Reconcile run", true
 		}
 		if method == http.MethodGet {
-			return "View run"
+			return "View run", true
 		}
-		return "Manage run"
-	default:
-		return strings.TrimSpace(method + " " + path)
+		return "Manage run", true
 	}
+	return "", false
 }
 
 type AuditQueryService struct {
@@ -206,6 +249,25 @@ type AuditQueryService struct {
 
 const auditAllLimit = 1000
 const liveLogAuditWindow = 5 * time.Minute
+
+type auditQueryOptions struct {
+	filters        map[string]string
+	from           time.Time
+	to             time.Time
+	excludeTarget  string
+	excludeResult  string
+	excludeMethod  string
+	excludeRunLogs bool
+	all            bool
+	page           int
+	limit          int
+}
+
+type auditPagination struct {
+	page  int
+	limit int
+	pages int
+}
 
 func auditCounts(events []AuditEvent) store.AuditCounts {
 	counts := store.AuditCounts{Total: len(events)}
@@ -342,70 +404,80 @@ func (s *AuditQueryService) query(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
-	filters := map[string]string{
-		"actor": r.URL.Query().Get("actor"), "action": r.URL.Query().Get("action"), "target": r.URL.Query().Get("target"),
-		"result": r.URL.Query().Get("result"), "correlationId": r.URL.Query().Get("correlation_id"),
-	}
-	from, fromErr := parseAuditTime(r.URL.Query().Get("from"))
-	to, toErr := parseAuditTime(r.URL.Query().Get("to"))
-	if fromErr != nil || toErr != nil {
+	options, ok := newAuditQueryOptions(r)
+	if !ok {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid audit time range"})
 		return
 	}
-	excludeTarget := strings.TrimSpace(r.URL.Query().Get("exclude_target"))
-	excludeResult := strings.TrimSpace(r.URL.Query().Get("exclude_result"))
+	repository := s.auditRepository()
+	if repository != nil {
+		s.queryAuditRepository(w, r, repository, options)
+		return
+	}
+	s.queryInMemoryAudit(w, options)
+}
+
+func newAuditQueryOptions(r *http.Request) (auditQueryOptions, bool) {
+	query := r.URL.Query()
+	from, fromErr := parseAuditTime(query.Get("from"))
+	to, toErr := parseAuditTime(query.Get("to"))
+	if fromErr != nil || toErr != nil {
+		return auditQueryOptions{}, false
+	}
+	filters := map[string]string{
+		"actor": query.Get("actor"), "action": query.Get("action"), "target": query.Get("target"),
+		"result": query.Get("result"), "correlationId": query.Get("correlation_id"),
+	}
+	excludeResult := strings.TrimSpace(query.Get("exclude_result"))
 	if excludeResult == "" && filters["result"] == "" {
 		excludeResult = "accepted"
 	}
-	excludeMethod := strings.TrimSpace(r.URL.Query().Get("exclude_method"))
-	if excludeMethod == "" && !strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("include_get")), "true") {
+	excludeMethod := strings.TrimSpace(query.Get("exclude_method"))
+	if excludeMethod == "" && !strings.EqualFold(strings.TrimSpace(query.Get("include_get")), "true") {
 		excludeMethod = http.MethodGet
 	}
-	excludeRunLogs := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("exclude_run_logs")), "true")
-	all := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("all")), "true")
+	page, _ := strconv.Atoi(query.Get("page"))
+	limit, _ := strconv.Atoi(query.Get("limit"))
+	return auditQueryOptions{
+		filters: filters, from: from, to: to,
+		excludeTarget: strings.TrimSpace(query.Get("exclude_target")), excludeResult: excludeResult, excludeMethod: excludeMethod,
+		excludeRunLogs: strings.EqualFold(strings.TrimSpace(query.Get("exclude_run_logs")), "true"),
+		all:            strings.EqualFold(strings.TrimSpace(query.Get("all")), "true"), page: page, limit: limit,
+	}, true
+}
+
+func (o auditQueryOptions) storeFilter() store.AuditFilter {
+	return store.AuditFilter{Actor: o.filters["actor"], Action: o.filters["action"], Target: o.filters["target"], Result: o.filters["result"], CorrelationID: o.filters["correlationId"], ExcludeMethod: o.excludeMethod, ExcludeTarget: o.excludeTarget, ExcludeResult: o.excludeResult, ExcludeRunLogs: o.excludeRunLogs, All: o.all, From: o.from, To: o.to, Page: o.page, Limit: o.limit}
+}
+
+func (s *AuditQueryService) auditRepository() store.AuditRepository {
 	s.mu.RLock()
-	repository := s.repository
-	s.mu.RUnlock()
-	if repository != nil {
-		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-		items, counts, err := repository.Query(r.Context(), store.AuditFilter{Actor: filters["actor"], Action: filters["action"], Target: filters["target"], Result: filters["result"], CorrelationID: filters["correlationId"], ExcludeMethod: excludeMethod, ExcludeTarget: excludeTarget, ExcludeResult: excludeResult, ExcludeRunLogs: excludeRunLogs, All: all, From: from, To: to, Page: page, Limit: limit})
-		if err != nil {
-			writeError(w, http.StatusServiceUnavailable, "audit storage unavailable", err)
-			return
-		}
-		result := make([]AuditEvent, 0, len(items))
-		for _, item := range items {
-			result = append(result, auditEventFromStore(item))
-		}
-		if page < 1 {
-			page = 1
-		}
-		if all {
-			page = 1
-			limit = len(result)
-			if limit > auditAllLimit {
-				result = result[:auditAllLimit]
-				limit = auditAllLimit
-			}
-			if limit == 0 {
-				limit = 1
-			}
-		} else if limit < 1 || limit > 100 {
-			limit = 50
-		}
-		pages := (counts.Total + limit - 1) / limit
-		if pages == 0 {
-			pages = 1
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"items": result, "page": page, "limit": limit, "total": counts.Total, "pages": pages, "failureCount": counts.Failures, "writeCount": counts.Writes})
+	defer s.mu.RUnlock()
+	return s.repository
+}
+
+func (s *AuditQueryService) queryAuditRepository(w http.ResponseWriter, r *http.Request, repository store.AuditRepository, options auditQueryOptions) {
+	items, counts, err := repository.Query(r.Context(), options.storeFilter())
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "audit storage unavailable", err)
 		return
 	}
+	result := make([]AuditEvent, 0, len(items))
+	for _, item := range items {
+		result = append(result, auditEventFromStore(item))
+	}
+	pagination := normalizeAuditPagination(options.all, options.page, options.limit, len(result), counts.Total)
+	if options.all && len(result) > pagination.limit {
+		result = result[:pagination.limit]
+	}
+	writeAuditPage(w, result, pagination, counts)
+}
+
+func (s *AuditQueryService) queryInMemoryAudit(w http.ResponseWriter, options auditQueryOptions) {
 	s.mu.RLock()
 	items := make([]AuditEvent, 0, len(s.events))
 	for _, event := range s.events {
-		created, err := time.Parse(time.RFC3339Nano, event.CreatedAt)
-		if err != nil || (excludeMethod != "" && strings.EqualFold(event.Action, excludeMethod)) || (excludeTarget != "" && strings.EqualFold(event.Target, excludeTarget)) || (excludeResult != "" && strings.EqualFold(event.Result, excludeResult)) || (excludeRunLogs && isRunLogAudit(event.Target, event.Request)) || !auditMatches(event, filters, created, from, to) {
+		if auditEventExcluded(event, options) {
 			continue
 		}
 		items = append(items, event)
@@ -413,16 +485,49 @@ func (s *AuditQueryService) query(w http.ResponseWriter, r *http.Request) {
 	s.mu.RUnlock()
 	sort.SliceStable(items, func(i, j int) bool { return items[i].CreatedAt > items[j].CreatedAt })
 	counts := auditCounts(items)
-	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	pagination := normalizeAuditPagination(options.all, options.page, options.limit, len(items), counts.Total)
+	if options.all && len(items) > pagination.limit {
+		items = items[:pagination.limit]
+	}
+	start := (pagination.page - 1) * pagination.limit
+	if start > len(items) {
+		start = len(items)
+	}
+	end := start + pagination.limit
+	if end > len(items) {
+		end = len(items)
+	}
+	writeAuditPage(w, items[start:end], pagination, counts)
+}
+
+func auditEventExcluded(event AuditEvent, options auditQueryOptions) bool {
+	created, err := time.Parse(time.RFC3339Nano, event.CreatedAt)
+	if err != nil {
+		return true
+	}
+	if options.excludeMethod != "" && strings.EqualFold(event.Action, options.excludeMethod) {
+		return true
+	}
+	if options.excludeTarget != "" && strings.EqualFold(event.Target, options.excludeTarget) {
+		return true
+	}
+	if options.excludeResult != "" && strings.EqualFold(event.Result, options.excludeResult) {
+		return true
+	}
+	if options.excludeRunLogs && isRunLogAudit(event.Target, event.Request) {
+		return true
+	}
+	return !auditMatches(event, options.filters, created, options.from, options.to)
+}
+
+func normalizeAuditPagination(all bool, page, limit, itemCount, total int) auditPagination {
 	if page < 1 {
 		page = 1
 	}
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	if all {
 		page = 1
-		limit = len(items)
+		limit = itemCount
 		if limit > auditAllLimit {
-			items = items[:auditAllLimit]
 			limit = auditAllLimit
 		}
 		if limit == 0 {
@@ -431,19 +536,15 @@ func (s *AuditQueryService) query(w http.ResponseWriter, r *http.Request) {
 	} else if limit < 1 || limit > 100 {
 		limit = 50
 	}
-	start := (page - 1) * limit
-	if start > len(items) {
-		start = len(items)
-	}
-	end := start + limit
-	if end > len(items) {
-		end = len(items)
-	}
-	pages := (counts.Total + limit - 1) / limit
+	pages := (total + limit - 1) / limit
 	if pages == 0 {
 		pages = 1
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items[start:end], "page": page, "limit": limit, "total": counts.Total, "pages": pages, "failureCount": counts.Failures, "writeCount": counts.Writes})
+	return auditPagination{page: page, limit: limit, pages: pages}
+}
+
+func writeAuditPage(w http.ResponseWriter, items []AuditEvent, pagination auditPagination, counts store.AuditCounts) {
+	writeJSON(w, http.StatusOK, map[string]any{"items": items, "page": pagination.page, "limit": pagination.limit, "total": counts.Total, "pages": pagination.pages, "failureCount": counts.Failures, "writeCount": counts.Writes})
 }
 
 func isRunLogAudit(paths ...string) bool {

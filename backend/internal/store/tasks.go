@@ -204,91 +204,16 @@ func (s *TaskStore) CreateVersion(ctx context.Context, taskID string, definition
 	if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(version), 0) + 1 FROM task_versions WHERE task_id = $1`, taskID).Scan(&version); err != nil {
 		return TaskRecord{}, err
 	}
-	var previous TaskDefinition
-	var command, selectors, environment, secrets, resources, exitCodes, reasons []byte
-	if err := tx.QueryRow(ctx, `SELECT t.name, v.runner_pool_id, COALESCE(v.pinned_runner_id, ''), v.command, v.working_directory, v.placement_selectors, v.environment, v.secret_references, v.duration_seconds, v.max_output_bytes, v.max_attempts, v.initial_backoff_seconds, v.max_backoff_seconds, v.backoff_multiplier, v.retryable_exit_codes, v.retryable_termination_reasons, v.ambiguity_policy, v.execution_spec_version, COALESCE((SELECT jsonb_agg(req.resource_id ORDER BY req.resource_id) FROM task_resource_requirements req WHERE req.task_version_id = v.id), '[]'::jsonb) FROM task_versions v JOIN tasks t ON t.id = v.task_id WHERE v.task_id = $1 ORDER BY v.version DESC LIMIT 1`, taskID).Scan(&previous.Name, &previous.RunnerPoolID, &previous.PinnedRunnerID, &command, &previous.WorkingDirectory, &selectors, &environment, &secrets, &previous.DurationSeconds, &previous.MaxOutputBytes, &previous.MaxAttempts, &previous.InitialBackoffSeconds, &previous.MaxBackoffSeconds, &previous.BackoffMultiplier, &exitCodes, &reasons, &previous.AmbiguityPolicy, &previous.ExecutionSpecVersion, &resources); err != nil {
-		return TaskRecord{}, err
-	}
-	if err := json.Unmarshal(command, &previous.Command); err != nil {
-		return TaskRecord{}, err
-	}
-	if err := json.Unmarshal(selectors, &previous.PlacementSelectors); err != nil {
-		return TaskRecord{}, err
-	}
-	if err := json.Unmarshal(environment, &previous.Environment); err != nil {
-		return TaskRecord{}, err
-	}
-	if err := json.Unmarshal(secrets, &previous.SecretReferences); err != nil {
-		return TaskRecord{}, err
-	}
-	if err := json.Unmarshal(exitCodes, &previous.RetryableExitCodes); err != nil {
-		return TaskRecord{}, err
-	}
-	if err := json.Unmarshal(reasons, &previous.RetryableTerminationReasons); err != nil {
-		return TaskRecord{}, err
-	}
-	if err := json.Unmarshal(resources, &previous.ResourceIDs); err != nil {
+	previous, err := loadPreviousTaskDefinition(ctx, tx, taskID)
+	if err != nil {
 		return TaskRecord{}, err
 	}
 	requested := definition
 	definition = normalizeTaskDefinition(definition)
-	if requested.Name == "" {
-		definition.Name = previous.Name
-	}
-	if requested.RunnerPoolID == "" {
-		definition.RunnerPoolID = previous.RunnerPoolID
-	}
-	if requested.PinnedRunnerID == "" {
-		definition.PinnedRunnerID = previous.PinnedRunnerID
-	}
-	if len(requested.Command) == 0 {
-		definition.Command = previous.Command
-	}
-	if requested.WorkingDirectory == "" {
-		definition.WorkingDirectory = previous.WorkingDirectory
-	}
-	if requested.PlacementSelectors == nil {
-		definition.PlacementSelectors = previous.PlacementSelectors
-	}
-	if requested.Environment == nil {
-		definition.Environment = previous.Environment
-	}
-	if requested.SecretReferences == nil {
-		definition.SecretReferences = previous.SecretReferences
-	}
-	if requested.ResourceIDs == nil {
-		definition.ResourceIDs = previous.ResourceIDs
-	}
-	if requested.DurationSeconds <= 0 {
-		definition.DurationSeconds = previous.DurationSeconds
-	}
-	if requested.MaxOutputBytes <= 0 {
-		definition.MaxOutputBytes = previous.MaxOutputBytes
-	}
-	if requested.MaxAttempts <= 0 {
-		definition.MaxAttempts = previous.MaxAttempts
-	}
-	if requested.InitialBackoffSeconds == 0 {
-		definition.InitialBackoffSeconds = previous.InitialBackoffSeconds
-	}
-	if requested.MaxBackoffSeconds == 0 {
-		definition.MaxBackoffSeconds = previous.MaxBackoffSeconds
-	}
-	if requested.BackoffMultiplier == 0 {
-		definition.BackoffMultiplier = previous.BackoffMultiplier
-	}
-	if requested.RetryableExitCodes == nil {
-		definition.RetryableExitCodes = previous.RetryableExitCodes
-	}
-	if requested.RetryableTerminationReasons == nil {
-		definition.RetryableTerminationReasons = previous.RetryableTerminationReasons
-	}
-	if requested.AmbiguityPolicy == "" {
-		definition.AmbiguityPolicy = previous.AmbiguityPolicy
-	}
-	if requested.ExecutionSpecVersion <= 0 {
-		definition.ExecutionSpecVersion = previous.ExecutionSpecVersion
-	}
+	inheritTaskIdentity(&definition, requested, previous)
+	inheritTaskMaps(&definition, requested, previous)
+	inheritTaskLimits(&definition, requested, previous)
+	inheritTaskRetrySettings(&definition, requested, previous)
 	definition.ExecutionSpecDigest = ""
 	definition = normalizeTaskDefinition(definition)
 	if err := insertTaskVersion(ctx, tx, taskID, version, definition); err != nil {
@@ -309,6 +234,96 @@ func (s *TaskStore) CreateVersion(ctx context.Context, taskID string, definition
 		return TaskRecord{}, errors.New("task was not found")
 	}
 	return item, nil
+}
+
+func inheritTaskIdentity(definition *TaskDefinition, requested, previous TaskDefinition) {
+	if requested.Name == "" {
+		definition.Name = previous.Name
+	}
+	if requested.RunnerPoolID == "" {
+		definition.RunnerPoolID = previous.RunnerPoolID
+	}
+	if requested.PinnedRunnerID == "" {
+		definition.PinnedRunnerID = previous.PinnedRunnerID
+	}
+	if len(requested.Command) == 0 {
+		definition.Command = previous.Command
+	}
+	if requested.WorkingDirectory == "" {
+		definition.WorkingDirectory = previous.WorkingDirectory
+	}
+}
+
+func inheritTaskMaps(definition *TaskDefinition, requested, previous TaskDefinition) {
+	if requested.PlacementSelectors == nil {
+		definition.PlacementSelectors = previous.PlacementSelectors
+	}
+	if requested.Environment == nil {
+		definition.Environment = previous.Environment
+	}
+	if requested.SecretReferences == nil {
+		definition.SecretReferences = previous.SecretReferences
+	}
+	if requested.ResourceIDs == nil {
+		definition.ResourceIDs = previous.ResourceIDs
+	}
+}
+
+func inheritTaskLimits(definition *TaskDefinition, requested, previous TaskDefinition) {
+	if requested.DurationSeconds <= 0 {
+		definition.DurationSeconds = previous.DurationSeconds
+	}
+	if requested.MaxOutputBytes <= 0 {
+		definition.MaxOutputBytes = previous.MaxOutputBytes
+	}
+	if requested.MaxAttempts <= 0 {
+		definition.MaxAttempts = previous.MaxAttempts
+	}
+	if requested.InitialBackoffSeconds == 0 {
+		definition.InitialBackoffSeconds = previous.InitialBackoffSeconds
+	}
+	if requested.MaxBackoffSeconds == 0 {
+		definition.MaxBackoffSeconds = previous.MaxBackoffSeconds
+	}
+	if requested.BackoffMultiplier == 0 {
+		definition.BackoffMultiplier = previous.BackoffMultiplier
+	}
+	if requested.ExecutionSpecVersion <= 0 {
+		definition.ExecutionSpecVersion = previous.ExecutionSpecVersion
+	}
+}
+
+func inheritTaskRetrySettings(definition *TaskDefinition, requested, previous TaskDefinition) {
+	if requested.RetryableExitCodes == nil {
+		definition.RetryableExitCodes = previous.RetryableExitCodes
+	}
+	if requested.RetryableTerminationReasons == nil {
+		definition.RetryableTerminationReasons = previous.RetryableTerminationReasons
+	}
+	if requested.AmbiguityPolicy == "" {
+		definition.AmbiguityPolicy = previous.AmbiguityPolicy
+	}
+}
+
+func loadPreviousTaskDefinition(ctx context.Context, tx databaseTx, taskID string) (TaskDefinition, error) {
+	var previous TaskDefinition
+	var command, selectors, environment, secrets, resources, exitCodes, reasons []byte
+	err := tx.QueryRow(ctx, `SELECT t.name, v.runner_pool_id, COALESCE(v.pinned_runner_id, ''), v.command, v.working_directory, v.placement_selectors, v.environment, v.secret_references, v.duration_seconds, v.max_output_bytes, v.max_attempts, v.initial_backoff_seconds, v.max_backoff_seconds, v.backoff_multiplier, v.retryable_exit_codes, v.retryable_termination_reasons, v.ambiguity_policy, v.execution_spec_version, COALESCE((SELECT jsonb_agg(req.resource_id ORDER BY req.resource_id) FROM task_resource_requirements req WHERE req.task_version_id = v.id), '[]'::jsonb) FROM task_versions v JOIN tasks t ON t.id = v.task_id WHERE v.task_id = $1 ORDER BY v.version DESC LIMIT 1`, taskID).Scan(&previous.Name, &previous.RunnerPoolID, &previous.PinnedRunnerID, &command, &previous.WorkingDirectory, &selectors, &environment, &secrets, &previous.DurationSeconds, &previous.MaxOutputBytes, &previous.MaxAttempts, &previous.InitialBackoffSeconds, &previous.MaxBackoffSeconds, &previous.BackoffMultiplier, &exitCodes, &reasons, &previous.AmbiguityPolicy, &previous.ExecutionSpecVersion, &resources)
+	if err != nil {
+		return TaskDefinition{}, err
+	}
+	for _, value := range []struct {
+		raw  []byte
+		dest any
+	}{
+		{command, &previous.Command}, {selectors, &previous.PlacementSelectors}, {environment, &previous.Environment},
+		{secrets, &previous.SecretReferences}, {exitCodes, &previous.RetryableExitCodes}, {reasons, &previous.RetryableTerminationReasons}, {resources, &previous.ResourceIDs},
+	} {
+		if err := json.Unmarshal(value.raw, value.dest); err != nil {
+			return TaskDefinition{}, err
+		}
+	}
+	return previous, nil
 }
 
 func (s *TaskStore) Delete(ctx context.Context, id string) (bool, error) {
@@ -334,6 +349,20 @@ func (s *TaskStore) Delete(ctx context.Context, id string) (bool, error) {
 }
 
 func normalizeTaskDefinition(definition TaskDefinition) TaskDefinition {
+	normalizeTaskScalars(&definition)
+	normalizeTaskMaps(&definition)
+	if definition.ResourceIDs != nil {
+		definition.ResourceIDs = normalizeResourceIDs(definition.ResourceIDs)
+	}
+	if definition.ExecutionSpecDigest == "" {
+		raw, _ := json.Marshal(definition)
+		digest := sha256.Sum256(raw)
+		definition.ExecutionSpecDigest = hex.EncodeToString(digest[:])
+	}
+	return definition
+}
+
+func normalizeTaskScalars(definition *TaskDefinition) {
 	if definition.DurationSeconds <= 0 {
 		definition.DurationSeconds = 60
 	}
@@ -358,6 +387,9 @@ func normalizeTaskDefinition(definition TaskDefinition) TaskDefinition {
 	if definition.ExecutionSpecVersion <= 0 {
 		definition.ExecutionSpecVersion = 1
 	}
+}
+
+func normalizeTaskMaps(definition *TaskDefinition) {
 	if definition.PlacementSelectors == nil {
 		definition.PlacementSelectors = map[string]any{}
 	}
@@ -367,29 +399,24 @@ func normalizeTaskDefinition(definition TaskDefinition) TaskDefinition {
 	if definition.SecretReferences == nil {
 		definition.SecretReferences = map[string]any{}
 	}
-	if definition.ResourceIDs != nil {
-		seen := make(map[string]struct{}, len(definition.ResourceIDs))
-		resources := make([]string, 0, len(definition.ResourceIDs))
-		for _, resourceID := range definition.ResourceIDs {
-			resourceID = strings.TrimSpace(resourceID)
-			if resourceID == "" {
-				continue
-			}
-			if _, exists := seen[resourceID]; exists {
-				continue
-			}
-			seen[resourceID] = struct{}{}
-			resources = append(resources, resourceID)
+}
+
+func normalizeResourceIDs(resourceIDs []string) []string {
+	seen := make(map[string]struct{}, len(resourceIDs))
+	resources := make([]string, 0, len(resourceIDs))
+	for _, resourceID := range resourceIDs {
+		resourceID = strings.TrimSpace(resourceID)
+		if resourceID == "" {
+			continue
 		}
-		sort.Strings(resources)
-		definition.ResourceIDs = resources
+		if _, exists := seen[resourceID]; exists {
+			continue
+		}
+		seen[resourceID] = struct{}{}
+		resources = append(resources, resourceID)
 	}
-	if definition.ExecutionSpecDigest == "" {
-		raw, _ := json.Marshal(definition)
-		digest := sha256.Sum256(raw)
-		definition.ExecutionSpecDigest = hex.EncodeToString(digest[:])
-	}
-	return definition
+	sort.Strings(resources)
+	return resources
 }
 
 func insertTaskVersion(ctx context.Context, tx databaseTx, taskID string, version int, definition TaskDefinition) error {

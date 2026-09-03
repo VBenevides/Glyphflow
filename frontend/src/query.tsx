@@ -8,11 +8,11 @@ export const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 30_000, retry: 1, refetchOnMount: 'always', refetchOnWindowFocus: true, refetchIntervalInBackground: false } },
 })
 
-export function QueryProvider({ children }: { children: ReactNode }) {
+export function QueryProvider({ children }: Readonly<{ children: ReactNode }>) {
   return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
 }
 
-export function QueryRefresh<T>({ query }: { query: UseQueryResult<T> | UseQueryResult<T>[] }) {
+export function QueryRefresh<T>({ query }: Readonly<{ query: UseQueryResult<T> | UseQueryResult<T>[] }>) {
   const queries = Array.isArray(query) ? query : [query]
   const isFetching = queries.some((item) => item.isFetching)
   const isStale = queries.some((item) => item.isStale)
@@ -27,13 +27,15 @@ export function QueryRefresh<T>({ query }: { query: UseQueryResult<T> | UseQuery
   }, [])
   const updated = dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString(undefined, { timeZone: 'UTC' }) : '—'
   const staleLabel = isStale ? ' (Stale)' : ''
-  const status = isFetching ? 'Refreshing…' : !online ? `Offline; showing data from ${updated} UTC${staleLabel}` : `Last refresh at ${updated} UTC${staleLabel}`
+  let status = `Last refresh at ${updated} UTC${staleLabel}`
+  if (isFetching) status = 'Refreshing…'
+  else if (!online) status = `Offline; showing data from ${updated} UTC${staleLabel}`
   return <div className="gf-query-status" aria-live="polite"><Button type="button" variant="secondary" className="gf-query-refresh-button" aria-label="Refresh" disabled={isFetching} onClick={() => { void Promise.all(queries.map((item) => item.refetch())) }}><RefreshCw size={16} className={`gf-query-spinner${isFetching ? ' is-spinning' : ''}`} aria-hidden="true" /></Button><span>{status}</span></div>
 }
 
-export function QueryState<T>({ query, children, empty = 'Nothing to show yet.' }: { query: UseQueryResult<T>; children: (data: T) => ReactNode; empty?: string }) {
+export function QueryState<T>({ query, children, empty = 'Nothing to show yet.' }: Readonly<{ query: UseQueryResult<T>; children: (data: T) => ReactNode; empty?: string }>) {
   if (query.isPending) return <LoadingState />
-  if (query.isError && query.data === undefined) { const error = describeError(query.error); return <ErrorState title={error.title} message={`${error.message}${error.correlationId ? ` (Correlation ID: ${error.correlationId})` : ''}`} onRetry={error.retryable ? () => query.refetch() : undefined} /> }
+  if (query.isError && query.data === undefined) { const error = describeError(query.error); const message = error.correlationId ? `${error.message} (Correlation ID: ${error.correlationId})` : error.message; return <ErrorState title={error.title} message={message} onRetry={error.retryable ? () => query.refetch() : undefined} /> }
   if (query.data == null || (Array.isArray(query.data) && query.data.length === 0)) return <EmptyState title="No results">{empty}</EmptyState>
   return <>{children(query.data)}</>
 }

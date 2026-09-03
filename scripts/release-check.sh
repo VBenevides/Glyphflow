@@ -6,13 +6,14 @@ release_db_name="glyphflow_release_$$"
 release_database_url=${RELEASE_DATABASE_URL:-}
 release_db_owned=false
 release_db_with_docker=false
+release_postgres_password=${PGPASSWORD:-}
 
 cleanup() {
   if [ "$release_db_owned" = true ]; then
     if [ "$release_db_with_docker" = true ]; then
       docker compose exec -T postgres dropdb --if-exists -U glyphflow "$release_db_name" >/dev/null 2>&1 || true
     else
-      PGPASSWORD="${PGPASSWORD:-glyphflow}" dropdb -h localhost --if-exists -U glyphflow "$release_db_name" >/dev/null 2>&1 || true
+      PGPASSWORD="$release_postgres_password" dropdb -h localhost --if-exists -U glyphflow "$release_db_name" >/dev/null 2>&1 || true
     fi
   fi
   rm -rf "$release_tmp"
@@ -36,13 +37,14 @@ done
 (cd frontend && npm audit --omit=dev --audit-level=low)
 
 if [ -z "$release_database_url" ]; then
+  release_postgres_password=${PGPASSWORD:?PGPASSWORD must be set when RELEASE_DATABASE_URL is not provided}
   if command -v pg_isready >/dev/null 2>&1 && pg_isready -h localhost -p 5432 -U glyphflow >/dev/null 2>&1; then
     command -v createdb >/dev/null 2>&1 || { echo "release check: createdb is required for the local PostgreSQL service" >&2; exit 1; }
-    PGPASSWORD="${PGPASSWORD:-glyphflow}" dropdb -h localhost --if-exists -U glyphflow "$release_db_name" >/dev/null
-    PGPASSWORD="${PGPASSWORD:-glyphflow}" createdb -h localhost -U glyphflow "$release_db_name"
+    PGPASSWORD="$release_postgres_password" dropdb -h localhost --if-exists -U glyphflow "$release_db_name" >/dev/null
+    PGPASSWORD="$release_postgres_password" createdb -h localhost -U glyphflow "$release_db_name"
   else
     command -v docker >/dev/null 2>&1 || { echo "release check: set RELEASE_DATABASE_URL or install Docker" >&2; exit 1; }
-    docker compose up -d postgres >/dev/null
+    POSTGRES_PASSWORD="$release_postgres_password" docker compose up -d postgres >/dev/null
     ready=false
     attempt=0
     while [ "$attempt" -lt 30 ]; do
@@ -58,7 +60,7 @@ if [ -z "$release_database_url" ]; then
     docker compose exec -T postgres createdb -U glyphflow "$release_db_name"
     release_db_with_docker=true
   fi
-  release_database_url="postgres://glyphflow:glyphflow@localhost:5432/${release_db_name}?sslmode=disable"
+  release_database_url="postgres://glyphflow:${release_postgres_password}@localhost:5432/${release_db_name}?sslmode=disable"
   release_db_owned=true
 fi
 

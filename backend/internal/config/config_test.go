@@ -31,6 +31,37 @@ func TestValidateControlPlane(t *testing.T) {
 	}
 }
 
+func TestValidateControlPlaneAllowsHTTPWebOriginOnlyLocally(t *testing.T) {
+	config := Config{
+		Role:                          ControlPlane,
+		DatabaseURL:                   "postgres://user:pass@db/glyphflow?sslmode=verify-full",
+		NATSURL:                       "tls://nats:4222",
+		NATSCertFile:                  "/run/secrets/nats-cert",
+		NATSKeyFile:                   "/run/secrets/nats-key",
+		NATSCAFile:                    "/run/secrets/nats-ca",
+		AccessTokenSecret:             "01234567890123456789012345678901",
+		ControlPlaneSigningPrivateKey: base64.RawStdEncoding.EncodeToString(make([]byte, ed25519.PrivateKeySize)),
+		WebOrigin:                     "http://localhost",
+		DataDir:                       "/var/lib/glyphflow",
+		LogMonthsKeep:                 3,
+		AuditMonthsKeep:               12,
+		RunnerMetricsMonthsKeep:       3,
+		DatabaseStorageCapacityBytes:  1 << 30,
+		MaxMessageBytes:               1 << 20,
+		AllowInsecureTransport:        true,
+	}
+	for _, environment := range []string{"local", "development"} {
+		config.Environment = environment
+		if err := config.Validate(); err != nil {
+			t.Fatalf("%s rejected local HTTP web origin: %v", environment, err)
+		}
+	}
+	config.Environment = "staging"
+	if err := config.Validate(); err == nil || !strings.Contains(err.Error(), "WEB_ORIGIN has unsupported scheme") {
+		t.Fatalf("staging HTTP web origin error = %v", err)
+	}
+}
+
 func TestValidateWorkerRejectsOversizedOutput(t *testing.T) {
 	config := Config{
 		Role:                   Worker,

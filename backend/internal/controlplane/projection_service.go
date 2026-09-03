@@ -11,7 +11,7 @@ import (
 )
 
 type ProjectionService struct {
-	repository store.ScheduleProjectionRepository
+	repository store.ScheduleProjectionLister
 	logger     *platform.Logger
 	refreshMu  sync.Mutex
 	snapshotMu sync.RWMutex
@@ -19,7 +19,7 @@ type ProjectionService struct {
 	available  bool
 }
 
-func NewProjectionService(repository store.ScheduleProjectionRepository, logger *platform.Logger) *ProjectionService {
+func NewProjectionService(repository store.ScheduleProjectionLister, logger *platform.Logger) *ProjectionService {
 	return &ProjectionService{repository: repository, logger: logger}
 }
 

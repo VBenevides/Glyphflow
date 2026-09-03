@@ -177,7 +177,7 @@ message shown above the run details.
 6. Select a **Misfire policy**: `SKIP_ALL`, `RUN_LATEST`, `RUN_ALL`,
    `RUN_UP_TO_N`, or `FAIL_AND_ALERT`. If you select `RUN_UP_TO_N`, set
    **Catch-up limit**.
-7. Optionally set **Start deadline seconds**.
+7. Set **Start deadline seconds** to at least `30`; the default is `60`.
 8. Select a **Concurrency** policy: `QUEUE`, `SKIP`, `REPLACE`, or
    `ALLOW`. If you select `ALLOW`, set **Max concurrent runs**.
 9. Select **Preview next occurrences** and review **Next occurrences**.

@@ -2,11 +2,15 @@ package platform
 
 import (
 	"crypto"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/base64"
 	"encoding/json"
+	"math/big"
 	"testing"
 	"time"
 )
@@ -23,6 +27,9 @@ func TestOIDCValidationRequiresIssuerAudienceNonceAndHTTPSCallback(t *testing.T)
 	}
 	if err := ValidateOIDCCallback("http://issuer.example/callback", "https://issuer.example/callback"); err == nil {
 		t.Fatal("HTTP callback accepted")
+	}
+	if err := ValidateOIDCCallbackWithHTTP("http://issuer.example/callback", "http://issuer.example/callback"); err != nil {
+		t.Fatalf("local HTTP callback rejected: %v", err)
 	}
 	if err := ValidateOIDCCallback("https://issuer.example/callback", "https://issuer.example/callback"); err != nil {
 		t.Fatal(err)
@@ -86,4 +93,72 @@ func rsaJWKS(key *rsa.PublicKey, id string) string {
 
 func bigEndianInt(value int) []byte {
 	return []byte{byte(value >> 24), byte(value >> 16), byte(value >> 8), byte(value)}
+}
+
+func TestVerifyOIDCECKeyVariants(t *testing.T) {
+	input := "header.payload"
+	for _, test := range []struct {
+		algorithm string
+		curve     elliptic.Curve
+		size      int
+	}{
+		{algorithm: "ES256", curve: elliptic.P256(), size: 32},
+		{algorithm: "ES384", curve: elliptic.P384(), size: 48},
+	} {
+		t.Run(test.algorithm, func(t *testing.T) {
+			key, err := ecdsa.GenerateKey(test.curve, rand.Reader)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var digest []byte
+			if test.algorithm == "ES256" {
+				hash := sha256.Sum256([]byte(input))
+				digest = hash[:]
+			} else {
+				hash := sha512.Sum384([]byte(input))
+				digest = hash[:]
+			}
+			r, s, err := ecdsa.Sign(rand.Reader, key, digest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			signature := append(oidcFixedInt(r, test.size), oidcFixedInt(s, test.size)...)
+			jwk := oidcJWK{KTY: "EC", Kid: "key", Alg: test.algorithm, Use: "sig", Crv: test.curve.Params().Name, X: base64.RawURLEncoding.EncodeToString(oidcFixedInt(key.X, test.size)), Y: base64.RawURLEncoding.EncodeToString(oidcFixedInt(key.Y, test.size))}
+			raw, err := json.Marshal(jwk)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if verified, err := verifyOIDCKey(input, signature, test.algorithm, "key", raw); err != nil || !verified {
+				t.Fatalf("valid EC signature = %t, %v", verified, err)
+			}
+			for _, invalid := range []oidcJWK{
+				{KTY: "RSA", Kid: "key", Crv: test.curve.Params().Name},
+				{KTY: "EC", Kid: "key", Crv: "P-256"},
+				{KTY: "EC", Kid: "key", Crv: test.curve.Params().Name, X: "invalid", Y: jwk.Y},
+				{KTY: "EC", Kid: "key", Crv: test.curve.Params().Name, X: base64.RawURLEncoding.EncodeToString(test.curve.Params().P.Bytes()), Y: jwk.Y},
+			} {
+				invalid.Alg, invalid.Use = test.algorithm, "sig"
+				invalidRaw, _ := json.Marshal(invalid)
+				if verify, err := verifyOIDCKey(input, signature, test.algorithm, "key", invalidRaw); err != nil || verify {
+					t.Fatalf("invalid EC key accepted: %s, %t, %v", invalid.KTY, verify, err)
+				}
+			}
+			unsupported := jwk
+			unsupported.Alg = ""
+			unsupportedRaw, _ := json.Marshal(unsupported)
+			if verify, err := verifyOIDCKey(input, signature, "HS256", "key", unsupportedRaw); err == nil || verify {
+				t.Fatalf("unsupported signing algorithm = %t, %v", verify, err)
+			}
+			if verifyOIDCECKey([]byte(input), signature[:len(signature)-1], test.algorithm, jwk) {
+				t.Fatal("short EC signature accepted")
+			}
+		})
+	}
+}
+
+func oidcFixedInt(value *big.Int, size int) []byte {
+	raw := value.Bytes()
+	padded := make([]byte, size)
+	copy(padded[size-len(raw):], raw)
+	return padded
 }

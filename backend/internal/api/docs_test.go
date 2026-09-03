@@ -50,7 +50,27 @@ func TestDocsAndPasswordAuthorization(t *testing.T) {
 	}
 }
 
-func TestOpenAPICoversRegisteredAPIRoutes(t *testing.T) {
+func TestDocsRejectUnsupportedMethods(t *testing.T) {
+	server := Server{}
+	for _, test := range []struct {
+		path    string
+		method  string
+		handler http.HandlerFunc
+	}{
+		{path: "/docs", method: http.MethodPost, handler: swaggerUI},
+		{path: "/openapi.json", method: http.MethodPost, handler: openAPI},
+		{path: "/docs/login", method: http.MethodGet, handler: server.docsLogin},
+	} {
+		response := httptest.NewRecorder()
+		request := httptest.NewRequest(test.method, test.path, nil)
+		test.handler(response, request)
+		if response.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("%s returned %d", test.path, response.Code)
+		}
+	}
+}
+
+func TestOpenAPICoversRegisteredAPIRoutes(t *testing.T) { // NOSONAR -- this invariant test intentionally checks every registered route and operation.
 	var document struct {
 		Paths map[string]map[string]json.RawMessage `json:"paths"`
 	}

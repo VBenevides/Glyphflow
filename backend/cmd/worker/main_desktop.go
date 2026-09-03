@@ -5,7 +5,7 @@ package main
 import (
 	"bytes"
 	"context"
-	_ "embed"
+	_ "embed" // Registers go:embed support for the bundled worker icon.
 	"fmt"
 	"image"
 	"image/color"
@@ -305,6 +305,7 @@ func renderGioLogs(entries []LogEntry, stderrOnly bool) string {
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	var capacity atomic.Int64
 	logs := NewLogBuffer(&capacity)
 	stdout := logs.Writer("stdout", os.Stdout)

@@ -3,10 +3,13 @@ package main
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/VBenevides/Glyphflow/backend/internal/config"
 )
 
 func setControlPlaneStartupEnv(t *testing.T) {
@@ -93,5 +96,44 @@ func TestWaitForDatabaseStopsWhenCanceled(t *testing.T) {
 		return errors.New("database unavailable")
 	}, 0); !errors.Is(err, context.Canceled) {
 		t.Fatalf("waitForDatabase cancellation = %v", err)
+	}
+}
+
+func TestControlPlaneSQLiteStartupInitializesRuntime(t *testing.T) {
+	chdirBackend(t)
+	cfg := config.Config{
+		DatabaseMode:                 "sqlite",
+		DatabaseURL:                  filepath.Join(t.TempDir(), "controlplane.sqlite"),
+		NATSMode:                     "embedded",
+		NATSURL:                      "nats://127.0.0.1:4222",
+		AccessTokenSecret:            "01234567890123456789012345678901",
+		PasswordPepper:               "0123456789012345",
+		WebOrigin:                    "http://localhost:3000",
+		CSRFOrigins:                  []string{"http://localhost:3000"},
+		Environment:                  "development",
+		AllowInsecureTransport:       true,
+		DataDir:                      t.TempDir(),
+		MaxMessageBytes:              1024,
+		DefaultRoleID:                "system-user",
+		LogMonthsKeep:                3,
+		AuditMonthsKeep:              12,
+		RunnerMetricsMonthsKeep:      3,
+		InstallationEncryptionKey:    []byte("01234567890123456789012345678901"),
+		DatabaseStorageCapacityBytes: 0,
+	}
+	database, err := openControlPlaneDatabase(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.closeDatabase()
+	runtime, err := initializeControlPlaneRuntime(context.Background(), &cfg, database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.application.Ready(context.Background()); err != nil {
+		t.Fatalf("application readiness: %v", err)
+	}
+	if runtime.application.Handler() == nil {
+		t.Fatal("control-plane handler was not initialized")
 	}
 }

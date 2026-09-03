@@ -16,6 +16,11 @@ type Schedule struct {
 	Timezone string
 }
 
+type cronCalendar struct {
+	dom, month, dow map[int]bool
+	domAny, dowAny  bool
+}
+
 func NextFire(expression, timezone string, now time.Time) (time.Time, error) {
 	return (Schedule{Cron: expression, Timezone: timezone}).Next(now)
 }
@@ -46,27 +51,7 @@ func (s Schedule) Next(now time.Time) (time.Time, error) {
 }
 
 func nextCronMinute(now time.Time, expression string) (time.Time, error) {
-	fields := splitFields(expression)
-	if len(fields) != 5 {
-		return time.Time{}, errors.New("cron requires five fields")
-	}
-	minute, err := parseCronField(fields[0], 0, 59)
-	if err != nil {
-		return time.Time{}, err
-	}
-	hour, err := parseCronField(fields[1], 0, 23)
-	if err != nil {
-		return time.Time{}, err
-	}
-	dom, err := parseCronField(fields[2], 1, 31)
-	if err != nil {
-		return time.Time{}, err
-	}
-	month, err := parseCronField(fields[3], 1, 12)
-	if err != nil {
-		return time.Time{}, err
-	}
-	dow, err := parseCronField(fields[4], 0, 6)
+	minute, hour, dom, month, dow, err := parseCronFields(expression)
 	if err != nil {
 		return time.Time{}, err
 	}
@@ -77,20 +62,52 @@ func nextCronMinute(now time.Time, expression string) (time.Time, error) {
 	}
 	for i := 1; i <= 24*60*366*8; i++ {
 		candidate := now.Truncate(time.Minute).Add(time.Duration(i) * time.Minute)
-		dayMatch := dom[candidate.Day()] || dow[int(candidate.Weekday())]
-		switch {
-		case domAny && dowAny:
-			dayMatch = true
-		case domAny:
-			dayMatch = dow[int(candidate.Weekday())]
-		case dowAny:
-			dayMatch = dom[candidate.Day()]
-		}
-		if minute[candidate.Minute()] && hour[candidate.Hour()] && dayMatch && month[int(candidate.Month())] {
+		if cronMinuteMatches(candidate, minute, hour, cronCalendar{dom: dom, month: month, dow: dow, domAny: domAny, dowAny: dowAny}) {
 			return candidate, nil
 		}
 	}
 	return time.Time{}, errors.New("cron has no occurrence in search window")
+}
+
+func parseCronFields(expression string) (map[int]bool, map[int]bool, map[int]bool, map[int]bool, map[int]bool, error) {
+	fields := splitFields(expression)
+	if len(fields) != 5 {
+		return nil, nil, nil, nil, nil, errors.New("cron requires five fields")
+	}
+	minute, err := parseCronField(fields[0], 0, 59)
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+	hour, err := parseCronField(fields[1], 0, 23)
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+	dom, err := parseCronField(fields[2], 1, 31)
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+	month, err := parseCronField(fields[3], 1, 12)
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+	dow, err := parseCronField(fields[4], 0, 6)
+	return minute, hour, dom, month, dow, err
+}
+
+func cronMinuteMatches(candidate time.Time, minute, hour map[int]bool, calendar cronCalendar) bool {
+	if !minute[candidate.Minute()] || !hour[candidate.Hour()] || !calendar.month[int(candidate.Month())] {
+		return false
+	}
+	if calendar.domAny && calendar.dowAny {
+		return true
+	}
+	if calendar.domAny {
+		return calendar.dow[int(candidate.Weekday())]
+	}
+	if calendar.dowAny {
+		return calendar.dom[candidate.Day()]
+	}
+	return calendar.dom[candidate.Day()] || calendar.dow[int(candidate.Weekday())]
 }
 
 func cronFieldIsAny(values map[int]bool, min, max int) bool {
@@ -125,39 +142,9 @@ func parseCronField(field string, min, max int) (map[int]bool, error) {
 		if part == "" {
 			return nil, errors.New("cron contains an empty field")
 		}
-		step := 1
-		base := part
-		slash := strings.IndexByte(part, '/')
-		if slash >= 0 {
-			base = part[:slash]
-			parsed, err := strconv.Atoi(part[slash+1:])
-			if err != nil || parsed <= 0 {
-				return nil, errors.New("cron step must be positive")
-			}
-			step = parsed
-		}
-		start, end := min, max
-		if base != "*" {
-			if dash := strings.IndexByte(base, '-'); dash >= 0 {
-				var err error
-				start, err = strconv.Atoi(base[:dash])
-				if err != nil {
-					return nil, errors.New("cron range is invalid")
-				}
-				end, err = strconv.Atoi(base[dash+1:])
-				if err != nil || end < start {
-					return nil, errors.New("cron range is invalid")
-				}
-			} else {
-				var err error
-				start, err = strconv.Atoi(base)
-				if err != nil {
-					return nil, errors.New("cron value is invalid")
-				}
-				if slash < 0 {
-					end = start
-				}
-			}
+		start, end, step, err := parseCronPart(part, min, max)
+		if err != nil {
+			return nil, err
 		}
 		if start < min || end > max {
 			return nil, errors.New("cron value is outside its field range")
@@ -167,6 +154,55 @@ func parseCronField(field string, min, max int) (map[int]bool, error) {
 		}
 	}
 	return values, nil
+}
+
+func parseCronPart(part string, min, max int) (int, int, int, error) {
+	base, step, hasStep, err := parseCronStep(part)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	start, end, err := parseCronRange(base, min, max, hasStep)
+	return start, end, step, err
+}
+
+func parseCronStep(part string) (string, int, bool, error) {
+	slash := strings.IndexByte(part, '/')
+	if slash < 0 {
+		return part, 1, false, nil
+	}
+	step, err := strconv.Atoi(part[slash+1:])
+	if err != nil || step <= 0 {
+		return "", 0, false, errors.New("cron step must be positive")
+	}
+	return part[:slash], step, true, nil
+}
+
+func parseCronRange(base string, min, max int, hasStep bool) (int, int, error) {
+	start, end := min, max
+	if base == "*" {
+		return start, end, nil
+	}
+	dash := strings.IndexByte(base, '-')
+	if dash >= 0 {
+		start, err := strconv.Atoi(base[:dash])
+		if err != nil {
+			return 0, 0, errors.New("cron range is invalid")
+		}
+		end, err = strconv.Atoi(base[dash+1:])
+		if err != nil || end < start {
+			return 0, 0, errors.New("cron range is invalid")
+		}
+		return start, end, nil
+	}
+	var err error
+	start, err = strconv.Atoi(base)
+	if err != nil {
+		return 0, 0, errors.New("cron value is invalid")
+	}
+	if !hasStep {
+		end = start
+	}
+	return start, end, nil
 }
 
 func splitComma(value string) []string {

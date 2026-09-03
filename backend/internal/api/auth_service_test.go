@@ -13,7 +13,7 @@ import (
 	"github.com/VBenevides/Glyphflow/backend/internal/platform"
 )
 
-func TestAuthServiceRegistrationLoginRefreshReplayAndPermissionRevocation(t *testing.T) {
+func TestAuthServiceRegistrationLoginRefreshReplayAndPermissionRevocation(t *testing.T) { // NOSONAR -- this scenario test intentionally verifies the complete authentication lifecycle.
 	auth, err := NewAuthService("01234567890123456789012345678901", true, true, nil)
 	if err != nil {
 		t.Fatal(err)

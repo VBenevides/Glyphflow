@@ -40,3 +40,4 @@ internal/**/*.png
 /**/*gitignored*
 .dev-data/
 /.agent-work/
+frontend/coverage/

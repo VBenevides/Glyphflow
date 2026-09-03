@@ -19,9 +19,10 @@ test_tmp=$(mktemp -d)
 production_dir="$test_tmp/production"
 production_config="$test_tmp/production-config.json"
 worker_pid=""
+deployment_check_postgres_password=${DEPLOYMENT_CHECK_POSTGRES_PASSWORD:-$(openssl rand -hex 16)}
 
 cleanup() {
-  if [ -n "$worker_pid" ]; then
+  if [[ -n "$worker_pid" ]]; then
     kill "$worker_pid" >/dev/null 2>&1 || true
     wait "$worker_pid" >/dev/null 2>&1 || true
   fi
@@ -43,7 +44,7 @@ command -v base64 >/dev/null || { echo "deployment check: base64 is required" >&
 wait_for_url() {
   local url=$1
   local attempt=0
-  while [ "$attempt" -lt 60 ]; do
+  while [[ "$attempt" -lt 60 ]]; do
     if curl --fail --silent "$url" >/dev/null 2>&1; then
       return 0
     fi
@@ -73,8 +74,8 @@ create_production_fixtures() {
   make_certificate nats 'serverAuth,clientAuth'
   make_certificate postgres 'serverAuth'
 
-  printf '%s\n' glyphflow > "$production_dir/postgres-password"
-  printf '%s\n' 'postgres://glyphflow:glyphflow@postgres:5432/glyphflow?sslmode=verify-full' > "$production_dir/database-url"
+  printf '%s\n' "$deployment_check_postgres_password" > "$production_dir/postgres-password"
+  printf '%s\n' "postgres://glyphflow:${deployment_check_postgres_password}@postgres:5432/glyphflow?sslmode=verify-full" > "$production_dir/database-url"
   printf '%s\n' 'tls://nats:4222' > "$production_dir/nats-url"
   printf '%s\n' 'deployment-check-access-token-secret-0123456789' > "$production_dir/access-token-secret"
   head -c 64 /dev/urandom | base64 -w0 | tr -d '=' > "$production_dir/control-plane-signing-key"
@@ -119,6 +120,7 @@ run_dispatch_check() {
   local nats_endpoint=$2
   local origin=$3
   local label=$4
+  local json_header='Content-Type: application/json'
   local dispatch_dir="$test_tmp/dispatch-$label"
   local cookie_jar="$dispatch_dir/cookies"
   local csrf login_payload enrollment_payload enrollment_json artifact runner_id runner_path
@@ -127,21 +129,21 @@ run_dispatch_check() {
 
   curl --fail --silent --show-error -c "$cookie_jar" "$base_url/api/v1/config" >/dev/null
   csrf=$(awk '$6 == "glyphflow_csrf" {print $7}' "$cookie_jar")
-  [ -n "$csrf" ] || { echo "deployment check: CSRF token was not issued" >&2; return 1; }
+  [[ -n "$csrf" ]] || { echo "deployment check: CSRF token was not issued" >&2; return 1; }
   login_payload=$(jq -nc --arg email admin@example.com --arg password "$DEPLOYMENT_CHECK_PASSWORD" '{email:$email,password:$password}')
   curl --fail --silent --show-error -b "$cookie_jar" -c "$cookie_jar" \
-    -H 'Content-Type: application/json' -H "Origin: $origin" -H "X-CSRF-Token: $csrf" \
+    -H "$json_header" -H "Origin: $origin" -H "X-CSRF-Token: $csrf" \
     --data "$login_payload" "$base_url/api/v1/auth/login" >/dev/null
 
   enrollment_payload=$(jq -nc --arg name "deployment-check-$label-$$" --arg control "$base_url" \
     --arg nats "$nats_endpoint" '{runner_name:$name,pool_id:"default",platform:"linux",architecture:"amd64",capacity:1,ui:"headless",control_plane_url:$control,embedded_nats_endpoint:$nats}')
   enrollment_json="$dispatch_dir/enrollment.json"
   curl --fail --silent --show-error -b "$cookie_jar" \
-    -H 'Content-Type: application/json' -H "Origin: $origin" -H "X-CSRF-Token: $csrf" \
+    -H "$json_header" -H "Origin: $origin" -H "X-CSRF-Token: $csrf" \
     --data "$enrollment_payload" "$base_url/api/v1/runners/enrollments" > "$enrollment_json"
   artifact=$(jq -r '.artifact // empty' "$enrollment_json")
   runner_id=$(jq -r '.runner_id // empty' "$enrollment_json")
-  [ -n "$artifact" ] && [ -n "$runner_id" ] || { echo "deployment check: runner artifact was not returned" >&2; return 1; }
+  [[ -n "$artifact" && -n "$runner_id" ]] || { echo "deployment check: runner artifact was not returned" >&2; return 1; }
   runner_path="$dispatch_dir/runner"
   printf '%s' "$artifact" | base64 -d > "$runner_path"
   chmod 700 "$runner_path"
@@ -159,23 +161,23 @@ run_dispatch_check() {
       break
     fi
     attempt=$((attempt + 1))
-    [ "$attempt" -lt 60 ] || { echo "deployment check: worker did not become online" >&2; return 1; }
+    [[ "$attempt" -lt 60 ]] || { echo "deployment check: worker did not become online" >&2; return 1; }
     sleep 1
   done
 
   task_json="$dispatch_dir/task.json"
   curl --fail --silent --show-error -b "$cookie_jar" \
-    -H 'Content-Type: application/json' -H "Origin: $origin" -H "X-CSRF-Token: $csrf" \
+    -H "$json_header" -H "Origin: $origin" -H "X-CSRF-Token: $csrf" \
     --data '{"name":"deployment-check","command":["printf","deployment-check"],"runner_pool":"default","duration_seconds":30,"max_output_bytes":1024}' \
     "$base_url/api/v1/tasks" > "$task_json"
   task_id=$(jq -r '.id // empty' "$task_json")
-  [ -n "$task_id" ] || { echo "deployment check: task was not created" >&2; return 1; }
+  [[ -n "$task_id" ]] || { echo "deployment check: task was not created" >&2; return 1; }
   run_json="$dispatch_dir/run.json"
   curl --fail --silent --show-error -b "$cookie_jar" \
-    -H 'Content-Type: application/json' -H "Origin: $origin" -H "X-CSRF-Token: $csrf" \
+    -H "$json_header" -H "Origin: $origin" -H "X-CSRF-Token: $csrf" \
     --data "$(jq -nc --arg id "$task_id" '{task_id:$id}')" "$base_url/api/v1/runs/execute" > "$run_json"
   run_id=$(jq -r '.id // empty' "$run_json")
-  [ -n "$run_id" ] || { echo "deployment check: run was not created" >&2; return 1; }
+  [[ -n "$run_id" ]] || { echo "deployment check: run was not created" >&2; return 1; }
 
   attempt=0
   while :; do
@@ -187,9 +189,13 @@ run_dispatch_check() {
         printf '%s\n' "$run_json" >&2
         return 1
         ;;
+      *)
+        printf 'deployment check: unexpected run state: %s\n' "$run_state" >&2
+        return 1
+        ;;
     esac
     attempt=$((attempt + 1))
-    [ "$attempt" -lt 60 ] || { echo "deployment check: run did not finish" >&2; return 1; }
+    [[ "$attempt" -lt 60 ]] || { echo "deployment check: run did not finish" >&2; return 1; }
     sleep 1
   done
   printf '%s' "$run_json" | jq -e --arg runner "$runner_id" '.runner == $runner and .exitCode == 0' >/dev/null
@@ -274,22 +280,22 @@ docker network create "$network" >/dev/null
 docker run -d --name "$partial_nats" --network "$network" --network-alias nats \
   -p "127.0.0.1:${partial_nats_port}:4222" "$nats_image" --jetstream --http_port 8222 >/dev/null
 docker run -d --name "$partial_postgres" --network "$network" --network-alias postgres \
-  -e POSTGRES_DB=glyphflow -e POSTGRES_USER=glyphflow -e POSTGRES_PASSWORD=glyphflow "$postgres_image" >/dev/null
+  -e POSTGRES_DB=glyphflow -e POSTGRES_USER=glyphflow -e POSTGRES_PASSWORD="$deployment_check_postgres_password" "$postgres_image" >/dev/null
 attempt=0
 while ! docker exec "$partial_postgres" pg_isready -U glyphflow -d glyphflow >/dev/null 2>&1; do
   attempt=$((attempt + 1))
-  [ "$attempt" -lt 60 ] || { echo "deployment check: PostgreSQL did not become ready" >&2; exit 1; }
+  [[ "$attempt" -lt 60 ]] || { echo "deployment check: PostgreSQL did not become ready" >&2; exit 1; }
   sleep 1
 done
 attempt=0
 while ! docker exec "$partial_nats" wget -q -O - http://127.0.0.1:8222/healthz >/dev/null 2>&1; do
   attempt=$((attempt + 1))
-  [ "$attempt" -lt 60 ] || { echo "deployment check: NATS did not become ready" >&2; exit 1; }
+  [[ "$attempt" -lt 60 ]] || { echo "deployment check: NATS did not become ready" >&2; exit 1; }
   sleep 1
 done
 docker run -d --name "$partial_controlplane" --network "$network" -p "${partial_port}:8080" \
   --tmpfs /data \
-  -e DATABASE_URL='postgres://glyphflow:glyphflow@postgres:5432/glyphflow?sslmode=disable' \
+  -e DATABASE_URL="postgres://glyphflow:${deployment_check_postgres_password}@postgres:5432/glyphflow?sslmode=disable" \
   -e NATS_URL='nats://nats:4222' \
   -e ACCESS_TOKEN_SECRET='deployment-check-secret-012345678901234567' \
   -e PASSWORD_PEPPER='deployment-check-pepper' \

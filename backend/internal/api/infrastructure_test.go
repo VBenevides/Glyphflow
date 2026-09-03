@@ -86,6 +86,59 @@ func TestRunnerEnrollmentExplainsArtifactFailure(t *testing.T) {
 	}
 }
 
+func TestRunnerArtifactRejectsUnsafeTargetComponents(t *testing.T) {
+	s := NewInfrastructureService()
+	s.SetRunnerBinaryDirectory(t.TempDir())
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/runners/enrollments", nil)
+	cases := []struct {
+		name, platform, architecture string
+	}{
+		{"platform traversal", "../linux", "amd64"},
+		{"platform slash", "linux/other", "amd64"},
+		{"platform backslash", `linux\other`, "amd64"},
+		{"platform absolute", "/tmp", "amd64"},
+		{"platform unknown", "darwin", "amd64"},
+		{"architecture traversal", "linux", "../amd64"},
+		{"architecture slash", "linux", "amd64/other"},
+		{"architecture backslash", "linux", `amd64\other`},
+		{"architecture absolute", "linux", "/tmp"},
+		{"architecture unknown", "linux", "arm64"},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			_, _, err := s.buildRunnerArtifact(request, runnerEnrollmentInput{Platform: test.platform, Architecture: test.architecture, RunnerID: "runner-1", UI: "gui"}, "token")
+			if err == nil || err.Error() != "runner artifact target is invalid" {
+				t.Fatalf("buildRunnerArtifact() error = %v", err)
+			}
+		})
+	}
+}
+
+func TestRunnerArtifactAcceptsSupportedTargets(t *testing.T) {
+	s := NewInfrastructureService()
+	directory := t.TempDir()
+	s.SetRunnerBinaryDirectory(directory)
+	s.SetRunnerArtifactConfig("nats://localhost:4222", 1<<20)
+	s.SetControlPlanePublicKey(base64.RawStdEncoding.EncodeToString(make([]byte, 32)))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/runners/enrollments", nil)
+	for _, test := range []struct {
+		platform, filename string
+	}{
+		{"linux", "glyphflow-runner-linux-amd64"},
+		{"windows", "glyphflow-runner-windows-amd64.exe"},
+	} {
+		t.Run(test.platform, func(t *testing.T) {
+			if err := os.WriteFile(filepath.Join(directory, test.filename), []byte("runner-binary"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			_, filename, err := s.buildRunnerArtifact(request, runnerEnrollmentInput{Platform: test.platform, Architecture: "amd64", RunnerID: "runner-1", ControlPlaneURL: "http://control.example", EmbeddedNATSEndpoint: "nats://localhost:4222", UI: "gui"}, "token")
+			if err != nil || filename != "runner-1-"+test.filename {
+				t.Fatalf("buildRunnerArtifact() = %q, %v", filename, err)
+			}
+		})
+	}
+}
+
 func TestRunnerEnrollmentExplainsTokenFailure(t *testing.T) {
 	s := NewInfrastructureService()
 	s.SetRunnerArtifactConfig("nats://localhost:4222", 1<<20)

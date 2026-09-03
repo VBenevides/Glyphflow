@@ -14,7 +14,7 @@ import (
 
 const startClaimClockTolerance = 5 * time.Second
 
-func RunStartClaimServer(ctx context.Context, events queue.RequestServer, runs store.StartClaimRepository, keys RunnerKeyRepository, signingKey protocol.SigningKey) error {
+func RunStartClaimServer(ctx context.Context, events queue.RequestServer, runs store.StartClaimer, keys RunnerKeyFinder, signingKey protocol.SigningKey) error {
 	if events == nil || runs == nil || keys == nil || len(signingKey.Private) != ed25519.PrivateKeySize {
 		return errors.New("start claim server is not configured")
 	}
@@ -23,7 +23,7 @@ func RunStartClaimServer(ctx context.Context, events queue.RequestServer, runs s
 	})
 }
 
-func startClaimResponse(ctx context.Context, runs store.StartClaimRepository, keys RunnerKeyRepository, signingKey protocol.SigningKey, raw []byte) []byte {
+func startClaimResponse(ctx context.Context, runs store.StartClaimer, keys RunnerKeyFinder, signingKey protocol.SigningKey, raw []byte) []byte {
 	reply := protocol.StartClaimReply{Error: "start claim rejected"}
 	envelope, err := protocol.DecodeEnvelope(raw)
 	if err != nil {

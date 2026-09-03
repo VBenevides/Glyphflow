@@ -16,7 +16,7 @@ func TestNormalizeTaskDefinitionDeduplicatesResources(t *testing.T) {
 	}
 }
 
-func TestTaskRepositoryKeepsImmutableVersionsAndPointer(t *testing.T) {
+func TestTaskRepositoryKeepsImmutableVersionsAndPointer(t *testing.T) { // NOSONAR: this repository scenario intentionally covers immutable versions, pointer updates, validation, and soft deletion together.
 	url := os.Getenv("DATABASE_URL")
 	if url == "" {
 		t.Skip("set DATABASE_URL to run PostgreSQL repository tests")

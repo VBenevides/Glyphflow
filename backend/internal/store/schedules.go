@@ -53,7 +53,7 @@ type ScheduleRepository interface {
 	CreateDueRun(context.Context, time.Time, func(DueScheduleRecord) (time.Time, error)) (string, bool, error)
 }
 
-type ScheduleProjectionRepository interface {
+type ScheduleProjectionLister interface {
 	ListScheduleProjection(context.Context) ([]ScheduleProjectionInput, error)
 }
 
@@ -68,6 +68,11 @@ type ScheduleStore struct {
 	pool            database
 	storagePressure func(context.Context) (platform.StoragePressure, error)
 }
+
+const (
+	defaultStartDeadlineSeconds = 60
+	minimumStartDeadlineSeconds = 30
+)
 
 func NewScheduleRepository(pool any) *ScheduleStore {
 	db, _ := databaseFrom(pool)
@@ -262,18 +267,30 @@ func (s *ScheduleStore) CreateDueRun(ctx context.Context, now time.Time, next fu
 	if next == nil {
 		return "", false, errors.New("schedule next-fire function is required")
 	}
-	if s.storagePressure != nil {
-		pressure, err := s.storagePressure(ctx)
-		if err != nil {
-			return "", false, err
-		}
-		if pressure.State == platform.StorageUnavailable {
-			return "", false, ErrStorageUnavailable
-		}
-		if pressure.RejectNewRuns() {
-			return "", false, ErrStorageExhausted
-		}
+	if err := s.checkStoragePressure(ctx); err != nil {
+		return "", false, err
 	}
+	return s.createDueRun(ctx, now, next)
+}
+
+func (s *ScheduleStore) checkStoragePressure(ctx context.Context) error {
+	if s.storagePressure == nil {
+		return nil
+	}
+	pressure, err := s.storagePressure(ctx)
+	if err != nil {
+		return err
+	}
+	if pressure.State == platform.StorageUnavailable {
+		return ErrStorageUnavailable
+	}
+	if pressure.RejectNewRuns() {
+		return ErrStorageExhausted
+	}
+	return nil
+}
+
+func (s *ScheduleStore) createDueRun(ctx context.Context, now time.Time, next func(DueScheduleRecord) (time.Time, error)) (string, bool, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return "", false, err
@@ -381,7 +398,7 @@ func (s *ScheduleStore) CreateDueRun(ctx context.Context, now time.Time, next fu
 
 func deadlineValue(occurrence time.Time, seconds int) any {
 	if seconds <= 0 {
-		return occurrence.Add(defaultStartDelay)
+		return occurrence.Add(defaultStartDeadlineSeconds * time.Second)
 	}
 	return occurrence.Add(time.Duration(seconds) * time.Second)
 }
@@ -427,6 +444,9 @@ func normalizeScheduleDefinition(definition ScheduleDefinition) ScheduleDefiniti
 	if definition.MisfirePolicy == "" {
 		definition.MisfirePolicy = "SKIP_ALL"
 	}
+	if definition.DeadlineSeconds == 0 {
+		definition.DeadlineSeconds = defaultStartDeadlineSeconds
+	}
 	if definition.ConcurrencyPolicy == "" {
 		definition.ConcurrencyPolicy = "ALLOW"
 	}
@@ -439,6 +459,9 @@ func validateScheduleDefinition(definition ScheduleDefinition) error {
 	}
 	if _, err := platform.ScheduleLocation(definition.Timezone); err != nil && globalVariableReferencePattern.FindString(definition.Timezone) != definition.Timezone {
 		return errors.New("schedule timezone is invalid")
+	}
+	if definition.DeadlineSeconds < minimumStartDeadlineSeconds {
+		return errors.New("start deadline must be at least 30 seconds")
 	}
 	return nil
 }

@@ -33,8 +33,8 @@ type testStartClaimer struct{ err error }
 func (c testStartClaimer) ClaimStart(context.Context, protocol.StartClaimPayload) error { return c.err }
 
 type testSecretFetcher struct {
-	values map[string]string
-	called bool
+	values  map[string]string
+	called  bool
 	request protocol.SecretDeliveryRequest
 }
 
@@ -51,7 +51,7 @@ func (p *concurrentRuntimePublisher) Publish(_ context.Context, message queue.Me
 	return nil
 }
 
-func TestOrderRuntimeExecutesOrderAndPublishesEvents(t *testing.T) {
+func TestOrderRuntimeExecutesOrderAndPublishesEvents(t *testing.T) { // NOSONAR: this comprehensive runtime scenario intentionally covers durable acceptance, execution, event signing, and terminal publication together.
 	local, err := OpenStore(t.TempDir() + "/runner.sqlite")
 	if err != nil {
 		t.Fatal(err)

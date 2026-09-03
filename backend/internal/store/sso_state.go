@@ -22,7 +22,7 @@ type OIDCAuthorizationStateRepository interface {
 	DeleteExpired(context.Context, time.Time) error
 }
 
-type OIDCAuthorizationStateAnyRepository interface {
+type OIDCAuthorizationStateAnyConsumer interface {
 	ConsumeAny(context.Context, string, string, string, string, time.Time) (OIDCAuthorizationStateRecord, error)
 }
 

@@ -347,7 +347,9 @@ async function main() {
   if (failed) throw new Error(`${failed} browser acceptance check(s) failed`)
 }
 
-main().catch((error) => {
+try {
+  await main()
+} catch (error) {
   console.error(`Browser acceptance stopped: ${error.message}`)
   process.exitCode = 1
-})
+}

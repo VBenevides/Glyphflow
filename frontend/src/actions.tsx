@@ -27,7 +27,7 @@ export function dangerousActionError(cause: unknown, onConflict?: () => void): s
 	return cause instanceof Error ? cause.message : 'Action failed'
 }
 
-export function DangerousAction({ label, title = label, warning = dangerousWarning(label), confirmLabel = label, cancelLabel = 'Cancel', reasonRequired = false, variant = 'danger', onConfirm, onConflict, renderTrigger }: { label: string; title?: string; warning?: string; confirmLabel?: string; cancelLabel?: string; reasonRequired?: boolean; variant?: 'danger' | 'secondary'; onConfirm: (reason?: string) => void | Promise<void>; onConflict?: () => void; renderTrigger?: (open: () => void) => ReactNode }) {
+export function DangerousAction({ label, title = label, warning = dangerousWarning(label), confirmLabel = label, cancelLabel = 'Cancel', reasonRequired = false, variant = 'danger', onConfirm, onConflict, renderTrigger }: Readonly<{ label: string; title?: string; warning?: string; confirmLabel?: string; cancelLabel?: string; reasonRequired?: boolean; variant?: 'danger' | 'secondary'; onConfirm: (reason?: string) => void | Promise<void>; onConflict?: () => void; renderTrigger?: (open: () => void) => ReactNode }>) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [reason, setReason] = useState('')

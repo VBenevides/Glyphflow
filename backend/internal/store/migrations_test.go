@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,8 +37,25 @@ func TestMigrationsUseAnAdvisoryTransactionLock(t *testing.T) {
 	}
 }
 
+func TestApplyMigrationsRejectsInvalidInputBeforeOpeningDatabase(t *testing.T) {
+	if err := ApplyMigrations(context.Background(), nil, filepath.Join(t.TempDir(), "missing")); err == nil {
+		t.Fatal("missing migration directory was accepted")
+	}
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "002_other.sql"), []byte("SELECT 2"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyMigrations(context.Background(), nil, dir); err == nil {
+		t.Fatal("non-canonical migration set was accepted")
+	}
+}
+
 func TestMigrationChecksumIsStable(t *testing.T) {
-	if migrationChecksum("SELECT 1") != migrationChecksum("SELECT 1") || migrationChecksum("SELECT 1") == migrationChecksum("SELECT 2") {
+	first := migrationChecksum("SELECT 1")
+	second := migrationChecksum("SELECT 1")
+	other := migrationChecksum("SELECT 2")
+	if first != second || first == other {
 		t.Fatal("migration checksum is not stable")
 	}
 }

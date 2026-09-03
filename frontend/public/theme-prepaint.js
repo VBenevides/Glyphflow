@@ -7,8 +7,7 @@
   } catch {
     // Continue with the system preference when storage is unavailable.
   }
-  const theme = themes.includes(saved)
-    ? saved
-    : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  const systemTheme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  const theme = themes.includes(saved) ? saved : systemTheme
   document.documentElement.dataset.theme = theme
 })()

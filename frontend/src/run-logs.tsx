@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { Button } from './components'
 import { LogOutput } from './safe'
 import { mergeChunks, type LogChunk } from './log-stream'
@@ -10,6 +10,51 @@ export function isTerminalRunState(state: string) {
 }
 
 type StreamState = { chunks: LogChunk[]; reconnecting: boolean; stopped: boolean; error?: string; gap: boolean }
+type StreamStateSetter = Dispatch<SetStateAction<StreamState>>
+
+function parseLogLine(line: string, fallbackSequence: () => number): LogChunk {
+  try {
+    return JSON.parse(line) as LogChunk
+  } catch {
+    return { sequence: fallbackSequence(), text: line }
+  }
+}
+
+async function consumeLogStream(response: Response, isStopped: () => boolean, onChunks: (chunks: LogChunk[]) => void, fallbackSequence: () => number) {
+  if (!response.body) throw new Error(`Log stream failed (${response.status})`)
+  const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = ''
+  while (!isStopped()) {
+    const next = await reader.read(); if (next.done) break
+    buffer += decoder.decode(next.value, { stream: true })
+    const lines = buffer.split('\n'); buffer = lines.pop() ?? ''
+    const chunks = lines.filter(Boolean).map((line) => parseLogLine(line, fallbackSequence))
+    if (chunks.length) onChunks(chunks)
+  }
+}
+
+function assertLogStreamResponse(response: Response) {
+  if (!response.ok || !response.body) throw new Error(`Log stream failed (${response.status})`)
+}
+
+function finishLogStream(terminal: boolean, stopped: boolean, setState: StreamStateSetter, schedule: (delay: number) => void) {
+  if (stopped) return
+  if (terminal) {
+    setState((current) => ({ ...current, reconnecting: false, stopped: true }))
+    return
+  }
+  schedule(1000)
+}
+
+function failLogStream(cause: unknown, terminal: boolean, stopped: boolean, aborted: boolean, setState: StreamStateSetter, schedule: (delay: number) => void) {
+  if (stopped || aborted) return
+  const error = cause instanceof Error ? cause.message : 'Log stream failed'
+  if (terminal) {
+    setState((current) => ({ ...current, reconnecting: false, stopped: true, error }))
+    return
+  }
+  setState((current) => ({ ...current, reconnecting: true, error }))
+  schedule(1500)
+}
 
 export function logStreamUrl(runId: string, stream: string, after: number) {
   return `/api/v1/runs/${encodeURIComponent(runId)}/logs?stream=${encodeURIComponent(stream)}&after=${after}`
@@ -34,20 +79,10 @@ export function useLogStream(runId: string, stream: 'stdout' | 'stderr', enabled
       try {
         setState((current) => ({ ...current, reconnecting: current.chunks.length > 0, stopped: terminal, error: undefined }))
         const response = await fetch(logStreamUrl(runId, stream, last), { credentials: 'include', signal: controller.signal })
-        if (!response.ok || !response.body) throw new Error(`Log stream failed (${response.status})`)
-        const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = ''
-        while (!stopped) {
-          const next = await reader.read(); if (next.done) break
-          buffer += decoder.decode(next.value, { stream: true })
-          const lines = buffer.split('\n'); buffer = lines.pop() ?? ''
-          const chunks = lines.filter(Boolean).map((line) => { try { const parsed = JSON.parse(line) as { sequence: number; text: string }; return parsed } catch { return { sequence: lastSequence.current + 1, text: line } } })
-          if (chunks.length) setState((current) => { const merged = mergeChunks(current.chunks, chunks, MAX_VISIBLE_LOG_CHARS); lastSequence.current = merged.lastSequence; return { ...current, chunks: merged.chunks, gap: merged.gap, reconnecting: false } })
-        }
-        if (!stopped) {
-          if (terminal) setState((current) => ({ ...current, reconnecting: false, stopped: true }))
-          else timer = window.setTimeout(connect, 1000)
-        }
-      } catch (cause) { if (!stopped && !controller.signal.aborted) { if (terminal) setState((current) => ({ ...current, reconnecting: false, stopped: true, error: cause instanceof Error ? cause.message : 'Log stream failed' })); else { setState((current) => ({ ...current, reconnecting: true, error: cause instanceof Error ? cause.message : 'Log stream failed' })); timer = window.setTimeout(connect, 1500) } } }
+        assertLogStreamResponse(response)
+        await consumeLogStream(response, () => stopped, (chunks) => setState((current) => { const merged = mergeChunks(current.chunks, chunks, MAX_VISIBLE_LOG_CHARS); lastSequence.current = merged.lastSequence; return { ...current, chunks: merged.chunks, gap: merged.gap, reconnecting: false } }), () => lastSequence.current + 1)
+        finishLogStream(terminal, stopped, setState, (delay) => { timer = window.setTimeout(connect, delay) })
+      } catch (cause) { failLogStream(cause, terminal, stopped, controller.signal.aborted, setState, (delay) => { timer = window.setTimeout(connect, delay) }) }
     }
     connect()
     return () => { stopped = true; controller.abort(); if (timer) window.clearTimeout(timer) }
@@ -57,8 +92,11 @@ export function useLogStream(runId: string, stream: 'stdout' | 'stderr', enabled
   return { ...state, text, paused, pause: () => setPaused(true), resume: () => setPaused(false), reconnect: () => { setPaused(false); setState((current) => ({ ...current, reconnecting: true })); setGeneration((value) => value + 1) } }
 }
 
-export function LiveLogPanel({ runId, stream, terminal = false }: { runId: string; stream: 'stdout' | 'stderr'; terminal?: boolean }) {
+export function LiveLogPanel({ runId, stream, terminal = false }: Readonly<{ runId: string; stream: 'stdout' | 'stderr'; terminal?: boolean }>) {
   const log = useLogStream(runId, stream, true, terminal)
   const stopped = terminal || log.stopped
-  return <section className="gf-card-panel"><div className="gf-log-toolbar"><h2>{stream}</h2><span role="status">{stopped ? 'Stopped' : log.gap ? 'Gap detected' : 'Live View'}</span><Button variant="secondary" disabled={stopped} onClick={log.paused ? log.resume : log.pause}>{log.paused ? 'Resume' : 'Pause'}</Button><Button variant="secondary" disabled={stopped} onClick={log.reconnect}>Reconnect</Button><a className="gf-button gf-button-secondary" title="Download the complete log file" href={logDownloadUrl(runId, stream)} download={`${runId}-${stream}.log`}>Download source</a></div>{log.error && <p className="gf-form-error" role="alert">{log.error}</p>}<LogOutput stream={stream} value={log.text} /></section>
+  let statusLabel = 'Live View'
+  if (log.gap) statusLabel = 'Gap detected'
+  if (stopped) statusLabel = 'Stopped'
+  return <section className="gf-card-panel"><div className="gf-log-toolbar"><h2>{stream}</h2><output>{statusLabel}</output><Button variant="secondary" disabled={stopped} onClick={log.paused ? log.resume : log.pause}>{log.paused ? 'Resume' : 'Pause'}</Button><Button variant="secondary" disabled={stopped} onClick={log.reconnect}>Reconnect</Button><a className="gf-button gf-button-secondary" title="Download the complete log file" href={logDownloadUrl(runId, stream)} download={`${runId}-${stream}.log`}>Download source</a></div>{log.error && <p className="gf-form-error" role="alert">{log.error}</p>}<LogOutput stream={stream} value={log.text} /></section>
 }

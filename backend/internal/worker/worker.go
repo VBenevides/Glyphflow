@@ -64,21 +64,32 @@ func (e Executor) RunStreaming(ctx context.Context, args []string, dir string, f
 }
 
 func (e Executor) RunStreamingWithExitCode(ctx context.Context, args []string, dir string, flushInterval time.Duration, onChunk func(string, []byte) error) ([]byte, *int, error) {
-	if len(args) == 0 {
-		return nil, nil, &ValidationError{"command is required"}
-	}
-	if _, ok := ctx.Deadline(); !ok {
-		return nil, nil, &ValidationError{"execution deadline is required"}
-	}
-	if e.MaxOutputBytes <= 0 {
-		return nil, nil, &ValidationError{"maximum output bytes must be greater than zero"}
-	}
-	if len(e.AllowedCommands) > 0 && !e.AllowedCommands[args[0]] {
-		return nil, nil, &ValidationError{"executable is not allowed"}
+	if err := e.validateExecution(ctx, args, dir); err != nil {
+		return nil, nil, err
 	}
 	clean, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, nil, err
+	}
+	return e.runCommand(ctx, args, clean, flushInterval, onChunk)
+}
+
+func (e Executor) validateExecution(ctx context.Context, args []string, dir string) error {
+	if len(args) == 0 {
+		return &ValidationError{"command is required"}
+	}
+	if _, ok := ctx.Deadline(); !ok {
+		return &ValidationError{"execution deadline is required"}
+	}
+	if e.MaxOutputBytes <= 0 {
+		return &ValidationError{"maximum output bytes must be greater than zero"}
+	}
+	if len(e.AllowedCommands) > 0 && !e.AllowedCommands[args[0]] {
+		return &ValidationError{"executable is not allowed"}
+	}
+	clean, err := filepath.Abs(dir)
+	if err != nil {
+		return err
 	}
 	allowed := false
 	for _, root := range e.Roots {
@@ -88,30 +99,18 @@ func (e Executor) RunStreamingWithExitCode(ctx context.Context, args []string, d
 		}
 	}
 	if !allowed {
-		return nil, nil, &ValidationError{"working directory is outside configured roots"}
+		return &ValidationError{"working directory is outside configured roots"}
 	}
+	_ = clean
+	return nil
+}
+
+func (e Executor) runCommand(ctx context.Context, args []string, clean string, flushInterval time.Duration, onChunk func(string, []byte) error) ([]byte, *int, error) {
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	cmd := exec.CommandContext(runCtx, args[0], args[1:]...)
 	cmd.Dir = clean
-	if len(e.Environment) > 0 {
-		environment := os.Environ()
-		positions := make(map[string]int, len(environment))
-		for index, entry := range environment {
-			if split := strings.IndexByte(entry, '='); split > 0 {
-				positions[entry[:split]] = index
-			}
-		}
-		for name, value := range e.Environment {
-			entry := name + "=" + value
-			if index, ok := positions[name]; ok {
-				environment[index] = entry
-			} else {
-				environment = append(environment, entry)
-			}
-		}
-		cmd.Env = environment
-	}
+	applyCommandEnvironment(cmd, e.Environment)
 	configureCommand(cmd)
 	chunks := make(chan executorOutput, 32)
 	stopped := &atomic.Bool{}
@@ -135,45 +134,6 @@ func (e Executor) RunStreamingWithExitCode(ctx context.Context, args []string, d
 	output.limit = e.MaxOutputBytes
 	buffers := map[string][]byte{"stdout": nil, "stderr": nil}
 	var callbackErr error
-	flush := func(stream string) {
-		if callbackErr != nil || len(buffers[stream]) == 0 {
-			return
-		}
-		chunk := append([]byte(nil), buffers[stream]...)
-		buffers[stream] = nil
-		if onChunk != nil {
-			if err := onChunk(stream, chunk); err != nil {
-				callbackErr = err
-				stopped.Store(true)
-				cancel()
-			}
-		}
-	}
-	flushAll := func() {
-		flush("stdout")
-		flush("stderr")
-	}
-	processChunk := func(chunk executorOutput) {
-		if stopped.Load() {
-			return
-		}
-		remaining := e.MaxOutputBytes - len(output.data)
-		if remaining <= 0 {
-			output.exceeded = true
-			stopped.Store(true)
-			cancel()
-			return
-		}
-		accepted := chunk.data
-		if len(accepted) > remaining {
-			accepted = accepted[:remaining]
-			output.exceeded = true
-			stopped.Store(true)
-			cancel()
-		}
-		output.data = append(output.data, accepted...)
-		buffers[chunk.stream] = append(buffers[chunk.stream], accepted...)
-	}
 
 	var ticker *time.Ticker
 	var tick <-chan time.Time
@@ -185,9 +145,9 @@ func (e Executor) RunStreamingWithExitCode(ctx context.Context, args []string, d
 	for {
 		select {
 		case chunk := <-chunks:
-			processChunk(chunk)
+			processExecutorChunk(chunk, &output, buffers, stopped, cancel)
 		case <-tick:
-			flushAll()
+			flushExecutorBuffers(buffers, &callbackErr, stopped, cancel, onChunk)
 		case <-memoryTick:
 			e.Metrics.Sample(int32(cmd.Process.Pid))
 		case err := <-wait:
@@ -199,21 +159,112 @@ func (e Executor) RunStreamingWithExitCode(ctx context.Context, args []string, d
 				code := cmd.ProcessState.ExitCode()
 				exitCode = &code
 			}
-			for {
-				select {
-				case chunk := <-chunks:
-					processChunk(chunk)
-				default:
-					flushAll()
-					if callbackErr != nil {
-						return output.Bytes(), exitCode, callbackErr
-					}
-					if output.exceeded {
-						return output.Bytes(), exitCode, ErrOutputLimit
-					}
-					return output.Bytes(), exitCode, err
-				}
+			return drainExecutorChunks(executorDrainState{
+				chunks:      chunks,
+				output:      &output,
+				buffers:     buffers,
+				stopped:     stopped,
+				cancel:      cancel,
+				callbackErr: &callbackErr,
+				onChunk:     onChunk,
+				exitCode:    exitCode,
+				waitErr:     err,
+			})
+		}
+	}
+}
+
+func applyCommandEnvironment(cmd *exec.Cmd, values map[string]string) {
+	if len(values) == 0 {
+		return
+	}
+	environment := os.Environ()
+	positions := make(map[string]int, len(environment))
+	for index, entry := range environment {
+		if split := strings.IndexByte(entry, '='); split > 0 {
+			positions[entry[:split]] = index
+		}
+	}
+	for name, value := range values {
+		entry := name + "=" + value
+		if index, ok := positions[name]; ok {
+			environment[index] = entry
+		} else {
+			environment = append(environment, entry)
+		}
+	}
+	cmd.Env = environment
+}
+
+func flushExecutorBuffer(buffers map[string][]byte, stream string, callbackErr *error, stopped *atomic.Bool, cancel context.CancelFunc, onChunk func(string, []byte) error) {
+	if *callbackErr != nil || len(buffers[stream]) == 0 {
+		return
+	}
+	chunk := append([]byte(nil), buffers[stream]...)
+	buffers[stream] = nil
+	if onChunk == nil {
+		return
+	}
+	if err := onChunk(stream, chunk); err != nil {
+		*callbackErr = err
+		stopped.Store(true)
+		cancel()
+	}
+}
+
+func flushExecutorBuffers(buffers map[string][]byte, callbackErr *error, stopped *atomic.Bool, cancel context.CancelFunc, onChunk func(string, []byte) error) {
+	flushExecutorBuffer(buffers, "stdout", callbackErr, stopped, cancel, onChunk)
+	flushExecutorBuffer(buffers, "stderr", callbackErr, stopped, cancel, onChunk)
+}
+
+func processExecutorChunk(chunk executorOutput, output *boundedBuffer, buffers map[string][]byte, stopped *atomic.Bool, cancel context.CancelFunc) {
+	if stopped.Load() {
+		return
+	}
+	remaining := output.limit - len(output.data)
+	if remaining <= 0 {
+		output.exceeded = true
+		stopped.Store(true)
+		cancel()
+		return
+	}
+	accepted := chunk.data
+	if len(accepted) > remaining {
+		accepted = accepted[:remaining]
+		output.exceeded = true
+		stopped.Store(true)
+		cancel()
+	}
+	output.data = append(output.data, accepted...)
+	buffers[chunk.stream] = append(buffers[chunk.stream], accepted...)
+}
+
+type executorDrainState struct {
+	chunks      <-chan executorOutput
+	output      *boundedBuffer
+	buffers     map[string][]byte
+	stopped     *atomic.Bool
+	cancel      context.CancelFunc
+	callbackErr *error
+	onChunk     func(string, []byte) error
+	exitCode    *int
+	waitErr     error
+}
+
+func drainExecutorChunks(state executorDrainState) ([]byte, *int, error) {
+	for {
+		select {
+		case chunk := <-state.chunks:
+			processExecutorChunk(chunk, state.output, state.buffers, state.stopped, state.cancel)
+		default:
+			flushExecutorBuffers(state.buffers, state.callbackErr, state.stopped, state.cancel, state.onChunk)
+			if *state.callbackErr != nil {
+				return state.output.Bytes(), state.exitCode, *state.callbackErr
 			}
+			if state.output.exceeded {
+				return state.output.Bytes(), state.exitCode, ErrOutputLimit
+			}
+			return state.output.Bytes(), state.exitCode, state.waitErr
 		}
 	}
 }

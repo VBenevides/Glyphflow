@@ -36,3 +36,17 @@ func TestDatabaseStoragePressureFailsClosedWithoutCapacity(t *testing.T) {
 		t.Fatal("database size failure was ignored")
 	}
 }
+
+func TestDatabaseStoragePressureHandlesInvalidSizeAndNilDatabase(t *testing.T) {
+	for _, provider := range []func(context.Context) (platform.StoragePressure, error){
+		NewPostgreSQLStoragePressureProvider(nil, 100),
+		NewSQLiteStoragePressureProvider(nil, 100),
+		NewDatabaseStoragePressureProvider(func(context.Context) (int64, error) { return -1, nil }, 100),
+		NewDatabaseStoragePressureProvider(func(context.Context) (int64, error) { return 100, nil }, 100),
+	} {
+		pressure, err := provider(context.Background())
+		if err == nil && pressure.State == platform.StorageNormal {
+			t.Fatal("invalid storage pressure was reported as normal")
+		}
+	}
+}

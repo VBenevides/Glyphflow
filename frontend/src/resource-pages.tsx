@@ -10,7 +10,11 @@ import { QueryRefresh, QueryState } from './query'
 import { hasPermission } from './permissions'
 import { formatDateTime } from './format'
 
-export function resourceState(resource: Resource) { return resource.enabled === false ? 'disabled' : resource.holder ? 'leased' : 'available' }
+export function resourceState(resource: Resource) {
+  if (resource.enabled === false) return 'disabled'
+  if (resource.holder) return 'leased'
+  return 'available'
+}
 export function resourceKindLabel(kind?: string) { return kind?.toLowerCase().replace('_', '-') === 'non-blocking' ? 'Non-blocking' : 'Exclusive' }
 export function resourceNameLabel(name: string) { return name.length > 30 ? `${name.slice(0, 29)}…` : name }
 

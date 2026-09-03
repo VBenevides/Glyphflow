@@ -19,7 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func TestDistributedFailureBoundaries(t *testing.T) {
+func TestDistributedFailureBoundaries(t *testing.T) { // NOSONAR: this integration gate intentionally covers database, NATS, worker recovery, resource fencing, and redelivery as one boundary scenario.
 	databaseURL := os.Getenv("DATABASE_URL")
 	natsURL := os.Getenv("NATS_TLS_URL")
 	if databaseURL == "" || natsURL == "" || os.Getenv("NATS_CERT_FILE") == "" || os.Getenv("NATS_KEY_FILE") == "" || os.Getenv("NATS_CA_FILE") == "" {

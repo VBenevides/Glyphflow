@@ -8,7 +8,7 @@ export function useUnsavedChanges(dirty: boolean, message = 'You have unsaved ch
   const dirtyRef = useRef(dirty)
   useEffect(() => { dirtyRef.current = dirty }, [dirty])
   useEffect(() => {
-    const beforeUnload = (event: BeforeUnloadEvent) => { if (!dirtyRef.current) return; event.preventDefault(); event.returnValue = message }
+    const beforeUnload = (event: BeforeUnloadEvent) => { if (!dirtyRef.current) { return }; event.preventDefault() }
     const click = (event: MouseEvent) => {
       if (!dirtyRef.current || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
       const anchor = (event.target as Element | null)?.closest<HTMLAnchorElement>('a[href]')

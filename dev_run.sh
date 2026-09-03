@@ -18,7 +18,7 @@ cd "$project_root"
 version="$(tr -d '[:space:]' < "$project_root/VERSION")"
 
 if [[ ! -d "$project_root/frontend/node_modules" ]]; then
-  (cd "$project_root/frontend" && npm ci)
+  (cd "$project_root/frontend" && npm ci --ignore-scripts)
 fi
 
 mkdir -p "$data_dir"
@@ -55,13 +55,15 @@ backend_pid=$!
 
 (
   cd "$project_root/frontend"
+  # Local development only; production endpoints must use HTTPS.
   VITE_BACKEND_URL="${VITE_BACKEND_URL:-http://localhost:8080}" \
   npm run dev -- --host "${FRONTEND_HOST:-0.0.0.0}"
 ) &
 frontend_pid=$!
 
-echo "Frontend: http://${FRONTEND_HOST:-0.0.0.0}:5173"
-echo "Backend:  http://0.0.0.0:8080"
+# Local development only; production endpoints must use HTTPS.
+echo "Frontend: http://${FRONTEND_HOST:-0.0.0.0}:5173" # NOSONAR -- local development URL; production endpoints require HTTPS.
+echo "Backend:  http://0.0.0.0:8080" # NOSONAR -- local development URL; production endpoints require HTTPS.
 echo "Press Ctrl-C to stop both processes."
 
 wait -n "$backend_pid" "$frontend_pid"

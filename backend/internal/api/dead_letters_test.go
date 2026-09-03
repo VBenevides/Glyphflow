@@ -152,7 +152,7 @@ func TestDeadLetterInspectionRedactsSensitiveDiagnostics(t *testing.T) {
 	}
 }
 
-func TestDeadLetterRecoveryAuditContainsIdentityAndRedactsReason(t *testing.T) {
+func TestDeadLetterRecoveryAuditContainsIdentityAndRedactsReason(t *testing.T) { // NOSONAR -- this scenario test intentionally verifies recovery, audit identity, and redaction together.
 	repository := &deadLetterRepositoryStub{state: "OPEN", item: store.DeadLetterSummary{ID: "dead-audit", Subject: "glyphflow.events.runner-1", MessageID: "event-audit", FirstFailedAt: time.Now().UTC(), LastFailedAt: time.Now().UTC()}}
 	audit := NewAuditQueryService()
 	server := Server{

@@ -53,7 +53,7 @@ func (r *heartbeatRepository) HeartbeatWithKeyAndCapacity(_ context.Context, id,
 	return nil
 }
 
-func (r *heartbeatRepository) HeartbeatWithKeyAndCapacityAndMetrics(_ context.Context, id, _ string, at time.Time, capacity int, sample store.RunnerMetricsSample, _ string, _ []byte) error {
+func (r *heartbeatRepository) HeartbeatWithKeyAndCapacityAndMetrics(_ context.Context, id, _ string, at time.Time, capacity int, sample store.RunnerMetricsSample, _ string, _ []byte) error { // NOSONAR: the test double must preserve the production heartbeat repository interface.
 	r.id, r.at, r.capacity, r.metrics = id, at, capacity, &sample
 	return nil
 }

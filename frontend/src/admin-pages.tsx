@@ -18,7 +18,7 @@ export function roleMappingsValue(mappings: GroupRoleMapping[]): Record<string, 
   return Object.fromEntries(mappings.map(({ group, role }) => [group.trim(), role]).filter(([group, role]) => group && role))
 }
 
-function RoleSelect({ id, value, roles, onChange, disabled = false }: { id: string; value: string; roles?: RoleDefinition[]; onChange: (value: string) => void; disabled?: boolean }) {
+function RoleSelect({ id, value, roles, onChange, disabled = false }: Readonly<{ id: string; value: string; roles?: RoleDefinition[]; onChange: (value: string) => void; disabled?: boolean }>) {
   return <select id={id} className="gf-input" value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} required><option value="">Select a role</option>{roles?.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}</select>
 }
 
@@ -47,21 +47,24 @@ export function filterAndSortRoles(roles: RoleDefinition[], search: string): Rol
   return roles.filter((role) => !needle || [role.id, role.name, role.description ?? '', ...role.permissions].some((value) => value.toLowerCase().includes(needle))).sort((left, right) => Number(Boolean(right.system)) - Number(Boolean(left.system)) || left.name.localeCompare(right.name))
 }
 
-function UserActionsMenu({ user, manage, onAccess, onDisable, onApprove }: { user: UserRecord; manage: boolean; onAccess: () => void; onDisable: () => void; onApprove: () => void }) {
+function UserActionsMenu({ user, manage, onAccess, onDisable, onApprove }: Readonly<{ user: UserRecord; manage: boolean; onAccess: () => void; onDisable: () => void; onApprove: () => void }>) {
   const userLabel = user.displayName ?? user.email ?? user.username
-  const statusAction = user.status === 'pending' ? 'Approve' : user.status === 'disabled' ? 'Enable' : 'Disable'
+  let statusAction = 'Disable'
+  if (user.status === 'pending') statusAction = 'Approve'
+  else if (user.status === 'disabled') statusAction = 'Enable'
   const statusChange = user.status === 'active' ? onDisable : onApprove
   return <DropdownMenu><DropdownMenuTrigger asChild><Button type="button" variant="ghost" aria-label={`Actions for ${userLabel}`}><MoreHorizontal size={18} /></Button></DropdownMenuTrigger><DropdownMenuPortal><DropdownMenuContent align="end">{manage && <DropdownMenuItem onSelect={onAccess}>Manage access</DropdownMenuItem>}{manage && !user.systemAdmin && <><DropdownMenuSeparator /><DangerousAction label={statusAction} title={`${statusAction} user`} onConfirm={statusChange} renderTrigger={(open) => <DropdownMenuItem onSelect={(event) => { event.preventDefault(); open() }}>{statusAction}</DropdownMenuItem>} /></>}<DropdownMenuSeparator /><DropdownMenuItem asChild><Link to={`/admin/users/${encodeURIComponent(user.id)}`}>Details</Link></DropdownMenuItem></DropdownMenuContent></DropdownMenuPortal></DropdownMenu>
 }
 
 type IdentityView = 'users' | 'sessions' | 'sso' | 'secrets'
 
-function IdentityAdminLayout({ view, title, description, refresh, children }: { view: IdentityView; title: string; description: string; refresh?: ReactNode; children: ReactNode }) {
+function IdentityAdminLayout({ view, title, description, refresh, children }: Readonly<{ view: IdentityView; title: string; description: string; refresh?: ReactNode; children: ReactNode }>) {
   const navigate = useNavigate()
-  return <main className="gf-content"><PageHeader title={title} description={description} refresh={refresh} /><Tabs value={view} onValueChange={(next) => navigate(next === 'sso' ? '/admin/sso' : next === 'secrets' ? '/admin/secrets' : next === 'sessions' ? '/admin/users/sessions' : '/admin/users')}><TabsList aria-label="Identity administration"><TabsTrigger value="users">Users</TabsTrigger><TabsTrigger value="sessions">Sessions</TabsTrigger><TabsTrigger value="sso">SSO</TabsTrigger><TabsTrigger value="secrets">Secrets</TabsTrigger></TabsList></Tabs>{children}</main>
+  const paths: Record<IdentityView, string> = { users: '/admin/users', sessions: '/admin/users/sessions', sso: '/admin/sso', secrets: '/admin/secrets' }
+  return <main className="gf-content"><PageHeader title={title} description={description} refresh={refresh} /><Tabs value={view} onValueChange={(next) => navigate(paths[next as IdentityView])}><TabsList aria-label="Identity administration"><TabsTrigger value="users">Users</TabsTrigger><TabsTrigger value="sessions">Sessions</TabsTrigger><TabsTrigger value="sso">SSO</TabsTrigger><TabsTrigger value="secrets">Secrets</TabsTrigger></TabsList></Tabs>{children}</main>
 }
 
-export function UserCreationForm({ onCreated }: { onCreated: (userID: string) => Promise<void> }) {
+export function UserCreationForm({ onCreated }: Readonly<{ onCreated: (userID: string) => Promise<void> }>) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -76,7 +79,7 @@ export function UserCreationForm({ onCreated }: { onCreated: (userID: string) =>
   return <form className="gf-editor-form" onSubmit={submit}><div className="gf-form-grid"><label htmlFor="admin-user-email">Email<Input id="admin-user-email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label><label htmlFor="admin-user-password">Temporary password<Input id="admin-user-password" type="password" autoComplete="new-password" minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} required /></label></div>{error && <p className="gf-form-error" role="alert">{error}</p>}<div className="gf-dialog-actions"><Button type="submit" busy={busy}>Create user</Button></div></form>
 }
 
-export function UserAccessEditor({ user, roles, onChanged, onClose }: { user: UserRecord; roles?: RoleDefinition[]; onChanged: () => Promise<void>; onClose: () => void }) {
+export function UserAccessEditor({ user, roles, onChanged, onClose }: Readonly<{ user: UserRecord; roles?: RoleDefinition[]; onChanged: () => Promise<void>; onClose: () => void }>) {
   const [roleID, setRoleID] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -106,7 +109,7 @@ export function UserManagementPage({ view = 'users' }: { view?: IdentityView } =
   const pendingUsersQuery = useQuery({ queryKey: ['admin-pending-users'], queryFn: ({ signal }) => api.get<Page<UserRecord> | UserRecord[]>('/api/v1/users', { page: 1, limit: 1, status: 'pending' }, signal).then((value) => asPage(value, 1, 1)) })
   const rolesQuery = useQuery({ queryKey: ['admin-user-role-options'], queryFn: ({ signal }) => api.get<RoleDefinition[]>('/api/v1/admin/roles', undefined, signal), enabled: manage })
   const filterUsers = optionsQuery.data?.items ?? query.data?.items ?? []
-  const roleOptions = [...new Set([...filterUsers.flatMap((user) => user.roles ?? []), ...(rolesQuery.data ?? []).map((role) => role.name), ...(roleFilter ? [roleFilter] : [])])].sort()
+  const roleOptions = [...new Set([...filterUsers.flatMap((user) => user.roles ?? []), ...(rolesQuery.data ?? []).map((role) => role.name), ...(roleFilter ? [roleFilter] : [])])].sort((left, right) => left.localeCompare(right))
   const totalUsers = optionsQuery.data?.total
   const pendingUsers = pendingUsersQuery.data?.total ?? pendingUsersQuery.data?.items.length
   const registeredUsers = totalUsers !== undefined && pendingUsers !== undefined ? totalUsers - pendingUsers : '—'
@@ -152,7 +155,7 @@ export function SessionManagementPage() {
   </IdentityAdminLayout>
 }
 
-function RoleEditor({ role, onDone }: { role?: RoleDefinition; onDone: () => void }) {
+function RoleEditor({ role, onDone }: Readonly<{ role?: RoleDefinition; onDone: () => void }>) {
   const [name, setName] = useState(role?.name ?? '')
   const [selected, setSelected] = useState(() => new Set(role?.permissions ?? []))
   const [error, setError] = useState('')
@@ -220,7 +223,7 @@ export function SsoSettingsPage() {
   const toggle = async (provider: OidcProvider) => { await api.post('/api/v1/admin/auth/providers', { ...provider, enabled: provider.enabled === false }); await query.refetch() }
   return <IdentityAdminLayout view="sso" title="Single sign-on" description="Configure generic OIDC providers and group-to-role mappings. Client secrets are encrypted locally and never shown." refresh={<QueryRefresh query={query} />}>
     {manage && <div className="gf-table-toolbar"><Button onClick={() => setCreating(true)}>Add provider</Button></div>}
-    {manage && <Dialog open={creating} title="Add provider" onClose={closeProvider}><form className="gf-editor-form" onSubmit={addProvider}><div className="gf-form-grid"><label htmlFor="sso-key">Key<Input id="sso-key" value={draft.key} onChange={(event) => setDraft({ ...draft, key: event.target.value })} required /></label><label htmlFor="sso-name">Name<Input id="sso-name" value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} required /></label><label htmlFor="sso-issuer">Issuer URL<Input id="sso-issuer" type="url" value={draft.issuer} onChange={(event) => setDraft({ ...draft, issuer: event.target.value })} required /></label><label htmlFor="sso-client">Client ID<Input id="sso-client" value={draft.clientId} onChange={(event) => setDraft({ ...draft, clientId: event.target.value })} /></label><label htmlFor="sso-secret">Client secret<Input id="sso-secret" type="password" autoComplete="new-password" value={draft.clientSecret} onChange={(event) => setDraft({ ...draft, clientSecret: event.target.value })} required /><small>Stored encrypted locally and never shown again.</small></label></div><fieldset><legend>Group roles</legend>{groupMappings.map((mapping, index) => <div className="gf-form-grid" key={index}><label htmlFor={`sso-group-${index}`}>Group name<Input id={`sso-group-${index}`} value={mapping.group} onChange={(event) => setGroupMappings((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, group: event.target.value } : item))} /></label><label htmlFor={`sso-group-role-${index}`}>Role<RoleSelect id={`sso-group-role-${index}`} value={mapping.role} roles={rolesQuery.data} disabled={rolesQuery.isPending || rolesQuery.isError} onChange={(role) => setGroupMappings((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, role } : item))} /></label></div>)}<Button type="button" variant="secondary" onClick={() => setGroupMappings((current) => [...current, { group: '', role: '' }])}>Add group</Button>{rolesQuery.isError && <small className="gf-form-error">Roles could not be loaded.</small>}</fieldset>{error && <p className="gf-form-error" role="alert">{error}</p>}<div className="gf-dialog-actions"><Button type="button" variant="secondary" onClick={closeProvider}>Cancel</Button><Button type="submit" busy={busy}>Add provider</Button></div></form></Dialog>}
+    {manage && <Dialog open={creating} title="Add provider" onClose={closeProvider}><form className="gf-editor-form" onSubmit={addProvider}><div className="gf-form-grid"><label htmlFor="sso-key">Key<Input id="sso-key" value={draft.key} onChange={(event) => setDraft({ ...draft, key: event.target.value })} required /></label><label htmlFor="sso-name">Name<Input id="sso-name" value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} required /></label><label htmlFor="sso-issuer">Issuer URL<Input id="sso-issuer" type="url" value={draft.issuer} onChange={(event) => setDraft({ ...draft, issuer: event.target.value })} required /></label><label htmlFor="sso-client">Client ID<Input id="sso-client" value={draft.clientId} onChange={(event) => setDraft({ ...draft, clientId: event.target.value })} /></label><label htmlFor="sso-secret">Client secret<Input id="sso-secret" type="password" autoComplete="new-password" value={draft.clientSecret} onChange={(event) => setDraft({ ...draft, clientSecret: event.target.value })} required /><small>Stored encrypted locally and never shown again.</small></label></div><fieldset><legend>Group roles</legend>{groupMappings.map((mapping, index) => <div className="gf-form-grid" key={mapping.group || mapping.role || 'new-group'}><label htmlFor={`sso-group-${index}`}>Group name<Input id={`sso-group-${index}`} value={mapping.group} onChange={(event) => setGroupMappings((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, group: event.target.value } : item))} /></label><label htmlFor={`sso-group-role-${index}`}>Role<RoleSelect id={`sso-group-role-${index}`} value={mapping.role} roles={rolesQuery.data} disabled={rolesQuery.isPending || rolesQuery.isError} onChange={(role) => setGroupMappings((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, role } : item))} /></label></div>)}<Button type="button" variant="secondary" onClick={() => setGroupMappings((current) => current.some((mapping) => !mapping.group && !mapping.role) ? current : [...current, { group: '', role: '' }])}>Add group</Button>{rolesQuery.isError && <small className="gf-form-error">Roles could not be loaded.</small>}</fieldset>{error && <p className="gf-form-error" role="alert">{error}</p>}<div className="gf-dialog-actions"><Button type="button" variant="secondary" onClick={closeProvider}>Cancel</Button><Button type="submit" busy={busy}>Add provider</Button></div></form></Dialog>}
     <QueryState query={query} empty="No SSO providers are configured.">{(providers) => providers.length ? <><DataTable caption="SSO providers" rows={providers.slice((page - 1) * limit, page * limit)} columns={[{ key: 'key', label: 'Provider', render: (provider) => <strong>{provider.name ?? provider.key}</strong> }, { key: 'issuer', label: 'Issuer', render: (provider) => <span>{provider.issuer}</span> }, { key: 'enabled', label: 'State', render: (provider) => <StatusPill status={provider.enabled === false ? 'disabled' : 'enabled'} /> }, { key: 'secret', label: 'Secret', render: () => <span className="gf-secret-reference">Stored encrypted locally</span> }, { key: 'actions', label: 'Actions', render: (provider) => manage && <TableActions label={`Actions for ${provider.name ?? provider.key}`}><DangerousAction label={provider.enabled === false ? 'Enable' : 'Disable'} warning="Disabling a provider can remove a login method. Confirm another administrator login method is available." onConfirm={() => toggle(provider)} renderTrigger={(open) => <DropdownMenuItem onSelect={(event) => { event.preventDefault(); open() }}>{provider.enabled === false ? 'Enable' : 'Disable'}</DropdownMenuItem>} /></TableActions> }]} /><Pagination page={page} pages={Math.max(1, Math.ceil(providers.length / limit))} limit={limit} onChange={setPage} onLimitChange={(next) => { setLimit(next); setPage(1) }} /></> : <EmptyState title="No providers">Add an OIDC provider to enable single sign-on.</EmptyState>}</QueryState>
   </IdentityAdminLayout>
 }
@@ -229,7 +232,13 @@ function secretStatusLabel(status: string) {
   return { UNKNOWN: 'Unknown', VALID: 'Valid', INTEGRITY_FAILED: 'Integrity failed', KEY_UNAVAILABLE: 'Key unavailable', DECRYPTION_FAILED: 'Decryption failed' }[status] ?? status
 }
 
-function SecretEditor({ secret, onDone }: { secret?: SecretMetadata; onDone: () => Promise<void> }) {
+function secretTaskUsage(secret: SecretMetadata): ReactNode {
+  if (secret.tasks.length) return <span>{secret.tasks.map((task, index) => <span key={task.id}>{index > 0 && ', '}<Link to={`/tasks/${encodeURIComponent(task.id)}`}>{task.name}</Link></span>)}</span>
+  if (secret.canDelete) return <span className="gf-muted">No tasks</span>
+  return <span className="gf-muted">SSO configuration</span>
+}
+
+function SecretEditor({ secret, onDone }: Readonly<{ secret?: SecretMetadata; onDone: () => Promise<void> }>) {
   const [name, setName] = useState(secret?.name ?? '')
   const [value, setValue] = useState('')
   const [valueVisible, setValueVisible] = useState(false)
@@ -257,7 +266,7 @@ export function SecretsPage() {
   return <IdentityAdminLayout view="secrets" title="Secrets" description="Manage named encrypted values. Integrity status is separate from whether an external credential is still accepted." refresh={<QueryRefresh query={query} />}>
     {manage && editing === undefined && <div className="gf-table-toolbar"><Button onClick={() => setEditing(null)}>Create secret</Button></div>}
     {editing !== undefined && <Dialog open title={editing ? `Replace ${editing.name}` : 'Create secret'} onClose={() => setEditing(undefined)}><SecretEditor secret={editing ?? undefined} onDone={done} /></Dialog>}
-    <QueryState query={query} empty="No named secrets are configured.">{(secrets) => secrets.length ? <DataTable caption="Named secrets" rows={secrets} columns={[{ key: 'name', label: 'Secret', render: (secret) => <strong>{secret.name}</strong> }, { key: 'tasks', label: 'Used by tasks', render: (secret) => secret.tasks.length ? <span>{secret.tasks.map((task, index) => <span key={task.id}>{index > 0 && ', '}<Link to={`/tasks/${encodeURIComponent(task.id)}`}>{task.name}</Link></span>)}</span> : secret.canDelete ? <span className="gf-muted">No tasks</span> : <span className="gf-muted">SSO configuration</span> }, { key: 'status', label: 'Encryption status', render: (secret) => <StatusPill status={secretStatusLabel(secret.status)} /> }, { key: 'lastValidatedAt', label: 'Last validated', render: (secret) => secret.lastValidatedAt ? <time dateTime={secret.lastValidatedAt}>{formatDateTime(secret.lastValidatedAt)}</time> : 'Not yet validated' }, { key: 'actions', label: 'Actions', render: (secret) => manage && <TableActions label={`Actions for ${secret.name}`}><DropdownMenuItem onSelect={() => setEditing(secret)}>Replace value</DropdownMenuItem>{secret.canDelete && <><DropdownMenuSeparator /><DangerousAction label="Delete" title={`Delete ${secret.name}`} warning="Permanently removes this secret. Secrets used by a task or SSO configuration cannot be deleted." onConfirm={() => deleteSecret(secret)} renderTrigger={(open) => <DropdownMenuItem onSelect={(event) => { event.preventDefault(); open() }}>Delete</DropdownMenuItem>} /></>}</TableActions> }]} /> : <EmptyState title="No named secrets">Create a named secret for use by a task.</EmptyState>}</QueryState>
+    <QueryState query={query} empty="No named secrets are configured.">{(secrets) => secrets.length ? <DataTable caption="Named secrets" rows={secrets} columns={[{ key: 'name', label: 'Secret', render: (secret) => <strong>{secret.name}</strong> }, { key: 'tasks', label: 'Used by tasks', render: (secret) => secretTaskUsage(secret) }, { key: 'status', label: 'Encryption status', render: (secret) => <StatusPill status={secretStatusLabel(secret.status)} /> }, { key: 'lastValidatedAt', label: 'Last validated', render: (secret) => secret.lastValidatedAt ? <time dateTime={secret.lastValidatedAt}>{formatDateTime(secret.lastValidatedAt)}</time> : 'Not yet validated' }, { key: 'actions', label: 'Actions', render: (secret) => manage && <TableActions label={`Actions for ${secret.name}`}><DropdownMenuItem onSelect={() => setEditing(secret)}>Replace value</DropdownMenuItem>{secret.canDelete && <><DropdownMenuSeparator /><DangerousAction label="Delete" title={`Delete ${secret.name}`} warning="Permanently removes this secret. Secrets used by a task or SSO configuration cannot be deleted." onConfirm={() => deleteSecret(secret)} renderTrigger={(open) => <DropdownMenuItem onSelect={(event) => { event.preventDefault(); open() }}>Delete</DropdownMenuItem>} /></>}</TableActions> }]} /> : <EmptyState title="No named secrets">Create a named secret for use by a task.</EmptyState>}</QueryState>
   </IdentityAdminLayout>
 }
 

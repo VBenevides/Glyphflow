@@ -26,7 +26,7 @@ image_digest() {
   local image=$1
   local digest
   digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$image")
-  [ -n "$digest" ] || { echo "release package: no registry digest for $image" >&2; exit 1; }
+  [[ -n "$digest" ]] || { echo "release package: no registry digest for $image" >&2; exit 1; }
   printf '%s' "$digest"
 }
 

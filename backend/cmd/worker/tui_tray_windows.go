@@ -3,7 +3,7 @@
 package main
 
 import (
-	_ "embed"
+	_ "embed" // Registers go:embed support for the Windows tray icon.
 	"runtime"
 	"sync"
 	"syscall"

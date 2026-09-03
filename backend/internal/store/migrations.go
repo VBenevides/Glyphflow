@@ -74,41 +74,48 @@ func ApplyMigrations(ctx context.Context, pool *pgxpool.Pool, dir string) error 
 		return fmt.Errorf("create schema_migrations: %w", err)
 	}
 	for _, migration := range migrations {
-		checksum := migrationChecksum(migration.SQL)
-		tx, err := pool.Begin(ctx)
-		if err != nil {
-			return fmt.Errorf("begin migration %d: %w", migration.Version, err)
+		if err := applyMigration(ctx, pool, migration); err != nil {
+			return err
 		}
-		if _, err = tx.Exec(ctx, migrationLockSQL); err != nil {
+	}
+	return nil
+}
+
+func applyMigration(ctx context.Context, pool *pgxpool.Pool, migration Migration) error {
+	checksum := migrationChecksum(migration.SQL)
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin migration %d: %w", migration.Version, err)
+	}
+	if _, err = tx.Exec(ctx, migrationLockSQL); err != nil {
+		_ = tx.Rollback(ctx)
+		return fmt.Errorf("lock migrations: %w", err)
+	}
+	var storedChecksum string
+	err = tx.QueryRow(ctx, `SELECT checksum FROM schema_migrations WHERE version = $1`, migration.Version).Scan(&storedChecksum)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		_ = tx.Rollback(ctx)
+		return fmt.Errorf("check migration %d: %w", migration.Version, err)
+	}
+	if err == nil {
+		if storedChecksum != checksum {
 			_ = tx.Rollback(ctx)
-			return fmt.Errorf("lock migrations: %w", err)
-		}
-		var storedChecksum string
-		err = tx.QueryRow(ctx, `SELECT checksum FROM schema_migrations WHERE version = $1`, migration.Version).Scan(&storedChecksum)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			_ = tx.Rollback(ctx)
-			return fmt.Errorf("check migration %d: %w", migration.Version, err)
-		}
-		if err == nil {
-			if storedChecksum != checksum {
-				_ = tx.Rollback(ctx)
-				return fmt.Errorf("migration %d checksum changed", migration.Version)
-			}
-			if err := tx.Commit(ctx); err != nil {
-				return fmt.Errorf("commit migration %d checksum: %w", migration.Version, err)
-			}
-			continue
-		}
-		if _, err = tx.Exec(ctx, migration.SQL); err == nil {
-			_, err = tx.Exec(ctx, `INSERT INTO schema_migrations (version, name, checksum) VALUES ($1, $2, $3)`, migration.Version, migration.Name, checksum)
-		}
-		if err != nil {
-			_ = tx.Rollback(ctx)
-			return fmt.Errorf("apply migration %d: %w", migration.Version, err)
+			return fmt.Errorf("migration %d checksum changed", migration.Version)
 		}
 		if err := tx.Commit(ctx); err != nil {
-			return fmt.Errorf("commit migration %d: %w", migration.Version, err)
+			return fmt.Errorf("commit migration %d checksum: %w", migration.Version, err)
 		}
+		return nil
+	}
+	if _, err = tx.Exec(ctx, migration.SQL); err == nil {
+		_, err = tx.Exec(ctx, `INSERT INTO schema_migrations (version, name, checksum) VALUES ($1, $2, $3)`, migration.Version, migration.Name, checksum)
+	}
+	if err != nil {
+		_ = tx.Rollback(ctx)
+		return fmt.Errorf("apply migration %d: %w", migration.Version, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit migration %d: %w", migration.Version, err)
 	}
 	return nil
 }

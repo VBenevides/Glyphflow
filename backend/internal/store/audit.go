@@ -104,26 +104,25 @@ func (s *AuditStore) Query(ctx context.Context, filter AuditFilter) ([]AuditEven
 		if err := rows.Scan(&event.ID, &event.ActorID, &event.ActorName, &event.ActorEmail, &event.Method, &event.Description, &event.Endpoint, &event.Target, &event.Result, &input, &output, &before, &after, &event.Traceback, &event.CorrelationID, &event.CreatedAt); err != nil {
 			return nil, AuditCounts{}, err
 		}
-		for target, raw := range map[string][]byte{"input": input, "output": output, "before": before, "after": after} {
-			if len(raw) == 0 || string(raw) == "null" {
-				continue
-			}
-			var value any
-			if err := json.Unmarshal(raw, &value); err != nil {
-				return nil, AuditCounts{}, err
-			}
-			switch target {
-			case "input":
-				event.RequestInput = value
-			case "output":
-				event.ResponseOutput = value
-			case "before":
-				event.BeforeValue = value
-			case "after":
-				event.AfterValue = value
-			}
+		if err := decodeAuditValues(&event, input, output, before, after); err != nil {
+			return nil, AuditCounts{}, err
 		}
 		events = append(events, event)
 	}
 	return events, counts, rows.Err()
+}
+
+func decodeAuditValues(event *AuditEventRecord, values ...[]byte) error {
+	fields := []*any{&event.RequestInput, &event.ResponseOutput, &event.BeforeValue, &event.AfterValue}
+	for i, raw := range values {
+		if len(raw) == 0 || string(raw) == "null" {
+			continue
+		}
+		var value any
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return err
+		}
+		*fields[i] = value
+	}
+	return nil
 }

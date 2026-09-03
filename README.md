@@ -254,8 +254,15 @@ its single canonical PostgreSQL schema to a new database; it does not upgrade
 databases from earlier releases.
 
 The base [`compose.yaml`](compose.yaml) remains available as a containerized
-PostgreSQL/NATS development stack. It contains development credentials; do
-not use those defaults for a public deployment.
+PostgreSQL/NATS development stack. Set a local-only PostgreSQL password before
+starting it:
+
+```bash
+export POSTGRES_PASSWORD="$(openssl rand -hex 16)"
+docker compose up -d
+```
+
+Do not use that local password for a public deployment.
 
 For production, provide the required values and secret files described in
 [`compose.production.yaml`](compose.production.yaml), then start the stack:
@@ -329,7 +336,7 @@ details and desktop dependency requirements.
 
 ## Configuration reference
 
-The development script supplies safe local defaults. Outside development,
+The development script supplies safe local defaults. Outside local/development,
 Glyphflow validates the important security boundary at startup rather than
 silently accepting an insecure deployment.
 
@@ -350,11 +357,11 @@ with `_FILE` or `_SOURCE`.
 | `ACCESS_TOKEN_SECRET` / `ACCESS_TOKEN_SECRET_FILE` | Session and access-token signing secret; minimum 32 bytes |
 | `CONTROL_PLANE_SIGNING_PRIVATE_KEY` / `CONTROL_PLANE_SIGNING_PRIVATE_KEY_FILE` | Persistent base64 raw Ed25519 private key outside development |
 | `PASSWORD_PEPPER` / `PASSWORD_PEPPER_FILE` | Password hashing pepper; minimum 16 bytes when password login is enabled |
-| `WEB_ORIGIN` | Canonical browser origin, HTTPS outside development |
+| `WEB_ORIGIN` | Canonical browser origin, HTTPS outside local/development |
 | `CORS_ORIGIN` | Comma-separated CORS allowlist |
 | `CSRF_ORIGINS` | Comma-separated CSRF origin allowlist |
-| `ENVIRONMENT` | Use `development` locally and `production` for the production overlay |
-| `ALLOW_INSECURE_TRANSPORT` | Development-only escape hatch; keep `false` in production |
+| `ENVIRONMENT` | Use `local` or `development` locally and `production` for the production overlay |
+| `ALLOW_INSECURE_TRANSPORT` | Local/development-only escape hatch; keep `false` in production |
 | `GLYPHFLOW_BOOTSTRAP_EMAIL` / `GLYPHFLOW_BOOTSTRAP_PASSWORD` / `GLYPHFLOW_BOOTSTRAP_PASSWORD_FILE` | Optional first administrator credentials; production Compose reads the protected file |
 | `GLYPHFLOW_SYSTEM_ADMINS` | Administrator emails separated by spaces, commas, or semicolons |
 | `ENABLE_PASSWORD_LOGIN` | Enable password sign-in; production defaults to disabled in the overlay |

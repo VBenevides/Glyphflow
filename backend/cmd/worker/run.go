@@ -23,9 +23,12 @@ import (
 	"github.com/VBenevides/Glyphflow/backend/internal/queue"
 	"github.com/VBenevides/Glyphflow/backend/internal/store"
 	"github.com/VBenevides/Glyphflow/backend/internal/worker"
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/mem"
 )
+
+const runnerKeyPrefix = "runner:"
 
 func runWorker(ctx context.Context, stdout, stderr io.Writer, status StatusSink) error {
 	if stdout == nil {
@@ -34,13 +37,46 @@ func runWorker(ctx context.Context, stdout, stderr io.Writer, status StatusSink)
 	if stderr == nil {
 		stderr = io.Discard
 	}
-	bootstrap, err := worker.LoadEmbeddedBootstrap()
+	bootstrap, err := loadEmbeddedBootstrap()
 	if err != nil {
 		return fmt.Errorf("load worker bootstrap: %w", err)
 	}
 	if err := applyBootstrapTransportDefaults(bootstrap); err != nil {
 		return err
 	}
+	if err := prepareWorkerDataDir(bootstrap); err != nil {
+		return err
+	}
+	localStore, err := worker.OpenStore(filepath.Join(os.Getenv("DATA_DIR"), "runner.sqlite"))
+	if err != nil {
+		return fmt.Errorf("open worker store: %w", err)
+	}
+	defer closeWorkerStore(localStore)
+	connection, found, storedKey, foundKey, err := loadWorkerState(localStore)
+	if err != nil {
+		return err
+	}
+	connection, storedKey, foundKey, err = enrollWorkerIfNeeded(ctx, bootstrap, localStore, connection, found, storedKey, foundKey)
+	if err != nil {
+		return err
+	}
+	connection, err = configureWorkerConnection(bootstrap, localStore, connection)
+	if err != nil {
+		return err
+	}
+	controlPublicKey, err := base64.RawStdEncoding.DecodeString(connection.ControlPublicKey)
+	if err != nil || len(controlPublicKey) != ed25519.PublicKeySize {
+		return fmt.Errorf("runner control-plane public key is unavailable")
+	}
+	cfg, err := config.FromEnv(config.Worker)
+	if err != nil {
+		return fmt.Errorf("load worker configuration: %w", err)
+	}
+	setWorkerStatus(status, cfg, stderr)
+	return runWorkerProcess(ctx, stdout, stderr, status, localStore, workerProcessOptions{cfg: cfg, connection: connection, storedKey: storedKey, foundKey: foundKey, controlPublicKey: controlPublicKey})
+}
+
+func prepareWorkerDataDir(bootstrap *worker.Bootstrap) error {
 	if os.Getenv("DATA_DIR") == "" {
 		dataDir := worker.DefaultDataDir()
 		if bootstrap != nil {
@@ -53,129 +89,133 @@ func runWorker(ctx context.Context, stdout, stderr io.Writer, status StatusSink)
 	if err := os.MkdirAll(os.Getenv("DATA_DIR"), 0o700); err != nil {
 		return fmt.Errorf("create worker data directory: %w", err)
 	}
-	localStore, err := worker.OpenStore(filepath.Join(os.Getenv("DATA_DIR"), "runner.sqlite"))
-	if err != nil {
-		return fmt.Errorf("open worker store: %w", err)
-	}
-	defer closeWorkerStore(localStore)
+	return nil
+}
+
+func loadWorkerState(localStore *worker.LocalStore) (worker.RunnerConnection, bool, protocol.SigningKey, bool, error) {
 	connection, found, err := localStore.LoadConnection()
 	if err != nil {
-		return fmt.Errorf("load worker connection: %w", err)
+		return worker.RunnerConnection{}, false, protocol.SigningKey{}, false, fmt.Errorf("load worker connection: %w", err)
 	}
 	storedKey, foundKey, err := localStore.LoadSigningKey()
 	if err != nil {
-		return fmt.Errorf("load worker signing key: %w", err)
+		return worker.RunnerConnection{}, false, protocol.SigningKey{}, false, fmt.Errorf("load worker signing key: %w", err)
 	}
+	return connection, found, storedKey, foundKey, nil
+}
+
+func enrollWorkerIfNeeded(ctx context.Context, bootstrap *worker.Bootstrap, localStore *worker.LocalStore, connection worker.RunnerConnection, found bool, storedKey protocol.SigningKey, foundKey bool) (worker.RunnerConnection, protocol.SigningKey, bool, error) {
 	if bootstrap != nil && needsRunnerEnrollment(bootstrap, found, foundKey, storedKey) {
 		bootstrap.ControlPlaneURL = resolveControlPlaneEndpoint(bootstrap)
 		if err := validateWorkerControlPlaneEndpoint(bootstrap.ControlPlaneURL); err != nil {
-			return fmt.Errorf("worker control-plane endpoint: %w", err)
+			return connection, storedKey, foundKey, fmt.Errorf("worker control-plane endpoint: %w", err)
 		}
-		enrollmentKey := storedKey
-		enrollmentKey, err = protocol.GenerateSigningKey("runner:"+bootstrap.RunnerID, time.Now().UTC(), 365*24*time.Hour)
+		enrollmentKey, err := protocol.GenerateSigningKey(runnerKeyPrefix+bootstrap.RunnerID, time.Now().UTC(), 365*24*time.Hour)
 		if err != nil {
-			return fmt.Errorf("generate enrollment signing key: %w", err)
+			return connection, storedKey, foundKey, fmt.Errorf("generate enrollment signing key: %w", err)
 		}
 		bootstrap.RunnerKeyID = enrollmentKey.ID
 		bootstrap.RunnerPublicKey = base64.RawStdEncoding.EncodeToString(enrollmentKey.Public.PublicKey)
-		if enrolledConnection, enrollErr := bootstrap.Enroll(ctx); enrollErr == nil {
+		enrolledConnection, enrollErr := bootstrap.Enroll(ctx)
+		if enrollErr == nil {
 			connection = enrolledConnection
 			if err := localStore.SaveSigningKey(enrollmentKey); err != nil {
-				return fmt.Errorf("save enrolled signing key: %w", err)
+				return connection, storedKey, foundKey, fmt.Errorf("save enrolled signing key: %w", err)
 			}
 			if err := localStore.SaveConnection(connection); err != nil {
-				return fmt.Errorf("save enrolled connection: %w", err)
+				return connection, storedKey, foundKey, fmt.Errorf("save enrolled connection: %w", err)
 			}
-			storedKey, foundKey = enrollmentKey, true
-		} else {
-			return fmt.Errorf("runner enrollment failed: %w", enrollErr)
+			return connection, enrollmentKey, true, nil
 		}
-	} else if !found {
+		return connection, storedKey, foundKey, fmt.Errorf("runner enrollment failed: %w", enrollErr)
+	}
+	if !found {
 		connection = worker.RunnerConnection{}
 	}
+	return connection, storedKey, foundKey, nil
+}
+
+func configureWorkerConnection(bootstrap *worker.Bootstrap, localStore *worker.LocalStore, connection worker.RunnerConnection) (worker.RunnerConnection, error) {
 	connection.NATSURL = resolveNATSEndpoint(bootstrap, connection.NATSURL)
 	if bootstrap != nil && bootstrap.ControlPublicKey != "" && connection.ControlPublicKey != bootstrap.ControlPublicKey {
 		connection.ControlPublicKey = bootstrap.ControlPublicKey
 		if err := localStore.SaveConnection(connection); err != nil {
-			return fmt.Errorf("save control-plane key: %w", err)
+			return connection, fmt.Errorf("save control-plane key: %w", err)
 		}
 	}
 	if connection.RunnerID != "" {
 		if err := setWorkerEnv("RUNNER_ID", connection.RunnerID); err != nil {
-			return err
+			return connection, err
 		}
 	}
 	if connection.NATSURL != "" {
 		if err := setWorkerEnv("NATS_URL", connection.NATSURL); err != nil {
-			return err
+			return connection, err
 		}
 	}
 	if connection.MaxMessageBytes > 0 {
 		if err := setWorkerEnv("MAX_MESSAGE_BYTES", fmt.Sprintf("%d", connection.MaxMessageBytes)); err != nil {
-			return err
+			return connection, err
 		}
 		if os.Getenv("MAX_OUTPUT_BYTES") == "" {
 			if err := setWorkerEnv("MAX_OUTPUT_BYTES", fmt.Sprintf("%d", connection.MaxMessageBytes)); err != nil {
-				return err
+				return connection, err
 			}
 		}
 	}
-	controlPublicKey, err := base64.RawStdEncoding.DecodeString(connection.ControlPublicKey)
-	if err != nil || len(controlPublicKey) != ed25519.PublicKeySize {
-		return fmt.Errorf("runner control-plane public key is unavailable")
+	return connection, nil
+}
+
+func setWorkerStatus(status StatusSink, cfg config.Config, stderr io.Writer) {
+	if status == nil {
+		return
 	}
-	cfg, err := config.FromEnv(config.Worker)
-	if err != nil {
-		return fmt.Errorf("load worker configuration: %w", err)
+	status.SetRunnerID(cfg.RunnerID)
+	endpoint, parseErr := redactNATSEndpoint(cfg.NATSURL)
+	if parseErr != nil {
+		fmt.Fprintln(stderr, "worker NATS endpoint could not be parsed")
 	}
-	if status != nil {
-		status.SetRunnerID(cfg.RunnerID)
-		endpoint, parseErr := redactNATSEndpoint(cfg.NATSURL)
-		if parseErr != nil {
-			fmt.Fprintln(stderr, "worker NATS endpoint could not be parsed")
-		}
-		status.SetNATSEndpoint(endpoint)
-	}
+	status.SetNATSEndpoint(endpoint)
+}
+
+type workerProcessOptions struct {
+	cfg              config.Config
+	connection       worker.RunnerConnection
+	storedKey        protocol.SigningKey
+	foundKey         bool
+	controlPublicKey []byte
+}
+
+func runWorkerProcess(ctx context.Context, stdout, stderr io.Writer, status StatusSink, localStore *worker.LocalStore, options workerProcessOptions) error {
+	cfg := options.cfg
+	connection := options.connection
+	storedKey := options.storedKey
+	foundKey := options.foundKey
+	controlPublicKey := options.controlPublicKey
 	activeOrders := &worker.ActiveOrders{}
-	workerKey := storedKey
-	if !foundKey || workerKey.ID != "runner:"+cfg.RunnerID || time.Now().UTC().After(workerKey.Public.NotAfter) {
-		workerKey, err = protocol.GenerateSigningKey("runner:"+cfg.RunnerID, time.Now().UTC(), 365*24*time.Hour)
-		if err != nil {
-			return fmt.Errorf("generate worker signing key: %w", err)
-		}
-		if err := localStore.SaveSigningKey(workerKey); err != nil {
-			return fmt.Errorf("save worker signing key: %w", err)
-		}
-	}
-	previousBootID, err := loadPreviousBootID(localStore)
+	workerKey, err := ensureWorkerSigningKey(localStore, cfg.RunnerID, storedKey, foundKey)
 	if err != nil {
 		return err
 	}
-	if previousBootID != "" {
-		if _, err := worker.RecoverDurableSigned(localStore, previousBootID, workerKey); err != nil {
-			return fmt.Errorf("recover durable worker events: %w", err)
-		}
+	if err := recoverPreviousWorkerEvents(localStore, workerKey); err != nil {
+		return err
 	}
 	bootID := fmt.Sprintf("%s-%d", cfg.RunnerID, time.Now().UnixNano())
 	if err := localStore.Put("worker.boot", bootID); err != nil {
 		return fmt.Errorf("save worker boot id: %w", err)
 	}
-	var jetstream *queue.JetStream
+	jetstream, err := connectWorkerJetStream(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	jetstreamClosed := false
 	closeJetStream := func() {
-		if jetstream != nil {
+		if jetstream != nil && !jetstreamClosed {
 			jetstream.Close()
-			jetstream = nil
+			jetstreamClosed = true
 		}
 	}
 	defer closeJetStream()
-	if strings.HasPrefix(cfg.NATSURL, "tls://") {
-		jetstream, err = queue.ConnectJetStreamTLSWithContext(ctx, cfg.NATSURL, queue.TLSConfig{CertificateFile: cfg.NATSCertFile, KeyFile: cfg.NATSKeyFile, CAFile: cfg.NATSCAFile})
-	} else {
-		jetstream, err = queue.ConnectJetStreamPlainWithContext(ctx, cfg.NATSURL)
-	}
-	if err != nil {
-		return fmt.Errorf("connect to NATS JetStream: %w", err)
-	}
 	capacity := connection.Capacity
 	if capacity < 1 {
 		capacity = store.DefaultRunnerCapacity
@@ -188,11 +228,11 @@ func runWorker(ctx context.Context, stdout, stderr io.Writer, status StatusSink)
 	}
 	runtime := worker.OrderRuntime{Store: localStore, Publisher: jetstream, StartClaimer: worker.NewNATSStartClaimer(jetstream, workerKey, ed25519.PublicKey(controlPublicKey)), SecretFetcher: worker.NewNATSSecretFetcher(jetstream, workerKey, ed25519.PublicKey(controlPublicKey)), RunnerID: cfg.RunnerID, ExecutorBootID: bootID, ProcessID: int64(os.Getpid()), ControlPublicKey: ed25519.PublicKey(controlPublicKey), SigningKey: workerKey, Active: activeOrders, Executor: worker.Executor{Roots: []string{cfg.DataDir, "."}, MaxOutputBytes: cfg.MaxOutputBytes}, Writer: stdout}
 	orderSlots := make(chan struct{}, capacity)
-	consumer, err := jetstream.Consumer(ctx, "runner-"+cfg.RunnerID, queue.Subject("orders", cfg.RunnerID), capacity)
+	consumer, err := createJetStreamConsumer(jetstream, ctx, "runner-"+cfg.RunnerID, queue.Subject("orders", cfg.RunnerID), capacity)
 	if err != nil {
 		return fmt.Errorf("create order consumer: %w", err)
 	}
-	controlConsumer, err := jetstream.Consumer(ctx, "runner-control-"+cfg.RunnerID, queue.Subject("control", cfg.RunnerID), 10)
+	controlConsumer, err := createJetStreamConsumer(jetstream, ctx, "runner-control-"+cfg.RunnerID, queue.Subject("control", cfg.RunnerID), 10)
 	if err != nil {
 		return fmt.Errorf("create control consumer: %w", err)
 	}
@@ -200,35 +240,12 @@ func runWorker(ctx context.Context, stdout, stderr io.Writer, status StatusSink)
 	background.Add(1)
 	go func() {
 		defer background.Done()
-		for ctx.Err() == nil {
-			if err := jetstream.ConsumeConcurrent(ctx, consumer, func(handlerCtx context.Context, message queue.Message) error {
-				select {
-				case orderSlots <- struct{}{}:
-				case <-handlerCtx.Done():
-					return handlerCtx.Err()
-				}
-				defer func() { <-orderSlots }()
-				return runtime.Handle(handlerCtx, message)
-			}); err != nil && ctx.Err() == nil {
-				fmt.Fprintln(stderr, "runner order consumer:", err)
-				time.Sleep(time.Second)
-			}
-		}
+		runOrderConsumer(ctx, jetstream, consumer, runtime, orderSlots, stderr)
 	}()
 	background.Add(1)
 	go func() {
 		defer background.Done()
-		for ctx.Err() == nil {
-			if err := worker.PublishPendingEvents(ctx, localStore, jetstream, cfg.RunnerID); err != nil && ctx.Err() == nil {
-				fmt.Fprintln(stderr, "runner event publisher:", err)
-				time.Sleep(time.Second)
-			}
-			select {
-			case <-time.After(time.Second):
-			case <-ctx.Done():
-				return
-			}
-		}
+		runEventPublisher(ctx, localStore, jetstream, cfg.RunnerID, stderr)
 	}()
 	background.Add(1)
 	go func() {
@@ -238,14 +255,7 @@ func runWorker(ctx context.Context, stdout, stderr io.Writer, status StatusSink)
 	background.Add(1)
 	go func() {
 		defer background.Done()
-		for ctx.Err() == nil {
-			if err := jetstream.ConsumeOne(ctx, controlConsumer, func(handlerCtx context.Context, message queue.Message) error {
-				return worker.ApplyRunnerControl(handlerCtx, message, cfg.RunnerID, ed25519.PublicKey(controlPublicKey), &currentCapacity)
-			}); err != nil && ctx.Err() == nil {
-				fmt.Fprintln(stderr, "runner control consumer:", err)
-				time.Sleep(time.Second)
-			}
-		}
+		runControlConsumer(ctx, jetstream, controlConsumer, cfg.RunnerID, controlPublicKey, &currentCapacity, stderr)
 	}()
 	fmt.Fprintf(stdout, "Glyphflow worker v%s\n", backend.Version)
 	<-ctx.Done()
@@ -254,9 +264,103 @@ func runWorker(ctx context.Context, stdout, stderr io.Writer, status StatusSink)
 	return nil
 }
 
+func ensureWorkerSigningKey(localStore *worker.LocalStore, runnerID string, storedKey protocol.SigningKey, foundKey bool) (protocol.SigningKey, error) {
+	workerKey := storedKey
+	if !foundKey || workerKey.ID != runnerKeyPrefix+runnerID || time.Now().UTC().After(workerKey.Public.NotAfter) {
+		var err error
+		workerKey, err = protocol.GenerateSigningKey(runnerKeyPrefix+runnerID, time.Now().UTC(), 365*24*time.Hour)
+		if err != nil {
+			return protocol.SigningKey{}, fmt.Errorf("generate worker signing key: %w", err)
+		}
+		if err := localStore.SaveSigningKey(workerKey); err != nil {
+			return protocol.SigningKey{}, fmt.Errorf("save worker signing key: %w", err)
+		}
+	}
+	return workerKey, nil
+}
+
+func recoverPreviousWorkerEvents(localStore *worker.LocalStore, workerKey protocol.SigningKey) error {
+	previousBootID, err := loadPreviousBootID(localStore)
+	if err != nil {
+		return err
+	}
+	if previousBootID == "" {
+		return nil
+	}
+	if _, err := worker.RecoverDurableSigned(localStore, previousBootID, workerKey); err != nil {
+		return fmt.Errorf("recover durable worker events: %w", err)
+	}
+	return nil
+}
+
+func connectWorkerJetStream(ctx context.Context, cfg config.Config) (*queue.JetStream, error) {
+	var jetstream *queue.JetStream
+	var err error
+	if strings.HasPrefix(cfg.NATSURL, "tls://") {
+		jetstream, err = connectJetStreamTLS(ctx, cfg.NATSURL, queue.TLSConfig{CertificateFile: cfg.NATSCertFile, KeyFile: cfg.NATSKeyFile, CAFile: cfg.NATSCAFile})
+	} else {
+		jetstream, err = connectJetStreamPlain(ctx, cfg.NATSURL)
+	}
+	if err != nil {
+		if jetstream != nil {
+			jetstream.Close()
+		}
+		return nil, fmt.Errorf("connect to NATS JetStream: %w", err)
+	}
+	return jetstream, nil
+}
+
+func runOrderConsumer(ctx context.Context, jetstream *queue.JetStream, consumer jetstream.Consumer, runtime worker.OrderRuntime, orderSlots chan struct{}, stderr io.Writer) {
+	for ctx.Err() == nil {
+		if err := jetstream.ConsumeConcurrent(ctx, consumer, func(handlerCtx context.Context, message queue.Message) error {
+			select {
+			case orderSlots <- struct{}{}:
+			case <-handlerCtx.Done():
+				return handlerCtx.Err()
+			}
+			defer func() { <-orderSlots }()
+			return runtime.Handle(handlerCtx, message)
+		}); err != nil && ctx.Err() == nil {
+			fmt.Fprintln(stderr, "runner order consumer:", err)
+			time.Sleep(time.Second)
+		}
+	}
+}
+
+func runEventPublisher(ctx context.Context, localStore *worker.LocalStore, jetstream *queue.JetStream, runnerID string, stderr io.Writer) {
+	for ctx.Err() == nil {
+		if err := worker.PublishPendingEvents(ctx, localStore, jetstream, runnerID); err != nil && ctx.Err() == nil {
+			fmt.Fprintln(stderr, "runner event publisher:", err)
+			time.Sleep(time.Second)
+		}
+		select {
+		case <-time.After(time.Second):
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func runControlConsumer(ctx context.Context, jetstream *queue.JetStream, consumer jetstream.Consumer, runnerID string, controlPublicKey []byte, currentCapacity *atomic.Int64, stderr io.Writer) {
+	for ctx.Err() == nil {
+		if err := jetstream.ConsumeOne(ctx, consumer, func(handlerCtx context.Context, message queue.Message) error {
+			return worker.ApplyRunnerControl(handlerCtx, message, runnerID, ed25519.PublicKey(controlPublicKey), currentCapacity)
+		}); err != nil && ctx.Err() == nil {
+			fmt.Fprintln(stderr, "runner control consumer:", err)
+			time.Sleep(time.Second)
+		}
+	}
+}
+
 var setenv = os.Setenv
 
 var closeWorkerStore = func(localStore *worker.LocalStore) { _ = localStore.Close() }
+var loadEmbeddedBootstrap = worker.LoadEmbeddedBootstrap
+var connectJetStreamTLS = queue.ConnectJetStreamTLSWithContext
+var connectJetStreamPlain = queue.ConnectJetStreamPlainWithContext
+var createJetStreamConsumer = func(j *queue.JetStream, ctx context.Context, durable, subject string, maxPending int) (jetstream.Consumer, error) {
+	return j.Consumer(ctx, durable, subject, maxPending)
+}
 
 func setWorkerEnv(name, value string) error {
 	if err := setenv(name, value); err != nil {
@@ -403,5 +507,5 @@ func workerHeartbeat(ctx context.Context, jetstream *queue.JetStream, runnerID, 
 }
 
 func needsRunnerEnrollment(bootstrap *worker.Bootstrap, connectionFound, keyFound bool, key protocol.SigningKey) bool {
-	return bootstrap != nil && (!connectionFound || !keyFound || key.ID != "runner:"+bootstrap.RunnerID || time.Now().UTC().After(key.Public.NotAfter))
+	return bootstrap != nil && (!connectionFound || !keyFound || key.ID != runnerKeyPrefix+bootstrap.RunnerID || time.Now().UTC().After(key.Public.NotAfter))
 }
