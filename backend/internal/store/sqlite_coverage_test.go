@@ -614,7 +614,7 @@ func TestSQLiteAdapterCoverage(t *testing.T) {
 	}
 }
 
-func TestSQLiteConfigPressureAndRunLifecycleCoverage(t *testing.T) {
+func TestSQLiteConfigAndPressureCoverage(t *testing.T) {
 	ctx := context.Background()
 	db := coverageSQLite(t)
 	roles := NewRoleRepository(db)
@@ -652,7 +652,11 @@ func TestSQLiteConfigPressureAndRunLifecycleCoverage(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+}
 
+func TestSQLiteRunLifecycleCoverage(t *testing.T) {
+	ctx := context.Background()
+	db := coverageSQLite(t)
 	runners := NewRunnerRepository(db)
 	if err := runners.EnsurePool(ctx, "pool-lifecycle", "Lifecycle"); err != nil {
 		t.Fatal(err)
