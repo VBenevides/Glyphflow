@@ -1645,6 +1645,11 @@ func (r *coverageSessionRepository) Active(context.Context, string, string) (boo
 
 func TestCoverageDurableAuthTokenBranches(t *testing.T) {
 	repository := &coverageSessionRepository{session: store.SessionRecord{ID: "session-1", UserID: "user-1", RefreshExpiresAt: time.Now().Add(time.Hour)}, found: true}
+	testCoverageDurableAuthTokenSuccess(t, repository)
+	testCoverageDurableAuthTokenFailures(t, repository.session)
+}
+
+func testCoverageDurableAuthTokenSuccess(t *testing.T, repository *coverageSessionRepository) {
 	auth, err := NewAuthService(strings.Repeat("x", 32), true, true, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -1660,7 +1665,9 @@ func TestCoverageDurableAuthTokenBranches(t *testing.T) {
 	if err != nil || rotated.SessionID == "" || rotated.SessionID == "session-1" {
 		t.Fatalf("durable refresh = %#v, %v", rotated, err)
 	}
+}
 
+func testCoverageDurableAuthTokenFailures(t *testing.T, session store.SessionRecord) {
 	for _, test := range []struct {
 		name string
 		repo coverageSessionRepository
@@ -1669,8 +1676,8 @@ func TestCoverageDurableAuthTokenBranches(t *testing.T) {
 		{"issue error", coverageSessionRepository{createErr: errors.New("down")}, func(s *AuthService) error { _, err := s.issueTokens("user-1"); return err }},
 		{"refresh get error", coverageSessionRepository{getErr: errors.New("down")}, func(s *AuthService) error { _, err := s.Refresh("session-1", "refresh-token"); return err }},
 		{"refresh missing", coverageSessionRepository{}, func(s *AuthService) error { _, err := s.Refresh("session-1", "refresh-token"); return err }},
-		{"refresh rotate error", coverageSessionRepository{session: repository.session, found: true, rotateErr: errors.New("down")}, func(s *AuthService) error { _, err := s.Refresh("session-1", "refresh-token"); return err }},
-		{"refresh replay", coverageSessionRepository{session: repository.session, found: true, rotateErr: store.ErrSessionReplay}, func(s *AuthService) error { _, err := s.Refresh("session-1", "refresh-token"); return err }},
+		{"refresh rotate error", coverageSessionRepository{session: session, found: true, rotateErr: errors.New("down")}, func(s *AuthService) error { _, err := s.Refresh("session-1", "refresh-token"); return err }},
+		{"refresh replay", coverageSessionRepository{session: session, found: true, rotateErr: store.ErrSessionReplay}, func(s *AuthService) error { _, err := s.Refresh("session-1", "refresh-token"); return err }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			service, err := NewAuthService(strings.Repeat("x", 32), true, true, nil)
