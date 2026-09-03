@@ -946,6 +946,10 @@ func TestRunClaimStartBranches(t *testing.T) {
 		}
 		return &RunStore{pool: coverageDatabase{tx: tx}}
 	}
+	testRunClaimStartResults(t, ctx, input, valid, scan, future)
+}
+
+func testRunClaimStartResults(t *testing.T, ctx context.Context, input StartClaimInput, valid func(coverageTx) *RunStore, scan func(string, string, string, string, string, string, int64, time.Time, time.Time) coverageScanner, future time.Time) {
 	if _, claimed, err := (&RunStore{pool: coverageDatabase{beginErr: errors.New("begin")}}).ClaimStart(ctx, input); err == nil || claimed {
 		t.Fatal("begin failure was ignored")
 	}
