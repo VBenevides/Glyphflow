@@ -18,6 +18,7 @@ import (
 const (
 	logFlushInterval      = 10 * time.Second
 	maxEventLogChunkBytes = 64 * 1024
+	controlPlaneKeyID     = "control-plane"
 )
 
 type OrderRuntime struct {
@@ -103,7 +104,7 @@ func (r OrderRuntime) Handle(ctx context.Context, message queue.Message) error {
 	if err != nil {
 		return err
 	}
-	keyring := protocol.Keyring{"control-plane": {ID: "control-plane", PublicKey: r.ControlPublicKey}}
+	keyring := protocol.Keyring{controlPlaneKeyID: {ID: controlPlaneKeyID, PublicKey: r.ControlPublicKey}}
 	if err := keyring.VerifyAt(envelope, protocol.OrderSignatureDomain, time.Now().UTC()); err != nil {
 		return err
 	}
@@ -160,7 +161,7 @@ func (r OrderRuntime) handleExecution(ctx context.Context, message queue.Message
 		}
 		return err
 	}
-	payload, err = r.Store.AcceptOrder(message.Data, protocol.Keyring{"control-plane": {ID: "control-plane", PublicKey: r.ControlPublicKey}}, time.Now().UTC(), r.RunnerID, order.RunID, order.Attempt, order.LeaseToken, time.Second)
+	payload, err = r.Store.AcceptOrder(message.Data, protocol.Keyring{controlPlaneKeyID: {ID: controlPlaneKeyID, PublicKey: r.ControlPublicKey}}, time.Now().UTC(), r.RunnerID, order.RunID, order.Attempt, order.LeaseToken, time.Second)
 	if err != nil {
 		return err
 	}
