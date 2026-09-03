@@ -1562,38 +1562,39 @@ func TestTaskSerializationAndReferenceBranches(t *testing.T) {
 }
 
 func testTaskSerializationBranches(t *testing.T) {
-	makeTaskScan := func(invalid int) coverageScanner {
-		return func(dest ...any) error {
-			for index, value := range dest {
-				switch value := value.(type) {
-				case *string:
-					*value = "value"
-				case *bool:
-					*value = true
-				case *int:
-					*value = 1
-				case *int64:
-					*value = 1
-				case *[]byte:
-					*value = []byte(`{}`)
-				case **int:
-					*value = nil
-				case *time.Time:
-					*value = time.Now().UTC()
-				}
-				if index == invalid {
-					if value, ok := value.(*[]byte); ok {
-						*value = []byte("invalid")
-					}
-				}
-			}
-			return nil
-		}
-	}
 	for _, index := range []int{7, 9, 10, 11, 17} {
 		if _, err := scanTask(makeTaskScan(index)); err == nil {
 			t.Fatalf("invalid task JSON at scan index %d was accepted", index)
 		}
+	}
+}
+
+func makeTaskScan(invalid int) coverageScanner {
+	return func(dest ...any) error {
+		for index, value := range dest {
+			switch value := value.(type) {
+			case *string:
+				*value = "value"
+			case *bool:
+				*value = true
+			case *int:
+				*value = 1
+			case *int64:
+				*value = 1
+			case *[]byte:
+				*value = []byte(`{}`)
+			case **int:
+				*value = nil
+			case *time.Time:
+				*value = time.Now().UTC()
+			}
+			if index == invalid {
+				if value, ok := value.(*[]byte); ok {
+					*value = []byte("invalid")
+				}
+			}
+		}
+		return nil
 	}
 }
 
