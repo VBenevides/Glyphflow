@@ -349,7 +349,7 @@ func (s Server) registerPathRoutes(mux *trackedMux) {
 		})))
 	}
 	mux.Handle("/api/v1/runs/execute", s.require("runs.execute", http.HandlerFunc(s.Runs.execute)))
-	for path, permission := range map[string]string{"/api/v1/runs/retry": "runs.retry", "/api/v1/runs/cancel": permissionRunsCancel} {
+	for path, permission := range map[string]string{"/api/v1/runs/retry": permissionRunsRetry, "/api/v1/runs/cancel": permissionRunsCancel} {
 		mux.Handle(path, s.require(permission, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			writeJSON(w, http.StatusGone, map[string]string{"error": "endpoint is deprecated; use /api/v1/runs/{run_id}/retry or /cancel"})
 		})))
@@ -937,7 +937,7 @@ func (s Server) effectivePermissions(claims Claims) map[string]bool {
 }
 
 func hasPermission(permissions map[string]bool, required string) bool {
-	aliases := map[string]string{"task.read": "tasks.read", "task.create": permissionTaskManage, "task.manage": permissionTaskManage, "run.read": "runs.read", "run.cancel": permissionRunsCancel, "run.retry": "runs.retry", "runner.read": "runners.read", "event.read": permissionLogsRead}
+	aliases := map[string]string{"task.read": "tasks.read", "task.create": permissionTaskManage, "task.manage": permissionTaskManage, "run.read": "runs.read", "run.cancel": permissionRunsCancel, "run.retry": permissionRunsRetry, "runner.read": "runners.read", "event.read": permissionLogsRead}
 	for _, candidate := range strings.Split(required, "|") {
 		if permissions[candidate] || permissions[aliases[candidate]] {
 			return true
