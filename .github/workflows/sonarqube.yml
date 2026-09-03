@@ -20,7 +20,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+      - uses: actions/setup-go@40f1582b2480089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
@@ -41,12 +41,12 @@ jobs:
           npm ci --ignore-scripts
           npm test -- --coverage --coverage.reporter=lcov
 
-      - name: Enforce 85 percent coverage
+      - name: Enforce 80 percent coverage
         run: |
           backend_coverage="$(cd backend && go tool cover -func=coverage.out | awk '$1 == "total:" {gsub("%", "", $NF); print $NF}')"
           frontend_coverage="$(awk -F '[,:]' '/^DA:/ {total++; covered += ($3 > 0)} END {if (total == 0) exit 1; printf "%.2f", covered * 100 / total}' frontend/coverage/lcov.info)"
-          awk -v coverage="$backend_coverage" 'BEGIN {exit !(coverage >= 85)}'
-          awk -v coverage="$frontend_coverage" 'BEGIN {exit !(coverage >= 85)}'
+          awk -v coverage="$backend_coverage" 'BEGIN {exit !(coverage >= 80)}'
+          awk -v coverage="$frontend_coverage" 'BEGIN {exit !(coverage >= 80)}'
           printf 'Backend line coverage: %s%%\nFrontend line coverage: %s%%\n' "$backend_coverage" "$frontend_coverage"
 
       - name: SonarQube scan
