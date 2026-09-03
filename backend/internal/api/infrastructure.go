@@ -257,68 +257,77 @@ func (s *InfrastructureService) poolPath(w http.ResponseWriter, r *http.Request)
 	s.mu.RLock()
 	repository := s.runnerRepository
 	s.mu.RUnlock()
-	if r.Method == http.MethodGet {
-		if repository != nil {
-			item, found, err := repository.FindPool(r.Context(), id)
-			if err != nil {
-				writeError(w, http.StatusServiceUnavailable, "runner pool storage unavailable", err)
-			} else if !found {
-				writeJSON(w, http.StatusNotFound, map[string]string{"error": errorRunnerPoolNotFound})
-			} else {
-				writeJSON(w, http.StatusOK, runnerPoolRecordFromStore(item))
-			}
-			return
-		}
-		s.mu.RLock()
-		item, found := s.pools[id]
-		s.mu.RUnlock()
-		if !found {
+	switch r.Method {
+	case http.MethodGet:
+		s.poolGet(w, r, id, repository)
+	case http.MethodDelete:
+		s.poolDelete(w, r, id, repository)
+	case http.MethodPut:
+		s.poolUpdate(w, r, id, repository)
+	default:
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
+	}
+}
+
+func (s *InfrastructureService) poolGet(w http.ResponseWriter, r *http.Request, id string, repository store.RunnerRepository) {
+	if repository != nil {
+		item, found, err := repository.FindPool(r.Context(), id)
+		if err != nil {
+			writeError(w, http.StatusServiceUnavailable, "runner pool storage unavailable", err)
+		} else if !found {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": errorRunnerPoolNotFound})
-			return
+		} else {
+			writeJSON(w, http.StatusOK, runnerPoolRecordFromStore(item))
 		}
-		writeJSON(w, http.StatusOK, item)
 		return
 	}
-	if r.Method == http.MethodDelete {
-		if repository != nil {
-			if err := repository.DeletePool(r.Context(), id); err != nil {
-				if errors.Is(err, store.ErrRunnerPoolInUse) || errors.Is(err, store.ErrRunnerPoolHasTaskVersions) {
-					writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
-					return
-				}
-				writeError(w, http.StatusConflict, "runner pool deletion failed", err)
+	s.mu.RLock()
+	item, found := s.pools[id]
+	s.mu.RUnlock()
+	if !found {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": errorRunnerPoolNotFound})
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *InfrastructureService) poolDelete(w http.ResponseWriter, r *http.Request, id string, repository store.RunnerRepository) {
+	if repository != nil {
+		if err := repository.DeletePool(r.Context(), id); err != nil {
+			if errors.Is(err, store.ErrRunnerPoolInUse) || errors.Is(err, store.ErrRunnerPoolHasTaskVersions) {
+				writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 				return
 			}
-			w.WriteHeader(http.StatusNoContent)
+			writeError(w, http.StatusConflict, "runner pool deletion failed", err)
 			return
 		}
-		s.mu.Lock()
-		if _, found := s.pools[id]; !found {
-			s.mu.Unlock()
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": errorRunnerPoolNotFound})
-			return
-		}
-		for runnerID, runner := range s.runners {
-			if runner.PoolID != id {
-				continue
-			}
-			if !runner.IsArchived && !runner.IsDeleted {
-				s.mu.Unlock()
-				writeJSON(w, http.StatusConflict, map[string]string{"error": store.ErrRunnerPoolInUse.Error()})
-				return
-			}
-			runner.PoolID, runner.Pool = "", ""
-			s.runners[runnerID] = runner
-		}
-		delete(s.pools, id)
-		s.mu.Unlock()
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	if r.Method != http.MethodPut {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": errorMethodNotAllowed})
+	s.mu.Lock()
+	if _, found := s.pools[id]; !found {
+		s.mu.Unlock()
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": errorRunnerPoolNotFound})
 		return
 	}
+	for runnerID, runner := range s.runners {
+		if runner.PoolID != id {
+			continue
+		}
+		if !runner.IsArchived && !runner.IsDeleted {
+			s.mu.Unlock()
+			writeJSON(w, http.StatusConflict, map[string]string{"error": store.ErrRunnerPoolInUse.Error()})
+			return
+		}
+		runner.PoolID, runner.Pool = "", ""
+		s.runners[runnerID] = runner
+	}
+	delete(s.pools, id)
+	s.mu.Unlock()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *InfrastructureService) poolUpdate(w http.ResponseWriter, r *http.Request, id string, repository store.RunnerRepository) {
 	var input struct {
 		Name        string `json:"name"`
 		Description string `json:"description"`
