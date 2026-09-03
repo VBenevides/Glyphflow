@@ -13,7 +13,7 @@ type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button({ variant = 'primary', busy = false, disabled, children, className, title, ...props }, ref) {
   const tooltip = title ?? props['aria-label'] ?? (Children.toArray(children).filter((child) => typeof child === 'string' || typeof child === 'number').join(' ').trim() || undefined)
   return (
-    <button ref={ref} {...props} title={tooltip} className={`gf-button gf-button-${variant}${className ? ` ${className}` : ''}`} disabled={disabled || busy} aria-busy={busy || undefined}>
+    <button ref={ref} {...props} title={tooltip} className={'gf-button gf-button-' + variant + (className ? ' ' + className : '')} disabled={disabled || busy} aria-busy={busy || undefined}>
       {busy ? 'Working…' : children}
     </button>
   )
@@ -21,7 +21,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input(props, ref) {
   const { className, ...inputProps } = props
-  return <input ref={ref} {...inputProps} className={`gf-input${className ? ` ${className}` : ''}`} />
+  return <input ref={ref} {...inputProps} className={'gf-input' + (className ? ' ' + className : '')} />
 })
 
 export function matchingFilterOptions(options: readonly string[], value: string) {
@@ -50,7 +50,7 @@ export function Identifier({ id, name, href, className, linkClassName, copyLabel
   const compact = compactIdentifier(id)
   const label = name ? `${name} · ${compact}` : compact
   const content = href ? <Link className={linkClassName} to={href} title={id}>{label}</Link> : <span title={id}>{label}</span>
-  return <span className={`gf-identifier${className ? ` ${className}` : ''}`}>{content}<Button variant="ghost" className="gf-identifier-copy" aria-label={copyLabel} onClick={() => { void navigator.clipboard?.writeText(id).catch(() => undefined) }}><Copy size={15} aria-hidden="true" /></Button></span>
+  return <span className={'gf-identifier' + (className ? ' ' + className : '')}>{content}<Button variant="ghost" className="gf-identifier-copy" aria-label={copyLabel} onClick={() => { void navigator.clipboard?.writeText(id).catch(() => undefined) }}><Copy size={15} aria-hidden="true" /></Button></span>
 }
 
 export function FieldLabel({ children, info, htmlFor }: { children: ReactNode; info?: string; htmlFor?: string }) {
@@ -59,12 +59,12 @@ export function FieldLabel({ children, info, htmlFor }: { children: ReactNode; i
 
 export function Dialog({ open, title, children, onClose, className }: { open: boolean; title: string; children: ReactNode; onClose: () => void; className?: string }) {
   const titleId = useId()
-  return <DialogPrimitive.Root open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose() }}><DialogPrimitive.Portal><DialogPrimitive.Overlay className="gf-dialog-backdrop" /><DialogPrimitive.Content aria-modal="true" aria-labelledby={titleId} className={`gf-dialog${className ? ` ${className}` : ''}`}><div className="gf-dialog-header"><DialogPrimitive.Title asChild><h2 id={titleId}>{title}</h2></DialogPrimitive.Title><DialogPrimitive.Close asChild><Button className="gf-dialog-close" variant="ghost" aria-label="Close dialog">×</Button></DialogPrimitive.Close></div><div className="gf-dialog-body">{children}</div></DialogPrimitive.Content></DialogPrimitive.Portal></DialogPrimitive.Root>
+  return <DialogPrimitive.Root open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose() }}><DialogPrimitive.Portal><DialogPrimitive.Overlay className="gf-dialog-backdrop" /><DialogPrimitive.Content aria-modal="true" aria-labelledby={titleId} className={'gf-dialog' + (className ? ' ' + className : '')}><div className="gf-dialog-header"><DialogPrimitive.Title asChild><h2 id={titleId}>{title}</h2></DialogPrimitive.Title><DialogPrimitive.Close asChild><Button className="gf-dialog-close" variant="ghost" aria-label="Close dialog">×</Button></DialogPrimitive.Close></div><div className="gf-dialog-body">{children}</div></DialogPrimitive.Content></DialogPrimitive.Portal></DialogPrimitive.Root>
 }
 
 export function StatusPill({ status }: { status: string }) {
   const normalized = status.toLowerCase().replace(/[^a-z0-9]+/g, '-')
-  return <span className={`gf-status gf-status-${normalized}`}>{status}</span>
+  return <span className={'gf-status gf-status-' + normalized}>{status}</span>
 }
 
 export function PageHeader({ title, description, action, meta, refresh }: { title: string; description?: string; action?: ReactNode; meta?: ReactNode; refresh?: ReactNode }) {
@@ -74,15 +74,15 @@ export function PageHeader({ title, description, action, meta, refresh }: { titl
 export const Tabs = TabsPrimitive.Root
 
 export const TabsList = forwardRef<ElementRef<typeof TabsPrimitive.List>, ComponentPropsWithoutRef<typeof TabsPrimitive.List>>(function TabsList({ className, ...props }, ref) {
-  return <TabsPrimitive.List ref={ref} className={`gf-tabs-list${className ? ` ${className}` : ''}`} {...props} />
+  return <TabsPrimitive.List ref={ref} className={'gf-tabs-list' + (className ? ' ' + className : '')} {...props} />
 })
 
 export const TabsTrigger = forwardRef<ElementRef<typeof TabsPrimitive.Trigger>, ComponentPropsWithoutRef<typeof TabsPrimitive.Trigger>>(function TabsTrigger({ className, ...props }, ref) {
-  return <TabsPrimitive.Trigger ref={ref} className={`gf-tabs-trigger${className ? ` ${className}` : ''}`} {...props} />
+  return <TabsPrimitive.Trigger ref={ref} className={'gf-tabs-trigger' + (className ? ' ' + className : '')} {...props} />
 })
 
 export const TabsContent = forwardRef<ElementRef<typeof TabsPrimitive.Content>, ComponentPropsWithoutRef<typeof TabsPrimitive.Content>>(function TabsContent({ className, ...props }, ref) {
-  return <TabsPrimitive.Content ref={ref} className={`gf-tabs-content${className ? ` ${className}` : ''}`} {...props} />
+  return <TabsPrimitive.Content ref={ref} className={'gf-tabs-content' + (className ? ' ' + className : '')} {...props} />
 })
 
 export const DropdownMenu = DropdownMenuPrimitive.Root
@@ -90,15 +90,15 @@ export const DropdownMenuPortal = DropdownMenuPrimitive.Portal
 export const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger
 
 export const DropdownMenuContent = forwardRef<ElementRef<typeof DropdownMenuPrimitive.Content>, ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content>>(function DropdownMenuContent({ className, ...props }, ref) {
-  return <DropdownMenuPrimitive.Content ref={ref} className={`gf-dropdown-content${className ? ` ${className}` : ''}`} {...props} />
+  return <DropdownMenuPrimitive.Content ref={ref} className={'gf-dropdown-content' + (className ? ' ' + className : '')} {...props} />
 })
 
 export const DropdownMenuItem = forwardRef<ElementRef<typeof DropdownMenuPrimitive.Item>, ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Item>>(function DropdownMenuItem({ className, ...props }, ref) {
-  return <DropdownMenuPrimitive.Item ref={ref} className={`gf-dropdown-item${className ? ` ${className}` : ''}`} {...props} />
+  return <DropdownMenuPrimitive.Item ref={ref} className={'gf-dropdown-item' + (className ? ' ' + className : '')} {...props} />
 })
 
 export const DropdownMenuSeparator = forwardRef<ElementRef<typeof DropdownMenuPrimitive.Separator>, ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Separator>>(function DropdownMenuSeparator({ className, ...props }, ref) {
-  return <DropdownMenuPrimitive.Separator ref={ref} className={`gf-dropdown-separator${className ? ` ${className}` : ''}`} {...props} />
+  return <DropdownMenuPrimitive.Separator ref={ref} className={'gf-dropdown-separator' + (className ? ' ' + className : '')} {...props} />
 })
 
 export function TableActions({ label = 'Actions', children }: { label?: string; children: ReactNode }) {
@@ -108,7 +108,7 @@ export function TableActions({ label = 'Actions', children }: { label?: string; 
 export type MetricTone = 'default' | 'success' | 'warning' | 'danger' | 'info'
 
 export function MetricCard({ label, value, detail, icon: Icon, tone = 'default' }: { label: string; value: ReactNode; detail?: ReactNode; icon: ComponentType<{ className?: string; size?: string | number }>; tone?: MetricTone }) {
-  return <section className={`gf-metric gf-metric-${tone}`}><div className="gf-metric-heading"><span>{label}</span><span className="gf-metric-icon" aria-hidden="true"><Icon size={16} /></span></div><strong>{value}</strong>{detail && <small>{detail}</small>}</section>
+  return <section className={'gf-metric gf-metric-' + tone}><div className="gf-metric-heading"><span>{label}</span><span className="gf-metric-icon" aria-hidden="true"><Icon size={16} /></span></div><strong>{value}</strong>{detail && <small>{detail}</small>}</section>
 }
 
 export type Column<T> = { key: string; label: string; className?: string; render?: (row: T) => ReactNode }
@@ -116,7 +116,7 @@ export type Column<T> = { key: string; label: string; className?: string; render
 export function DataTable<T extends { id?: string | number }>({ columns, rows, caption, className }: { columns: Column<T>[]; rows: T[]; caption: string; className?: string }) {
   return (
     <div className="gf-table-wrap">
-      <table className={`gf-table${className ? ` ${className}` : ''}`}>
+      <table className={'gf-table' + (className ? ' ' + className : '')}>
         <caption className="gf-visually-hidden">{caption}</caption>
         <thead><tr>{columns.map((column) => <th className={column.className} key={column.key} scope="col">{column.label}</th>)}</tr></thead>
         <tbody>{rows.map((row, index) => <tr key={row.id ?? index}>{columns.map((column) => { const value = (row as Record<string, unknown>)[column.key]; return <td className={column.className} key={column.key}>{column.render ? column.render(row) : value === undefined || value === null ? '—' : typeof value === 'object' ? JSON.stringify(value) ?? '—' : value.toString()}</td> })}</tr>)}</tbody>

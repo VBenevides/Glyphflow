@@ -24,6 +24,11 @@ function AuthFrame({ title, children }: { title: string; children: React.ReactNo
   return <main className="gf-auth-page"><section className="gf-auth-card"><BrandMark /><p className="gf-brand-name">Glyphflow</p><h1>{title}</h1>{children}</section></main>
 }
 
+function oidcLoginUrl(provider: string, redirect: string) {
+  const callback = window.location.origin + '/auth/oidc/callback'
+  return `/api/v1/auth/oidc/login?provider=${encodeURIComponent(provider)}&redirect_uri=${encodeURIComponent(callback)}&redirect=${encodeURIComponent(redirect)}`
+}
+
 export function LoginPage() {
   const { config, restore } = useAuth()
   const navigate = useNavigate()
@@ -61,7 +66,7 @@ export function LoginPage() {
     {!methods.length && <p className="gf-form-error" role="alert">No sign-in methods are configured. Contact an administrator.</p>}
     {error && <p className="gf-form-error" role="alert">{error}</p>}
     {config.registration && config.passwordLogin && <Button type="button" variant="ghost" onClick={() => navigate(`/register?redirect=${encodeURIComponent(redirect)}`)}>Create an account</Button>}
-    {config.oidc && <div className="gf-provider-list"><h2>Single sign-on</h2>{providersError && <p className="gf-form-error" role="alert">{providersError}</p>}{!providersError && !providers.length && <LoadingState label="Loading providers" />}{providers.map((provider) => <Button key={provider.key} type="button" variant="secondary" onClick={() => { window.location.assign(`/api/v1/auth/oidc/login?provider=${encodeURIComponent(provider.key)}&redirect_uri=${encodeURIComponent(`${window.location.origin}/auth/oidc/callback`)}&redirect=${encodeURIComponent(redirect)}`) }}><LogIn size={16} aria-hidden="true" /> Continue with {provider.name ?? provider.key}</Button>)}</div>}
+    {config.oidc && <div className="gf-provider-list"><h2>Single sign-on</h2>{providersError && <p className="gf-form-error" role="alert">{providersError}</p>}{!providersError && !providers.length && <LoadingState label="Loading providers" />}{providers.map((provider) => <Button key={provider.key} type="button" variant="secondary" onClick={() => { window.location.assign(oidcLoginUrl(provider.key, redirect)) }}><LogIn size={16} aria-hidden="true" /> Continue with {provider.name ?? provider.key}</Button>)}</div>}
   </form></AuthFrame>
 }
 

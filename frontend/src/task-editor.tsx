@@ -117,6 +117,10 @@ function payload(draft: TaskDraft) {
 	return { name: draft.name.trim(), command: commandArguments(draft.command), working_directory: draft.workingDirectory, runner_pool: draft.pool.trim(), pinned_runner: draft.pinnedRunner.trim(), placement_selectors: keyValueObject(draft.selectors, true), environment: environmentObject(draft.environment), secret_references: secretObject(draft.secrets), resources: draft.resources.map((resource) => resource.trim()).filter(Boolean), duration_seconds: Number(draft.durationSeconds), max_attempts: Number(draft.maxAttempts), ambiguity_policy: draft.ambiguityPolicy }
 }
 
+function errorWithCorrelation(error: { message: string; correlationId?: string }) {
+	return error.correlationId ? `${error.message} (${error.correlationId})` : error.message
+}
+
 function KeyValueEditor({ legend, info, rows, errors, onChange, onAdd, onRemove, valueLabel }: { legend: string; info?: string; rows: KeyValueEntry[]; errors: Record<string, string>; onChange: (index: number, field: keyof KeyValueEntry, value: string) => void; onAdd: () => void; onRemove: (index: number) => void; valueLabel: string }) {
   return <fieldset><legend>{legend} {info && <InfoTooltip text={info} />}</legend><div className="gf-table-wrap"><table className="gf-table"><caption className="gf-sr-only">{legend}</caption><thead><tr><th scope="col">Name</th><th scope="col">{valueLabel}</th><th scope="col"><span className="gf-sr-only">Actions</span></th></tr></thead><tbody>{rows.map((entry, index) => <tr key={index}><td><Input aria-label={`${legend} name ${index + 1}`} value={entry.name} onChange={(event) => onChange(index, 'name', event.target.value)} aria-invalid={Boolean(errors[`selectors.${index}.name`])} />{<FieldError message={errors[`selectors.${index}.name`]} />}</td><td><Input aria-label={`${legend} value ${index + 1}`} value={entry.value} onChange={(event) => onChange(index, 'value', event.target.value)} /></td><td><Button type="button" variant="ghost" onClick={() => onRemove(index)}>Remove</Button></td></tr>)}</tbody></table></div><Button type="button" variant="secondary" onClick={onAdd}>Add row</Button></fieldset>
 }
@@ -183,7 +187,7 @@ export function TaskEditorPage({ editTaskId, inDialog = false, onClose, onSaved 
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length) return
     setBusy(true); setSaveError('')
-    try { await api.post(taskId ? `/api/v1/tasks/${encodeURIComponent(taskId)}/versions` : '/api/v1/tasks', payload(draft)); if (onSaved) await onSaved(); else navigate(taskId ? `/tasks/${encodeURIComponent(taskId)}` : '/tasks') } catch (cause) { const error = describeError(cause); setSaveError(`${error.message}${error.correlationId ? ` (${error.correlationId})` : ''}`); if (cause instanceof ApiError && cause.status === 422) setErrors(error.fields) } finally { setBusy(false) }
+	try { await api.post(taskId ? `/api/v1/tasks/${encodeURIComponent(taskId)}/versions` : '/api/v1/tasks', payload(draft)); if (onSaved) await onSaved(); else navigate(taskId ? `/tasks/${encodeURIComponent(taskId)}` : '/tasks') } catch (cause) { const error = describeError(cause); setSaveError(errorWithCorrelation(error)); if (cause instanceof ApiError && cause.status === 422) setErrors(error.fields) } finally { setBusy(false) }
   }
   if (!permissions.includes('tasks.manage')) return <main className="gf-content"><h1>Access denied</h1></main>
   const runners = (runnersQuery.data?.items ?? []).filter((runner) => runner.poolId === draft.pool || runner.pool === draft.pool)

@@ -35,7 +35,7 @@ export function QueryRefresh<T>({ query }: { query: UseQueryResult<T> | UseQuery
 
 export function QueryState<T>({ query, children, empty = 'Nothing to show yet.' }: { query: UseQueryResult<T>; children: (data: T) => ReactNode; empty?: string }) {
   if (query.isPending) return <LoadingState />
-  if (query.isError && query.data === undefined) { const error = describeError(query.error); return <ErrorState title={error.title} message={`${error.message}${error.correlationId ? ` (Correlation ID: ${error.correlationId})` : ''}`} onRetry={error.retryable ? () => query.refetch() : undefined} /> }
+  if (query.isError && query.data === undefined) { const error = describeError(query.error); const message = error.correlationId ? `${error.message} (Correlation ID: ${error.correlationId})` : error.message; return <ErrorState title={error.title} message={message} onRetry={error.retryable ? () => query.refetch() : undefined} /> }
   if (query.data == null || (Array.isArray(query.data) && query.data.length === 0)) return <EmptyState title="No results">{empty}</EmptyState>
   return <>{children(query.data)}</>
 }
