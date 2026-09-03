@@ -247,16 +247,8 @@ func (c Config) validateControlPlane(databaseMode, natsMode string) error {
 }
 
 func (c Config) validateControlPlaneSecurity(natsMode string) error {
-	if err := requireURL("WEB_ORIGIN", c.WebOrigin, "http", "https"); err != nil {
+	if err := c.validateControlPlaneTransport(natsMode); err != nil {
 		return err
-	}
-	if !c.AllowInsecureTransport || (c.Environment != "local" && c.Environment != "development") {
-		if err := requireURL("WEB_ORIGIN", c.WebOrigin, "https"); err != nil {
-			return err
-		}
-		if natsMode != "remote" || !strings.HasPrefix(c.NATSURL, "tls://") {
-			return errors.New("NATS_URL must use TLS outside development")
-		}
 	}
 	if c.Environment != "development" && c.ControlPlaneSigningPrivateKey == "" {
 		return errors.New("CONTROL_PLANE_SIGNING_PRIVATE_KEY is required outside development")
@@ -272,6 +264,22 @@ func (c Config) validateControlPlaneSecurity(natsMode string) error {
 	}
 	if c.Environment == "production" && (c.NATSCertFile == "" || c.NATSKeyFile == "" || c.NATSCAFile == "") {
 		return errors.New("production requires NATS client certificate, key, and CA files")
+	}
+	return nil
+}
+
+func (c Config) validateControlPlaneTransport(natsMode string) error {
+	if err := requireURL("WEB_ORIGIN", c.WebOrigin, "http", "https"); err != nil {
+		return err
+	}
+	if c.AllowInsecureTransport && (c.Environment == "local" || c.Environment == "development") {
+		return nil
+	}
+	if err := requireURL("WEB_ORIGIN", c.WebOrigin, "https"); err != nil {
+		return err
+	}
+	if natsMode != "remote" || !strings.HasPrefix(c.NATSURL, "tls://") {
+		return errors.New("NATS_URL must use TLS outside development")
 	}
 	return nil
 }
