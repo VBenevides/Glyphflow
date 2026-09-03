@@ -45,6 +45,14 @@ func (r coverageRunRepository) ListLogChunks(context.Context, string, string, in
 }
 
 func TestCoverageRunHelpersAndRepositoryBranches(t *testing.T) {
+	testCoverageRunFilters(t)
+	testCoverageRunStates(t)
+	testCoverageRunCreation(t)
+	testCoverageRunListing(t)
+}
+
+func testCoverageRunFilters(t *testing.T) {
+	t.Helper()
 	now := time.Date(2026, 9, 3, 10, 11, 12, 0, time.UTC)
 	item := RunRecord{State: "RUNNING", TaskID: "task-1", TaskName: "Build Client", Runner: "runner-1", Trigger: "MANUAL", ScheduledFor: now.Format(time.RFC3339)}
 	for _, test := range []struct {
@@ -87,6 +95,10 @@ func TestCoverageRunHelpersAndRepositoryBranches(t *testing.T) {
 	if _, ok := checkedPaginationOffset(maxInt, 2); ok {
 		t.Fatal("overflowing pagination accepted")
 	}
+}
+
+func testCoverageRunStates(t *testing.T) {
+	t.Helper()
 	for _, state := range []string{"WAITING", "DISPATCHED", "RUNNING", "RETRY_WAIT", "CANCELLING"} {
 		if !isActiveRunState(state) || !runStateMatches(state, "ACTIVE") {
 			t.Fatalf("active state %q was rejected", state)
@@ -100,7 +112,10 @@ func TestCoverageRunHelpersAndRepositoryBranches(t *testing.T) {
 	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"pages":1`)) {
 		t.Fatalf("empty run page = %d %s", response.Code, response.Body.String())
 	}
+}
 
+func testCoverageRunCreation(t *testing.T) {
+	t.Helper()
 	for _, test := range []struct {
 		name string
 		err  error
@@ -120,12 +135,17 @@ func TestCoverageRunHelpersAndRepositoryBranches(t *testing.T) {
 		})
 	}
 	runs := NewRunService()
-	response = httptest.NewRecorder()
+	response := httptest.NewRecorder()
 	runs.executeDurable(response, httptest.NewRequest(http.MethodPost, "/", nil), coverageRunRepository{created: store.RunRecord{State: "WAITING"}}, "task-1", "requested")
 	if response.Code != http.StatusCreated {
 		t.Fatalf("durable create status = %d", response.Code)
 	}
+}
 
+func testCoverageRunListing(t *testing.T) {
+	t.Helper()
+	runs := NewRunService()
+	response := httptest.NewRecorder()
 	for _, test := range []struct {
 		name string
 		repo coverageRunRepository
