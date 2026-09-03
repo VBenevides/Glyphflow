@@ -174,6 +174,97 @@ func testCoverageRunListing(t *testing.T) {
 	}
 }
 
+type coverageRunActionRepository struct {
+	store.RunRepository
+	item                    store.RunRecord
+	found                   bool
+	findErr, cancelErr      error
+	retryErr, transitionErr error
+	cancelChanged           bool
+	retryChanged            bool
+	transitionChanged       bool
+}
+
+func (r *coverageRunActionRepository) Find(context.Context, string) (store.RunRecord, bool, error) {
+	return r.item, r.found, r.findErr
+}
+
+func (r *coverageRunActionRepository) RequestCancellation(context.Context, string, string) (store.RunRecord, bool, error) {
+	return r.item, r.cancelChanged, r.cancelErr
+}
+
+func (r *coverageRunActionRepository) Retry(context.Context, string, string) (store.RunRecord, bool, error) {
+	return r.item, r.retryChanged, r.retryErr
+}
+
+func (r *coverageRunActionRepository) Transition(context.Context, string, []string, string) (store.RunRecord, bool, error) {
+	return r.item, r.transitionChanged, r.transitionErr
+}
+
+type coverageRunTransitionRepository struct {
+	store.RunRepository
+	item              store.RunRecord
+	found             bool
+	findErr           error
+	transitionErr     error
+	transitionChanged bool
+}
+
+func (r *coverageRunTransitionRepository) Find(context.Context, string) (store.RunRecord, bool, error) {
+	return r.item, r.found, r.findErr
+}
+
+func (r *coverageRunTransitionRepository) Transition(context.Context, string, []string, string) (store.RunRecord, bool, error) {
+	return r.item, r.transitionChanged, r.transitionErr
+}
+
+func TestCoverageDurableRunActionBranches(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/runs/run-1/cancel", nil)
+	for _, test := range []struct {
+		name   string
+		action string
+		repo   coverageRunActionRepository
+		code   int
+	}{
+		{name: "cancel success", action: "cancel", repo: coverageRunActionRepository{item: store.RunRecord{ID: "run-1", State: "CANCELLED"}, cancelChanged: true}, code: http.StatusOK},
+		{name: "cancel error", action: "cancel", repo: coverageRunActionRepository{cancelErr: errors.New("cancel failed")}, code: http.StatusServiceUnavailable},
+		{name: "cancel unchanged", action: "cancel", repo: coverageRunActionRepository{item: store.RunRecord{ID: "run-1"}, found: true}, code: http.StatusConflict},
+		{name: "cancel unchanged missing", action: "cancel", repo: coverageRunActionRepository{}, code: http.StatusNotFound},
+		{name: "retry success", action: "retry", repo: coverageRunActionRepository{item: store.RunRecord{ID: "run-1", State: "RETRY_WAIT"}, retryChanged: true}, code: http.StatusOK},
+		{name: "retry error", action: "reconcile", repo: coverageRunActionRepository{retryErr: errors.New("retry failed")}, code: http.StatusServiceUnavailable},
+		{name: "retry unchanged", action: "retry", repo: coverageRunActionRepository{item: store.RunRecord{ID: "run-1"}, found: true}, code: http.StatusConflict},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			NewRunService().repositoryAction(response, request, "run-1", test.action, "operator", &test.repo)
+			if response.Code != test.code {
+				t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+			}
+		})
+	}
+
+	for _, test := range []struct {
+		action string
+		repo   coverageRunTransitionRepository
+		code   int
+	}{
+		{action: "cancel", repo: coverageRunTransitionRepository{item: store.RunRecord{ID: "run-1"}, transitionChanged: true}, code: http.StatusOK},
+		{action: "retry", repo: coverageRunTransitionRepository{item: store.RunRecord{ID: "run-1"}, transitionChanged: true}, code: http.StatusOK},
+		{action: "reconcile", repo: coverageRunTransitionRepository{item: store.RunRecord{ID: "run-1"}, transitionChanged: true}, code: http.StatusOK},
+		{action: "transition error", repo: coverageRunTransitionRepository{transitionErr: errors.New("transition failed")}, code: http.StatusServiceUnavailable},
+		{action: "transition unchanged", repo: coverageRunTransitionRepository{item: store.RunRecord{ID: "run-1"}, found: true}, code: http.StatusConflict},
+		{action: "transition missing", repo: coverageRunTransitionRepository{findErr: errors.New("find failed")}, code: http.StatusNotFound},
+	} {
+		t.Run("transition-"+test.action, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			NewRunService().repositoryAction(response, request, "run-1", test.action, "operator", &test.repo)
+			if response.Code != test.code {
+				t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+			}
+		})
+	}
+}
+
 func TestCoverageAuditAndOIDCHelpers(t *testing.T) {
 	testCoverageAuditHelpers(t)
 	provider := coverageTestProvider()
@@ -934,25 +1025,28 @@ func TestCoverageInfrastructurePathBranches(t *testing.T) {
 
 type coverageRunnerRepository struct {
 	store.RunnerRepository
-	pools       []store.RunnerPoolRecord
-	pool        store.RunnerPoolRecord
-	poolFound   bool
-	poolErr     error
-	createErr   error
-	updateErr   error
-	deleteErr   error
-	runners     []store.RunnerRecord
-	runner      store.RunnerRecord
-	runnerFound bool
-	runnerErr   error
-	listErr     error
-	archivedErr error
-	capacityErr error
-	natsErr     error
-	controlErr  error
-	stateErr    error
-	archiveErr  error
-	archived    bool
+	pools               []store.RunnerPoolRecord
+	pool                store.RunnerPoolRecord
+	poolFound           bool
+	poolErr             error
+	createErr           error
+	updateErr           error
+	deleteErr           error
+	runners             []store.RunnerRecord
+	runner              store.RunnerRecord
+	runnerFound         bool
+	runnerErr           error
+	listErr             error
+	archivedErr         error
+	capacityErr         error
+	natsErr             error
+	controlErr          error
+	stateErr            error
+	archiveErr          error
+	archived            bool
+	createEnrollmentErr error
+	createdRunner       store.RunnerRecord
+	createdEnrollment   store.RunnerEnrollmentRecord
 }
 
 func (r *coverageRunnerRepository) ListPools(context.Context) ([]store.RunnerPoolRecord, error) {
@@ -1005,6 +1099,12 @@ func (r *coverageRunnerRepository) Archive(context.Context, string) (bool, error
 	return r.archived, r.archiveErr
 }
 
+func (r *coverageRunnerRepository) CreateEnrollment(_ context.Context, runner store.RunnerRecord, enrollment store.RunnerEnrollmentRecord) error {
+	r.createdRunner = runner
+	r.createdEnrollment = enrollment
+	return r.createEnrollmentErr
+}
+
 func TestCoverageDurableRunnerRepositoryBranches(t *testing.T) {
 	repository := coverageRunnerRepositoryFixture()
 	testCoverageRunnerRoutes(t, repository)
@@ -1021,6 +1121,125 @@ func coverageRunnerRepositoryFixture() *coverageRunnerRepository {
 		runner:      runner,
 		runnerFound: true,
 		archived:    true,
+	}
+}
+
+func TestCoverageDurableEnrollmentBranches(t *testing.T) {
+	input := runnerEnrollmentInput{RunnerID: "runner-1", RunnerName: "Build", PoolID: "pool-1", Platform: "linux", Architecture: "amd64", ControlPlaneURL: "https://control.example", EmbeddedNATSEndpoint: "tls://nats.example", Capacity: coverageIntPtr(4)}
+	artifact := runnerArtifact{data: []byte("binary"), filename: "runner-1"}
+	expiry := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
+
+	for _, test := range []struct {
+		name string
+		repo coverageRunnerRepository
+		code int
+	}{
+		{name: "pool lookup error", repo: coverageRunnerRepository{poolErr: errors.New("pool unavailable")}, code: http.StatusServiceUnavailable},
+		{name: "pool missing", repo: coverageRunnerRepository{poolFound: false}, code: http.StatusBadRequest},
+		{name: "pool disabled", repo: coverageRunnerRepository{pool: store.RunnerPoolRecord{Enabled: false}, poolFound: true}, code: http.StatusBadRequest},
+		{name: "enrollment save error", repo: coverageRunnerRepository{pool: store.RunnerPoolRecord{Enabled: true}, poolFound: true, createEnrollmentErr: errors.New("duplicate")}, code: http.StatusConflict},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			NewInfrastructureService().enrollDurable(response, httptest.NewRequest(http.MethodPost, "/", nil), input, "token", expiry, artifact, &test.repo)
+			if response.Code != test.code {
+				t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+			}
+		})
+	}
+
+	for _, test := range []struct {
+		name          string
+		input         runnerEnrollmentInput
+		requester     string
+		wantCap       int
+		wantRequester string
+	}{
+		{name: "system requester", input: input, wantCap: 4, wantRequester: "system"},
+		{name: "claimed requester", input: runnerEnrollmentInput{RunnerID: input.RunnerID, RunnerName: input.RunnerName, PoolID: input.PoolID, Platform: input.Platform, Architecture: input.Architecture}, requester: "user-1", wantRequester: "user-1"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repo := &coverageRunnerRepository{pool: store.RunnerPoolRecord{Enabled: true}, poolFound: true}
+			request := httptest.NewRequest(http.MethodPost, "/", nil)
+			if test.requester != "" {
+				request = request.WithContext(context.WithValue(request.Context(), requestClaimsContextKey{}, Claims{UserID: test.requester}))
+			}
+			response := httptest.NewRecorder()
+			NewInfrastructureService().enrollDurable(response, request, test.input, "token", expiry, artifact, repo)
+			if response.Code != http.StatusCreated || response.Header().Get("Cache-Control") != "no-store" {
+				t.Fatalf("status = %d, headers = %#v, body = %s", response.Code, response.Header(), response.Body.String())
+			}
+			if repo.createdRunner.Capacity != test.wantCap || repo.createdEnrollment.Requester != test.wantRequester {
+				t.Fatalf("created enrollment = %#v / %#v", repo.createdRunner, repo.createdEnrollment)
+			}
+		})
+	}
+}
+
+type coveragePasswordRepository struct {
+	store.UserRepository
+	user       store.UserRecord
+	found      bool
+	findErr    error
+	hash       string
+	hasHash    bool
+	hashErr    error
+	setHashErr error
+}
+
+func (r *coveragePasswordRepository) FindByID(context.Context, string) (store.UserRecord, bool, error) {
+	return r.user, r.found, r.findErr
+}
+
+func (r *coveragePasswordRepository) PasswordHash(context.Context, string) (string, bool, error) {
+	return r.hash, r.hasHash, r.hashErr
+}
+
+func (r *coveragePasswordRepository) SetPasswordHash(context.Context, string, string) error {
+	return r.setHashErr
+}
+
+func TestCoverageChangePasswordBranches(t *testing.T) {
+	baseUser := store.UserRecord{ID: "user-1", Email: "user@example.com", Status: store.StatusActive, Enabled: true}
+	for _, test := range []struct {
+		name  string
+		setup func(*AuthService)
+	}{
+		{name: "user lookup error", setup: func(auth *AuthService) {
+			auth.users = &coveragePasswordRepository{UserRepository: auth.users, findErr: errors.New("user lookup failed")}
+		}},
+		{name: "password lookup error", setup: func(auth *AuthService) {
+			auth.users = &coveragePasswordRepository{UserRepository: auth.users, user: baseUser, found: true, hashErr: errors.New("hash lookup failed")}
+		}},
+		{name: "password change unavailable", setup: func(auth *AuthService) {
+			auth.passwordEnabled = false
+			auth.users = &coveragePasswordRepository{UserRepository: auth.users, user: baseUser, found: true}
+		}},
+		{name: "missing user", setup: func(auth *AuthService) { auth.users = &coveragePasswordRepository{UserRepository: auth.users} }},
+		{name: "disabled user", setup: func(auth *AuthService) {
+			auth.users = &coveragePasswordRepository{UserRepository: auth.users, user: store.UserRecord{ID: "user-1", Status: store.StatusDisabled}, found: true, hasHash: true}
+		}},
+		{name: "missing password", setup: func(auth *AuthService) {
+			auth.users = &coveragePasswordRepository{UserRepository: auth.users, user: baseUser, found: true}
+		}},
+		{name: "invalid current password", setup: func(auth *AuthService) {
+			auth.users = &coveragePasswordRepository{UserRepository: auth.users, user: baseUser, found: true, hash: "invalid", hasHash: true}
+		}},
+		{name: "password save error", setup: func(auth *AuthService) {
+			hash, _ := auth.hasher.Hash("correct horse")
+			auth.users = &coveragePasswordRepository{UserRepository: auth.users, user: baseUser, found: true, hash: hash, hasHash: true, setHashErr: errors.New("save failed")}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			auth, err := NewAuthService(strings.Repeat("x", 32), true, true, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			test.setup(auth)
+			if err := auth.ChangePassword("user-1", "correct horse", "new correct horse"); err == nil {
+				t.Fatal("invalid password change was accepted")
+			}
+		})
 	}
 }
 
