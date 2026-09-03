@@ -110,24 +110,7 @@ func (e Executor) runCommand(ctx context.Context, args []string, clean string, f
 	defer cancel()
 	cmd := exec.CommandContext(runCtx, args[0], args[1:]...)
 	cmd.Dir = clean
-	if len(e.Environment) > 0 {
-		environment := os.Environ()
-		positions := make(map[string]int, len(environment))
-		for index, entry := range environment {
-			if split := strings.IndexByte(entry, '='); split > 0 {
-				positions[entry[:split]] = index
-			}
-		}
-		for name, value := range e.Environment {
-			entry := name + "=" + value
-			if index, ok := positions[name]; ok {
-				environment[index] = entry
-			} else {
-				environment = append(environment, entry)
-			}
-		}
-		cmd.Env = environment
-	}
+	applyCommandEnvironment(cmd, e.Environment)
 	configureCommand(cmd)
 	chunks := make(chan executorOutput, 32)
 	stopped := &atomic.Bool{}
@@ -151,45 +134,6 @@ func (e Executor) runCommand(ctx context.Context, args []string, clean string, f
 	output.limit = e.MaxOutputBytes
 	buffers := map[string][]byte{"stdout": nil, "stderr": nil}
 	var callbackErr error
-	flush := func(stream string) {
-		if callbackErr != nil || len(buffers[stream]) == 0 {
-			return
-		}
-		chunk := append([]byte(nil), buffers[stream]...)
-		buffers[stream] = nil
-		if onChunk != nil {
-			if err := onChunk(stream, chunk); err != nil {
-				callbackErr = err
-				stopped.Store(true)
-				cancel()
-			}
-		}
-	}
-	flushAll := func() {
-		flush("stdout")
-		flush("stderr")
-	}
-	processChunk := func(chunk executorOutput) {
-		if stopped.Load() {
-			return
-		}
-		remaining := e.MaxOutputBytes - len(output.data)
-		if remaining <= 0 {
-			output.exceeded = true
-			stopped.Store(true)
-			cancel()
-			return
-		}
-		accepted := chunk.data
-		if len(accepted) > remaining {
-			accepted = accepted[:remaining]
-			output.exceeded = true
-			stopped.Store(true)
-			cancel()
-		}
-		output.data = append(output.data, accepted...)
-		buffers[chunk.stream] = append(buffers[chunk.stream], accepted...)
-	}
 
 	var ticker *time.Ticker
 	var tick <-chan time.Time
@@ -201,9 +145,9 @@ func (e Executor) runCommand(ctx context.Context, args []string, clean string, f
 	for {
 		select {
 		case chunk := <-chunks:
-			processChunk(chunk)
+			processExecutorChunk(chunk, &output, buffers, stopped, cancel)
 		case <-tick:
-			flushAll()
+			flushExecutorBuffers(buffers, &callbackErr, stopped, cancel, onChunk)
 		case <-memoryTick:
 			e.Metrics.Sample(int32(cmd.Process.Pid))
 		case err := <-wait:
@@ -215,21 +159,90 @@ func (e Executor) runCommand(ctx context.Context, args []string, clean string, f
 				code := cmd.ProcessState.ExitCode()
 				exitCode = &code
 			}
-			for {
-				select {
-				case chunk := <-chunks:
-					processChunk(chunk)
-				default:
-					flushAll()
-					if callbackErr != nil {
-						return output.Bytes(), exitCode, callbackErr
-					}
-					if output.exceeded {
-						return output.Bytes(), exitCode, ErrOutputLimit
-					}
-					return output.Bytes(), exitCode, err
-				}
+			return drainExecutorChunks(chunks, &output, buffers, stopped, cancel, &callbackErr, onChunk, exitCode, err)
+		}
+	}
+}
+
+func applyCommandEnvironment(cmd *exec.Cmd, values map[string]string) {
+	if len(values) == 0 {
+		return
+	}
+	environment := os.Environ()
+	positions := make(map[string]int, len(environment))
+	for index, entry := range environment {
+		if split := strings.IndexByte(entry, '='); split > 0 {
+			positions[entry[:split]] = index
+		}
+	}
+	for name, value := range values {
+		entry := name + "=" + value
+		if index, ok := positions[name]; ok {
+			environment[index] = entry
+		} else {
+			environment = append(environment, entry)
+		}
+	}
+	cmd.Env = environment
+}
+
+func flushExecutorBuffer(buffers map[string][]byte, stream string, callbackErr *error, stopped *atomic.Bool, cancel context.CancelFunc, onChunk func(string, []byte) error) {
+	if *callbackErr != nil || len(buffers[stream]) == 0 {
+		return
+	}
+	chunk := append([]byte(nil), buffers[stream]...)
+	buffers[stream] = nil
+	if onChunk == nil {
+		return
+	}
+	if err := onChunk(stream, chunk); err != nil {
+		*callbackErr = err
+		stopped.Store(true)
+		cancel()
+	}
+}
+
+func flushExecutorBuffers(buffers map[string][]byte, callbackErr *error, stopped *atomic.Bool, cancel context.CancelFunc, onChunk func(string, []byte) error) {
+	flushExecutorBuffer(buffers, "stdout", callbackErr, stopped, cancel, onChunk)
+	flushExecutorBuffer(buffers, "stderr", callbackErr, stopped, cancel, onChunk)
+}
+
+func processExecutorChunk(chunk executorOutput, output *boundedBuffer, buffers map[string][]byte, stopped *atomic.Bool, cancel context.CancelFunc) {
+	if stopped.Load() {
+		return
+	}
+	remaining := output.limit - len(output.data)
+	if remaining <= 0 {
+		output.exceeded = true
+		stopped.Store(true)
+		cancel()
+		return
+	}
+	accepted := chunk.data
+	if len(accepted) > remaining {
+		accepted = accepted[:remaining]
+		output.exceeded = true
+		stopped.Store(true)
+		cancel()
+	}
+	output.data = append(output.data, accepted...)
+	buffers[chunk.stream] = append(buffers[chunk.stream], accepted...)
+}
+
+func drainExecutorChunks(chunks <-chan executorOutput, output *boundedBuffer, buffers map[string][]byte, stopped *atomic.Bool, cancel context.CancelFunc, callbackErr *error, onChunk func(string, []byte) error, exitCode *int, waitErr error) ([]byte, *int, error) {
+	for {
+		select {
+		case chunk := <-chunks:
+			processExecutorChunk(chunk, output, buffers, stopped, cancel)
+		default:
+			flushExecutorBuffers(buffers, callbackErr, stopped, cancel, onChunk)
+			if *callbackErr != nil {
+				return output.Bytes(), exitCode, *callbackErr
 			}
+			if output.exceeded {
+				return output.Bytes(), exitCode, ErrOutputLimit
+			}
+			return output.Bytes(), exitCode, waitErr
 		}
 	}
 }
