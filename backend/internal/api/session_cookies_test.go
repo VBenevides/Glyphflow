@@ -78,12 +78,32 @@ func TestSessionCookiesUseSecureFlagForHTTPSOrigin(t *testing.T) {
 	}
 }
 
+func TestSessionCookiesKeepHTTPForLocalDevelopment(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	(Server{CSRFOrigin: "http://localhost:5173"}).setSessionCookies(recorder, AuthTokens{AccessToken: "access", RefreshToken: "refresh", SessionID: "session"})
+	for _, cookie := range recorder.Result().Cookies() {
+		if cookie.Secure || !cookie.HttpOnly || cookie.SameSite != http.SameSiteLaxMode {
+			t.Fatalf("HTTP local session cookie: %#v", cookie)
+		}
+	}
+}
+
 func TestSessionCookieDeletionUsesSecureFlagsForHTTPSOrigin(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	(Server{CSRFOrigin: "https://console.example"}).clearSessionCookies(recorder)
 	for _, cookie := range recorder.Result().Cookies() {
 		if !cookie.Secure || !cookie.HttpOnly || cookie.MaxAge >= 0 {
 			t.Fatalf("insecure cookie deletion: %#v", cookie)
+		}
+	}
+}
+
+func TestSessionCookieDeletionKeepsHTTPForLocalDevelopment(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	(Server{CSRFOrigin: "http://localhost:5173"}).clearSessionCookies(recorder)
+	for _, cookie := range recorder.Result().Cookies() {
+		if cookie.Secure || !cookie.HttpOnly || cookie.MaxAge >= 0 {
+			t.Fatalf("HTTP local cookie deletion: %#v", cookie)
 		}
 	}
 }
