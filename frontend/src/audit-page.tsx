@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Activity, CircleOff, ListChecks } from 'lucide-react'
-import { Link } from 'react-router-dom'
 import { api, type AuditEvent, type Page } from './api'
 import { AuditValue, SafeLink } from './safe'
 import { Button, DataTable, Dialog, EmptyState, FilterInput, Identifier, MetricCard, PageHeader, Pagination, StatusPill } from './components'
