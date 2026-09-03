@@ -5,7 +5,7 @@ import { useAuth } from './auth'
 import { api } from './api'
 import { Button } from './components'
 import { applyTheme, currentTheme, type Theme } from './theme'
-import { ROUTES, visibleRoutes, type RouteRule } from './permissions'
+import { visibleRoutes, type RouteRule } from './permissions'
 import { BrandMark } from './feedback'
 
 export const SIDEBAR_KEY = 'glyphflow:sidebar-collapsed'
@@ -107,4 +107,4 @@ export function Shell({ children }: { children: ReactNode }) {
   return <div className={`gf-app-shell${collapsed ? ' is-sidebar-collapsed' : ''}`}>{config.lockdownScheduler && <div className="gf-lockdown-banner" role="status">Scheduler in lockdown: Only read actions are allowed</div>}<Button ref={menuButtonRef} className="gf-mobile-menu" variant="secondary" aria-label="Open navigation" onClick={() => setMobileOpen(true)}><Menu size={18} /></Button>{mobileOpen && <button className="gf-drawer-scrim" title="Close navigation" aria-label="Close navigation" onClick={() => setMobileOpen(false)} />}{sidebar}<main id="app-main" className="gf-main" tabIndex={-1}>{children}</main></div>
 }
 
-export const allRoutes = ROUTES
+export { ROUTES as allRoutes } from './permissions'
