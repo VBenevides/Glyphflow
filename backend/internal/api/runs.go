@@ -447,70 +447,74 @@ func (s *RunService) action(w http.ResponseWriter, r *http.Request, id, action s
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.repository != nil {
-		if action == "cancel" {
-			if cancellation, ok := s.repository.(store.CancellationRequester); ok {
-				updated, changed, err := cancellation.RequestCancellation(r.Context(), id, input.Reason)
-				if err != nil {
-					writeError(w, http.StatusServiceUnavailable, "run cancellation failed", err)
-					return
-				}
-				if !changed {
-					if _, found, findErr := s.repository.Find(r.Context(), id); findErr != nil || !found {
-						writeJSON(w, http.StatusNotFound, map[string]string{"error": errorRunNotFound})
-					} else {
-						writeJSON(w, http.StatusConflict, map[string]string{"error": errorRunActionNotAllowed})
-					}
-					return
-				}
-				writeJSON(w, http.StatusOK, runRecordFromStore(updated))
-				return
-			}
-		}
-		if action == "retry" || action == "reconcile" {
-			if retryRepository, ok := s.repository.(store.Retrier); ok {
-				updated, changed, err := retryRepository.Retry(r.Context(), id, input.Reason)
-				if err != nil {
-					writeError(w, http.StatusServiceUnavailable, "run retry failed", err)
-					return
-				}
-				if !changed {
-					if _, found, findErr := s.repository.Find(r.Context(), id); findErr != nil || !found {
-						writeJSON(w, http.StatusNotFound, map[string]string{"error": errorRunNotFound})
-					} else {
-						writeJSON(w, http.StatusConflict, map[string]string{"error": "run retry is not allowed in the current state"})
-					}
-					return
-				}
-				writeJSON(w, http.StatusOK, runRecordFromStore(updated))
-				return
-			}
-		}
-		var from []string
-		var to string
-		switch action {
-		case "cancel":
-			from, to = []string{"WAITING", "DISPATCHED", "RUNNING", "RETRY_WAIT", "CANCELLING"}, "CANCELLED"
-		case "retry":
-			from, to = []string{"FAILED"}, "RETRY_WAIT"
-		case "reconcile":
-			from, to = []string{"UNKNOWN"}, "RETRY_WAIT"
-		}
-		updated, changed, err := s.repository.Transition(r.Context(), id, from, to)
-		if err != nil {
-			writeError(w, http.StatusServiceUnavailable, "run transition failed", err)
-			return
-		}
-		if !changed {
-			if _, found, findErr := s.repository.Find(r.Context(), id); findErr != nil || !found {
-				writeJSON(w, http.StatusNotFound, map[string]string{"error": errorRunNotFound})
-			} else {
-				writeJSON(w, http.StatusConflict, map[string]string{"error": errorRunActionNotAllowed})
-			}
-			return
-		}
-		writeJSON(w, http.StatusOK, runRecordFromStore(updated))
+		s.repositoryAction(w, r, id, action, input.Reason, s.repository)
 		return
 	}
+	s.memoryAction(w, id, action)
+}
+
+func (s *RunService) repositoryAction(w http.ResponseWriter, r *http.Request, id, action, reason string, repository store.RunRepository) {
+	if action == "cancel" {
+		if cancellation, ok := repository.(store.CancellationRequester); ok {
+			updated, changed, err := cancellation.RequestCancellation(r.Context(), id, reason)
+			if err != nil {
+				writeError(w, http.StatusServiceUnavailable, "run cancellation failed", err)
+				return
+			}
+			if !changed {
+				writeRunActionUnchanged(w, r, id, repository, errorRunActionNotAllowed)
+				return
+			}
+			writeJSON(w, http.StatusOK, runRecordFromStore(updated))
+			return
+		}
+	}
+	if action == "retry" || action == "reconcile" {
+		if retryRepository, ok := repository.(store.Retrier); ok {
+			updated, changed, err := retryRepository.Retry(r.Context(), id, reason)
+			if err != nil {
+				writeError(w, http.StatusServiceUnavailable, "run retry failed", err)
+				return
+			}
+			if !changed {
+				writeRunActionUnchanged(w, r, id, repository, "run retry is not allowed in the current state")
+				return
+			}
+			writeJSON(w, http.StatusOK, runRecordFromStore(updated))
+			return
+		}
+	}
+	var from []string
+	var to string
+	switch action {
+	case "cancel":
+		from, to = []string{"WAITING", "DISPATCHED", "RUNNING", "RETRY_WAIT", "CANCELLING"}, "CANCELLED"
+	case "retry":
+		from, to = []string{"FAILED"}, "RETRY_WAIT"
+	case "reconcile":
+		from, to = []string{"UNKNOWN"}, "RETRY_WAIT"
+	}
+	updated, changed, err := repository.Transition(r.Context(), id, from, to)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "run transition failed", err)
+		return
+	}
+	if !changed {
+		writeRunActionUnchanged(w, r, id, repository, errorRunActionNotAllowed)
+		return
+	}
+	writeJSON(w, http.StatusOK, runRecordFromStore(updated))
+}
+
+func writeRunActionUnchanged(w http.ResponseWriter, r *http.Request, id string, repository store.RunRepository, conflictMessage string) {
+	if _, found, findErr := repository.Find(r.Context(), id); findErr != nil || !found {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": errorRunNotFound})
+		return
+	}
+	writeJSON(w, http.StatusConflict, map[string]string{"error": conflictMessage})
+}
+
+func (s *RunService) memoryAction(w http.ResponseWriter, id, action string) {
 	run, ok := s.runs[id]
 	if !ok {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": errorRunNotFound})
