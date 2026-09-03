@@ -531,6 +531,7 @@ func TestConfigureControlPlaneJetStreamInstallsCallbacks(t *testing.T) {
 func TestStartControlPlaneWorkersStopsWithoutNetworkListeners(t *testing.T) {
 	_, cfg, runtime := newSQLiteControlPlaneRuntime(t)
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	go func() {
 		time.Sleep(10 * time.Millisecond)
 		cancel()
