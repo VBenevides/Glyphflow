@@ -213,14 +213,14 @@ export function SchedulingGantt({ report }: { report: ScheduleProjection }) {
       <span className="gf-gantt-count">{segments.length} displayed occurrences · {conflicts.length} conflicts</span>
     </div>
     <div className="gf-gantt-controls" aria-label="Gantt display controls">
-      <div className="gf-gantt-control-group" role="group" aria-label="Time view">
+      <fieldset className="gf-gantt-control-group"><legend className="gf-visually-hidden">Time view</legend>
         <Button variant={view === 'week' ? 'primary' : 'secondary'} aria-pressed={view === 'week'} onClick={() => { setView('week'); setDayOffset(0) }}>Week</Button>
         <Button variant={view === 'daily' ? 'primary' : 'secondary'} aria-pressed={view === 'daily'} onClick={() => setView('daily')}>Daily</Button>
-      </div>
-      <div className="gf-gantt-control-group" role="group" aria-label="Row grouping">
+      </fieldset>
+      <fieldset className="gf-gantt-control-group"><legend className="gf-visually-hidden">Row grouping</legend>
         <Button variant={grouping === 'runner' ? 'primary' : 'secondary'} aria-pressed={grouping === 'runner'} onClick={() => setGrouping('runner')}>By runner</Button>
         <Button variant={grouping === 'task' ? 'primary' : 'secondary'} aria-pressed={grouping === 'task'} onClick={() => setGrouping('task')}>By task</Button>
-      </div>
+      </fieldset>
       {view === 'daily' && <div className="gf-gantt-day-navigation" aria-label="Daily range navigation">
         <Button variant="secondary" disabled={previousDisabled} onClick={() => setDayOffset((offset) => Math.max(DAILY_MIN_OFFSET, offset - 1))}>Previous day</Button>
         <span>{range.startAt.slice(0, 10)}</span>
@@ -232,7 +232,7 @@ export function SchedulingGantt({ report }: { report: ScheduleProjection }) {
       <label>Task<select className="gf-input" value={taskFilter} onChange={(event) => setTaskFilter(event.target.value)}><option value="">All tasks</option>{taskOptions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
       <label className="gf-gantt-conflict-filter"><input type="checkbox" checked={showOnlyConflicts} onChange={(event) => setShowOnlyConflicts(event.target.checked)} /> Show Only Conflicts</label>
     </div>
-    {stale && <p className="gf-stale-warning" role="status">This projection is older than one hour. The last successful snapshot is shown.</p>}
+    {stale && <output className="gf-stale-warning">This projection is older than one hour. The last successful snapshot is shown.</output>}
     {!segments.length && <p className="gf-gantt-empty gf-muted">No projected executions in this range.</p>}
     <div className="gf-gantt-scroll">
       <svg viewBox={'0 0 ' + width + ' ' + height} role="img" aria-label={viewLabel + ' by ' + groupLabel.toLowerCase()}>

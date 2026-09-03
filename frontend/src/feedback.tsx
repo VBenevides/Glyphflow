@@ -7,7 +7,7 @@ export function BrandMark() {
 }
 
 export function StartupPage({ status = 'Starting control plane…' }: { status?: string }) {
-  return <main className="gf-startup" aria-busy="true"><BrandMark /><p className="gf-brand-name">Glyphflow</p><LoaderCircle className="gf-startup-spinner" aria-hidden="true" /><p role="status">{status}</p></main>
+  return <main className="gf-startup" aria-busy="true"><BrandMark /><p className="gf-brand-name">Glyphflow</p><LoaderCircle className="gf-startup-spinner" aria-hidden="true" /><output>{status}</output></main>
 }
 
 export function FatalErrorPage({ title = 'Glyphflow cannot start', message, onRetry }: { title?: string; message: string; onRetry?: () => void }) {

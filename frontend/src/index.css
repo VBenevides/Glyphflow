@@ -331,7 +331,7 @@ a {
 .gf-log-stderr { color: #ffb4ae; }
 .gf-log-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.65rem; }
 .gf-log-toolbar h2 { margin: 0; margin-right: auto; font-size: 1rem; }
-.gf-log-toolbar span { color: var(--gf-muted); font-size: 0.82rem; }
+.gf-log-toolbar span, .gf-log-toolbar output { color: var(--gf-muted); font-size: 0.82rem; }
 .gf-secret-reference { color: var(--gf-muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .gf-environment-field { display: grid; gap: 0.25rem; padding: 0.55rem 0; border-bottom: 1px solid var(--gf-border); }
 .gf-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
@@ -436,7 +436,7 @@ body { background-image: var(--gf-page-glow); }
 .gf-gantt-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 0.75rem; }
 .gf-gantt-filters { margin-bottom: 0; }
 .gf-filter-bar .gf-gantt-conflict-filter { display: inline-flex; align-items: center; align-self: end; gap: 0.4rem; min-width: max-content; max-width: none; flex: 0 0 auto; }
-.gf-gantt-control-group { display: inline-flex; flex-wrap: wrap; gap: 0.2rem; }
+.gf-gantt-control-group { display: inline-flex; flex-wrap: wrap; gap: 0.2rem; border: 0; padding: 0; margin: 0; }
 .gf-gantt-day-navigation { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
 .gf-gantt-scroll { max-height: 38rem; overflow: auto; padding: 0.5rem; background: var(--gf-card); border: 1px solid var(--gf-border); border-radius: var(--gf-radius); }
 .gf-gantt-scroll svg { display: block; min-width: 75rem; width: 100%; }
