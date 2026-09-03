@@ -121,29 +121,23 @@ func (s Server) ValidateDurableRepositories() error {
 	if !s.RequireDurableRepositories {
 		return nil
 	}
-	if s.Operations == nil || !s.Operations.hasDurableRepositories() {
-		return errors.New("operations repositories are required")
+	checks := []struct {
+		valid   bool
+		message string
+	}{
+		{s.Operations != nil && s.Operations.hasDurableRepositories(), "operations repositories are required"},
+		{s.Runs != nil && s.Runs.hasDurableRepository(), "run repository is required"},
+		{s.Infrastructure != nil && s.Infrastructure.hasDurableRepositories(), "infrastructure repositories are required"},
+		{s.GlobalVariables != nil && s.GlobalVariables.hasDurableRepository(), "global variable repository is required"},
+		{s.Secrets != nil && s.Secrets.hasDurableRepository(), "secret repository is required"},
+		{s.AuditQuery != nil && s.AuditQuery.hasDurableRepository(), "audit repository is required"},
+		{s.DeadLetters != nil && s.DeadLetters.repository != nil, "dead-letter repository is required"},
+		{s.ExitCodes != nil, "exit-code repository is required"},
 	}
-	if s.Runs == nil || !s.Runs.hasDurableRepository() {
-		return errors.New("run repository is required")
-	}
-	if s.Infrastructure == nil || !s.Infrastructure.hasDurableRepositories() {
-		return errors.New("infrastructure repositories are required")
-	}
-	if s.GlobalVariables == nil || !s.GlobalVariables.hasDurableRepository() {
-		return errors.New("global variable repository is required")
-	}
-	if s.Secrets == nil || !s.Secrets.hasDurableRepository() {
-		return errors.New("secret repository is required")
-	}
-	if s.AuditQuery == nil || !s.AuditQuery.hasDurableRepository() {
-		return errors.New("audit repository is required")
-	}
-	if s.DeadLetters == nil || s.DeadLetters.repository == nil {
-		return errors.New("dead-letter repository is required")
-	}
-	if s.ExitCodes == nil {
-		return errors.New("exit-code repository is required")
+	for _, check := range checks {
+		if !check.valid {
+			return errors.New(check.message)
+		}
 	}
 	return nil
 }
