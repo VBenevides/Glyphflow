@@ -89,7 +89,7 @@ export function validateTaskDraft(draft: TaskDraft): Record<string, string> {
   }
   const names = new Set<string>()
   draft.environment.forEach((entry, index) => {
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(entry.name.trim()) && !/^\$ENV:[A-Z_][A-Z0-9_]*$/.test(entry.name.trim())) errors[`environment.${index}.name`] = 'Use a valid name or $ENV:VARIABLE_NAME.'
+    if (!/^[A-Za-z_]\w*$/.test(entry.name.trim()) && !/^\$ENV:[A-Z_][A-Z0-9_]*$/.test(entry.name.trim())) errors[`environment.${index}.name`] = 'Use a valid name or $ENV:VARIABLE_NAME.'
     const name = entry.name.trim()
     if (name && names.has(name)) errors[`environment.${index}.name`] = 'Variable names must be unique.'
     if (name) names.add(name)
@@ -97,7 +97,7 @@ export function validateTaskDraft(draft: TaskDraft): Record<string, string> {
   const secretNames = new Set<string>()
   draft.secrets.forEach((entry, index) => {
     const name = entry.name.trim()
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) errors[`secrets.${index}.name`] = 'Use a valid environment variable name.'
+    if (!/^[A-Za-z_]\w*$/.test(name)) errors[`secrets.${index}.name`] = 'Use a valid environment variable name.'
     if (!entry.secretId.trim()) errors[`secrets.${index}.secretId`] = 'Select a secret.'
     if (name && (secretNames.has(name) || names.has(name))) errors[`secrets.${index}.name`] = 'Variable names must be unique.'
     if (name) secretNames.add(name)
