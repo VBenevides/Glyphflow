@@ -132,17 +132,17 @@ type RunPage struct {
 	Total int
 }
 
-type RunPageRepository interface {
+type RunPager interface {
 	ListPage(context.Context, RunListFilter) (RunPage, error)
 }
 
-// CancellationRepository is implemented by durable stores that can enqueue a
+// CancellationRequester is implemented by durable stores that can enqueue a
 // signed, attempt-specific cancel order. It is optional for API fakes.
-type CancellationRepository interface {
+type CancellationRequester interface {
 	RequestCancellation(context.Context, string, string) (RunRecord, bool, error)
 }
 
-type RetryRepository interface {
+type Retrier interface {
 	Retry(context.Context, string, string) (RunRecord, bool, error)
 }
 
@@ -157,7 +157,7 @@ type StartClaimInput struct {
 	FencingToken                                                      int64
 }
 
-type StartClaimRepository interface {
+type StartClaimer interface {
 	ClaimStart(context.Context, StartClaimInput) (time.Time, bool, error)
 }
 
@@ -168,7 +168,7 @@ type SecretRequestInput struct {
 	SecretRefs                                                                 map[string]string
 }
 
-type SecretRequestRepository interface {
+type SecretRequestAuthorizer interface {
 	AuthorizeSecretRequest(context.Context, SecretRequestInput) error
 }
 

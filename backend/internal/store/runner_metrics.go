@@ -35,7 +35,7 @@ type RunnerMetricsRecord struct {
 	MemoryTotalBytes int64
 }
 
-type RunnerMetricsRepository interface {
+type RunnerMetricsLister interface {
 	ListRunnerMetrics(context.Context, string, time.Time, time.Time, int) ([]RunnerMetricsRecord, error)
 }
 

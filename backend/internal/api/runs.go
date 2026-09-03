@@ -85,7 +85,7 @@ func (s *RunService) collection(w http.ResponseWriter, r *http.Request) {
 		repository := s.repository
 		s.mu.RUnlock()
 		if repository != nil {
-			if paged, ok := repository.(store.RunPageRepository); ok {
+			if paged, ok := repository.(store.RunPager); ok {
 				result, err := paged.ListPage(r.Context(), filter)
 				if err != nil {
 					writeError(w, http.StatusServiceUnavailable, "run storage unavailable", err)
@@ -420,7 +420,7 @@ func (s *RunService) action(w http.ResponseWriter, r *http.Request, id, action s
 	defer s.mu.Unlock()
 	if s.repository != nil {
 		if action == "cancel" {
-			if cancellation, ok := s.repository.(store.CancellationRepository); ok {
+			if cancellation, ok := s.repository.(store.CancellationRequester); ok {
 				updated, changed, err := cancellation.RequestCancellation(r.Context(), id, input.Reason)
 				if err != nil {
 					writeError(w, http.StatusServiceUnavailable, "run cancellation failed", err)
@@ -439,7 +439,7 @@ func (s *RunService) action(w http.ResponseWriter, r *http.Request, id, action s
 			}
 		}
 		if action == "retry" || action == "reconcile" {
-			if retryRepository, ok := s.repository.(store.RetryRepository); ok {
+			if retryRepository, ok := s.repository.(store.Retrier); ok {
 				updated, changed, err := retryRepository.Retry(r.Context(), id, input.Reason)
 				if err != nil {
 					writeError(w, http.StatusServiceUnavailable, "run retry failed", err)

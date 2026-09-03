@@ -8,11 +8,11 @@ import (
 	"github.com/VBenevides/Glyphflow/backend/internal/store"
 )
 
-type ScheduleRepository interface {
+type DueRunCreator interface {
 	CreateDueRun(context.Context, time.Time, func(store.DueScheduleRecord) (time.Time, error)) (string, bool, error)
 }
 
-func RunScheduler(ctx context.Context, schedules ScheduleRepository, pollInterval time.Duration) error {
+func RunScheduler(ctx context.Context, schedules DueRunCreator, pollInterval time.Duration) error {
 	if schedules == nil || pollInterval <= 0 {
 		return errors.New("schedule runner is not configured")
 	}
@@ -33,7 +33,7 @@ func RunScheduler(ctx context.Context, schedules ScheduleRepository, pollInterva
 	}
 }
 
-func scheduleDueRuns(ctx context.Context, schedules ScheduleRepository) error {
+func scheduleDueRuns(ctx context.Context, schedules DueRunCreator) error {
 	now := time.Now().UTC()
 	for range 100 {
 		_, changed, err := schedules.CreateDueRun(ctx, now, func(schedule store.DueScheduleRecord) (time.Time, error) {

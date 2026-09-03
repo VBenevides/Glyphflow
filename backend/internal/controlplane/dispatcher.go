@@ -26,11 +26,11 @@ type DispatchRepository interface {
 
 const cancellationReconciliationDelay = 30 * time.Second
 
-type RunnerKeyRepository interface {
+type RunnerKeyFinder interface {
 	FindPublicKey(context.Context, string, string) (ed25519.PublicKey, error)
 }
 
-func RunDispatcher(ctx context.Context, events queue.EventStream, runs DispatchRepository, keys RunnerKeyRepository, signingKey protocol.SigningKey, pollInterval time.Duration) error {
+func RunDispatcher(ctx context.Context, events queue.EventStream, runs DispatchRepository, keys RunnerKeyFinder, signingKey protocol.SigningKey, pollInterval time.Duration) error {
 	if events == nil || runs == nil || keys == nil || len(signingKey.Private) != ed25519.PrivateKeySize || pollInterval <= 0 {
 		return errors.New("run dispatcher is not configured")
 	}
@@ -175,7 +175,7 @@ func publishPending(ctx context.Context, events queue.Publisher, runs DispatchRe
 	return nil
 }
 
-func applyRunnerEvent(ctx context.Context, keys RunnerKeyRepository, runs DispatchRepository, message queue.Message) error {
+func applyRunnerEvent(ctx context.Context, keys RunnerKeyFinder, runs DispatchRepository, message queue.Message) error {
 	runnerID := strings.TrimPrefix(message.Subject, "glyphflow.events.")
 	if runnerID == message.Subject || runnerID == "" {
 		return errors.New("runner event subject is invalid")

@@ -19,15 +19,15 @@ type RunnerHeartbeatRepository interface {
 	MarkStale(context.Context, time.Time) error
 }
 
-type RunnerSessionHeartbeatRepository interface {
+type RunnerSessionHeartbeater interface {
 	HeartbeatWithKey(context.Context, string, string, time.Time, string, []byte) error
 }
 
-type RunnerCapacityHeartbeatRepository interface {
+type RunnerCapacityHeartbeater interface {
 	HeartbeatWithKeyAndCapacity(context.Context, string, string, time.Time, int, string, []byte) error
 }
 
-type RunnerResourceMetricsHeartbeatRepository interface {
+type RunnerResourceMetricsHeartbeater interface {
 	HeartbeatWithKeyAndCapacityAndMetrics(context.Context, string, string, time.Time, int, store.RunnerMetricsSample, string, []byte) error
 }
 
@@ -123,15 +123,15 @@ func recordRunnerHeartbeatForSubject(ctx context.Context, repository RunnerHeart
 		sample = &store.RunnerMetricsSample{CPUPercent: *heartbeat.CPUPercent, MemoryPercent: *heartbeat.MemoryPercent, MemoryUsedBytes: *heartbeat.MemoryUsedBytes, MemoryTotalBytes: *heartbeat.MemoryTotalBytes}
 	}
 	if sample != nil {
-		if sessionRepository, ok := repository.(RunnerResourceMetricsHeartbeatRepository); ok {
+		if sessionRepository, ok := repository.(RunnerResourceMetricsHeartbeater); ok {
 			return sessionRepository.HeartbeatWithKeyAndCapacityAndMetrics(ctx, heartbeat.RunnerID, heartbeat.BootID, at.UTC(), heartbeat.Capacity, *sample, envelope.KeyID, publicKey)
 		}
 		return errors.New("runner heartbeat metrics repository is unavailable")
 	}
-	if sessionRepository, ok := repository.(RunnerCapacityHeartbeatRepository); ok {
+	if sessionRepository, ok := repository.(RunnerCapacityHeartbeater); ok {
 		return sessionRepository.HeartbeatWithKeyAndCapacity(ctx, heartbeat.RunnerID, heartbeat.BootID, at.UTC(), heartbeat.Capacity, envelope.KeyID, publicKey)
 	}
-	if sessionRepository, ok := repository.(RunnerSessionHeartbeatRepository); ok {
+	if sessionRepository, ok := repository.(RunnerSessionHeartbeater); ok {
 		return sessionRepository.HeartbeatWithKey(ctx, heartbeat.RunnerID, heartbeat.BootID, at.UTC(), envelope.KeyID, publicKey)
 	}
 	return errors.New("runner heartbeat session repository is unavailable")

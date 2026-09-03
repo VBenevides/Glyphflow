@@ -19,11 +19,11 @@ import (
 	"modernc.org/sqlite"
 )
 
-type databaseResult interface {
+type rowsAffecter interface {
 	RowsAffected() int64
 }
 
-type databaseRow interface {
+type scanner interface {
 	Scan(...any) error
 }
 
@@ -35,23 +35,23 @@ type databaseRows interface {
 }
 
 type databaseTx interface {
-	Exec(context.Context, string, ...any) (databaseResult, error)
+	Exec(context.Context, string, ...any) (rowsAffecter, error)
 	Query(context.Context, string, ...any) (databaseRows, error)
-	QueryRow(context.Context, string, ...any) databaseRow
+	QueryRow(context.Context, string, ...any) scanner
 	Commit(context.Context) error
 	Rollback(context.Context) error
 }
 
 type database interface {
-	Exec(context.Context, string, ...any) (databaseResult, error)
+	Exec(context.Context, string, ...any) (rowsAffecter, error)
 	Query(context.Context, string, ...any) (databaseRows, error)
-	QueryRow(context.Context, string, ...any) databaseRow
+	QueryRow(context.Context, string, ...any) scanner
 	Begin(context.Context) (databaseTx, error)
 }
 
 type postgresDatabase struct{ pool *pgxpool.Pool }
 
-func (d postgresDatabase) Exec(ctx context.Context, query string, args ...any) (databaseResult, error) {
+func (d postgresDatabase) Exec(ctx context.Context, query string, args ...any) (rowsAffecter, error) {
 	result, err := d.pool.Exec(ctx, query, args...)
 	return postgresResult{result}, err
 }
@@ -64,7 +64,7 @@ func (d postgresDatabase) Query(ctx context.Context, query string, args ...any) 
 	return postgresRows{Rows: rows}, nil
 }
 
-func (d postgresDatabase) QueryRow(ctx context.Context, query string, args ...any) databaseRow {
+func (d postgresDatabase) QueryRow(ctx context.Context, query string, args ...any) scanner {
 	return d.pool.QueryRow(ctx, query, args...)
 }
 
@@ -91,7 +91,7 @@ func (r postgresRows) Close() error {
 
 type postgresTx struct{ tx pgx.Tx }
 
-func (t postgresTx) Exec(ctx context.Context, query string, args ...any) (databaseResult, error) {
+func (t postgresTx) Exec(ctx context.Context, query string, args ...any) (rowsAffecter, error) {
 	result, err := t.tx.Exec(ctx, query, args...)
 	return postgresResult{result}, err
 }
@@ -104,7 +104,7 @@ func (t postgresTx) Query(ctx context.Context, query string, args ...any) (datab
 	return postgresRows{Rows: rows}, nil
 }
 
-func (t postgresTx) QueryRow(ctx context.Context, query string, args ...any) databaseRow {
+func (t postgresTx) QueryRow(ctx context.Context, query string, args ...any) scanner {
 	return t.tx.QueryRow(ctx, query, args...)
 }
 
@@ -133,7 +133,7 @@ func databaseFrom(value any) (database, error) {
 
 type sqliteDatabase struct{ db *sql.DB }
 
-func (d sqliteDatabase) Exec(ctx context.Context, query string, args ...any) (databaseResult, error) {
+func (d sqliteDatabase) Exec(ctx context.Context, query string, args ...any) (rowsAffecter, error) {
 	query, args, err := sqliteQuery(query, args)
 	if err != nil {
 		return nil, err
@@ -154,7 +154,7 @@ func (d sqliteDatabase) Query(ctx context.Context, query string, args ...any) (d
 	return sqliteRows{Rows: rows}, nil
 }
 
-func (d sqliteDatabase) QueryRow(ctx context.Context, query string, args ...any) databaseRow {
+func (d sqliteDatabase) QueryRow(ctx context.Context, query string, args ...any) scanner {
 	query, args, err := sqliteQuery(query, args)
 	if err != nil {
 		return sqliteRow{err: err}
@@ -176,7 +176,7 @@ func (d sqliteDatabase) Begin(ctx context.Context) (databaseTx, error) {
 
 type sqliteTx struct{ tx *sql.Tx }
 
-func (t sqliteTx) Exec(ctx context.Context, query string, args ...any) (databaseResult, error) {
+func (t sqliteTx) Exec(ctx context.Context, query string, args ...any) (rowsAffecter, error) {
 	query, args, err := sqliteQuery(query, args)
 	if err != nil {
 		return nil, err
@@ -197,7 +197,7 @@ func (t sqliteTx) Query(ctx context.Context, query string, args ...any) (databas
 	return sqliteRows{Rows: rows}, nil
 }
 
-func (t sqliteTx) QueryRow(ctx context.Context, query string, args ...any) databaseRow {
+func (t sqliteTx) QueryRow(ctx context.Context, query string, args ...any) scanner {
 	query, args, err := sqliteQuery(query, args)
 	if err != nil {
 		return sqliteRow{err: err}

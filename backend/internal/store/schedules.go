@@ -53,7 +53,7 @@ type ScheduleRepository interface {
 	CreateDueRun(context.Context, time.Time, func(DueScheduleRecord) (time.Time, error)) (string, bool, error)
 }
 
-type ScheduleProjectionRepository interface {
+type ScheduleProjectionLister interface {
 	ListScheduleProjection(context.Context) ([]ScheduleProjectionInput, error)
 }
 

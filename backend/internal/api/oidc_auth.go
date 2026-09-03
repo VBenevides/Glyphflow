@@ -141,7 +141,7 @@ func (s *OIDCService) consumePersistentState(state, nonce, provider, purpose, ca
 	repository := s.stateRepo
 	s.mu.RUnlock()
 	if purpose == "" {
-		if anyRepository, ok := repository.(store.OIDCAuthorizationStateAnyRepository); ok {
+		if anyRepository, ok := repository.(store.OIDCAuthorizationStateAnyConsumer); ok {
 			return anyRepository.ConsumeAny(context.Background(), authorizationValueHash(state), authorizationValueHash(nonce), provider, callback, now)
 		}
 	}

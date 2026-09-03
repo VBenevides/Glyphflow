@@ -213,7 +213,7 @@ func (s *RunnerStore) SetDesiredState(ctx context.Context, id, state string) (Ru
 	} else {
 		query += ` AND NOT is_archived AND NOT is_deleted`
 	}
-	var result databaseResult
+	var result rowsAffecter
 	var err error
 	if state == "REVOKED" {
 		result, err = s.pool.Exec(ctx, query, id)
