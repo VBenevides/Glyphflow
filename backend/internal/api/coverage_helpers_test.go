@@ -205,6 +205,11 @@ func testAPIResponseHelpers(t *testing.T) {
 }
 
 func TestRecordMappersAndSmallHelpers(t *testing.T) {
+	testRecordMappers(t)
+	testSmallHelpers(t)
+}
+
+func testRecordMappers(t *testing.T) {
 	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	exitCode := 7
 	run := runRecordFromStore(store.RunRecord{ID: "run-1", TaskID: "task-1", TaskVersionID: "version-1", ScheduleID: "schedule-1", ScheduleVersionID: "schedule-version-1", TaskName: "Task", State: "FAILED", TriggerType: "MANUAL", Runner: "runner-1", PlacementBlocker: "none", Attempt: 2, ExitCode: &exitCode, ExitCodeMeaning: "failure", Error: "failed", ScheduledFor: now, MaxMemoryUsedBytes: 10, AverageMemoryUsedBytes: 5})
@@ -229,7 +234,10 @@ func TestRecordMappersAndSmallHelpers(t *testing.T) {
 	if got := resourceRecordFromStore(store.ResourceRecord{ID: "resource-1", Name: "Resource", ExpiresAt: &now}); got.ExpiresAt != now.Format(time.RFC3339) {
 		t.Fatalf("resourceRecordFromStore() = %+v", got)
 	}
+}
 
+func testSmallHelpers(t *testing.T) {
+	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	if got := toAuthUser(store.UserRecord{Email: "alice@example.com", Enabled: true}); got.Status != store.StatusActive || !got.Enabled || got.DisplayName != "Alice" {
 		t.Fatalf("toAuthUser() = %+v", got)
 	}
