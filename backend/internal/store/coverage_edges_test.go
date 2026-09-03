@@ -956,6 +956,12 @@ func TestRunClaimStartBranches(t *testing.T) {
 }
 
 func testRunClaimStartResults(t *testing.T, ctx context.Context, input StartClaimInput, valid func(coverageTx) *RunStore, scan func(runClaimStartScan) coverageScanner, future time.Time) {
+	testRunClaimStartTransactionFailures(t, ctx, input, valid, scan, future)
+	testRunClaimStartStateResults(t, ctx, input, valid, scan, future)
+	testRunClaimStartCommitResults(t, ctx, input, valid, scan, future)
+}
+
+func testRunClaimStartTransactionFailures(t *testing.T, ctx context.Context, input StartClaimInput, valid func(coverageTx) *RunStore, scan func(runClaimStartScan) coverageScanner, future time.Time) {
 	if _, claimed, err := (&RunStore{pool: coverageDatabase{beginErr: errors.New("begin")}}).ClaimStart(ctx, input); err == nil || claimed {
 		t.Fatal("begin failure was ignored")
 	}
@@ -965,12 +971,18 @@ func testRunClaimStartResults(t *testing.T, ctx context.Context, input StartClai
 	if _, claimed, err := valid(coverageTx{row: scan(runClaimStartScan{"DISPATCHED", "ACCEPTED", "other", "session", "lease", "digest", 7, future, future})}).ClaimStart(ctx, input); err != nil || claimed {
 		t.Fatalf("mismatched claim = claimed %v err %v", claimed, err)
 	}
+}
+
+func testRunClaimStartStateResults(t *testing.T, ctx context.Context, input StartClaimInput, valid func(coverageTx) *RunStore, scan func(runClaimStartScan) coverageScanner, future time.Time) {
 	if claimedAt, claimed, err := valid(coverageTx{row: scan(runClaimStartScan{"RUNNING", "RUNNING", "runner", "session", "lease", "digest", 7, future, future})}).ClaimStart(ctx, input); err != nil || !claimed || claimedAt.IsZero() {
 		t.Fatalf("already-running claim = %v claimed=%v err=%v", claimedAt, claimed, err)
 	}
 	if _, claimed, err := valid(coverageTx{row: scan(runClaimStartScan{"WAITING", "DISPATCHED", "runner", "session", "lease", "digest", 7, future, future})}).ClaimStart(ctx, input); err != nil || claimed {
 		t.Fatalf("invalid state claim = claimed %v err %v", claimed, err)
 	}
+}
+
+func testRunClaimStartCommitResults(t *testing.T, ctx context.Context, input StartClaimInput, valid func(coverageTx) *RunStore, scan func(runClaimStartScan) coverageScanner, future time.Time) {
 	if claimedAt, claimed, err := valid(coverageTx{result: coverageRowsAffected(1), row: scan(runClaimStartScan{"DISPATCHED", "ACCEPTED", "runner", "session", "lease", "digest", 7, future, future})}).ClaimStart(ctx, input); err != nil || !claimed || claimedAt.IsZero() {
 		t.Fatalf("valid claim = %v claimed=%v err=%v", claimedAt, claimed, err)
 	}
