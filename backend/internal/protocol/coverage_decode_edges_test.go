@@ -35,4 +35,13 @@ func TestPayloadDecodeAndEnvelopeEdges(t *testing.T) {
 	if err := (EventPayload{RunnerID: "runner", RunID: "run", Attempt: 1, LeaseToken: "lease"}).ValidateIdentity("runner", "run", 1, "lease"); err != nil {
 		t.Fatal(err)
 	}
+	request := SecretDeliveryRequest{Version: ProtocolVersion, RequestID: "request", OrderID: "order", RunID: "run", Attempt: 1, LeaseToken: "lease", RunnerID: "runner", RunnerSessionID: "session", FencingToken: 1, ExecutionSpecDigest: "digest", SecretRefs: map[string]string{"TOKEN": "secret"}, IssuedAt: time.Now().UTC()}
+	if err := request.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for _, response := range []SecretDeliveryResponse{{}, {Version: ProtocolVersion, RequestID: "request", RespondedAt: time.Now().UTC(), Error: "error", Values: map[string]string{"TOKEN": "value"}}, {Version: ProtocolVersion, RequestID: "request", RespondedAt: time.Now().UTC()}} {
+		if err := response.Validate(); err == nil {
+			t.Fatalf("invalid secret response accepted: %#v", response)
+		}
+	}
 }
