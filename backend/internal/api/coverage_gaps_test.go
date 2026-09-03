@@ -1512,6 +1512,12 @@ func testCoverageSecretAttentionBranches(t *testing.T, key []byte) {
 
 func TestCoverageOIDCFetchAndDiscoveryBranches(t *testing.T) {
 	service := NewOIDCService()
+	testCoverageOIDCFetchBranches(t, service)
+	testCoverageOIDCExchangeBranches(t, service)
+	testCoverageOIDCDiscoveryBranches(t, service)
+}
+
+func testCoverageOIDCFetchBranches(t *testing.T, service *OIDCService) {
 	if _, err := service.fetch("http://issuer.example", nil); err == nil {
 		t.Fatal("insecure OIDC fetch accepted")
 	}
@@ -1539,22 +1545,6 @@ func TestCoverageOIDCFetchAndDiscoveryBranches(t *testing.T) {
 			}
 		})
 	}
-	service.SetHTTPClient(&http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		if request.Method != http.MethodPost || request.Header.Get("Content-Type") != "application/x-www-form-urlencoded" {
-			return nil, errors.New("request was not a form POST")
-		}
-		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"id_token":"token"}`)), Header: make(http.Header)}, nil
-	})})
-	provider := OIDCProvider{Key: "corp", Issuer: "https://issuer.example", ClientID: "client"}
-	if token, err := service.exchangeCode(provider, "https://issuer.example/token", "code", "https://app.example/callback", "verifier"); err != nil || token != "token" {
-		t.Fatalf("exchange code = %q, %v", token, err)
-	}
-	service.SetHTTPClient(&http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"access_token":"missing"}`)), Header: make(http.Header)}, nil
-	})})
-	if _, err := service.exchangeCode(provider, "https://issuer.example/token", "code", "https://app.example/callback", "verifier"); err == nil {
-		t.Fatal("token response without ID token accepted")
-	}
 	service.SetHTTPClient(&http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return nil, errors.New("transport down")
 	})})
@@ -1567,7 +1557,29 @@ func TestCoverageOIDCFetchAndDiscoveryBranches(t *testing.T) {
 	if _, err := service.fetch("https://issuer.example/data", nil); err == nil {
 		t.Fatal("oversized OIDC response accepted")
 	}
+}
 
+func testCoverageOIDCExchangeBranches(t *testing.T, service *OIDCService) {
+	provider := OIDCProvider{Key: "corp", Issuer: "https://issuer.example", ClientID: "client"}
+	service.SetHTTPClient(&http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodPost || request.Header.Get("Content-Type") != "application/x-www-form-urlencoded" {
+			return nil, errors.New("request was not a form POST")
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"id_token":"token"}`)), Header: make(http.Header)}, nil
+	})})
+	if token, err := service.exchangeCode(provider, "https://issuer.example/token", "code", "https://app.example/callback", "verifier"); err != nil || token != "token" {
+		t.Fatalf("exchange code = %q, %v", token, err)
+	}
+	service.SetHTTPClient(&http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"access_token":"missing"}`)), Header: make(http.Header)}, nil
+	})})
+	if _, err := service.exchangeCode(provider, "https://issuer.example/token", "code", "https://app.example/callback", "verifier"); err == nil {
+		t.Fatal("token response without ID token accepted")
+	}
+}
+
+func testCoverageOIDCDiscoveryBranches(t *testing.T, service *OIDCService) {
+	provider := OIDCProvider{Key: "corp", Issuer: "https://issuer.example", ClientID: "client"}
 	for _, body := range []string{
 		"not-json",
 		`{"issuer":"https://other.example","token_endpoint":"https://issuer.example/token","jwks_uri":"https://issuer.example/jwks"}`,
