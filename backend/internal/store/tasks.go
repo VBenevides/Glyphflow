@@ -210,63 +210,10 @@ func (s *TaskStore) CreateVersion(ctx context.Context, taskID string, definition
 	}
 	requested := definition
 	definition = normalizeTaskDefinition(definition)
-	if requested.Name == "" {
-		definition.Name = previous.Name
-	}
-	if requested.RunnerPoolID == "" {
-		definition.RunnerPoolID = previous.RunnerPoolID
-	}
-	if requested.PinnedRunnerID == "" {
-		definition.PinnedRunnerID = previous.PinnedRunnerID
-	}
-	if len(requested.Command) == 0 {
-		definition.Command = previous.Command
-	}
-	if requested.WorkingDirectory == "" {
-		definition.WorkingDirectory = previous.WorkingDirectory
-	}
-	if requested.PlacementSelectors == nil {
-		definition.PlacementSelectors = previous.PlacementSelectors
-	}
-	if requested.Environment == nil {
-		definition.Environment = previous.Environment
-	}
-	if requested.SecretReferences == nil {
-		definition.SecretReferences = previous.SecretReferences
-	}
-	if requested.ResourceIDs == nil {
-		definition.ResourceIDs = previous.ResourceIDs
-	}
-	if requested.DurationSeconds <= 0 {
-		definition.DurationSeconds = previous.DurationSeconds
-	}
-	if requested.MaxOutputBytes <= 0 {
-		definition.MaxOutputBytes = previous.MaxOutputBytes
-	}
-	if requested.MaxAttempts <= 0 {
-		definition.MaxAttempts = previous.MaxAttempts
-	}
-	if requested.InitialBackoffSeconds == 0 {
-		definition.InitialBackoffSeconds = previous.InitialBackoffSeconds
-	}
-	if requested.MaxBackoffSeconds == 0 {
-		definition.MaxBackoffSeconds = previous.MaxBackoffSeconds
-	}
-	if requested.BackoffMultiplier == 0 {
-		definition.BackoffMultiplier = previous.BackoffMultiplier
-	}
-	if requested.RetryableExitCodes == nil {
-		definition.RetryableExitCodes = previous.RetryableExitCodes
-	}
-	if requested.RetryableTerminationReasons == nil {
-		definition.RetryableTerminationReasons = previous.RetryableTerminationReasons
-	}
-	if requested.AmbiguityPolicy == "" {
-		definition.AmbiguityPolicy = previous.AmbiguityPolicy
-	}
-	if requested.ExecutionSpecVersion <= 0 {
-		definition.ExecutionSpecVersion = previous.ExecutionSpecVersion
-	}
+	inheritTaskIdentity(&definition, requested, previous)
+	inheritTaskMaps(&definition, requested, previous)
+	inheritTaskLimits(&definition, requested, previous)
+	inheritTaskRetrySettings(&definition, requested, previous)
 	definition.ExecutionSpecDigest = ""
 	definition = normalizeTaskDefinition(definition)
 	if err := insertTaskVersion(ctx, tx, taskID, version, definition); err != nil {
@@ -287,6 +234,75 @@ func (s *TaskStore) CreateVersion(ctx context.Context, taskID string, definition
 		return TaskRecord{}, errors.New("task was not found")
 	}
 	return item, nil
+}
+
+func inheritTaskIdentity(definition *TaskDefinition, requested, previous TaskDefinition) {
+	if requested.Name == "" {
+		definition.Name = previous.Name
+	}
+	if requested.RunnerPoolID == "" {
+		definition.RunnerPoolID = previous.RunnerPoolID
+	}
+	if requested.PinnedRunnerID == "" {
+		definition.PinnedRunnerID = previous.PinnedRunnerID
+	}
+	if len(requested.Command) == 0 {
+		definition.Command = previous.Command
+	}
+	if requested.WorkingDirectory == "" {
+		definition.WorkingDirectory = previous.WorkingDirectory
+	}
+}
+
+func inheritTaskMaps(definition *TaskDefinition, requested, previous TaskDefinition) {
+	if requested.PlacementSelectors == nil {
+		definition.PlacementSelectors = previous.PlacementSelectors
+	}
+	if requested.Environment == nil {
+		definition.Environment = previous.Environment
+	}
+	if requested.SecretReferences == nil {
+		definition.SecretReferences = previous.SecretReferences
+	}
+	if requested.ResourceIDs == nil {
+		definition.ResourceIDs = previous.ResourceIDs
+	}
+}
+
+func inheritTaskLimits(definition *TaskDefinition, requested, previous TaskDefinition) {
+	if requested.DurationSeconds <= 0 {
+		definition.DurationSeconds = previous.DurationSeconds
+	}
+	if requested.MaxOutputBytes <= 0 {
+		definition.MaxOutputBytes = previous.MaxOutputBytes
+	}
+	if requested.MaxAttempts <= 0 {
+		definition.MaxAttempts = previous.MaxAttempts
+	}
+	if requested.InitialBackoffSeconds == 0 {
+		definition.InitialBackoffSeconds = previous.InitialBackoffSeconds
+	}
+	if requested.MaxBackoffSeconds == 0 {
+		definition.MaxBackoffSeconds = previous.MaxBackoffSeconds
+	}
+	if requested.BackoffMultiplier == 0 {
+		definition.BackoffMultiplier = previous.BackoffMultiplier
+	}
+	if requested.ExecutionSpecVersion <= 0 {
+		definition.ExecutionSpecVersion = previous.ExecutionSpecVersion
+	}
+}
+
+func inheritTaskRetrySettings(definition *TaskDefinition, requested, previous TaskDefinition) {
+	if requested.RetryableExitCodes == nil {
+		definition.RetryableExitCodes = previous.RetryableExitCodes
+	}
+	if requested.RetryableTerminationReasons == nil {
+		definition.RetryableTerminationReasons = previous.RetryableTerminationReasons
+	}
+	if requested.AmbiguityPolicy == "" {
+		definition.AmbiguityPolicy = previous.AmbiguityPolicy
+	}
 }
 
 func loadPreviousTaskDefinition(ctx context.Context, tx databaseTx, taskID string) (TaskDefinition, error) {
