@@ -144,35 +144,19 @@ func (r OrderRuntime) handleExecution(ctx context.Context, message queue.Message
 	if payload.Type != protocol.OrderExecute {
 		return errors.New("unsupported worker order type")
 	}
-	var secretValues map[string]string
-	if len(payload.SecretRefs) > 0 {
-		if r.SecretFetcher == nil {
-			return ErrSecretDeliveryUnavailable
-		}
-		secretValues, err = r.SecretFetcher.Fetch(ctx, protocol.SecretDeliveryRequest{Version: protocol.ProtocolVersion, RequestID: payload.OrderID, OrderID: payload.OrderID, RunID: payload.RunID, Attempt: payload.Attempt, LeaseToken: payload.LeaseToken, RunnerID: payload.RunnerID, RunnerSessionID: payload.RunnerSessionID, FencingToken: payload.FencingToken, ExecutionSpecDigest: payload.ExecutionSpecDigest, SecretRefs: payload.SecretRefs, IssuedAt: time.Now().UTC()})
-		if err != nil {
-			return ErrSecretDeliveryUnavailable
-		}
-		defer func() { clear(secretValues) }()
-	}
-	if err := r.StartClaimer.ClaimStart(ctx, protocol.StartClaimPayload{Version: protocol.ProtocolVersion, RequestID: payload.OrderID, RunID: payload.RunID, RunnerID: payload.RunnerID, RunnerSessionID: payload.RunnerSessionID, LeaseToken: payload.LeaseToken, Attempt: payload.Attempt, FencingToken: payload.FencingToken, ExecutionSpecDigest: payload.ExecutionSpecDigest, IssuedAt: time.Now().UTC()}); err != nil {
-		if errors.Is(err, ErrStartRejected) {
-			return nil
-		}
-		return err
-	}
-	payload, err = r.Store.AcceptOrder(message.Data, protocol.Keyring{controlPlaneKeyID: {ID: controlPlaneKeyID, PublicKey: r.ControlPublicKey}}, time.Now().UTC(), r.RunnerID, order.RunID, order.Attempt, order.LeaseToken, time.Second)
+	secretValues, err := r.fetchExecutionSecrets(ctx, payload)
 	if err != nil {
 		return err
 	}
-	if err := r.Store.ClaimOrder(payload.OrderID, r.ExecutorBootID, r.ProcessID); err != nil {
+	if secretValues != nil {
+		defer func() { clear(secretValues) }()
+	}
+	payload, proceed, err := r.claimExecution(ctx, message, order, payload)
+	if err != nil {
+		return err
+	}
+	if !proceed {
 		return nil
-	}
-	if err := r.publishEvent(ctx, payload, eventRecord{typeName: protocol.EventAccepted, sequence: 1, channel: "state"}); err != nil {
-		return err
-	}
-	if err := r.Store.MarkProcessStarted(payload.OrderID); err != nil {
-		return err
 	}
 	taskName := payload.TaskName
 	if taskName == "" {
@@ -189,8 +173,48 @@ func (r OrderRuntime) handleExecution(ctx context.Context, message queue.Message
 		active = r.Active.put(payload.OrderID, cancel)
 		defer r.Active.remove(payload.OrderID)
 	}
-	logSequences := map[string]uint64{"stdout": 0, "stderr": 0}
-	streamed := false
+	output, exitCode, runErr, streamed, memory := r.runExecutor(ctx, executionContext, payload, secretValues)
+	return r.finishExecution(ctx, executionContext, payload, taskName, active, output, exitCode, runErr, streamed, memory)
+}
+
+func (r OrderRuntime) fetchExecutionSecrets(ctx context.Context, payload protocol.OrderPayload) (map[string]string, error) {
+	if len(payload.SecretRefs) == 0 {
+		return nil, nil
+	}
+	if r.SecretFetcher == nil {
+		return nil, ErrSecretDeliveryUnavailable
+	}
+	secretValues, err := r.SecretFetcher.Fetch(ctx, protocol.SecretDeliveryRequest{Version: protocol.ProtocolVersion, RequestID: payload.OrderID, OrderID: payload.OrderID, RunID: payload.RunID, Attempt: payload.Attempt, LeaseToken: payload.LeaseToken, RunnerID: payload.RunnerID, RunnerSessionID: payload.RunnerSessionID, FencingToken: payload.FencingToken, ExecutionSpecDigest: payload.ExecutionSpecDigest, SecretRefs: payload.SecretRefs, IssuedAt: time.Now().UTC()})
+	if err != nil {
+		return nil, ErrSecretDeliveryUnavailable
+	}
+	return secretValues, nil
+}
+
+func (r OrderRuntime) claimExecution(ctx context.Context, message queue.Message, order, payload protocol.OrderPayload) (protocol.OrderPayload, bool, error) {
+	if err := r.StartClaimer.ClaimStart(ctx, protocol.StartClaimPayload{Version: protocol.ProtocolVersion, RequestID: payload.OrderID, RunID: payload.RunID, RunnerID: payload.RunnerID, RunnerSessionID: payload.RunnerSessionID, LeaseToken: payload.LeaseToken, Attempt: payload.Attempt, FencingToken: payload.FencingToken, ExecutionSpecDigest: payload.ExecutionSpecDigest, IssuedAt: time.Now().UTC()}); err != nil {
+		if errors.Is(err, ErrStartRejected) {
+			return payload, false, nil
+		}
+		return payload, false, err
+	}
+	payload, err := r.Store.AcceptOrder(message.Data, protocol.Keyring{controlPlaneKeyID: {ID: controlPlaneKeyID, PublicKey: r.ControlPublicKey}}, time.Now().UTC(), r.RunnerID, order.RunID, order.Attempt, order.LeaseToken, time.Second)
+	if err != nil {
+		return payload, false, err
+	}
+	if err := r.Store.ClaimOrder(payload.OrderID, r.ExecutorBootID, r.ProcessID); err != nil {
+		return payload, false, nil
+	}
+	if err := r.publishEvent(ctx, payload, eventRecord{typeName: protocol.EventAccepted, sequence: 1, channel: "state"}); err != nil {
+		return payload, false, err
+	}
+	if err := r.Store.MarkProcessStarted(payload.OrderID); err != nil {
+		return payload, false, err
+	}
+	return payload, true, nil
+}
+
+func (r OrderRuntime) runExecutor(ctx, executionContext context.Context, payload protocol.OrderPayload, secretValues map[string]string) ([]byte, *int, error, bool, *MemoryStats) {
 	executor := r.Executor
 	if secretValues != nil {
 		executor.Environment = make(map[string]string, len(payload.Environment)+len(secretValues))
@@ -205,56 +229,44 @@ func (r OrderRuntime) handleExecution(ctx context.Context, message queue.Message
 	}
 	memory := &MemoryStats{}
 	executor.Metrics = memory
+	logSequences := map[string]uint64{"stdout": 0, "stderr": 0}
+	streamed := false
 	output, exitCode, runErr := executor.RunStreamingWithExitCode(executionContext, payload.Command, payload.WorkingDir, logFlushInterval, func(stream string, chunk []byte) error {
-		if stream != "stdout" && stream != "stderr" {
-			return errors.New("executor returned an invalid output stream")
-		}
-		for len(chunk) > 0 {
-			size := len(chunk)
-			if size > maxEventLogChunkBytes {
-				size = maxEventLogChunkBytes
-			}
-			logSequences[stream]++
-			if err := r.persistEvent(payload, eventRecord{typeName: protocol.EventLogChunk, sequence: logSequences[stream], result: string(chunk[:size]), channel: stream}); err != nil {
-				return err
-			}
-			_ = PublishPendingEvents(ctx, r.Store, r.Publisher, r.RunnerID)
-			streamed = true
-			chunk = chunk[size:]
-		}
-		return nil
+		return r.persistOutputChunks(ctx, payload, logSequences, &streamed, stream, chunk)
 	})
 	if secretValues != nil {
 		clear(executor.Environment)
 	}
-	if exitCode != nil && *exitCode != 0 && runErr == nil {
-		runErr = fmt.Errorf("process exited with code %d", *exitCode)
+	return output, exitCode, runErr, streamed, memory
+}
+
+func (r OrderRuntime) persistOutputChunks(ctx context.Context, payload protocol.OrderPayload, logSequences map[string]uint64, streamed *bool, stream string, chunk []byte) error {
+	if stream != "stdout" && stream != "stderr" {
+		return errors.New("executor returned an invalid output stream")
 	}
-	if exitCode == nil && runErr != nil {
-		genericError := 1
-		exitCode = &genericError
+	for len(chunk) > 0 {
+		size := len(chunk)
+		if size > maxEventLogChunkBytes {
+			size = maxEventLogChunkBytes
+		}
+		logSequences[stream]++
+		if err := r.persistEvent(payload, eventRecord{typeName: protocol.EventLogChunk, sequence: logSequences[stream], result: string(chunk[:size]), channel: stream}); err != nil {
+			return err
+		}
+		_ = PublishPendingEvents(ctx, r.Store, r.Publisher, r.RunnerID)
+		*streamed = true
+		chunk = chunk[size:]
 	}
-	timedOut := errors.Is(executionContext.Err(), context.DeadlineExceeded)
-	if timedOut {
-		timeoutCode := 6
-		exitCode = &timeoutCode
-		runErr = errors.New("Timeout")
-	}
+	return nil
+}
+
+func (r OrderRuntime) finishExecution(ctx, executionContext context.Context, payload protocol.OrderPayload, taskName string, active *activeOrder, output []byte, exitCode *int, runErr error, streamed bool, memory *MemoryStats) error {
+	exitCode, runErr, timedOut := normalizeExecutionResult(executionContext, exitCode, runErr)
 	finishedCode := -1
 	if exitCode != nil {
 		finishedCode = *exitCode
 	}
 	r.logf("> %s - Finished Task %q v%d - ID %q - Run %q - %d\n", time.Now().UTC().Format("2006-01-02 15:04 MST"), taskName, payload.TaskVersion, payload.TaskID, payload.RunID, finishedCode)
-	eventType := protocol.EventCompleted
-	if timedOut {
-		eventType = protocol.EventTimedOut
-	}
-	if active != nil && active.cancelled.Load() {
-		eventType = protocol.EventCancelled
-	}
-	if runErr != nil && !timedOut && (active == nil || !active.cancelled.Load()) {
-		eventType = protocol.EventFailed
-	}
 	errorText := ""
 	if runErr != nil {
 		errorText = runErr.Error()
@@ -264,17 +276,50 @@ func (r OrderRuntime) handleExecution(ctx context.Context, message queue.Message
 		terminalOutput = string(output)
 	}
 	metrics := map[string]int64{"max_memory_bytes": int64(memory.MaxBytes), "average_memory_bytes": int64(memory.AverageBytes)}
-	if err := r.publishEvent(ctx, payload, eventRecord{typeName: eventType, sequence: 3, result: terminalOutput, errorText: errorText, exitCode: exitCode, channel: "state", metrics: metrics}); err != nil {
+	if err := r.publishEvent(ctx, payload, eventRecord{typeName: terminalEventType(runErr, timedOut, active), sequence: 3, result: terminalOutput, errorText: errorText, exitCode: exitCode, channel: "state", metrics: metrics}); err != nil {
 		return err
 	}
-	state := "COMPLETED"
+	return r.Store.FinishOrder(payload.OrderID, terminalState(runErr, active), errorText)
+}
+
+func normalizeExecutionResult(ctx context.Context, exitCode *int, runErr error) (*int, error, bool) {
+	if exitCode != nil && *exitCode != 0 && runErr == nil {
+		runErr = fmt.Errorf("process exited with code %d", *exitCode)
+	}
+	if exitCode == nil && runErr != nil {
+		genericError := 1
+		exitCode = &genericError
+	}
+	timedOut := errors.Is(ctx.Err(), context.DeadlineExceeded)
+	if timedOut {
+		timeoutCode := 6
+		exitCode = &timeoutCode
+		runErr = errors.New("Timeout")
+	}
+	return exitCode, runErr, timedOut
+}
+
+func terminalEventType(runErr error, timedOut bool, active *activeOrder) protocol.EventType {
 	if active != nil && active.cancelled.Load() {
-		state = "CANCELLED"
+		return protocol.EventCancelled
 	}
-	if runErr != nil && state != "CANCELLED" {
-		state = "FAILED"
+	if timedOut {
+		return protocol.EventTimedOut
 	}
-	return r.Store.FinishOrder(payload.OrderID, state, errorText)
+	if runErr != nil {
+		return protocol.EventFailed
+	}
+	return protocol.EventCompleted
+}
+
+func terminalState(runErr error, active *activeOrder) string {
+	if active != nil && active.cancelled.Load() {
+		return "CANCELLED"
+	}
+	if runErr != nil {
+		return "FAILED"
+	}
+	return "COMPLETED"
 }
 
 func (r OrderRuntime) publishEvent(ctx context.Context, order protocol.OrderPayload, event eventRecord) error {
