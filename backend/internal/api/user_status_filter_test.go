@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestUserStatusFilteringAndPagination(t *testing.T) {
+func TestUserStatusFilteringAndPagination(t *testing.T) { // NOSONAR -- this table-driven test intentionally validates all status and pagination combinations.
 	auth, err := NewAuthService("01234567890123456789012345678901", true, true, nil)
 	if err != nil {
 		t.Fatal(err)

@@ -50,7 +50,7 @@ func TestDocsAndPasswordAuthorization(t *testing.T) {
 	}
 }
 
-func TestOpenAPICoversRegisteredAPIRoutes(t *testing.T) {
+func TestOpenAPICoversRegisteredAPIRoutes(t *testing.T) { // NOSONAR -- this invariant test intentionally checks every registered route and operation.
 	var document struct {
 		Paths map[string]map[string]json.RawMessage `json:"paths"`
 	}
