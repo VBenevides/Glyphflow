@@ -9,7 +9,7 @@ import (
 	"github.com/VBenevides/Glyphflow/backend/internal/platform"
 )
 
-func TestSQLiteControlPlaneRepositoriesShareOneDatabase(t *testing.T) {
+func TestSQLiteControlPlaneRepositoriesShareOneDatabase(t *testing.T) { // NOSONAR: this integration-style SQLite scenario intentionally verifies shared control-plane repository state in one fixture.
 	db, err := OpenSQLite(t.TempDir() + "/controlplane.sqlite")
 	if err != nil {
 		t.Fatal(err)

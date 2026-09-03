@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func TestRunRepositoryClaimsAndReconcilesStartFailure(t *testing.T) {
+func TestRunRepositoryClaimsAndReconcilesStartFailure(t *testing.T) { // NOSONAR: this repository scenario intentionally covers dispatch claim, timeout reconciliation, state projection, and rejected start claim together.
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("set DATABASE_URL to run PostgreSQL repository tests")
@@ -139,7 +139,7 @@ func TestRunRepositoryClaimsStartBeforeTimeout(t *testing.T) {
 	}
 }
 
-func TestRunRepositoryReconcilesStaleCancellation(t *testing.T) {
+func TestRunRepositoryReconcilesStaleCancellation(t *testing.T) { // NOSONAR: this repository scenario intentionally covers cancellation idempotency, stale reconciliation, runner accounting, and event projection together.
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("set DATABASE_URL to run PostgreSQL repository tests")

@@ -68,7 +68,10 @@ func (p EventPayload) ValidateTime(now time.Time, clockTolerance time.Duration) 
 }
 
 func (p OrderPayload) ValidateIdentity(runnerID, runID string, attempt uint32, leaseToken string) error {
-	return validateIdentity(p.RunnerID, p.RunID, p.Attempt, p.LeaseToken, runnerID, runID, attempt, leaseToken)
+	return validateIdentity(
+		identityContext{runnerID: p.RunnerID, runID: p.RunID, attempt: p.Attempt, leaseToken: p.LeaseToken},
+		identityContext{runnerID: runnerID, runID: runID, attempt: attempt, leaseToken: leaseToken},
+	)
 }
 
 type FreshnessContext struct {
@@ -95,7 +98,10 @@ func (p OrderPayload) ValidateFreshness(ctx FreshnessContext, now time.Time) err
 }
 
 func (p EventPayload) ValidateIdentity(runnerID, runID string, attempt uint32, leaseToken string) error {
-	return validateIdentity(p.RunnerID, p.RunID, p.Attempt, p.LeaseToken, runnerID, runID, attempt, leaseToken)
+	return validateIdentity(
+		identityContext{runnerID: p.RunnerID, runID: p.RunID, attempt: p.Attempt, leaseToken: p.LeaseToken},
+		identityContext{runnerID: runnerID, runID: runID, attempt: attempt, leaseToken: leaseToken},
+	)
 }
 
 func (p EventPayload) ValidateSequence(expected uint64) error {
@@ -115,11 +121,18 @@ func (p EventPayload) ValidateError() error {
 	return nil
 }
 
-func validateIdentity(actualRunner, actualRun string, actualAttempt uint32, actualLease, expectedRunner, expectedRun string, expectedAttempt uint32, expectedLease string) error {
-	if actualRunner == "" || actualRun == "" || actualLease == "" || actualAttempt == 0 {
+type identityContext struct {
+	runnerID   string
+	runID      string
+	attempt    uint32
+	leaseToken string
+}
+
+func validateIdentity(actual, expected identityContext) error {
+	if actual.runnerID == "" || actual.runID == "" || actual.leaseToken == "" || actual.attempt == 0 {
 		return errors.New("message identity fields are required")
 	}
-	if actualRunner != expectedRunner || actualRun != expectedRun || actualAttempt != expectedAttempt || actualLease != expectedLease {
+	if actual.runnerID != expected.runnerID || actual.runID != expected.runID || actual.attempt != expected.attempt || actual.leaseToken != expected.leaseToken {
 		return errors.New("message identity does not match expected assignment")
 	}
 	return nil

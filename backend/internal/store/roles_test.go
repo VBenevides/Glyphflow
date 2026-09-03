@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func TestRoleRepositoryRoundTrip(t *testing.T) {
+func TestRoleRepositoryRoundTrip(t *testing.T) { // NOSONAR: this repository scenario intentionally covers role, assignment, source reconciliation, and permission round trips together.
 	url := os.Getenv("DATABASE_URL")
 	if url == "" {
 		t.Skip("set DATABASE_URL to run PostgreSQL repository tests")

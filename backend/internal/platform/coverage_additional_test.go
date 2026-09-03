@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-func TestPlatformStoresAndStateCoverage(t *testing.T) {
+func TestPlatformStoresAndStateCoverage(t *testing.T) { // NOSONAR: this comprehensive coverage scenario intentionally exercises the platform state stores and their transitions together.
 	guard := NewAdministratorGuard("one")
 	if err := guard.Remove("one", nil); err == nil {
 		t.Fatal("last administrator removed")

@@ -425,18 +425,27 @@ func (s *RunnerStore) HeartbeatWithKey(ctx context.Context, runnerID, bootID str
 }
 
 func (s *RunnerStore) HeartbeatWithKeyAndCapacity(ctx context.Context, runnerID, bootID string, now time.Time, capacity int, keyID string, publicKey []byte) error {
-	return s.heartbeatWithKeyAndCapacity(ctx, runnerID, bootID, now, capacity, nil, keyID, publicKey)
+	return s.heartbeatWithKeyAndCapacity(ctx, heartbeatInput{runnerID: runnerID, bootID: bootID, now: now, capacity: capacity, keyID: keyID, publicKey: publicKey})
 }
 
-func (s *RunnerStore) HeartbeatWithKeyAndCapacityAndMetrics(ctx context.Context, runnerID, bootID string, now time.Time, capacity int, sample RunnerMetricsSample, keyID string, publicKey []byte) error {
+func (s *RunnerStore) HeartbeatWithKeyAndCapacityAndMetrics(ctx context.Context, runnerID, bootID string, now time.Time, capacity int, sample RunnerMetricsSample, keyID string, publicKey []byte) error { // NOSONAR: preserve the exported repository interface used by control-plane heartbeat callers.
 	if err := sample.validate(); err != nil {
 		return err
 	}
-	return s.heartbeatWithKeyAndCapacity(ctx, runnerID, bootID, now, capacity, &sample, keyID, publicKey)
+	return s.heartbeatWithKeyAndCapacity(ctx, heartbeatInput{runnerID: runnerID, bootID: bootID, now: now, capacity: capacity, sample: &sample, keyID: keyID, publicKey: publicKey})
 }
 
-func (s *RunnerStore) heartbeatWithKeyAndCapacity(ctx context.Context, runnerID, bootID string, now time.Time, capacity int, sample *RunnerMetricsSample, keyID string, publicKey []byte) error {
-	if runnerID == "" || bootID == "" || keyID == "" || len(publicKey) != ed25519.PublicKeySize {
+type heartbeatInput struct {
+	runnerID, bootID string
+	now              time.Time
+	capacity         int
+	sample           *RunnerMetricsSample
+	keyID            string
+	publicKey        []byte
+}
+
+func (s *RunnerStore) heartbeatWithKeyAndCapacity(ctx context.Context, input heartbeatInput) error {
+	if input.runnerID == "" || input.bootID == "" || input.keyID == "" || len(input.publicKey) != ed25519.PublicKeySize {
 		return errors.New("runner heartbeat key is incomplete")
 	}
 	tx, err := s.pool.Begin(ctx)
@@ -445,7 +454,7 @@ func (s *RunnerStore) heartbeatWithKeyAndCapacity(ctx context.Context, runnerID,
 	}
 	defer tx.Rollback(ctx)
 	var active bool
-	if err := tx.QueryRow(ctx, `SELECT NOT is_archived AND NOT is_deleted FROM runners WHERE id = $1 FOR UPDATE`, runnerID).Scan(&active); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT NOT is_archived AND NOT is_deleted FROM runners WHERE id = $1 FOR UPDATE`, input.runnerID).Scan(&active); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return errors.New("runner not found")
 		}
@@ -454,32 +463,32 @@ func (s *RunnerStore) heartbeatWithKeyAndCapacity(ctx context.Context, runnerID,
 	if !active {
 		return errors.New("runner is archived")
 	}
-	if _, err := tx.Exec(ctx, `UPDATE runner_sessions SET disconnected_at = $2 WHERE runner_id = $1 AND disconnected_at IS NULL AND boot_id <> $3`, runnerID, now, bootID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE runner_sessions SET disconnected_at = $2 WHERE runner_id = $1 AND disconnected_at IS NULL AND boot_id <> $3`, input.runnerID, input.now, input.bootID); err != nil {
 		return err
 	}
-	if capacity > 0 {
-		if _, err := tx.Exec(ctx, `INSERT INTO runner_sessions (id, runner_id, boot_id, last_heartbeat_at, current_capacity) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (runner_id, boot_id) DO UPDATE SET last_heartbeat_at = EXCLUDED.last_heartbeat_at, disconnected_at = NULL, current_capacity = EXCLUDED.current_capacity`, runnerID+"/"+bootID, runnerID, bootID, now, capacity); err != nil {
+	if input.capacity > 0 {
+		if _, err := tx.Exec(ctx, `INSERT INTO runner_sessions (id, runner_id, boot_id, last_heartbeat_at, current_capacity) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (runner_id, boot_id) DO UPDATE SET last_heartbeat_at = EXCLUDED.last_heartbeat_at, disconnected_at = NULL, current_capacity = EXCLUDED.current_capacity`, input.runnerID+"/"+input.bootID, input.runnerID, input.bootID, input.now, input.capacity); err != nil {
 			return err
 		}
-	} else if _, err := tx.Exec(ctx, `INSERT INTO runner_sessions (id, runner_id, boot_id, last_heartbeat_at) VALUES ($1, $2, $3, $4) ON CONFLICT (runner_id, boot_id) DO UPDATE SET last_heartbeat_at = EXCLUDED.last_heartbeat_at, disconnected_at = NULL`, runnerID+"/"+bootID, runnerID, bootID, now); err != nil {
+	} else if _, err := tx.Exec(ctx, `INSERT INTO runner_sessions (id, runner_id, boot_id, last_heartbeat_at) VALUES ($1, $2, $3, $4) ON CONFLICT (runner_id, boot_id) DO UPDATE SET last_heartbeat_at = EXCLUDED.last_heartbeat_at, disconnected_at = NULL`, input.runnerID+"/"+input.bootID, input.runnerID, input.bootID, input.now); err != nil {
 		return err
 	}
 	var boundRunner string
 	var boundKey []byte
-	if err := tx.QueryRow(ctx, `SELECT runner_id, public_key FROM runner_keys WHERE key_id = $1 AND revoked_at IS NULL`, keyID).Scan(&boundRunner, &boundKey); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT runner_id, public_key FROM runner_keys WHERE key_id = $1 AND revoked_at IS NULL`, input.keyID).Scan(&boundRunner, &boundKey); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return errors.New("runner heartbeat key is not enrolled")
 		}
 		return err
 	}
-	if boundRunner != runnerID || !ed25519.PublicKey(boundKey).Equal(ed25519.PublicKey(publicKey)) {
+	if boundRunner != input.runnerID || !ed25519.PublicKey(boundKey).Equal(ed25519.PublicKey(input.publicKey)) {
 		return errors.New("runner heartbeat key does not match enrollment")
 	}
-	if _, err := tx.Exec(ctx, `UPDATE runners SET observed_state = 'ONLINE', last_seen_at = $2, updated_at = now() WHERE id = $1 AND NOT is_archived AND NOT is_deleted AND observed_state <> 'REVOKED'`, runnerID, now); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE runners SET observed_state = 'ONLINE', last_seen_at = $2, updated_at = now() WHERE id = $1 AND NOT is_archived AND NOT is_deleted AND observed_state <> 'REVOKED'`, input.runnerID, input.now); err != nil {
 		return err
 	}
-	if sample != nil {
-		if _, err := tx.Exec(ctx, `INSERT INTO runner_metrics (runner_id, sampled_at, cpu_percent, memory_percent, memory_used_bytes, memory_total_bytes) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (runner_id, sampled_at) DO NOTHING`, runnerID, now, sample.CPUPercent, sample.MemoryPercent, sample.MemoryUsedBytes, sample.MemoryTotalBytes); err != nil {
+	if input.sample != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO runner_metrics (runner_id, sampled_at, cpu_percent, memory_percent, memory_used_bytes, memory_total_bytes) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (runner_id, sampled_at) DO NOTHING`, input.runnerID, input.now, input.sample.CPUPercent, input.sample.MemoryPercent, input.sample.MemoryUsedBytes, input.sample.MemoryTotalBytes); err != nil {
 			return err
 		}
 	}

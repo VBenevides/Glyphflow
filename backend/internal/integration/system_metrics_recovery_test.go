@@ -23,7 +23,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-func TestSystemMetricsDeadLetterRecoveryGate(t *testing.T) {
+func TestSystemMetricsDeadLetterRecoveryGate(t *testing.T) { // NOSONAR: this integration gate intentionally covers dead-letter persistence, API inspection, retry, reconciliation, audit, and alert recovery together.
 	databaseURL, natsURL := os.Getenv("DATABASE_URL"), os.Getenv("NATS_TLS_URL")
 	if databaseURL == "" || natsURL == "" || os.Getenv("NATS_CERT_FILE") == "" || os.Getenv("NATS_KEY_FILE") == "" || os.Getenv("NATS_CA_FILE") == "" {
 		t.Skip("set database and mutual-TLS NATS variables to run the operational recovery gate")

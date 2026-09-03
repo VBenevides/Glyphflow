@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func TestScheduleRepositoryKeepsImmutableVersionsAndPointer(t *testing.T) {
+func TestScheduleRepositoryKeepsImmutableVersionsAndPointer(t *testing.T) { // NOSONAR: this repository scenario intentionally covers immutable versions, pointer updates, due-run creation, validation, and deletion together.
 	url := os.Getenv("DATABASE_URL")
 	if url == "" {
 		t.Skip("set DATABASE_URL to run PostgreSQL repository tests")
