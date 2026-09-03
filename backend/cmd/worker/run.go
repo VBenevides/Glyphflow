@@ -180,31 +180,21 @@ func setWorkerStatus(status StatusSink, cfg config.Config, stderr io.Writer) {
 
 func runWorkerProcess(ctx context.Context, stdout, stderr io.Writer, status StatusSink, localStore *worker.LocalStore, cfg config.Config, connection worker.RunnerConnection, storedKey protocol.SigningKey, foundKey bool, controlPublicKey []byte) error {
 	activeOrders := &worker.ActiveOrders{}
-	workerKey := storedKey
-	if !foundKey || workerKey.ID != runnerKeyPrefix+cfg.RunnerID || time.Now().UTC().After(workerKey.Public.NotAfter) {
-		var err error
-		workerKey, err = protocol.GenerateSigningKey(runnerKeyPrefix+cfg.RunnerID, time.Now().UTC(), 365*24*time.Hour)
-		if err != nil {
-			return fmt.Errorf("generate worker signing key: %w", err)
-		}
-		if err := localStore.SaveSigningKey(workerKey); err != nil {
-			return fmt.Errorf("save worker signing key: %w", err)
-		}
-	}
-	previousBootID, err := loadPreviousBootID(localStore)
+	workerKey, err := ensureWorkerSigningKey(localStore, cfg.RunnerID, storedKey, foundKey)
 	if err != nil {
 		return err
 	}
-	if previousBootID != "" {
-		if _, err := worker.RecoverDurableSigned(localStore, previousBootID, workerKey); err != nil {
-			return fmt.Errorf("recover durable worker events: %w", err)
-		}
+	if err := recoverPreviousWorkerEvents(localStore, workerKey); err != nil {
+		return err
 	}
 	bootID := fmt.Sprintf("%s-%d", cfg.RunnerID, time.Now().UnixNano())
 	if err := localStore.Put("worker.boot", bootID); err != nil {
 		return fmt.Errorf("save worker boot id: %w", err)
 	}
-	var jetstream *queue.JetStream
+	jetstream, err := connectWorkerJetStream(ctx, cfg)
+	if err != nil {
+		return err
+	}
 	jetstreamClosed := false
 	closeJetStream := func() {
 		if jetstream != nil && !jetstreamClosed {
@@ -213,14 +203,6 @@ func runWorkerProcess(ctx context.Context, stdout, stderr io.Writer, status Stat
 		}
 	}
 	defer closeJetStream()
-	if strings.HasPrefix(cfg.NATSURL, "tls://") {
-		jetstream, err = connectJetStreamTLS(ctx, cfg.NATSURL, queue.TLSConfig{CertificateFile: cfg.NATSCertFile, KeyFile: cfg.NATSKeyFile, CAFile: cfg.NATSCAFile})
-	} else {
-		jetstream, err = connectJetStreamPlain(ctx, cfg.NATSURL)
-	}
-	if err != nil {
-		return fmt.Errorf("connect to NATS JetStream: %w", err)
-	}
 	capacity := connection.Capacity
 	if capacity < 1 {
 		capacity = store.DefaultRunnerCapacity
@@ -245,35 +227,12 @@ func runWorkerProcess(ctx context.Context, stdout, stderr io.Writer, status Stat
 	background.Add(1)
 	go func() {
 		defer background.Done()
-		for ctx.Err() == nil {
-			if err := jetstream.ConsumeConcurrent(ctx, consumer, func(handlerCtx context.Context, message queue.Message) error {
-				select {
-				case orderSlots <- struct{}{}:
-				case <-handlerCtx.Done():
-					return handlerCtx.Err()
-				}
-				defer func() { <-orderSlots }()
-				return runtime.Handle(handlerCtx, message)
-			}); err != nil && ctx.Err() == nil {
-				fmt.Fprintln(stderr, "runner order consumer:", err)
-				time.Sleep(time.Second)
-			}
-		}
+		runOrderConsumer(ctx, jetstream, consumer, runtime, orderSlots, stderr)
 	}()
 	background.Add(1)
 	go func() {
 		defer background.Done()
-		for ctx.Err() == nil {
-			if err := worker.PublishPendingEvents(ctx, localStore, jetstream, cfg.RunnerID); err != nil && ctx.Err() == nil {
-				fmt.Fprintln(stderr, "runner event publisher:", err)
-				time.Sleep(time.Second)
-			}
-			select {
-			case <-time.After(time.Second):
-			case <-ctx.Done():
-				return
-			}
-		}
+		runEventPublisher(ctx, localStore, jetstream, cfg.RunnerID, stderr)
 	}()
 	background.Add(1)
 	go func() {
@@ -283,20 +242,101 @@ func runWorkerProcess(ctx context.Context, stdout, stderr io.Writer, status Stat
 	background.Add(1)
 	go func() {
 		defer background.Done()
-		for ctx.Err() == nil {
-			if err := jetstream.ConsumeOne(ctx, controlConsumer, func(handlerCtx context.Context, message queue.Message) error {
-				return worker.ApplyRunnerControl(handlerCtx, message, cfg.RunnerID, ed25519.PublicKey(controlPublicKey), &currentCapacity)
-			}); err != nil && ctx.Err() == nil {
-				fmt.Fprintln(stderr, "runner control consumer:", err)
-				time.Sleep(time.Second)
-			}
-		}
+		runControlConsumer(ctx, jetstream, controlConsumer, cfg.RunnerID, controlPublicKey, &currentCapacity, stderr)
 	}()
 	fmt.Fprintf(stdout, "Glyphflow worker v%s\n", backend.Version)
 	<-ctx.Done()
 	closeJetStream()
 	background.Wait()
 	return nil
+}
+
+func ensureWorkerSigningKey(localStore *worker.LocalStore, runnerID string, storedKey protocol.SigningKey, foundKey bool) (protocol.SigningKey, error) {
+	workerKey := storedKey
+	if !foundKey || workerKey.ID != runnerKeyPrefix+runnerID || time.Now().UTC().After(workerKey.Public.NotAfter) {
+		var err error
+		workerKey, err = protocol.GenerateSigningKey(runnerKeyPrefix+runnerID, time.Now().UTC(), 365*24*time.Hour)
+		if err != nil {
+			return protocol.SigningKey{}, fmt.Errorf("generate worker signing key: %w", err)
+		}
+		if err := localStore.SaveSigningKey(workerKey); err != nil {
+			return protocol.SigningKey{}, fmt.Errorf("save worker signing key: %w", err)
+		}
+	}
+	return workerKey, nil
+}
+
+func recoverPreviousWorkerEvents(localStore *worker.LocalStore, workerKey protocol.SigningKey) error {
+	previousBootID, err := loadPreviousBootID(localStore)
+	if err != nil {
+		return err
+	}
+	if previousBootID == "" {
+		return nil
+	}
+	if _, err := worker.RecoverDurableSigned(localStore, previousBootID, workerKey); err != nil {
+		return fmt.Errorf("recover durable worker events: %w", err)
+	}
+	return nil
+}
+
+func connectWorkerJetStream(ctx context.Context, cfg config.Config) (*queue.JetStream, error) {
+	var jetstream *queue.JetStream
+	var err error
+	if strings.HasPrefix(cfg.NATSURL, "tls://") {
+		jetstream, err = connectJetStreamTLS(ctx, cfg.NATSURL, queue.TLSConfig{CertificateFile: cfg.NATSCertFile, KeyFile: cfg.NATSKeyFile, CAFile: cfg.NATSCAFile})
+	} else {
+		jetstream, err = connectJetStreamPlain(ctx, cfg.NATSURL)
+	}
+	if err != nil {
+		if jetstream != nil {
+			jetstream.Close()
+		}
+		return nil, fmt.Errorf("connect to NATS JetStream: %w", err)
+	}
+	return jetstream, nil
+}
+
+func runOrderConsumer(ctx context.Context, jetstream *queue.JetStream, consumer jetstream.Consumer, runtime worker.OrderRuntime, orderSlots chan struct{}, stderr io.Writer) {
+	for ctx.Err() == nil {
+		if err := jetstream.ConsumeConcurrent(ctx, consumer, func(handlerCtx context.Context, message queue.Message) error {
+			select {
+			case orderSlots <- struct{}{}:
+			case <-handlerCtx.Done():
+				return handlerCtx.Err()
+			}
+			defer func() { <-orderSlots }()
+			return runtime.Handle(handlerCtx, message)
+		}); err != nil && ctx.Err() == nil {
+			fmt.Fprintln(stderr, "runner order consumer:", err)
+			time.Sleep(time.Second)
+		}
+	}
+}
+
+func runEventPublisher(ctx context.Context, localStore *worker.LocalStore, jetstream *queue.JetStream, runnerID string, stderr io.Writer) {
+	for ctx.Err() == nil {
+		if err := worker.PublishPendingEvents(ctx, localStore, jetstream, runnerID); err != nil && ctx.Err() == nil {
+			fmt.Fprintln(stderr, "runner event publisher:", err)
+			time.Sleep(time.Second)
+		}
+		select {
+		case <-time.After(time.Second):
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func runControlConsumer(ctx context.Context, jetstream *queue.JetStream, consumer jetstream.Consumer, runnerID string, controlPublicKey []byte, currentCapacity *atomic.Int64, stderr io.Writer) {
+	for ctx.Err() == nil {
+		if err := jetstream.ConsumeOne(ctx, consumer, func(handlerCtx context.Context, message queue.Message) error {
+			return worker.ApplyRunnerControl(handlerCtx, message, runnerID, ed25519.PublicKey(controlPublicKey), currentCapacity)
+		}); err != nil && ctx.Err() == nil {
+			fmt.Fprintln(stderr, "runner control consumer:", err)
+			time.Sleep(time.Second)
+		}
+	}
 }
 
 var setenv = os.Setenv
